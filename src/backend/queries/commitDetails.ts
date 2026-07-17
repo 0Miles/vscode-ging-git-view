@@ -1,26 +1,32 @@
 import type { SimpleGit } from "simple-git";
 
-import type { DateType, GitCommitDetails, GitFileChangeType, QueryResult } from "@/backend/types";
+import type { GitCommitDetails, QueryResult } from "@/backend/types";
+
+import { parseDiffFileChanges, toPath, unquoteGitPath } from "./diffFileChanges";
 
 const eolRegex = /\r\n|\r|\n/g;
 const gitLogSeparator = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
 
 type CommitDetailsInput = {
   commitHash: string;
-  dateType: DateType;
+  useMailmap: boolean;
+  isStash?: boolean;
 };
-
-function toPath(str: string) {
-  return str.replace(/\\/g, "/");
-}
 
 async function fetchCommitInfo(
   git: SimpleGit,
   commitHash: string,
-  dateType: DateType
+  useMailmap: boolean
 ): Promise<GitCommitDetails> {
-  const dateField = dateType === "Author Date" ? "%at" : "%ct";
-  const format = ["%H", "%P", "%an", "%ae", dateField, "%cn"].join(gitLogSeparator) + "%n%B";
+  // %aN/%aE/%cN/%cE always apply .mailmap; their lowercase forms never do.
+  const authorName = useMailmap ? "%aN" : "%an";
+  const authorEmail = useMailmap ? "%aE" : "%ae";
+  const committerName = useMailmap ? "%cN" : "%cn";
+  const committerEmail = useMailmap ? "%cE" : "%ce";
+  const format =
+    ["%H", "%P", authorName, authorEmail, committerName, committerEmail, "%at", "%ct"].join(
+      gitLogSeparator
+    ) + "%n%B";
   const stdout = await git.raw(["show", "--quiet", commitHash, `--format=${format}`]);
   const lines = stdout.split(eolRegex);
   let lastLine = lines.length - 1;
@@ -28,42 +34,43 @@ async function fetchCommitInfo(
   const commitInfo = lines[0].split(gitLogSeparator);
   return {
     hash: commitInfo[0],
-    parents: commitInfo[1].split(" "),
+    parents: commitInfo[1] === "" ? [] : commitInfo[1].split(" "),
     author: commitInfo[2],
     email: commitInfo[3],
-    date: parseInt(commitInfo[4]),
-    committer: commitInfo[5],
+    committer: commitInfo[4],
+    committerEmail: commitInfo[5],
+    authorDate: parseInt(commitInfo[6]),
+    commitDate: parseInt(commitInfo[7]),
     body: lines.slice(1, lastLine + 1).join("\n"),
     fileChanges: []
   };
 }
 
-async function fetchNameStatus(git: SimpleGit, commitHash: string): Promise<string[]> {
-  const stdout = await git.raw([
-    "diff-tree",
-    "--name-status",
-    "-r",
-    "-m",
-    "--root",
-    "--find-renames",
-    "--diff-filter=AMDR",
-    commitHash
-  ]);
-  return stdout.split(eolRegex);
-}
-
-async function fetchNumStat(git: SimpleGit, commitHash: string): Promise<string[]> {
-  const stdout = await git.raw([
-    "diff-tree",
-    "--numstat",
-    "-r",
-    "-m",
-    "--root",
-    "--find-renames",
-    "--diff-filter=AMDR",
-    commitHash
-  ]);
-  return stdout.split(eolRegex);
+// `-c core.quotePath=false` stops git from octal-escaping non-ASCII bytes in
+// file paths (e.g. "\303\244.txt"), so paths come through as raw UTF-8.
+//
+// For commits with parents we diff against the FIRST parent (`<hash>^ <hash>`),
+// so a merge commit's files are shown relative to its first parent. The
+// old `-m` form instead emitted a separate diff against every parent (each
+// prefixed by a commit hash line), which listed merged-in files twice and
+// broke the line parser. Root commits (no parent) use the `--root` form.
+//
+// The two-argument form prints no leading commit-hash line, whereas the
+// single-commit `--root` form does — so callers skip the first line only for
+// root commits (see `firstFileLine`).
+async function fetchDiff(
+  git: SimpleGit,
+  commitHash: string,
+  hasParents: boolean,
+  stat: "--name-status" | "--numstat"
+): Promise<string[]> {
+  const args = ["-c", "core.quotePath=false", "diff-tree", stat, "-r", "--find-renames"];
+  if (hasParents) {
+    args.push("--diff-filter=AMDR", commitHash + "^", commitHash);
+  } else {
+    args.push("--root", "--diff-filter=AMDR", commitHash);
+  }
+  return (await git.raw(args)).split(eolRegex);
 }
 
 export async function commitDetails(
@@ -71,35 +78,44 @@ export async function commitDetails(
   input: CommitDetailsInput
 ): Promise<QueryResult<"commitDetails">> {
   try {
-    const [details, nameStatusLines, numStatLines] = await Promise.all([
-      fetchCommitInfo(git, input.commitHash, input.dateType),
-      fetchNameStatus(git, input.commitHash),
-      fetchNumStat(git, input.commitHash)
+    // The commit's parents decide the diff strategy, so fetch them first.
+    const details = await fetchCommitInfo(git, input.commitHash, input.useMailmap);
+    const hasParents = details.parents.length > 0;
+    const [nameStatusLines, numStatLines] = await Promise.all([
+      fetchDiff(git, input.commitHash, hasParents, "--name-status"),
+      fetchDiff(git, input.commitHash, hasParents, "--numstat")
     ]);
+    // Only the single-commit `--root` form (no parents) prints a leading hash line.
+    const firstFileLine = hasParents ? 0 : 1;
 
-    const fileLookup: { [file: string]: number } = {};
-    for (let i = 1; i < nameStatusLines.length - 1; i++) {
-      const line = nameStatusLines[i].split("\t");
-      if (line.length < 2) break;
-      const oldFilePath = toPath(line[1]);
-      const newFilePath = toPath(line[line.length - 1]);
-      fileLookup[newFilePath] = details.fileChanges.length;
-      details.fileChanges.push({
-        oldFilePath,
-        newFilePath,
-        type: line[0][0] as GitFileChangeType,
-        additions: null,
-        deletions: null
-      });
-    }
+    details.fileChanges.push(...parseDiffFileChanges(nameStatusLines, numStatLines, firstFileLine));
 
-    for (let i = 1; i < numStatLines.length - 1; i++) {
-      const line = numStatLines[i].split("\t");
-      if (line.length !== 3) break;
-      const fileName = line[2].replace(/(.*){.* => (.*)}/, "$1$2").replace(/.* => (.*)/, "$1");
-      if (typeof fileLookup[fileName] === "number") {
-        details.fileChanges[fileLookup[fileName]].additions = parseInt(line[0]);
-        details.fileChanges[fileLookup[fileName]].deletions = parseInt(line[1]);
+    // A stash created with --include-untracked stores those files in a third
+    // parent (<stash>^3); list them so the stash's details include them.
+    if (input.isStash) {
+      try {
+        const stdout = await git.raw([
+          "-c",
+          "core.quotePath=false",
+          "ls-tree",
+          "-r",
+          "--name-only",
+          input.commitHash + "^3"
+        ]);
+        for (const line of stdout.split(eolRegex)) {
+          if (line === "") continue;
+          const filePath = toPath(unquoteGitPath(line));
+          if (details.fileChanges.some((fc) => fc.newFilePath === filePath)) continue; // already listed
+          details.fileChanges.push({
+            oldFilePath: filePath,
+            newFilePath: filePath,
+            type: "A",
+            additions: null,
+            deletions: null
+          });
+        }
+      } catch {
+        // No ^3 (stash had no untracked files) — nothing to add.
       }
     }
 
