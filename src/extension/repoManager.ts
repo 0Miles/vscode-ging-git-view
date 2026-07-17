@@ -1,5 +1,14 @@
+import * as fs from "node:fs";
+
 import * as vscode from "vscode";
 
+import {
+  applyExternalConfig,
+  EXTERNAL_CONFIG_RELATIVE_PATH,
+  generateExternalConfig,
+  parseExternalConfig,
+  serializeExternalConfig
+} from "@/backend/utils/externalConfig";
 import { isGitRepository } from "@/backend/utils/git";
 import { getPathFromUri } from "@/backend/utils/path";
 import { evalPromises } from "@/backend/utils/promise";
@@ -7,6 +16,8 @@ import { Config } from "@/config";
 import { ExtensionState } from "@/extensionState";
 import { StatusBarItem } from "@/statusBarItem";
 import { GitRepoSet, GitRepoState } from "@/types";
+
+export type RepoChangeCallback = (repos: GitRepoSet, numRepos: number) => void;
 
 function sortRepos(repos: GitRepoSet) {
   const repoPaths = Object.keys(repos).toSorted();
@@ -23,7 +34,7 @@ export function createRepoManager(
   config: Config
 ) {
   let repos = extensionState.getRepos();
-  let viewCallback: ((repos: GitRepoSet, numRepos: number) => void) | null = null;
+  const viewCallbacks = new Set<RepoChangeCallback>();
 
   function getRepos() {
     return sortRepos(repos);
@@ -33,7 +44,7 @@ export function createRepoManager(
     const sorted = getRepos();
     const numRepos = Object.keys(sorted).length;
     statusBarItem.setNumRepos(numRepos);
-    if (viewCallback !== null) viewCallback(sorted, numRepos);
+    for (const cb of viewCallbacks) cb(sorted, numRepos);
   }
 
   function removeRepo(repo: string) {
@@ -41,12 +52,12 @@ export function createRepoManager(
     extensionState.saveRepos(repos);
   }
 
-  function registerViewCallback(cb: (repos: GitRepoSet, numRepos: number) => void) {
-    viewCallback = cb;
+  function registerViewCallback(cb: RepoChangeCallback) {
+    viewCallbacks.add(cb);
   }
 
-  function deregisterViewCallback() {
-    viewCallback = null;
+  function deregisterViewCallback(cb: RepoChangeCallback) {
+    viewCallbacks.delete(cb);
   }
 
   function isDirectoryWithinRepos(path: string) {
@@ -57,9 +68,40 @@ export function createRepoManager(
     return false;
   }
 
+  /** Read + validate the shared config file in `repo`, or null if absent/invalid. */
+  function readExternalConfig(repo: string) {
+    try {
+      return parseExternalConfig(
+        fs.readFileSync(repo + "/" + EXTERNAL_CONFIG_RELATIVE_PATH, "utf8")
+      );
+    } catch {
+      return null; // no file / unreadable
+    }
+  }
+
   function addRepo(repo: string) {
-    repos[repo] = { columnWidths: null };
+    let state: GitRepoState = { columnWidths: null };
+    // Apply any committed GING config so a freshly-discovered repo picks up
+    // the team's shared settings.
+    const external = readExternalConfig(repo);
+    if (external !== null) state = applyExternalConfig(external, state);
+    repos[repo] = state;
     extensionState.saveRepos(repos);
+  }
+
+  /** Write the repo's shareable GING config to its .vscode file.
+   *  Returns an error message, or null on success. */
+  function exportRepoConfig(repo: string): string | null {
+    try {
+      fs.mkdirSync(repo + "/.vscode", { recursive: true });
+      fs.writeFileSync(
+        repo + "/" + EXTERNAL_CONFIG_RELATIVE_PATH,
+        serializeExternalConfig(generateExternalConfig(repos[repo]))
+      );
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
   }
 
   function removeReposWithinFolder(path: string) {
@@ -127,6 +169,7 @@ export function createRepoManager(
     isDirectoryWithinRepos,
     sendRepos,
     addRepo,
+    exportRepoConfig,
     removeRepo,
     removeReposWithinFolder,
     setRepoState,

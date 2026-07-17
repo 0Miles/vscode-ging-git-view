@@ -1,9 +1,7 @@
 import * as vscode from "vscode";
 
 import { getPathFromUri } from "./backend/utils/path";
-
-const fileChangeRegex =
-  /(^\.git\/(config|index|HEAD|refs\/stash|refs\/heads\/.*|refs\/remotes\/.*|refs\/tags\/.*)$)|(^(?!\.git).*$)|(^\.git[^/]+$)/;
+import { isWatchedRepoPath } from "./backend/utils/repoWatchPaths";
 
 export class RepoFileWatcher {
   private repo: string | null = null;
@@ -34,6 +32,12 @@ export class RepoFileWatcher {
       this.fsWatcher.dispose();
       this.fsWatcher = null;
     }
+    // A pending debounce would otherwise fire repoChangeCallback after the
+    // owning panel is disposed.
+    if (this.refreshTimeout !== null) {
+      clearTimeout(this.refreshTimeout);
+      this.refreshTimeout = null;
+    }
   }
 
   public mute() {
@@ -47,12 +51,7 @@ export class RepoFileWatcher {
 
   private async refresh(uri: vscode.Uri) {
     if (this.muted) return;
-    if (
-      !getPathFromUri(uri)
-        .replace(this.repo + "/", "")
-        .match(fileChangeRegex)
-    )
-      return;
+    if (!isWatchedRepoPath(getPathFromUri(uri).replace(this.repo + "/", ""))) return;
     if (new Date().getTime() < this.resumeAt) return;
 
     if (this.refreshTimeout !== null) {

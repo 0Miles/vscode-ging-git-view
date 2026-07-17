@@ -5,6 +5,8 @@ import * as https from "node:https";
 import * as url from "node:url";
 
 import { getRemoteUrl } from "./backend/utils/git";
+import { gravatarHash } from "./backend/utils/gravatar";
+import { RemoteSource, remoteSourceFromUrl } from "./backend/utils/remoteSource";
 import { ExtensionState } from "./extensionState";
 import { AvatarCache, ResponseMessage } from "./types";
 
@@ -103,30 +105,13 @@ export class AvatarManager {
   }
 
   private async getRemoteSource(avatarRequest: AvatarRequestItem) {
-    if (typeof this.remoteSourceCache[avatarRequest.repo] === "string") {
+    if (typeof this.remoteSourceCache[avatarRequest.repo] === "object") {
       // If the repo exists in the cache of remote sources
       return this.remoteSourceCache[avatarRequest.repo];
     } else {
-      // Fetch the remote repo source
-      let remoteUrl = await getRemoteUrl(avatarRequest.repo, this.gitPath()),
-        remoteSource: RemoteSource;
-      if (remoteUrl !== null) {
-        // Depending on the domain of the remote repo source, determine the type of source it is
-        if (remoteUrl.startsWith("https://github.com/")) {
-          let remoteUrlComps = remoteUrl.split("/");
-          remoteSource = {
-            type: "github",
-            owner: remoteUrlComps[3],
-            repo: remoteUrlComps[4].replace(/\.git$/, "")
-          };
-        } else if (remoteUrl.startsWith("https://gitlab.com/")) {
-          remoteSource = { type: "gitlab" };
-        } else {
-          remoteSource = { type: "gravatar" };
-        }
-      } else {
-        remoteSource = { type: "gravatar" };
-      }
+      // Determine the avatar source (GitHub/GitLab over HTTPS or SSH, else Gravatar).
+      let remoteUrl = await getRemoteUrl(avatarRequest.repo, this.gitPath());
+      const remoteSource = remoteSourceFromUrl(remoteUrl);
       this.remoteSourceCache[avatarRequest.repo] = remoteSource; // Add the remote source to the cache for future use
       return remoteSource;
     }
@@ -149,7 +134,7 @@ export class AvatarManager {
         {
           hostname: "api.github.com",
           path: "/repos/" + owner + "/" + repo + "/commits/" + avatarRequest.commits[commitIndex],
-          headers: { "User-Agent": "neo-git-graph" },
+          headers: { "User-Agent": "ging-git-view" },
           agent: false,
           timeout: 15000
         },
@@ -171,13 +156,22 @@ export class AvatarManager {
                 // Avatar url found
                 let img = await this.downloadAvatarImage(
                   avatarRequest.email,
-                  commit.author.avatar_url + "&size=54"
+                  // Fetch at 3x display size for High DPI / Retina displays.
+                  commit.author.avatar_url + "&size=162"
                 );
                 if (img !== null) this.saveAvatar(avatarRequest.email, img, false);
                 return;
               }
-            } else if (res.statusCode === 403) {
-              // Rate limit reached, try again after timeout
+            } else if (res.statusCode === 403 || res.statusCode === 429) {
+              // Rate limited. GitHub signals this as 403 (primary limit, paired
+              // with x-ratelimit-remaining: 0 and handled above) or 429
+              // (secondary/abuse limit, paired with a Retry-After header). Defer
+              // and retry — never fall through to Gravatar, whose identicon would
+              // otherwise be cached as a wrong avatar for days.
+              if (this.githubTimeout < t) {
+                const retryAfter = parseInt(<string>res.headers["retry-after"]);
+                this.githubTimeout = t + (isNaN(retryAfter) ? 60000 : retryAfter * 1000);
+              }
               this.queue.addItem(avatarRequest, this.githubTimeout, false);
               return;
             } else if (
@@ -218,7 +212,7 @@ export class AvatarManager {
         {
           hostname: "gitlab.com",
           path: "/api/v4/users?search=" + avatarRequest.email,
-          headers: { "User-Agent": "neo-git-graph", "Private-Token": "w87U_3gAxWWaPtFgCcus" }, // Token only has read access
+          headers: { "User-Agent": "ging-git-view", "Private-Token": "w87U_3gAxWWaPtFgCcus" }, // Token only has read access
           agent: false,
           timeout: 15000
         },
@@ -242,8 +236,13 @@ export class AvatarManager {
                 if (img !== null) this.saveAvatar(avatarRequest.email, img, false);
                 return;
               }
-            } else if (res.statusCode === 429) {
-              // Rate limit reached, try again after timeout
+            } else if (res.statusCode === 429 || res.statusCode === 403) {
+              // Rate limited (429 with RateLimit-Reset handled above, or 403).
+              // Defer and retry rather than caching a Gravatar identicon.
+              if (this.gitLabTimeout < t) {
+                const retryAfter = parseInt(<string>res.headers["retry-after"]);
+                this.gitLabTimeout = t + (isNaN(retryAfter) ? 60000 : retryAfter * 1000);
+              }
               this.queue.addItem(avatarRequest, this.gitLabTimeout, false);
               return;
             } else if (res.statusCode! >= 500) {
@@ -264,16 +263,17 @@ export class AvatarManager {
   }
 
   private async fetchFromGravatar(avatarRequest: AvatarRequestItem) {
-    let hash: string = crypto.createHash("md5").update(avatarRequest.email).digest("hex");
+    let hash: string = gravatarHash(avatarRequest.email);
+    // Fetch at 3x display size for High DPI / Retina displays.
     let img = await this.downloadAvatarImage(
         avatarRequest.email,
-        "https://secure.gravatar.com/avatar/" + hash + "?s=54&d=404"
+        "https://secure.gravatar.com/avatar/" + hash + "?s=162&d=404"
       ),
       identicon = false;
     if (img === null) {
       img = await this.downloadAvatarImage(
         avatarRequest.email,
-        "https://secure.gravatar.com/avatar/" + hash + "?s=54&d=identicon"
+        "https://secure.gravatar.com/avatar/" + hash + "?s=162&d=identicon"
       );
       identicon = true;
     }
@@ -289,7 +289,7 @@ export class AvatarManager {
           {
             hostname: imgUrl.hostname,
             path: imgUrl.path,
-            headers: { "User-Agent": "neo-git-graph" },
+            headers: { "User-Agent": "ging-git-view" },
             agent: false,
             timeout: 15000
           },
@@ -433,15 +433,3 @@ interface AvatarRequestItem {
   checkAfter: number;
   attempts: number;
 }
-interface GitHubRemoteSource {
-  type: "github";
-  owner: string;
-  repo: string;
-}
-interface GitLabRemoteSource {
-  type: "gitlab";
-}
-interface GravatarRemoteSource {
-  type: "gravatar";
-}
-type RemoteSource = GitHubRemoteSource | GitLabRemoteSource | GravatarRemoteSource;

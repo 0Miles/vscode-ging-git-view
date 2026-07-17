@@ -3,12 +3,13 @@ import * as fs from "node:fs";
 import { ExtensionContext, Memento } from "vscode";
 
 import { getPathFromStr } from "./backend/utils/path";
-import { Avatar, AvatarCache, GitRepoSet } from "./types";
+import { Avatar, AvatarCache, DialogMemoryStore, GitRepoSet } from "./types";
 
 const AVATAR_STORAGE_FOLDER = "/avatars";
 const AVATAR_CACHE = "avatarCache";
 const LAST_ACTIVE_REPO = "lastActiveRepo";
 const REPO_STATES = "repoStates";
+const DIALOG_MEMORY = "dialogMemory";
 
 export class ExtensionState {
   private globalState: Memento;
@@ -48,6 +49,20 @@ export class ExtensionState {
   }
   public setLastActiveRepo(repo: string | null) {
     this.workspaceState.update(LAST_ACTIVE_REPO, repo);
+  }
+
+  /* Dialog "Remember my choice" values (global, shared across repos) */
+  public getDialogMemory() {
+    return this.globalState.get<DialogMemoryStore>(DIALOG_MEMORY, {});
+  }
+  public saveDialogMemory(dialogKey: string, values: { [inputName: string]: string } | null) {
+    const store = this.getDialogMemory();
+    if (values === null) {
+      delete store[dialogKey];
+    } else {
+      store[dialogKey] = values;
+    }
+    this.globalState.update(DIALOG_MEMORY, store);
   }
 
   /* Avatars */

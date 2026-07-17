@@ -7,7 +7,7 @@ import { ExtensionState } from "@/extensionState";
 import { RepoFileWatcher } from "@/repoFileWatcher";
 import { GitRepoSet } from "@/types";
 
-import { RepoManager } from "./repoManager";
+import { RepoChangeCallback, RepoManager } from "./repoManager";
 import { WebviewBridge } from "./webviewBridge";
 import { buildWebviewHtml } from "./webviewHtml";
 
@@ -60,12 +60,25 @@ export function createWebviewPanel(opts: {
     isGraphViewLoaded = result.isGraphLoaded;
   }
 
+  const onReposChanged: RepoChangeCallback = (repos: GitRepoSet, numRepos: number) => {
+    if (!panel.visible) return;
+    if ((numRepos === 0 && isGraphViewLoaded) || (numRepos > 0 && !isGraphViewLoaded)) {
+      update();
+    } else {
+      bridge.post({
+        command: "loadRepos",
+        repos,
+        lastActiveRepo: extensionState.getLastActiveRepo()
+      });
+    }
+  };
+
   function dispose() {
     onDispose();
     panel.dispose();
     avatarManager.deregisterBridge();
     repoFileWatcher.stop();
-    repoManager.deregisterViewCallback();
+    repoManager.deregisterViewCallback(onReposChanged);
     while (disposables.length) {
       const x = disposables.pop();
       if (x) x.dispose();
@@ -90,18 +103,7 @@ export function createWebviewPanel(opts: {
     disposables
   );
 
-  repoManager.registerViewCallback((repos: GitRepoSet, numRepos: number) => {
-    if (!panel.visible) return;
-    if ((numRepos === 0 && isGraphViewLoaded) || (numRepos > 0 && !isGraphViewLoaded)) {
-      update();
-    } else {
-      bridge.post({
-        command: "loadRepos",
-        repos,
-        lastActiveRepo: extensionState.getLastActiveRepo()
-      });
-    }
-  });
+  repoManager.registerViewCallback(onReposChanged);
 
   return {
     reveal(column?: vscode.ViewColumn) {
