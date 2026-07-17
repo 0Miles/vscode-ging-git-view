@@ -1,39 +1,37 @@
 {
-  "name": "neo-git-graph",
+  "name": "ging-git-view",
   "displayName": "%displayName%",
-  "version": "0.4.0",
+  "version": "0.1.0",
   "description": "%description%",
   "categories": [
     "SCM Providers",
     "Visualization"
   ],
   "keywords": [
-    "branch",
     "git",
-    "git graph",
     "git history",
     "git log"
   ],
-  "homepage": "https://github.com/asispts/neo-git-graph",
+  "homepage": "https://github.com/0Miles/ging-git-view",
   "bugs": {
-    "url": "https://github.com/asispts/neo-git-graph/issues"
+    "url": "https://github.com/0Miles/ging-git-view/issues"
   },
   "license": "MIT",
   "author": {
-    "name": "Asis Pattisahusiwa",
-    "email": "asispts@gmail.com"
+    "name": "Miles",
+    "email": "git@miles.tw"
   },
   "contributors": [
     {
-      "name": "Michael Hutchison",
-      "url": "https://github.com/mhutchie"
+      "name": "Miles",
+      "url": "https://github.com/0Miles"
     }
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/asispts/neo-git-graph.git"
+    "url": "https://github.com/0Miles/ging-git-view.git"
   },
-  "publisher": "asispts",
+  "publisher": "0miles",
   "main": "./out/extension.js",
   "scripts": {
     "typecheck": "tsc -p ./src --noEmit && tsc -p ./src/webview --noEmit && tsc -p ./tests --noEmit",
@@ -53,6 +51,7 @@
     "l10n:check": "node ./scripts/check-l10n.js"
   },
   "dependencies": {
+    "iconv-lite": "^0.7.2",
     "simple-git": "^3.36.0"
   },
   "devDependencies": {
@@ -75,8 +74,8 @@
   "contributes": {
     "commands": [
       {
-        "category": "(neo) Git Graph",
-        "command": "neo-git-graph.view",
+        "category": "GING",
+        "command": "ging-git-view.view",
         "title": "%command.view%",
         "icon": {
           "light": "resources/webview-icon-light.svg",
@@ -84,17 +83,549 @@
         }
       },
       {
-        "category": "(neo) Git Graph",
-        "command": "neo-git-graph.clearAvatarCache",
+        "category": "GING",
+        "command": "ging-git-view.clearAvatarCache",
         "title": "%command.clearAvatarCache%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.fetch",
+        "title": "%command.fetch%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.manageRemotes",
+        "title": "%command.manageRemotes%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.viewReflog",
+        "title": "%command.viewReflog%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.showStatistics",
+        "title": "%command.showStatistics%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.setRepoName",
+        "title": "%command.setRepoName%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.exportRepoConfig",
+        "title": "%command.exportRepoConfig%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.toggleRemoteVisibility",
+        "title": "%command.toggleRemoteVisibility%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.fetchRemote",
+        "title": "%command.fetchRemote%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.setGitUserDetails",
+        "title": "%command.setGitUserDetails%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.openExtensionSettings",
+        "title": "%command.openExtensionSettings%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.getVersionInfo",
+        "title": "%command.getVersionInfo%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.openFileFromDiff",
+        "title": "%command.openFileFromDiff%",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.search",
+        "title": "%command.branches.search%",
+        "icon": "$(search)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.collapseAll",
+        "title": "%command.branches.collapseAll%",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.showAll",
+        "title": "%command.branches.showAll%",
+        "icon": "$(checklist)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.refresh",
+        "title": "%command.branches.refresh%",
+        "icon": "$(refresh)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.showRemoteBranches",
+        "title": "%command.branches.showRemoteBranches%",
+        "icon": {
+          "light": "resources/icons/cloud-slash-light.svg",
+          "dark": "resources/icons/cloud-slash-dark.svg"
+        }
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.hideRemoteBranches",
+        "title": "%command.branches.hideRemoteBranches%",
+        "icon": {
+          "light": "resources/icons/cloud-light.svg",
+          "dark": "resources/icons/cloud-dark.svg"
+        }
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.showInactive",
+        "title": "%command.branches.showInactive%",
+        "icon": "$(history)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.hideInactive",
+        "title": "%command.branches.hideInactive%",
+        "icon": "$(history)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.checkout",
+        "title": "%command.branches.checkout%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.merge",
+        "title": "%command.branches.merge%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.rename",
+        "title": "%command.branches.rename%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.delete",
+        "title": "%command.branches.delete%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.copyName",
+        "title": "%command.branches.copyName%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.rebase",
+        "title": "%command.branches.rebase%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.fastForward",
+        "title": "%command.branches.fastForward%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.push",
+        "title": "%command.branches.push%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.createArchive",
+        "title": "%command.branches.createArchive%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.createPullRequest",
+        "title": "%command.branches.createPullRequest%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.pull",
+        "title": "%command.branches.pull%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.fetchIntoLocal",
+        "title": "%command.branches.fetchIntoLocal%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.deleteRemote",
+        "title": "%command.branches.deleteRemote%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.remotes.add",
+        "title": "%command.remotes.add%",
+        "icon": "$(add)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.remotes.refresh",
+        "title": "%command.remotes.refresh%",
+        "icon": "$(refresh)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.remotes.editUrl",
+        "title": "%command.remotes.editUrl%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.remotes.rename",
+        "title": "%command.remotes.rename%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.remotes.remove",
+        "title": "%command.remotes.remove%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.remotes.fetchOne",
+        "title": "%command.remotes.fetchOne%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.remotes.copyUrl",
+        "title": "%command.remotes.copyUrl%"
+      }
+    ],
+    "views": {
+      "scm": [
+        {
+          "id": "ging-git-view.branches",
+          "name": "%view.branches%",
+          "contextualTitle": "%view.branches%"
+        },
+        {
+          "id": "ging-git-view.remotes",
+          "name": "%view.remotes%",
+          "contextualTitle": "%view.remotes%",
+          "visibility": "collapsed"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "ging-git-view.branches",
+        "contents": "%view.branches.welcome%"
+      },
+      {
+        "view": "ging-git-view.remotes",
+        "contents": "%view.remotes.welcomeNoRepo%",
+        "when": "!ging-git-view.remotesView.hasRepo"
+      },
+      {
+        "view": "ging-git-view.remotes",
+        "contents": "%view.remotes.welcomeEmpty%",
+        "when": "ging-git-view.remotesView.hasRepo"
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "ging-git-view.openFileFromDiff",
+          "when": "resourceScheme == ging-git-view",
+          "group": "navigation"
+        }
+      ],
       "scm/title": [
         {
-          "command": "neo-git-graph.view",
+          "command": "ging-git-view.view",
           "group": "navigation",
-          "when": "scmProvider == git"
+          "when": "scmProvider == git && config.ging-git-view.scmButtonPosition == 'Inline'"
+        },
+        {
+          "command": "ging-git-view.view",
+          "when": "scmProvider == git && config.ging-git-view.scmButtonPosition == 'More actions...'"
+        }
+      ],
+      "scm/sourceControl": [
+        {
+          "command": "ging-git-view.view",
+          "when": "scmProvider == git",
+          "group": "ging-git-view@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "ging-git-view.branches.showAll",
+          "when": "view == ging-git-view.branches",
+          "group": "navigation@0"
+        },
+        {
+          "command": "ging-git-view.branches.refresh",
+          "when": "view == ging-git-view.branches",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ging-git-view.branches.showRemoteBranches",
+          "when": "view == ging-git-view.branches && !ging-git-view.branchView.showingRemote",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ging-git-view.branches.hideRemoteBranches",
+          "when": "view == ging-git-view.branches && ging-git-view.branchView.showingRemote",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ging-git-view.branches.collapseAll",
+          "when": "view == ging-git-view.branches",
+          "group": "navigation@9"
+        },
+        {
+          "command": "ging-git-view.branches.search",
+          "when": "view == ging-git-view.branches",
+          "group": "navigation@10"
+        },
+        {
+          "command": "ging-git-view.branches.showInactive",
+          "when": "view == ging-git-view.branches && !ging-git-view.branchView.showingInactive",
+          "group": "1_visibility@1"
+        },
+        {
+          "command": "ging-git-view.branches.hideInactive",
+          "when": "view == ging-git-view.branches && ging-git-view.branchView.showingInactive",
+          "group": "1_visibility@1"
+        },
+        {
+          "command": "ging-git-view.viewReflog",
+          "when": "view == ging-git-view.branches",
+          "group": "2_tools@1"
+        },
+        {
+          "command": "ging-git-view.remotes.add",
+          "when": "view == ging-git-view.remotes",
+          "group": "navigation@0"
+        },
+        {
+          "command": "ging-git-view.remotes.refresh",
+          "when": "view == ging-git-view.remotes",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ging-git-view.remotes.fetchOne",
+          "when": "view == ging-git-view.remotes && viewItem == remote",
+          "group": "1_fetch@1"
+        },
+        {
+          "command": "ging-git-view.remotes.editUrl",
+          "when": "view == ging-git-view.remotes && viewItem == remote",
+          "group": "2_modify@1"
+        },
+        {
+          "command": "ging-git-view.remotes.rename",
+          "when": "view == ging-git-view.remotes && viewItem == remote",
+          "group": "2_modify@2"
+        },
+        {
+          "command": "ging-git-view.remotes.remove",
+          "when": "view == ging-git-view.remotes && viewItem == remote",
+          "group": "2_modify@3"
+        },
+        {
+          "command": "ging-git-view.remotes.copyUrl",
+          "when": "view == ging-git-view.remotes && viewItem == remote",
+          "group": "3_copy@1"
+        },
+        {
+          "command": "ging-git-view.branches.checkout",
+          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.checkout",
+          "group": "1_action@1"
+        },
+        {
+          "command": "ging-git-view.branches.checkout",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.checkout",
+          "group": "1_action@1"
+        },
+        {
+          "command": "ging-git-view.branches.rename",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.rename",
+          "group": "1_action@2"
+        },
+        {
+          "command": "ging-git-view.branches.merge",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.merge",
+          "group": "1_action@2"
+        },
+        {
+          "command": "ging-git-view.branches.push",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.push",
+          "group": "1_action@3"
+        },
+        {
+          "command": "ging-git-view.branches.createArchive",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.createArchive",
+          "group": "1_action@4"
+        },
+        {
+          "command": "ging-git-view.branches.delete",
+          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.delete",
+          "group": "2_modify@1"
+        },
+        {
+          "command": "ging-git-view.branches.merge",
+          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.merge",
+          "group": "2_modify@2"
+        },
+        {
+          "command": "ging-git-view.branches.rebase",
+          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.rebase",
+          "group": "2_modify@3"
+        },
+        {
+          "command": "ging-git-view.branches.fastForward",
+          "when": "view == ging-git-view.branches && viewItem == branch-local",
+          "group": "2_modify@4"
+        },
+        {
+          "command": "ging-git-view.branches.pull",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.pull",
+          "group": "2_modify@1"
+        },
+        {
+          "command": "ging-git-view.branches.fetchIntoLocal",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.fetch",
+          "group": "2_modify@2"
+        },
+        {
+          "command": "ging-git-view.branches.deleteRemote",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.delete",
+          "group": "2_modify@3"
+        },
+        {
+          "command": "ging-git-view.branches.createPullRequest",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current|remote)$/",
+          "group": "3_share@1"
+        },
+        {
+          "command": "ging-git-view.branches.copyName",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.copyName",
+          "group": "4_copy@1"
+        },
+        {
+          "command": "ging-git-view.branches.copyName",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.copyName",
+          "group": "4_copy@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "ging-git-view.remotes.add",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.remotes.refresh",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.remotes.fetchOne",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.remotes.editUrl",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.remotes.rename",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.remotes.remove",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.remotes.copyUrl",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.showRemoteBranches",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.hideRemoteBranches",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.showInactive",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.hideInactive",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.checkout",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.merge",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.rename",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.delete",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.copyName",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.rebase",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.fastForward",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.push",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.createArchive",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.createPullRequest",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.pull",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.fetchIntoLocal",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.deleteRemote",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.collapseAll",
+          "when": "false"
         }
       ]
     },
@@ -102,27 +633,362 @@
       "type": "object",
       "title": "%config.title%",
       "properties": {
-        "neo-git-graph.autoCenterCommitDetailsView": {
+        "ging-git-view.detailsPanel.autoScroll": {
           "type": "boolean",
           "default": true,
           "description": "%config.autoCenterCommitDetailsView%"
         },
-        "neo-git-graph.dateFormat": {
+        "ging-git-view.detailsPanel.position": {
+          "type": "string",
+          "enum": [
+            "Inline",
+            "Docked to Bottom"
+          ],
+          "default": "Inline",
+          "description": "%config.commitDetailsView.location%"
+        },
+        "ging-git-view.refLabels.alignment": {
+          "type": "string",
+          "enum": [
+            "Normal",
+            "Branches (on the left) & Tags (on the right)",
+            "Branches (aligned to the graph) & Tags (on the right)"
+          ],
+          "default": "Normal",
+          "description": "%config.referenceLabels.alignment%"
+        },
+        "ging-git-view.refLabels.combineLocalAndRemote": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.referenceLabels.combineLocalAndRemoteBranchLabels%"
+        },
+        "ging-git-view.dialogDefaults.addTagType": {
+          "type": "string",
+          "enum": [
+            "annotated",
+            "lightweight"
+          ],
+          "default": "annotated",
+          "description": "%config.dialog.addTag.type%"
+        },
+        "ging-git-view.dialogDefaults.cherryPickNoCommit": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.dialog.cherryPick.noCommit%"
+        },
+        "ging-git-view.dialogDefaults.createBranchCheckOut": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.dialog.createBranch.checkOut%"
+        },
+        "ging-git-view.dialogDefaults.mergeNoFastForward": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.dialog.merge.noFastForward%"
+        },
+        "ging-git-view.dialogDefaults.mergeSquash": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.dialog.merge.squash%"
+        },
+        "ging-git-view.dialogDefaults.mergeSquashMessageFormat": {
+          "type": "string",
+          "enum": [
+            "Default",
+            "Git SQUASH_MSG"
+          ],
+          "enumDescriptions": [
+            "%config.dialog.merge.squashMessageFormat.default%",
+            "%config.dialog.merge.squashMessageFormat.gitSquashMsg%"
+          ],
+          "default": "Default",
+          "description": "%config.dialog.merge.squashMessageFormat%"
+        },
+        "ging-git-view.dialogDefaults.resetMode": {
+          "type": "string",
+          "enum": [
+            "soft",
+            "mixed",
+            "hard"
+          ],
+          "default": "mixed",
+          "description": "%config.dialog.resetCurrentBranch.mode%"
+        },
+        "ging-git-view.dialogDefaults.deleteBranchForce": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.dialog.deleteBranch.forceDelete%"
+        },
+        "ging-git-view.history.showSignatures": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.commits.showSignatureStatus%"
+        },
+        "ging-git-view.contextMenuActions": {
+          "type": "object",
+          "description": "%config.contextMenuActionsVisibility%",
+          "properties": {
+            "commit": {
+              "type": "object",
+              "properties": {
+                "addTag": {
+                  "type": "boolean"
+                },
+                "createBranch": {
+                  "type": "boolean"
+                },
+                "checkout": {
+                  "type": "boolean"
+                },
+                "cherrypick": {
+                  "type": "boolean"
+                },
+                "revert": {
+                  "type": "boolean"
+                },
+                "merge": {
+                  "type": "boolean"
+                },
+                "reset": {
+                  "type": "boolean"
+                },
+                "rebase": {
+                  "type": "boolean"
+                },
+                "drop": {
+                  "type": "boolean"
+                },
+                "copyHash": {
+                  "type": "boolean"
+                },
+                "copySubject": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "branch": {
+              "type": "object",
+              "properties": {
+                "checkout": {
+                  "type": "boolean"
+                },
+                "rename": {
+                  "type": "boolean"
+                },
+                "push": {
+                  "type": "boolean"
+                },
+                "createArchive": {
+                  "type": "boolean"
+                },
+                "delete": {
+                  "type": "boolean"
+                },
+                "merge": {
+                  "type": "boolean"
+                },
+                "rebase": {
+                  "type": "boolean"
+                },
+                "copyName": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "remoteBranch": {
+              "type": "object",
+              "properties": {
+                "checkout": {
+                  "type": "boolean"
+                },
+                "merge": {
+                  "type": "boolean"
+                },
+                "pull": {
+                  "type": "boolean"
+                },
+                "fetch": {
+                  "type": "boolean"
+                },
+                "delete": {
+                  "type": "boolean"
+                },
+                "copyName": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "tag": {
+              "type": "object",
+              "properties": {
+                "viewDetails": {
+                  "type": "boolean"
+                },
+                "delete": {
+                  "type": "boolean"
+                },
+                "push": {
+                  "type": "boolean"
+                },
+                "createArchive": {
+                  "type": "boolean"
+                },
+                "copyName": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "stash": {
+              "type": "object",
+              "properties": {
+                "apply": {
+                  "type": "boolean"
+                },
+                "pop": {
+                  "type": "boolean"
+                },
+                "drop": {
+                  "type": "boolean"
+                },
+                "copyName": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "uncommittedChanges": {
+              "type": "object",
+              "properties": {
+                "openSourceControlView": {
+                  "type": "boolean"
+                },
+                "reset": {
+                  "type": "boolean"
+                },
+                "clean": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "commitDetailsViewFile": {
+              "type": "object",
+              "properties": {
+                "viewDiff": {
+                  "type": "boolean"
+                },
+                "viewFileAtThisRevision": {
+                  "type": "boolean"
+                },
+                "viewDiffWithWorkingFile": {
+                  "type": "boolean"
+                },
+                "openFile": {
+                  "type": "boolean"
+                },
+                "resetFileToThisRevision": {
+                  "type": "boolean"
+                },
+                "copyFilePath": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "ging-git-view.history.commitOrder": {
+          "type": "string",
+          "enum": [
+            "date",
+            "author-date",
+            "topo"
+          ],
+          "enumDescriptions": [
+            "%config.commitOrder.date%",
+            "%config.commitOrder.authorDate%",
+            "%config.commitOrder.topo%"
+          ],
+          "default": "date",
+          "description": "%config.commitOrder%"
+        },
+        "ging-git-view.customBranchGlobs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "%config.customBranchGlobPatterns.name%"
+              },
+              "glob": {
+                "type": "string",
+                "description": "%config.customBranchGlobPatterns.glob%"
+              }
+            },
+            "required": [
+              "name",
+              "glob"
+            ],
+            "additionalProperties": false
+          },
+          "default": [],
+          "description": "%config.customBranchGlobPatterns%"
+        },
+        "ging-git-view.customEmojiShortcodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "shortcode": {
+                "type": "string",
+                "description": "%config.customEmojiShortcodeMappings.shortcode%"
+              },
+              "emoji": {
+                "type": "string",
+                "description": "%config.customEmojiShortcodeMappings.emoji%"
+              }
+            },
+            "required": [
+              "shortcode",
+              "emoji"
+            ],
+            "additionalProperties": false
+          },
+          "default": [],
+          "description": "%config.customEmojiShortcodeMappings%"
+        },
+        "ging-git-view.dates.format": {
           "type": "string",
           "enum": [
             "Date & Time",
             "Date Only",
-            "Relative"
+            "Relative",
+            "ISO Date & Time",
+            "ISO Date Only"
           ],
           "enumDescriptions": [
             "%config.dateFormat.dateTime%",
             "%config.dateFormat.dateOnly%",
-            "%config.dateFormat.relative%"
+            "%config.dateFormat.relative%",
+            "%config.dateFormat.isoDateTime%",
+            "%config.dateFormat.isoDateOnly%"
           ],
           "default": "Date & Time",
           "description": "%config.dateFormat%"
         },
-        "neo-git-graph.dateType": {
+        "ging-git-view.dates.customFormat": {
+          "type": "string",
+          "default": "DD MMM YYYY",
+          "markdownDescription": "%config.dateCustomFormat%"
+        },
+        "ging-git-view.dates.type": {
           "type": "string",
           "enum": [
             "Author Date",
@@ -135,12 +1001,74 @@
           "default": "Author Date",
           "description": "%config.dateType%"
         },
-        "neo-git-graph.fetchAvatars": {
+        "ging-git-view.columnVisibility": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "boolean"
+            },
+            "author": {
+              "type": "boolean"
+            },
+            "commit": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false,
+          "default": {
+            "date": true,
+            "author": true,
+            "commit": true
+          },
+          "description": "%config.defaultColumnVisibility%"
+        },
+        "ging-git-view.accessibilityEnhancements": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.enhancedAccessibility%"
+        },
+        "ging-git-view.autoFetch.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.autoFetchEnabled%"
+        },
+        "ging-git-view.autoFetch.intervalMinutes": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 60,
+          "description": "%config.autoFetchIntervalMinutes%"
+        },
+        "ging-git-view.fetch.prune": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.fetchAndPrune%"
+        },
+        "ging-git-view.fetch.pruneTags": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.fetchAndPruneTags%"
+        },
+        "ging-git-view.history.fetchAvatars": {
           "type": "boolean",
           "default": false,
           "description": "%config.fetchAvatars%"
         },
-        "neo-git-graph.graphColours": {
+        "ging-git-view.detailsPanel.compactFolders": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.fileTree.compactFolders%"
+        },
+        "ging-git-view.detailsPanel.fileLayout": {
+          "type": "string",
+          "enum": [
+            "File Tree",
+            "File List"
+          ],
+          "default": "File Tree",
+          "description": "%config.fileView.type%"
+        },
+        "ging-git-view.graph.palette": {
           "type": "array",
           "items": {
             "type": "string",
@@ -163,7 +1091,7 @@
           ],
           "description": "%config.graphColours%"
         },
-        "neo-git-graph.graphStyle": {
+        "ging-git-view.graph.edgeStyle": {
           "type": "string",
           "enum": [
             "rounded",
@@ -176,37 +1104,367 @@
           "default": "rounded",
           "description": "%config.graphStyle%"
         },
-        "neo-git-graph.initialLoadCommits": {
+        "ging-git-view.history.includeReflogCommits": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.includeCommitsMentionedByReflogs%"
+        },
+        "ging-git-view.history.initialCommitCount": {
           "type": "number",
           "default": 300,
           "description": "%config.initialLoadCommits%"
         },
-        "neo-git-graph.loadMoreCommits": {
+        "ging-git-view.issueLinks.pattern": {
+          "type": "string",
+          "default": "",
+          "description": "%config.issueLinkingRegex%"
+        },
+        "ging-git-view.issueLinks.url": {
+          "type": "string",
+          "default": "",
+          "description": "%config.issueLinkingUrl%"
+        },
+        "ging-git-view.shortcuts.find": {
+          "type": "string",
+          "enum": [
+            "UNASSIGNED",
+            "CTRL/CMD + A",
+            "CTRL/CMD + B",
+            "CTRL/CMD + C",
+            "CTRL/CMD + D",
+            "CTRL/CMD + E",
+            "CTRL/CMD + F",
+            "CTRL/CMD + G",
+            "CTRL/CMD + H",
+            "CTRL/CMD + I",
+            "CTRL/CMD + J",
+            "CTRL/CMD + K",
+            "CTRL/CMD + L",
+            "CTRL/CMD + M",
+            "CTRL/CMD + N",
+            "CTRL/CMD + O",
+            "CTRL/CMD + P",
+            "CTRL/CMD + Q",
+            "CTRL/CMD + R",
+            "CTRL/CMD + S",
+            "CTRL/CMD + T",
+            "CTRL/CMD + U",
+            "CTRL/CMD + V",
+            "CTRL/CMD + W",
+            "CTRL/CMD + X",
+            "CTRL/CMD + Y",
+            "CTRL/CMD + Z"
+          ],
+          "default": "CTRL/CMD + F",
+          "description": "%config.keyboardShortcut.find%"
+        },
+        "ging-git-view.shortcuts.refresh": {
+          "type": "string",
+          "enum": [
+            "UNASSIGNED",
+            "CTRL/CMD + A",
+            "CTRL/CMD + B",
+            "CTRL/CMD + C",
+            "CTRL/CMD + D",
+            "CTRL/CMD + E",
+            "CTRL/CMD + F",
+            "CTRL/CMD + G",
+            "CTRL/CMD + H",
+            "CTRL/CMD + I",
+            "CTRL/CMD + J",
+            "CTRL/CMD + K",
+            "CTRL/CMD + L",
+            "CTRL/CMD + M",
+            "CTRL/CMD + N",
+            "CTRL/CMD + O",
+            "CTRL/CMD + P",
+            "CTRL/CMD + Q",
+            "CTRL/CMD + R",
+            "CTRL/CMD + S",
+            "CTRL/CMD + T",
+            "CTRL/CMD + U",
+            "CTRL/CMD + V",
+            "CTRL/CMD + W",
+            "CTRL/CMD + X",
+            "CTRL/CMD + Y",
+            "CTRL/CMD + Z"
+          ],
+          "default": "CTRL/CMD + R",
+          "description": "%config.keyboardShortcut.refresh%"
+        },
+        "ging-git-view.shortcuts.scrollToHead": {
+          "type": "string",
+          "enum": [
+            "UNASSIGNED",
+            "CTRL/CMD + A",
+            "CTRL/CMD + B",
+            "CTRL/CMD + C",
+            "CTRL/CMD + D",
+            "CTRL/CMD + E",
+            "CTRL/CMD + F",
+            "CTRL/CMD + G",
+            "CTRL/CMD + H",
+            "CTRL/CMD + I",
+            "CTRL/CMD + J",
+            "CTRL/CMD + K",
+            "CTRL/CMD + L",
+            "CTRL/CMD + M",
+            "CTRL/CMD + N",
+            "CTRL/CMD + O",
+            "CTRL/CMD + P",
+            "CTRL/CMD + Q",
+            "CTRL/CMD + R",
+            "CTRL/CMD + S",
+            "CTRL/CMD + T",
+            "CTRL/CMD + U",
+            "CTRL/CMD + V",
+            "CTRL/CMD + W",
+            "CTRL/CMD + X",
+            "CTRL/CMD + Y",
+            "CTRL/CMD + Z"
+          ],
+          "default": "CTRL/CMD + H",
+          "description": "%config.keyboardShortcut.scrollToHead%"
+        },
+        "ging-git-view.shortcuts.scrollToStash": {
+          "type": "string",
+          "enum": [
+            "UNASSIGNED",
+            "CTRL/CMD + A",
+            "CTRL/CMD + B",
+            "CTRL/CMD + C",
+            "CTRL/CMD + D",
+            "CTRL/CMD + E",
+            "CTRL/CMD + F",
+            "CTRL/CMD + G",
+            "CTRL/CMD + H",
+            "CTRL/CMD + I",
+            "CTRL/CMD + J",
+            "CTRL/CMD + K",
+            "CTRL/CMD + L",
+            "CTRL/CMD + M",
+            "CTRL/CMD + N",
+            "CTRL/CMD + O",
+            "CTRL/CMD + P",
+            "CTRL/CMD + Q",
+            "CTRL/CMD + R",
+            "CTRL/CMD + S",
+            "CTRL/CMD + T",
+            "CTRL/CMD + U",
+            "CTRL/CMD + V",
+            "CTRL/CMD + W",
+            "CTRL/CMD + X",
+            "CTRL/CMD + Y",
+            "CTRL/CMD + Z"
+          ],
+          "default": "CTRL/CMD + S",
+          "description": "%config.keyboardShortcut.scrollToStash%"
+        },
+        "ging-git-view.history.loadMoreOnScroll": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.loadMoreAutomatically%"
+        },
+        "ging-git-view.history.loadMoreCount": {
           "type": "number",
           "default": 100,
           "description": "%config.loadMoreCommits%"
         },
-        "neo-git-graph.maxDepthOfRepoSearch": {
+        "ging-git-view.renderMarkdown": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.markdown%"
+        },
+        "ging-git-view.repoSearchDepth": {
           "type": "number",
           "default": 0,
           "description": "%config.maxDepthOfRepoSearch%"
         },
-        "neo-git-graph.showCurrentBranchByDefault": {
+        "ging-git-view.dim.nonAncestorCommits": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.mute.commitsThatAreNotAncestorsOfHead%"
+        },
+        "ging-git-view.dim.mergeCommits": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.muteMergeCommits%"
+        },
+        "ging-git-view.onOpen.scrollToHead": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.onLoad.scrollToHead%"
+        },
+        "ging-git-view.history.firstParentOnly": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.onlyFollowFirstParent%"
+        },
+        "ging-git-view.followActiveEditorRepo": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.openToTheRepoOfTheActiveTextEditorDocument%"
+        },
+        "ging-git-view.followSourceControlSelection": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.followSourceControlSelection%"
+        },
+        "ging-git-view.diffEditorGroup": {
+          "type": "string",
+          "enum": [
+            "Active",
+            "Beside",
+            "One",
+            "Two",
+            "Three",
+            "Four",
+            "Five",
+            "Six",
+            "Seven",
+            "Eight",
+            "Nine"
+          ],
+          "default": "Active",
+          "description": "%config.openNewTabEditorGroup%"
+        },
+        "ging-git-view.refNameSpaceReplacement": {
+          "type": "string",
+          "enum": [
+            "None",
+            "Hyphen",
+            "Underscore"
+          ],
+          "default": "None",
+          "description": "%config.referenceInputSpaceSubstitution%"
+        },
+        "ging-git-view.keepWebviewAlive": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.retainContextWhenHidden%"
+        },
+        "ging-git-view.show.tagOnlyCommits": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.showCommitsOnlyReferencedByTags%"
+        },
+        "ging-git-view.onOpen.selectCheckedOutBranch": {
           "type": "boolean",
           "default": false,
           "description": "%config.showCurrentBranchByDefault%"
         },
-        "neo-git-graph.showStatusBarItem": {
+        "ging-git-view.signing.commits": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.repository.sign.commits%"
+        },
+        "ging-git-view.signing.tags": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.repository.sign.tags%"
+        },
+        "ging-git-view.show.remoteBranches": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.showRemoteBranches%"
+        },
+        "ging-git-view.branches.inactiveAfterDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "description": "%config.branches.inactiveAfterDays%"
+        },
+        "ging-git-view.branches.alwaysShow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "main",
+            "master",
+            "develop",
+            "dev",
+            "trunk"
+          ],
+          "description": "%config.branches.alwaysShow%"
+        },
+        "ging-git-view.branches.showInactiveByDefault": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.branches.showInactiveByDefault%"
+        },
+        "ging-git-view.show.remoteHeads": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.showRemoteHeads%"
+        },
+        "ging-git-view.show.stashes": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.showStashes%"
+        },
+        "ging-git-view.show.tags": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.showTags%"
+        },
+        "ging-git-view.scmButtonPosition": {
+          "type": "string",
+          "enum": [
+            "Inline",
+            "More actions..."
+          ],
+          "enumDescriptions": [
+            "%config.sourceCodeProviderIntegrationLocation.inline%",
+            "%config.sourceCodeProviderIntegrationLocation.moreActions%"
+          ],
+          "default": "Inline",
+          "description": "%config.sourceCodeProviderIntegrationLocation%"
+        },
+        "ging-git-view.statusBarButton": {
           "type": "boolean",
           "default": true,
           "description": "%config.showStatusBarItem%"
         },
-        "neo-git-graph.showUncommittedChanges": {
+        "ging-git-view.show.uncommittedChanges": {
           "type": "boolean",
           "default": true,
           "description": "%config.showUncommittedChanges%"
         },
-        "neo-git-graph.tabIconColourTheme": {
+        "ging-git-view.show.untrackedFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.showUntrackedFiles%"
+        },
+        "ging-git-view.history.useMailmap": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.useMailmap%"
+        },
+        "ging-git-view.defaultFileEncoding": {
+          "type": "string",
+          "default": "utf8",
+          "scope": "resource",
+          "description": "%config.fileEncoding%"
+        },
+        "ging-git-view.onOpen.branchSelection": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%config.showSpecificBranches%"
+        },
+        "ging-git-view.graph.uncommittedMarker": {
+          "type": "string",
+          "enum": [
+            "Open Circle at the Uncommitted Changes",
+            "Open Circle at the Checked Out Commit"
+          ],
+          "default": "Open Circle at the Uncommitted Changes",
+          "description": "%config.graph.uncommittedChanges%"
+        },
+        "ging-git-view.tabIconTheme": {
           "type": "string",
           "enum": [
             "colour",
@@ -224,6 +1482,9 @@
   },
   "activationEvents": [
     "onStartupFinished"
+  ],
+  "extensionDependencies": [
+    "vscode.git"
   ],
   "icon": "resources/icon.png",
   "engines": {

@@ -5,3 +5,10 @@
 *.vsix
 
 *.orig
+
+# Playwright MCP scratch output (local webview verification)
+.playwright-mcp/
+ngg-harness-baseline.png
+
+# Local Claude Code session data (worktrees, settings)
+.claude/
