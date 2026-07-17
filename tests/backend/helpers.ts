@@ -6,6 +6,13 @@ export function git(args: string[], cwd: string) {
   cp.execFileSync("git", args, { cwd, stdio: "pipe" });
 }
 
+/** Run git against a bare repo (which has no working tree) and capture stdout.
+ *  Uses an explicit `--git-dir` rather than `{ cwd: <bareRepo> }`, which git
+ *  refuses when the user has `safe.bareRepository = explicit` configured. */
+export function bareGit(args: string[], gitDir: string): string {
+  return cp.execFileSync("git", [`--git-dir=${gitDir}`, ...args], { stdio: "pipe" }).toString();
+}
+
 export function makeRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-"));
   try {

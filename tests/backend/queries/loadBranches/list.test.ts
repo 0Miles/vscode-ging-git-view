@@ -5,6 +5,7 @@ import * as os from "node:os";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { gitClientFactory } from "@/backend/gitClient";
 import { loadBranches } from "@/backend/queries/loadBranches";
 
 import { git, makeRepo } from "@tests/backend/helpers";
@@ -134,6 +135,27 @@ describe("loadBranches", () => {
     });
   });
 
+  it("does not include shell colour codes when color.branch is always", async () => {
+    const r = makeRepo();
+    try {
+      cp.execFileSync("git", ["config", "color.branch", "always"], { cwd: r });
+      cp.execFileSync("git", ["branch", "feature"], { cwd: r });
+      // The gitClient disables colour, so branch names must be free of ANSI escapes.
+      const client = gitClientFactory(r, "git");
+      const result = await loadBranches(client.getInstance(), {
+        showRemoteBranches: false,
+        hard: false,
+        currentRepo: r,
+        gitPath: "git"
+      });
+      // eslint-disable-next-line no-control-regex
+      expect(result.branches.every((b) => !/\x1b\[/.test(b))).toBe(true);
+      expect(result.branches).toContain("feature");
+    } finally {
+      fs.rmSync(r, { recursive: true, force: true });
+    }
+  });
+
   it("passes hard flag through to the result", async () => {
     const result = await loadBranches(simpleGit(simpleRepo), {
       showRemoteBranches: false,
@@ -147,5 +169,42 @@ describe("loadBranches", () => {
       hard: true,
       isRepo: true
     });
+  });
+
+  it("omits branchDates unless includeDates is requested", async () => {
+    const result = await loadBranches(simpleGit(simpleRepo), {
+      showRemoteBranches: false,
+      hard: false,
+      currentRepo: simpleRepo,
+      gitPath: "git"
+    });
+    expect(result.branchDates).toBeUndefined();
+  });
+
+  it("returns a last-commit time for every branch when includeDates is set", async () => {
+    const result = await loadBranches(simpleGit(simpleRepo), {
+      showRemoteBranches: false,
+      hard: false,
+      currentRepo: simpleRepo,
+      gitPath: "git",
+      includeDates: true
+    });
+    expect(result.branchDates).toBeDefined();
+    for (const branch of result.branches) {
+      expect(typeof result.branchDates![branch]).toBe("number");
+      expect(Number.isFinite(result.branchDates![branch])).toBe(true);
+    }
+  });
+
+  it("keys remote branch dates to match the remotes/ branch-list format", async () => {
+    const result = await loadBranches(simpleGit(repoWithRemote), {
+      showRemoteBranches: true,
+      hard: false,
+      currentRepo: repoWithRemote,
+      gitPath: "git",
+      includeDates: true
+    });
+    const remote = result.branches.find((b) => b.startsWith("remotes/origin/"))!;
+    expect(typeof result.branchDates![remote]).toBe("number");
   });
 });

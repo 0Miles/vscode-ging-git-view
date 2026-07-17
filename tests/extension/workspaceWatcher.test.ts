@@ -174,7 +174,10 @@ suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
       const { watcher, watcherHandles, searched } = makeStubs(["/ws/a"]);
       watcher.startWatching();
       watcherHandles[0].fireCreate(makeUri(tmp));
-      await new Promise<void>((r) => setTimeout(r, 10));
+      // 500ms, not one tick: after the 0ms debounce fires, processCreateEvents
+      // suspends on await isDirectory() (real fs.stat I/O), which can be slow
+      // on loaded CI runners.
+      await new Promise<void>((r) => setTimeout(r, 500));
       assert.ok(searched.includes(tmp));
       watcher.dispose();
     } finally {
@@ -219,7 +222,8 @@ suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
       const { watcher, watcherHandles, searched } = makeStubs(["/ws/a"]);
       watcher.startWatching();
       watcherHandles[0].fireCreate(makeUri(tmp + "/.git"));
-      await new Promise<void>((r) => setTimeout(r, 10));
+      // Same 500ms rationale as the tests above: real fs I/O after the debounce.
+      await new Promise<void>((r) => setTimeout(r, 500));
       assert.ok(searched.includes(tmp));
       watcher.dispose();
     } finally {

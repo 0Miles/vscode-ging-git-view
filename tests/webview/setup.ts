@@ -1,15 +1,25 @@
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-export function createVscodeMock() {
+// The real vscode.setState persists state as JSON, so anything that doesn't
+// survive a JSON round-trip (Map, Set, DOM elements) is silently lost. Model
+// that here, otherwise tests restore live objects the real webview never gets.
+function jsonRoundTrip<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+export function createVscodeMock(initialState: WebViewState | null = null) {
   const sent: GG.RequestMessage[] = [];
-  let state: WebViewState | null = null;
+  // The real getState() yields undefined (not null) when nothing was saved —
+  // model that exactly, so a boot path that only handles null fails here too.
+  let state: WebViewState | undefined =
+    initialState === null ? undefined : jsonRoundTrip(initialState);
 
   const mock = {
     postMessage: (msg: GG.RequestMessage) => sent.push(msg),
     getState: () => state,
     setState: (s: WebViewState) => {
-      state = s;
+      state = jsonRoundTrip(s);
     }
   };
 
@@ -25,20 +35,26 @@ export function createVscodeMock() {
 export function setupHtml(viewState: GG.GitGraphViewState) {
   document.body.innerHTML = `
     <div id="controls">
-      <span id="repoControl"><div id="repoSelect" class="dropdown"></div></span>
-      <span id="branchControl"><div id="branchSelect" class="dropdown"></div></span>
-      <label id="showRemoteBranchesControl">
-        <input type="checkbox" id="showRemoteBranchesCheckbox" checked>
-        Show Remote Branches
-      </label>
+      <div id="repoTitle">
+        <span id="repoTitleName"></span>
+        <span id="repoTitleBranch"></span>
+      </div>
       <div id="refreshBtn" class="roundedBtn">Refresh</div>
       <div id="blinkHeadBtn" class="roundedBtn">Locate HEAD</div>
+      <div id="findBtn" class="roundedBtn">Find</div>
     </div>
     <div id="content">
       <div id="commitGraph"></div>
       <div id="commitTable"></div>
     </div>
     <div id="footer"></div>
+    <div id="findWidget">
+      <input id="findInput" type="text">
+      <span id="findCount"></span>
+      <div id="findPrev" class="findBtn"></div>
+      <div id="findNext" class="findBtn"></div>
+      <div id="findClose" class="findBtn"></div>
+    </div>
     <ul id="contextMenu"></ul>
     <div id="dialogBacking"></div>
     <div id="dialog"></div>

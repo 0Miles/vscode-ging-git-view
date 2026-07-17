@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { pushTag } from "@/backend/actions/tag";
 
-import { makeRepo } from "@tests/backend/helpers";
+import { bareGit, makeRepo } from "@tests/backend/helpers";
 
 let repo: string;
 let bare: string;
@@ -31,13 +31,15 @@ afterAll(() => {
 
 describe("pushTag", () => {
   it("pushes an existing tag to origin", async () => {
-    await pushTag(simpleGit(repo), { tagName: "v1.0" });
+    await pushTag(simpleGit(repo), { tagName: "v1.0", remotes: ["origin"] });
 
-    const tags = cp.execFileSync("git", ["tag", "-l"], { cwd: bare }).toString().trim();
+    const tags = bareGit(["tag", "-l"], bare).trim();
     expect(tags).toBe("v1.0");
   });
 
   it("throws when the tag does not exist locally", async () => {
-    await expect(pushTag(simpleGit(repo), { tagName: "v99.0-nonexistent" })).rejects.toThrow();
+    await expect(
+      pushTag(simpleGit(repo), { tagName: "v99.0-nonexistent", remotes: ["origin"] })
+    ).rejects.toThrow();
   });
 });

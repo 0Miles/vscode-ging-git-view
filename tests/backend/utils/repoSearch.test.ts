@@ -103,4 +103,38 @@ describe("searchDirectoryForRepos", () => {
     const result = await searchDirectoryForRepos(tmpDir, 2, "git", []);
     expect(result.every((r) => !r.includes("/.git"))).toBe(true);
   });
+
+  it("includes submodule repos declared in .gitmodules", async () => {
+    const superRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-sub-"));
+    try {
+      initRepo(superRoot);
+      const sub = path.join(superRoot, "sub");
+      initRepo(sub); // an initialised submodule (its own repo)
+      fs.writeFileSync(
+        path.join(superRoot, ".gitmodules"),
+        '[submodule "sub"]\n\tpath = sub\n\turl = ./sub\n'
+      );
+      const result = await searchDirectoryForRepos(superRoot, 0, "git", []);
+      expect(result).toContain(superRoot);
+      expect(result).toContain(sub);
+    } finally {
+      fs.rmSync(superRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores .gitmodules entries that are not initialised repos", async () => {
+    const superRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-sub2-"));
+    try {
+      initRepo(superRoot);
+      fs.mkdirSync(path.join(superRoot, "empty-sub")); // declared but not a repo
+      fs.writeFileSync(
+        path.join(superRoot, ".gitmodules"),
+        '[submodule "empty-sub"]\n\tpath = empty-sub\n\turl = ./empty-sub\n'
+      );
+      const result = await searchDirectoryForRepos(superRoot, 0, "git", []);
+      expect(result).toEqual([superRoot]);
+    } finally {
+      fs.rmSync(superRoot, { recursive: true, force: true });
+    }
+  });
 });

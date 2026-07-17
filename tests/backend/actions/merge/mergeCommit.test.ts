@@ -33,7 +33,9 @@ describe("mergeCommit", () => {
   it("merges a commit hash", async () => {
     await mergeCommit(simpleGit(repo), {
       commitHash: featureCommitHash,
-      createNewCommit: false
+      createNewCommit: false,
+      squash: false,
+      noCommit: false
     });
 
     const log = cp.execFileSync("git", ["log", "--oneline"], { cwd: repo }).toString();
@@ -53,18 +55,49 @@ describe("mergeCommit", () => {
 
     await mergeCommit(simpleGit(repo), {
       commitHash: commit2Hash,
-      createNewCommit: true
+      createNewCommit: true,
+      squash: false,
+      noCommit: false
     });
 
     const log = cp.execFileSync("git", ["log", "--oneline"], { cwd: repo }).toString();
     expect(log).toContain("Merge commit");
   });
 
+  it("squashes into a single non-merge commit when squash is true", async () => {
+    git(["checkout", "-b", "feature3"], repo);
+    fs.writeFileSync(path.join(repo, "feature3.txt"), "feature3");
+    git(["add", "."], repo);
+    git(["commit", "-m", "feature3 commit"], repo);
+    const commit3Hash = cp
+      .execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo })
+      .toString()
+      .trim();
+    git(["checkout", "main"], repo);
+
+    await mergeCommit(simpleGit(repo), {
+      commitHash: commit3Hash,
+      createNewCommit: false,
+      squash: true,
+      noCommit: false
+    });
+
+    const parents = cp
+      .execFileSync("git", ["rev-list", "--parents", "-n", "1", "HEAD"], { cwd: repo })
+      .toString()
+      .trim()
+      .split(" ");
+    expect(parents).toHaveLength(2); // <commit> <single-parent>, not a merge commit
+    expect(fs.existsSync(path.join(repo, "feature3.txt"))).toBe(true);
+  });
+
   it("throws when the commit hash is invalid", async () => {
     await expect(
       mergeCommit(simpleGit(repo), {
         commitHash: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-        createNewCommit: false
+        createNewCommit: false,
+        squash: false,
+        noCommit: false
       })
     ).rejects.toThrow();
   });

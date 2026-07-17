@@ -32,3 +32,53 @@ export const l10n = {
   },
   uri: undefined
 };
+
+// Minimal `vscode.Uri` stand-in: enough for URI construction/inspection in
+// pure logic under test (scheme, path, fsPath, query, `.with()`, `.toString()`).
+type UriParts = {
+  scheme: string;
+  authority: string;
+  path: string;
+  query: string;
+  fragment: string;
+};
+
+export class Uri {
+  readonly scheme: string;
+  readonly authority: string;
+  readonly path: string;
+  readonly query: string;
+  readonly fragment: string;
+
+  private constructor(parts: UriParts) {
+    this.scheme = parts.scheme;
+    this.authority = parts.authority;
+    this.path = parts.path;
+    this.query = parts.query;
+    this.fragment = parts.fragment;
+  }
+
+  static file(fsPath: string): Uri {
+    return new Uri({ scheme: "file", authority: "", path: fsPath, query: "", fragment: "" });
+  }
+
+  get fsPath(): string {
+    return this.path;
+  }
+
+  with(change: Partial<UriParts>): Uri {
+    return new Uri({
+      scheme: change.scheme ?? this.scheme,
+      authority: change.authority ?? this.authority,
+      path: change.path ?? this.path,
+      query: change.query ?? this.query,
+      fragment: change.fragment ?? this.fragment
+    });
+  }
+
+  toString(): string {
+    const q = this.query ? `?${this.query}` : "";
+    const f = this.fragment ? `#${this.fragment}` : "";
+    return `${this.scheme}://${this.authority}${this.path}${q}${f}`;
+  }
+}

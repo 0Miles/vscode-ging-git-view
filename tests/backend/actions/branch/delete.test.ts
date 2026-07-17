@@ -1,5 +1,6 @@
 import * as cp from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import { simpleGit } from "simple-git";
@@ -25,7 +26,8 @@ describe("deleteBranch", () => {
 
     await deleteBranch(simpleGit(repo), {
       branchName: "to-delete",
-      forceDelete: false
+      forceDelete: false,
+      deleteOnRemotes: false
     });
 
     const listed = cp
@@ -45,7 +47,8 @@ describe("deleteBranch", () => {
     await expect(
       deleteBranch(simpleGit(repo), {
         branchName: "unmerged",
-        forceDelete: false
+        forceDelete: false,
+        deleteOnRemotes: false
       })
     ).rejects.toThrow();
   });
@@ -53,7 +56,8 @@ describe("deleteBranch", () => {
   it("force-deletes a branch with unmerged changes", async () => {
     await deleteBranch(simpleGit(repo), {
       branchName: "unmerged",
-      forceDelete: true
+      forceDelete: true,
+      deleteOnRemotes: false
     });
 
     const listed = cp
@@ -67,8 +71,48 @@ describe("deleteBranch", () => {
     await expect(
       deleteBranch(simpleGit(repo), {
         branchName: "nonexistent",
-        forceDelete: false
+        forceDelete: false,
+        deleteOnRemotes: false
       })
     ).rejects.toThrow();
+  });
+
+  it("also deletes the branch on the remote when deleteOnRemotes is set", async () => {
+    const localRepo = makeRepo();
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), "neo-remote-"));
+    cp.execFileSync("git", ["init", "--bare", "--initial-branch=main"], { cwd: remote });
+    try {
+      git(["remote", "add", "origin", remote], localRepo);
+      git(["push", "origin", "main"], localRepo);
+      git(["branch", "feature", "main"], localRepo);
+      git(["push", "origin", "feature"], localRepo);
+
+      // Sanity check: the branch exists on the remote before deletion.
+      const before = cp
+        .execFileSync("git", ["ls-remote", "--heads", "origin", "feature"], { cwd: localRepo })
+        .toString()
+        .trim();
+      expect(before).not.toBe("");
+
+      await deleteBranch(simpleGit(localRepo), {
+        branchName: "feature",
+        forceDelete: false,
+        deleteOnRemotes: true
+      });
+
+      const localList = cp
+        .execFileSync("git", ["branch", "--list", "feature"], { cwd: localRepo })
+        .toString()
+        .trim();
+      expect(localList).toBe("");
+      const after = cp
+        .execFileSync("git", ["ls-remote", "--heads", "origin", "feature"], { cwd: localRepo })
+        .toString()
+        .trim();
+      expect(after).toBe("");
+    } finally {
+      fs.rmSync(localRepo, { recursive: true, force: true });
+      fs.rmSync(remote, { recursive: true, force: true });
+    }
   });
 });

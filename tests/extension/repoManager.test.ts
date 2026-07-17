@@ -170,10 +170,11 @@ suite("repoManager", () => {
     test("does not call the callback after deregistering", () => {
       const { manager } = makeManager({ "/a": { columnWidths: null } });
       let called = false;
-      manager.registerViewCallback(() => {
+      const cb = () => {
         called = true;
-      });
-      manager.deregisterViewCallback();
+      };
+      manager.registerViewCallback(cb);
+      manager.deregisterViewCallback(cb);
       manager.sendRepos();
       assert.strictEqual(called, false);
     });
