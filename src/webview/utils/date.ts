@@ -1,22 +1,36 @@
-let getMonthCache: string[] | null = null;
-export function getMonth(): string[] {
-  if (getMonthCache) return getMonthCache;
-  getMonthCache = [
-    l10n.monthJan,
-    l10n.monthFeb,
-    l10n.monthMar,
-    l10n.monthApr,
-    l10n.monthMay,
-    l10n.monthJun,
-    l10n.monthJul,
-    l10n.monthAug,
-    l10n.monthSep,
-    l10n.monthOct,
-    l10n.monthNov,
-    l10n.monthDec
-  ];
-  return getMonthCache;
-}
+// English month abbreviations, kept locale-independent so the `MMM` token
+// always renders (e.g. "Nov") regardless of the active VS Code display
+// language — matching the default `dates.customFormat` of "DD MMM YYYY".
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 export function pad2(i: number) {
   return i > 9 ? i : "0" + i;
+}
+
+/**
+ * Render a date using a token pattern, e.g. "DD MMM YYYY" → "19 Nov 2026".
+ * Tokens (longest match wins): YYYY, YY, MMM, MM, M, DD, D. Any other text in
+ * the pattern is emitted verbatim.
+ */
+export function formatDate(date: Date, pattern: string): string {
+  return pattern.replace(/YYYY|YY|MMM|MM|M|DD|D/g, (token) => {
+    switch (token) {
+      case "YYYY":
+        return String(date.getFullYear());
+      case "YY":
+        return String(pad2(date.getFullYear() % 100));
+      case "MMM":
+        return MONTHS[date.getMonth()];
+      case "MM":
+        return String(pad2(date.getMonth() + 1));
+      case "M":
+        return String(date.getMonth() + 1);
+      case "DD":
+        return String(pad2(date.getDate()));
+      case "D":
+        return String(date.getDate());
+      default:
+        return token;
+    }
+  });
 }

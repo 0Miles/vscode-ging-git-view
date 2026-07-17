@@ -1,4 +1,10 @@
 /* Body */
+/* Always reserve the document scrollbar so the view doesn't shift horizontally
+   (whole-screen flicker) when a re-render changes the page height enough to
+   add/remove the scrollbar — e.g. when filtering or switching branches. */
+html {
+  overflow-y: scroll;
+}
 body {
   margin: 0;
   padding: 0;
@@ -20,9 +26,91 @@ body.unableToLoad p {
   z-index: 200;
 }
 
+/* Use the VS Code Color Theme's text-selection background colour, but only when
+   the theme/user actually defines one (the body class is toggled from JS). */
+body.selection-background-color-exists ::-moz-selection {
+  background-color: var(--vscode-selection-background);
+}
+body.selection-background-color-exists ::selection {
+  background-color: var(--vscode-selection-background);
+}
+
+/* Markdown inline code (e.g. in commit messages): pin the line-height so the
+   monospace font can't increase a commit row's height across platforms. */
+code {
+  line-height: 1;
+}
+
 /* Content */
 #content {
   position: relative;
+}
+
+/* Conflict-resolution banner */
+#conflictBanner {
+  display: none;
+}
+#conflictBanner.active {
+  display: block;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+  background-color: var(--vscode-inputValidation-warningBackground, rgba(255, 200, 0, 0.1));
+  font-size: 13px;
+}
+.conflictBannerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.conflictBannerTitle {
+  font-weight: bold;
+}
+.conflictBannerButtons {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+#conflictBanner .roundedBtn {
+  display: inline-block;
+  padding: 1px 12px;
+}
+#conflictBanner .roundedBtn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.conflictBannerList {
+  margin: 6px 0 0 0;
+  padding-left: 0;
+  list-style: none;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.conflictBannerList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 1px 0;
+}
+.conflictFile {
+  cursor: pointer;
+  text-decoration: underline;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conflictFile:hover {
+  color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+}
+.conflictResolveBtn {
+  cursor: pointer;
+  flex-shrink: 0;
+  color: var(--vscode-textLink-foreground);
+}
+.conflictBannerAllResolved {
+  margin-top: 4px;
+  color: var(--vscode-descriptionForeground);
 }
 
 /* Commit Graph */
@@ -31,13 +119,25 @@ body.unableToLoad p {
   position: absolute;
   left: 8px;
   top: 0px;
-  z-index: -1;
+  /* Painted ABOVE the row backgrounds (so opaque theme list colours for
+     hover/selection never hide the graph lines), but click-transparent so the
+     rows underneath still receive pointer events. Matches upstream layering. */
+  z-index: 2;
+  pointer-events: none;
 }
 #commitGraph circle.current {
   fill: var(--vscode-editor-background);
   stroke-width: 2;
 }
 #commitGraph circle:not(.current) {
+  stroke: var(--vscode-editor-background);
+  stroke-width: 1;
+  stroke-opacity: 0.75;
+}
+/* Outer ring drawn behind the HEAD node: the same editor-background outline
+   normal nodes get, hugging the outside of the coloured stroke. */
+#commitGraph circle.currentHalo {
+  fill: none;
   stroke: var(--vscode-editor-background);
   stroke-width: 1;
   stroke-opacity: 0.75;
@@ -74,21 +174,49 @@ body.unableToLoad p {
   text-overflow: ellipsis;
   overflow: hidden;
 }
+/* Native list hover colour; safe to use opaquely because the graph SVG is
+   painted above the row backgrounds (see #commitGraph). */
 #commitTable tr.commit:hover td,
 #commitTable tr.commit.contextMenuActive td,
 #commitTable tr.commit.dialogActive td,
 #commitTable tr.commit.commitDetailsOpen td {
-  background-color: rgba(128, 128, 128, 0.15);
+  background-color: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15));
 }
 #commitTable tr.commit:hover td {
   cursor: pointer;
+}
+#commitTable tr.commit.muted td {
+  color: var(--vscode-descriptionForeground);
+}
+#commitTable th.hidden,
+#commitTable td.hidden {
+  display: none;
+}
+.gitFileChangeTypeIndicator {
+  display: inline-block;
+  min-width: 1.1em;
+  font-weight: bold;
+  text-align: center;
+}
+.commitSignature {
+  font-weight: bold;
+  margin-right: 4px;
+}
+.commitSignature.good {
+  color: var(--vscode-gitDecoration-untrackedResourceForeground);
+}
+.commitSignature.unverified {
+  color: var(--vscode-descriptionForeground);
+}
+.commitSignature.bad {
+  color: var(--vscode-errorForeground);
 }
 #commitTable td {
   line-height: 24px;
   padding: 0 4px;
 }
 #commitTable th {
-  border-bottom: 1px solid rgba(128, 128, 128, 0.5);
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.5));
   line-height: 18px;
   padding: 6px 12px;
 }
@@ -121,7 +249,7 @@ body.unableToLoad p {
 }
 .resizeCol.left {
   left: 0px;
-  border-left: 1px solid rgba(128, 128, 128, 0.25);
+  border-left: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.25));
 }
 .resizeCol.right {
   right: 0px;
@@ -133,7 +261,13 @@ body.unableToLoad p {
   vertical-align: top;
 }
 #commitDetails td {
-  background-color: rgba(128, 128, 128, 0.1);
+  /* Layering follows the Quick Pick: the details panel is a *surface* (like
+     the quick-input widget itself), one elevation step above the view — not a
+     hovered or selected list item. */
+  background-color: var(
+    --vscode-quickInput-background,
+    var(--vscode-editorWidget-background, var(--vscode-editor-background))
+  );
   position: relative;
   font-size: 13px;
   line-height: 18px;
@@ -147,13 +281,73 @@ body.unableToLoad p {
   right: 0;
   bottom: 0;
   height: 2px;
-  background-color: rgba(128, 128, 128, 0.2);
+  background-color: var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
 }
+/* The row whose Commit Details View is open is the selected row: use the
+   Quick Pick focused-item colours (falling back to list selection). Hovering
+   it keeps the selection colour (as native lists do) — this rule wins over
+   the shared hover rule above because it comes later at equal specificity. */
 #commitTable tr.commit.commitDetailsOpen td {
-  background-color: rgba(128, 128, 128, 0.25);
+  background-color: var(
+    --vscode-quickInputList-focusBackground,
+    var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, 0.25))
+  );
+  color: var(
+    --vscode-quickInputList-focusForeground,
+    var(--vscode-list-activeSelectionForeground, var(--vscode-editor-foreground))
+  );
 }
-#commitTable tr.commit.commitDetailsOpen:hover td {
-  background-color: rgba(128, 128, 128, 0.35);
+/* Docked-to-bottom Commit Details View: a fixed panel below the graph
+   rather than a row inserted into the table. Its inner panels are positioned
+   absolutely, so the fixed container is their containing block. */
+#commitDetails.docked {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 252px;
+  z-index: 80;
+  /* Same quick-input-like surface as the inline CDV, so both modes sit on the
+     identical elevation layer. */
+  background-color: var(
+    --vscode-quickInput-background,
+    var(--vscode-editorWidget-background, var(--vscode-editor-background))
+  );
+  border-top: 2px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  font-size: 13px;
+  line-height: 18px;
+  white-space: normal;
+}
+#commitDetails.docked #commitDetailsSummary,
+#commitDetails.docked #commitDetailsFiles {
+  bottom: 0;
+}
+body.cdvDocked #content {
+  padding-bottom: 252px;
+}
+/* Draggable inline CDV summary/files divider + bottom height grip. */
+#detailsDivider {
+  position: absolute;
+  top: 0;
+  bottom: 2px;
+  left: 45%;
+  width: 7px;
+  margin-left: -3px;
+  cursor: col-resize;
+  z-index: 1;
+}
+#detailsResizeGrip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  cursor: row-resize;
+  z-index: 1;
+}
+#commitDetails.docked #detailsDivider,
+#commitDetails.docked #detailsResizeGrip {
+  display: none;
 }
 #commitDetailsSummary {
   position: absolute;
@@ -166,8 +360,8 @@ body.unableToLoad p {
   overflow-x: hidden;
   overflow-y: auto;
   text-overflow: ellipsis;
-  border-left: 1px solid rgba(128, 128, 128, 0.2);
-  border-right: 1px solid rgba(128, 128, 128, 0.2);
+  border-left: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  border-right: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
   user-select: text;
 }
 .commitDetailsSummaryTop {
@@ -203,7 +397,7 @@ body.unableToLoad p {
   top: 0;
   bottom: 2px;
   left: 45%;
-  border-right: 1px solid rgba(128, 128, 128, 0.2);
+  border-right: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
   overflow-x: hidden;
   overflow-y: scroll;
   padding-top: 4px;
@@ -225,7 +419,10 @@ body.unableToLoad p {
   margin-top: 4px;
   white-space: nowrap;
   text-overflow: ellipsis;
-  overflow-x: hidden;
+  /* Clip both axes: overflow-x:hidden alone makes overflow-y compute to auto,
+     which gives each row its own scrollbar when the icon is a touch taller than
+     the line box. */
+  overflow: hidden;
 }
 #commitDetailsClose {
   position: absolute;
@@ -245,6 +442,38 @@ body.unableToLoad p {
   stroke: var(--vscode-editor-foreground);
   stroke-width: 1;
   stroke-opacity: 0.2;
+}
+/* Tree/list file-layout toggle in the right-hand toolbar strip, stacked
+   below the close button. */
+#cdvFileViewToggle {
+  position: absolute;
+  right: 4px;
+  top: 34px;
+  width: 24px;
+}
+.cdvFileViewBtn {
+  width: 16px;
+  height: 16px;
+  padding: 4px;
+  margin-bottom: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cdvFileViewBtn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: var(--vscode-editor-foreground);
+  fill-opacity: 0.4;
+}
+.cdvFileViewBtn:hover svg {
+  fill-opacity: 0.7;
+}
+.cdvFileViewBtn.active {
+  background-color: var(--vscode-toolbar-activeBackground, rgba(128, 128, 128, 0.25));
+}
+.cdvFileViewBtn.active svg {
+  fill-opacity: 0.85;
 }
 svg.openFolderIcon,
 svg.closedFolderIcon,
@@ -322,16 +551,82 @@ svg.fileIcon {
   line-height: 18px;
   margin-top: 2px;
   margin-right: 5px;
-  padding-right: 5px;
-  background-color: rgba(128, 128, 128, 0.15);
+  /* Chip tint/border are derived from the theme foreground rather than
+     panel-border: several themes (e.g. Dark Modern) define panel-border so
+     close to the background that the chip outline would vanish, while a
+     foreground mix is guaranteed to contrast in any theme. The tint is mixed
+     onto the editor background (not transparent) so the chip is opaque —
+     identical look on normal rows, but the selection highlight underneath
+     can't bleed through it. */
+  background-color: color-mix(
+    in srgb,
+    var(--vscode-editor-foreground, rgb(128, 128, 128)) 12%,
+    var(--vscode-editor-background)
+  );
   border-radius: 5px;
-  border: 1px solid rgba(128, 128, 128, 0.75);
+  border: 1px solid
+    color-mix(in srgb, var(--vscode-editor-foreground, rgb(128, 128, 128)) 55%, transparent);
   vertical-align: top;
   font-size: 12px;
   cursor: default;
+  overflow: hidden;
+  /* Keep the normal label colour even when the commit row is muted (e.g. a
+     merge commit), rather than inheriting the dimmed row text colour. */
+  color: var(--vscode-editor-foreground);
 }
 .gitRef.active {
   border-color: var(--git-graph-color);
+}
+.gitRef.active .gitRefName {
+  font-weight: bold;
+}
+.gitRefName {
+  display: inline-block;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 5px;
+  vertical-align: top;
+}
+/* Reference-label alignment. Branches aligned to the graph sit in the
+   first cell; trim the trailing margin of the last one. Right-aligned tags
+   gain a little left margin so they don't touch the message. */
+body.branchLabelsAlignedToGraph #commitTable tr.commit td:first-child .gitRef:last-child {
+  margin-right: 0;
+}
+body.tagLabelsRightAligned .gitRef.tag {
+  margin-left: 5px;
+  margin-right: 0;
+}
+.gitRef.stash {
+  /* Keep the original faint-gold chip look, but derive the hue from the active
+     theme's warning colour (an opaque token); mixed onto the editor background
+     so the chip stays opaque like the base .gitRef. */
+  background-color: color-mix(
+    in srgb,
+    var(--vscode-statusBarItem-warningBackground, rgb(255, 184, 0)) 15%,
+    var(--vscode-editor-background)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--vscode-statusBarItem-warningBackground, rgb(255, 184, 0)) 60%,
+    transparent
+  );
+  font-style: italic;
+}
+/* A remote branch folded into its local head's label: an italic chip
+   separated from the branch name by a divider. */
+.gitRef.gitRefCombined {
+  height: 18px;
+  line-height: 18px;
+  margin: 0;
+  padding: 0 5px;
+  border: none;
+  border-left: 1px solid
+    color-mix(in srgb, var(--vscode-editor-foreground, rgb(128, 128, 128)) 35%, transparent);
+  border-radius: 0;
+  background-color: transparent;
+  font-style: italic;
+  vertical-align: top;
 }
 .gitRef > svg {
   background-color: var(--git-graph-color);
@@ -339,8 +634,6 @@ svg.fileIcon {
   width: 14px;
   height: 14px;
   padding: 2px;
-  margin-right: 5px;
-  border-radius: 4px 0 0 4px;
   vertical-align: top;
 }
 
@@ -351,7 +644,7 @@ svg.fileIcon {
 }
 #loadingHeader svg {
   display: inline;
-  fill: rgb(128, 128, 128);
+  fill: var(--vscode-icon-foreground, rgb(128, 128, 128));
   margin-right: 10px;
   vertical-align: top;
   animation: loadingIconAnimation 2s linear infinite;
@@ -366,75 +659,129 @@ svg.fileIcon {
 }
 
 /* Controls */
+/* Control bar: a thin strip of icon buttons, right-aligned in a flex row. The
+   branch dropdown and the show-remote checkbox moved to the Branches side-view,
+   so the bar no longer has any inline content to give it height — hence the
+   explicit height and flex layout. */
 #controls {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   position: relative;
-  left: 0;
-  right: 0;
-  top: 0;
-  padding: 4px 96px 4px 0;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.5);
-  line-height: 32px;
-  text-align: center;
-  font-weight: 700;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.5));
   font-size: 13px;
 }
-#repoControl,
-#branchControl,
-#showRemoteBranchesControl {
+/* Repo title block on the left: repo name and the checked-out branch on one
+   line, vertically centred in the bar. margin-right:auto pushes the icon
+   buttons to the right; min-width:0 lets the block shrink so long names
+   ellipsise instead of pushing them out. */
+#repoTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  padding-left: 4px;
+  min-width: 0;
+  line-height: 1.2;
+  user-select: none;
+}
+#repoTitleName {
+  font-size: 13px;
+  font-weight: 600;
+}
+#repoTitleBranch {
+  font-size: 11px;
+  opacity: 0.75;
+}
+#repoTitleName,
+#repoTitleBranch {
   white-space: nowrap;
-  margin: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-#repoSelect,
-#branchSelect {
-  margin-left: 3px;
-}
-#showRemoteBranchesCheckbox {
-  width: 14px;
-  vertical-align: text-top;
-}
+/* Each button is a 20x20 positioned box so its inner <svg> can be offset
+   within it (the svgs are absolutely positioned). */
+#findBtn,
+#terminalBtn,
+#blinkHeadBtn,
+#fetchBtn,
 #refreshBtn {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  width: 80px;
-  height: 22px;
-  line-height: 22px;
-  border-radius: 11px;
-  margin-top: -12px;
+  position: relative;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
 }
-/* Make the Locate HEAD button match the refresh button style but smaller */
-#blinkHeadBtn {
+#findBtn svg,
+#terminalBtn svg,
+#blinkHeadBtn svg,
+#fetchBtn svg,
+#refreshBtn svg {
   position: absolute;
-  right: 96px;
-  top: 50%;
-  width: 120px;
-  height: 22px;
-  line-height: 22px;
-  border-radius: 11px;
-  margin-top: -12px;
-  text-align: center;
+  fill: var(--vscode-editor-foreground);
+  opacity: 0.8;
+  stroke: var(--vscode-editor-foreground);
+  stroke-opacity: 0.5;
+  stroke-width: 0;
+}
+#findBtn svg,
+#terminalBtn svg {
+  stroke-width: 0.5px;
+}
+#findBtn:hover svg,
+#terminalBtn:hover svg,
+#blinkHeadBtn:hover svg,
+#fetchBtn:hover svg,
+#refreshBtn:hover svg {
+  opacity: 1;
+  stroke-width: 0.5px;
+}
+#findBtn:hover svg,
+#terminalBtn:hover svg {
+  stroke-width: 1px;
+}
+#findBtn svg,
+#terminalBtn svg,
+#blinkHeadBtn svg,
+#fetchBtn svg {
+  left: 1px;
+  top: 1px;
+  width: 18px !important;
+  height: 18px !important;
+}
+#refreshBtn svg {
+  left: 2px;
+  top: 2px;
+  width: 16px !important;
+  height: 16px !important;
+}
+/* Native-style hover affordance: a subtle rounded background behind the icon,
+   matching VS Code's editor/panel toolbar action buttons. */
+#findBtn:hover,
+#terminalBtn:hover,
+#blinkHeadBtn:hover,
+#fetchBtn:hover,
+#refreshBtn:hover {
+  background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+  border-radius: 5px;
 }
 #loadMoreCommitsBtn {
   width: 180px;
   height: 28px;
   margin: 10px auto;
-  border-radius: 14px;
   line-height: 28px;
-}
-
-#controls select:focus,
-#controls input:focus {
-  outline: none;
-}
-#controls label {
-  cursor: pointer;
 }
 
 /* Context Menu */
 #contextMenu {
   display: none;
   position: absolute;
+  /* Above the graph SVG (z-index: 2) and the docked CDV (z-index: 80). */
+  z-index: 300;
   background-color: var(--vscode-menu-background);
   box-shadow: 0 1px 4px 1px var(--vscode-widget-shadow);
   color: var(--vscode-menu-foreground);
@@ -469,20 +816,42 @@ svg.fileIcon {
 #dialog.active {
   display: block;
   position: fixed;
-  background-color: var(--vscode-menu-background);
-  color: var(--vscode-menu-foreground);
-  padding: 10px;
+  /* A dialog is closest to a native quick input, so it sits on the same
+     surface token tree as the CDV (quickInput → editorWidget). That surface is
+     distinct from input-background, keeping the form controls visible. */
+  background-color: var(
+    --vscode-quickInput-background,
+    var(--vscode-editorWidget-background, var(--vscode-menu-background))
+  );
+  color: var(
+    --vscode-quickInput-foreground,
+    var(--vscode-editorWidget-foreground, var(--vscode-menu-foreground))
+  );
+  padding: 16px;
   left: 50%;
   top: 50%;
   transform: translateX(-50%) translateY(-50%);
-  border: 1px solid rgba(128, 128, 128, 0.5);
+  border: 1px solid
+    var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.5)));
   border-radius: 5px;
+  /* Plain alerts (message + buttons only) stay centred… */
   text-align: center;
-  max-width: 360px;
+  max-width: 400px;
   max-height: 80%;
   z-index: 10;
   box-shadow: 0 0 30px 5px var(--vscode-widget-shadow);
   overflow-y: auto;
+}
+/* …while form dialogs follow the native dialog layout: body text and controls
+   align left, buttons align right with the primary action outermost. */
+#dialog.active:has(table.dialogForm) {
+  text-align: left;
+}
+#dialog.active:has(table.dialogForm) .dialogButtons {
+  justify-content: flex-end;
+}
+#dialog.active:has(table.dialogForm) #dialogAction {
+  order: 2;
 }
 
 #dialog > table.dialogForm {
@@ -490,7 +859,7 @@ svg.fileIcon {
   width: 360px;
 }
 #dialog > table.dialogForm td {
-  padding-top: 10px;
+  padding-top: 8px;
   text-align: left;
   white-space: nowrap;
 }
@@ -498,46 +867,137 @@ svg.fileIcon {
   width: 100%;
 }
 #dialog > table.dialogForm.multi td:nth-child(1) {
-  padding-right: 5px;
+  padding-right: 8px;
 }
 #dialog > table.dialogForm.single select {
   width: 100%;
 }
-#dialog > table.dialogForm.single .dialogFormCheckbox {
+#dialog > table.dialogForm .dialogFormCheckbox {
   display: inline-block;
-  text-align: center;
+  text-align: left;
   width: 100%;
+}
+#dialog > table.dialogForm .dialogFormCheckbox input[type="checkbox"] {
+  margin-left: 0;
+  margin-right: 6px;
 }
 #dialog > table.dialogForm input[type="text"] {
   width: 100%;
 }
+/* Theme dialog inputs to respect the active VS Code Color Theme: a
+   custom-rendered checkbox and themed select/text controls. */
 #dialog > table.dialogForm input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 15px;
+  height: 15px;
   vertical-align: text-top;
+  border: 1px solid
+    var(
+      --vscode-checkbox-border,
+      color-mix(in srgb, var(--vscode-editor-foreground, rgb(128, 128, 128)) 40%, transparent)
+    );
+  border-radius: 3px;
+  background: var(--vscode-checkbox-background, var(--vscode-input-background));
   outline-style: none;
+  cursor: pointer;
 }
-#dialog > table.dialogForm.multi input[type="checkbox"] {
-  margin-left: 0;
+#dialog > table.dialogForm input[type="checkbox"]:checked {
+  background: var(--vscode-checkbox-selectBackground, var(--vscode-button-background));
+  border-color: var(--vscode-checkbox-selectBorder, var(--vscode-button-background));
+}
+#dialog > table.dialogForm input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--vscode-checkbox-foreground, var(--vscode-button-foreground, #fff));
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 #dialog > table.dialogForm input[type="text"],
 #dialog > table.dialogForm select {
   padding: 4px;
   box-sizing: border-box;
-  border: 1px solid rgba(128, 128, 128, 0.3);
+  /* Fall through to a foreground-derived border so the controls keep a visible
+     outline even in themes whose input/dropdown borders match the background. */
+  border: 1px solid
+    var(
+      --vscode-input-border,
+      var(
+        --vscode-dropdown-border,
+        color-mix(in srgb, var(--vscode-editor-foreground, rgb(128, 128, 128)) 30%, transparent)
+      )
+    );
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
   outline-style: none;
+}
+#dialog > table.dialogForm select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
+  color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
+  /* The chevron is an inline data URI, which cannot reference CSS variables —
+     so it is swapped per theme kind via the body classes VS Code injects,
+     using the native icon-foreground values (#C5C5C5 dark / #424242 light). */
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23C5C5C5' d='M8 11L3 6h10z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 22px;
+}
+body.vscode-light #dialog > table.dialogForm select,
+body.vscode-high-contrast-light #dialog > table.dialogForm select {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23424242' d='M8 11L3 6h10z'/></svg>");
+}
+#dialog > table.dialogForm select option {
+  background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
+  color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
+}
+/* Button row: centred for plain alerts; form dialogs flip it to flex-end via
+   the :has() rule above. Spacing follows the native dialog conventions
+   (16px above the row, 8px between buttons, 4px/14px button padding). */
+#dialog .dialogButtons {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
 }
 #dialog .roundedBtn {
   display: inline-block;
-  line-height: 20px;
-  padding: 0 15px;
-  margin: 10px 6px 0 6px;
-  height: 22px;
-  border-radius: 11px;
+  line-height: 18px;
+  padding: 3px 14px;
 }
 #dialog .errorReason {
   display: inline-block;
   font-style: italic;
   margin-top: 10px;
   text-align: left;
+}
+#dialog .conflictPrediction {
+  display: block;
+  font-size: 0.9em;
+  margin-top: 10px;
+  text-align: left;
+}
+#dialog .conflictPrediction.checking {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+#dialog .conflictPrediction.noConflict {
+  color: var(--vscode-descriptionForeground);
+}
+#dialog .conflictPrediction.hasConflict {
+  color: var(--vscode-errorForeground);
+}
+#dialog .conflictPredictionList {
+  margin: 4px 0 0 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow-y: auto;
 }
 #dialogBacking.active {
   display: block;
@@ -550,7 +1010,6 @@ svg.fileIcon {
 }
 #dialog.noInput #dialogAction,
 #dialog.inputInvalid #dialogAction {
-  background-color: rgba(128, 128, 128, 0.2);
   opacity: 0.5;
 }
 #dialog.noInput #dialogAction {
@@ -561,7 +1020,7 @@ svg.fileIcon {
 }
 #dialog svg {
   display: inline;
-  fill: rgb(128, 128, 128);
+  fill: var(--vscode-icon-foreground, rgb(128, 128, 128));
   margin-right: 3px;
   line-height: 20px;
   vertical-align: sub;
@@ -579,10 +1038,18 @@ svg.fileIcon {
 
 @keyframes headPulse {
   0% {
-    background-color: oklch(87.44% 0.2383 150 / 0.1);
+    background-color: color-mix(
+      in srgb,
+      var(--vscode-gitDecoration-addedResourceForeground, oklch(87.44% 0.2383 150)) 10%,
+      transparent
+    );
   }
   50% {
-    background-color: oklch(87.44% 0.2383 150 / 0.5);
+    background-color: color-mix(
+      in srgb,
+      var(--vscode-gitDecoration-addedResourceForeground, oklch(87.44% 0.2383 150)) 50%,
+      transparent
+    );
   }
   100% {
     background-color: transparent;
@@ -590,7 +1057,7 @@ svg.fileIcon {
 }
 #actionRunning svg {
   display: inline-block;
-  fill: rgb(128, 128, 128);
+  fill: var(--vscode-icon-foreground, rgb(128, 128, 128));
   margin-right: 10px;
   vertical-align: top;
   animation: loadingIconAnimation 2s linear infinite;
@@ -598,17 +1065,42 @@ svg.fileIcon {
   height: 24px !important;
 }
 
-/* Buttons */
+/* Buttons — styled to mirror VS Code's native button component, reusing the
+   button theme variables so they stay consistent across colour themes. The
+   base is the neutral (secondary) variant; primary actions are promoted by id
+   below. */
 .roundedBtn {
   display: block;
-  background-color: rgba(128, 128, 128, 0.1);
-  border: 1px solid rgba(128, 128, 128, 0.5);
+  background-color: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.1));
+  color: var(--vscode-button-secondaryForeground, inherit);
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 2px;
   font-size: 13px;
   text-align: center;
   cursor: pointer;
 }
 .roundedBtn:hover {
-  background-color: rgba(128, 128, 128, 0.2);
+  background-color: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2));
+}
+/* Primary actions: confirm / execute (dialog action, conflict continue). The
+   hover highlight is suppressed while the action is disabled (no/invalid input)
+   so it matches VS Code's native disabled-button behaviour. */
+#dialogAction,
+#conflictContinue {
+  background-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+#dialog:not(.noInput):not(.inputInvalid) #dialogAction:hover,
+#conflictContinue:not(.disabled):hover {
+  background-color: var(--vscode-button-hoverBackground);
+}
+/* Busy indicator while a refresh/load is in progress: spin the icon. */
+#refreshBtn.refreshing {
+  cursor: default;
+  pointer-events: none;
+}
+#refreshBtn.refreshing svg {
+  animation: loadingIconAnimation 2s linear infinite;
 }
 
 /* General */
@@ -618,7 +1110,140 @@ svg.fileIcon {
 .gitRef,
 #loadingHeader,
 .unselectable,
-.roundedBtn,
-#controls label {
+.roundedBtn {
   user-select: none;
+}
+
+.gitFileCopyPath,
+.gitFileOpen,
+.gitFileViewRev,
+.gitFileDiffWorking {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin-left: 6px;
+  vertical-align: middle;
+  cursor: pointer;
+  opacity: 0;
+}
+.gitFile:hover .gitFileCopyPath,
+.gitFile:hover .gitFileOpen,
+.gitFile:hover .gitFileViewRev,
+.gitFile:hover .gitFileDiffWorking {
+  opacity: 0.6;
+}
+.gitFileCopyPath:hover,
+.gitFileOpen:hover,
+.gitFileViewRev:hover,
+.gitFileDiffWorking:hover {
+  opacity: 1;
+}
+.gitFileCopyPath svg,
+.gitFileOpen svg,
+.gitFileViewRev svg,
+.gitFileDiffWorking svg {
+  width: 13px;
+  height: 13px;
+  fill: var(--vscode-editor-foreground);
+}
+
+.commitBodyHash {
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* Find Widget — styled to mirror VS Code's native editor find widget, reusing
+   the same theme variables (editorWidget / input / inputOption / findMatch) so
+   it stays visually consistent with native search across colour themes and
+   high-contrast modes. */
+#findWidget {
+  display: none;
+  position: fixed;
+  top: 44px;
+  right: 14px;
+  z-index: 250;
+  align-items: center;
+  padding: 4px 4px 4px 6px;
+  color: var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground));
+  background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-widget-border, var(--vscode-contrastBorder, transparent));
+  border-radius: 4px;
+  box-shadow: 0 0 8px 2px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
+#findWidget.active {
+  display: flex;
+}
+#findInput {
+  height: 24px;
+  box-sizing: border-box;
+  background-color: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  outline: none;
+  border-radius: 2px;
+  padding: 2px 6px;
+  font-size: 13px;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-input-foreground);
+  width: 180px;
+}
+#findInput::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+  opacity: 1;
+}
+#findInput:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+#findCount {
+  font-size: 12px;
+  opacity: 0.75;
+  margin: 0 4px 0 8px;
+  min-width: 48px;
+  text-align: center;
+}
+.findBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  cursor: pointer;
+  font-size: 12px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--vscode-icon-foreground, var(--vscode-editor-foreground));
+  user-select: none;
+}
+.findBtn:hover {
+  background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+/* The "open details as you navigate" toggle, highlighted while enabled —
+   styled like a native input-option toggle (e.g. Match Case) when active. */
+#findOpenCdv.active {
+  color: var(--vscode-inputOption-activeForeground, var(--vscode-editor-foreground));
+  background-color: var(--vscode-inputOption-activeBackground, transparent);
+  border-color: var(--vscode-inputOption-activeBorder, transparent);
+}
+/* Find matches reuse VS Code's native find-match highlight colours. */
+#commitTable tr.commit.findMatch td {
+  background-color: var(--vscode-editor-findMatchHighlightBackground, rgba(234, 92, 0, 0.18));
+}
+#commitTable tr.commit.findMatchCurrent td {
+  background-color: var(--vscode-editor-findMatchBackground, rgba(234, 92, 0, 0.4));
+}
+/* Outline find matches so they remain visible under High Contrast themes,
+   where the translucent background tint may not render. */
+#commitTable tr.commit.findMatch {
+  outline: 1px solid var(--vscode-editor-findMatchHighlightBorder, transparent);
+  outline-offset: -1px;
+}
+#commitTable tr.commit.findMatchCurrent {
+  outline: 1px solid
+    var(--vscode-editor-findMatchBorder, var(--vscode-editor-findMatchHighlightBorder, transparent));
+  outline-offset: -1px;
+}
+body.vscode-high-contrast #commitTable tr.commit.findMatch,
+body.vscode-high-contrast #commitTable tr.commit.findMatchCurrent {
+  outline-style: dotted;
 }

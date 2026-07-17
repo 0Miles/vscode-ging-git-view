@@ -125,7 +125,12 @@ class Branch {
 
       // If the new point belongs to a different path, render the current path and reset it for the new path
       if (curPath !== "" && i > 0 && lines[i].isCommitted !== lines[i - 1].isCommitted) {
-        this.drawPath(svg, curPath, curColour);
+        this.drawPath(
+          svg,
+          curPath,
+          curColour,
+          curColour === "#808080" && config.uncommittedChangesAtHead
+        );
         curPath = "";
         curColour = "";
       }
@@ -170,9 +175,15 @@ class Branch {
       }
     }
 
-    this.drawPath(svg, curPath, curColour); // Draw the remaining path
+    // Draw the remaining path (dashed if it's the uncommitted line).
+    this.drawPath(
+      svg,
+      curPath,
+      curColour,
+      curColour === "#808080" && config.uncommittedChangesAtHead
+    );
   }
-  private drawPath(svg: SVGElement, path: string, colour: string) {
+  private drawPath(svg: SVGElement, path: string, colour: string, dashed: boolean = false) {
     let line1 = document.createElementNS("http://www.w3.org/2000/svg", "path"),
       line2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
     line1.setAttribute("class", "shaddow");
@@ -180,6 +191,8 @@ class Branch {
     line2.setAttribute("class", "line");
     line2.setAttribute("d", path);
     line2.setAttribute("stroke", colour);
+    // Dash the uncommitted-changes line when its open circle is at HEAD.
+    if (dashed) line2.setAttribute("stroke-dasharray", "2px");
     svg.appendChild(line1);
     svg.appendChild(line2);
   }
@@ -200,6 +213,11 @@ class Vertex {
     this.y = y;
   }
 
+  /** The vertex's row index; -1 marks the sentinel "null" vertex used for a
+   *  parent that lies outside the loaded commits. */
+  public getId() {
+    return this.y;
+  }
   public addParent(vertex: Vertex) {
     this.parents.push(vertex);
   }
@@ -277,17 +295,25 @@ class Vertex {
     let colour = this.isCommitted
       ? config.graphColours[this.onBranch.getColour() % config.graphColours.length]
       : "#808080";
-    circle.setAttribute("cx", (this.x * config.grid.x + config.grid.offsetX).toString());
-    circle.setAttribute(
-      "cy",
-      (
-        this.y * config.grid.y +
-        config.grid.offsetY +
-        (expandOffset ? config.grid.expandY : 0)
-      ).toString()
-    );
+    const cx = (this.x * config.grid.x + config.grid.offsetX).toString();
+    const cy = (
+      this.y * config.grid.y +
+      config.grid.offsetY +
+      (expandOffset ? config.grid.expandY : 0)
+    ).toString();
+    circle.setAttribute("cx", cx);
+    circle.setAttribute("cy", cy);
     circle.setAttribute("r", "4");
     if (this.isCurrent) {
+      // An outer ring hugging the coloured stroke, styled (via CSS) like the
+      // editor-background outline normal nodes get, so the HEAD node carries
+      // the same cut-out edge as every other node.
+      let halo = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      halo.setAttribute("cx", cx);
+      halo.setAttribute("cy", cy);
+      halo.setAttribute("r", "5.5");
+      halo.setAttribute("class", "currentHalo");
+      svg.appendChild(halo);
       circle.setAttribute("class", "current");
       circle.setAttribute("stroke", colour);
     } else {
@@ -349,6 +375,9 @@ export class Graph {
     this.availableColours = [];
 
     let i: number, j: number;
+    // A sentinel parent (id -1) for parents outside the loaded commits, so a
+    // branch line extends off the bottom edge rather than dead-ending.
+    const nullVertex = new Vertex(-1);
     for (i = 0; i < commits.length; i++) {
       this.vertices.push(new Vertex(i));
     }
@@ -356,14 +385,26 @@ export class Graph {
       for (j = 0; j < commits[i].parentHashes.length; j++) {
         if (typeof commitLookup[commits[i].parentHashes[j]] === "number") {
           this.vertices[i].addParent(this.vertices[commitLookup[commits[i].parentHashes[j]]]);
+        } else {
+          this.vertices[i].addParent(nullVertex);
         }
       }
     }
 
     if (commits.length > 0) {
       if (commits[0].hash === "*") {
-        this.vertices[0].setCurrent();
         this.vertices[0].setNotCommited();
+        // The open (hollow) circle goes at the checked-out commit or the
+        // uncommitted-changes node, per `graph.uncommittedChanges`.
+        if (
+          this.config.uncommittedChangesAtHead &&
+          commitHead !== null &&
+          typeof commitLookup[commitHead] === "number"
+        ) {
+          this.vertices[commitLookup[commitHead]].setCurrent();
+        } else {
+          this.vertices[0].setCurrent();
+        }
       } else if (commitHead !== null && typeof commitLookup[commitHead] === "number") {
         this.vertices[commitLookup[commitHead]].setCurrent();
       }
@@ -426,6 +467,17 @@ export class Graph {
     return this.vertices[v].getColour() % this.config.graphColours.length;
   }
 
+  /** Pixel x-offset just to the right of each commit's vertex, so branch labels
+   *  can be aligned to the graph (`referenceLabels.alignment`). */
+  public getWidthsAtVertices(): number[] {
+    const widths: number[] = [];
+    for (let i = 0; i < this.vertices.length; i++) {
+      widths[i] =
+        this.config.grid.offsetX + this.vertices[i].getNextPoint().x * this.config.grid.x - 2;
+    }
+    return widths;
+  }
+
   public limitMaxWidth(maxWidth: number) {
     this.maxWidth = maxWidth;
     this.applyMaxWidth(this.getWidth());
@@ -454,6 +506,7 @@ export class Graph {
 
     if (
       parentVertex !== null &&
+      parentVertex.getId() > -1 &&
       vertex.isMerge() &&
       !vertex.isNotOnBranch() &&
       !parentVertex.isNotOnBranch()
@@ -482,6 +535,11 @@ export class Graph {
           break;
         }
       }
+      // The downward scan never found a point connecting to the parent — only
+      // possible when the parent vertex sits *above* this one (e.g. a stash
+      // placed by date above its base commit). Mark the parent processed anyway
+      // so findStart() makes progress instead of looping on this vertex forever.
+      if (!foundPointToParent) vertex.registerParentProcessed();
     } else {
       // Branch is normal
       let branch = new Branch(this.getAvailableColour(startAt));
@@ -502,8 +560,16 @@ export class Graph {
           parentVertex.addToBranch(branch, curPoint.x);
           vertex = parentVertex;
           parentVertex = vertex.getNextParent();
-          if (parentVertexOnBranch) break;
+          if (parentVertex === null || parentVertexOnBranch) break;
         }
+      }
+      // Reached the bottom of the graph with a parent still pending: either an
+      // off-graph parent (the null vertex), or a parent lying *above* this
+      // vertex so the downward scan never reached it (e.g. a stash placed by
+      // date above its base commit). Either way mark it processed so the branch
+      // ends here and findStart doesn't loop on this vertex forever.
+      if (i === this.vertices.length && parentVertex !== null) {
+        vertex.registerParentProcessed();
       }
       branch.setEnd(i);
       this.branches.push(branch);
