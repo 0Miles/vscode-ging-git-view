@@ -7,6 +7,7 @@ import * as url from "node:url";
 import { getRemoteUrl } from "./backend/utils/git";
 import { gravatarHash } from "./backend/utils/gravatar";
 import { RemoteSource, remoteSourceFromUrl } from "./backend/utils/remoteSource";
+import { config } from "./config";
 import { ExtensionState } from "./extensionState";
 import { AvatarCache, ResponseMessage } from "./types";
 
@@ -200,6 +201,14 @@ export class AvatarManager {
   }
 
   private fetchFromGitLab(avatarRequest: AvatarRequestItem) {
+    const gitLabToken = config.gitLabToken();
+    if (gitLabToken === "") {
+      // The GitLab user-search API requires an authenticated token. Without one
+      // configured, skip GitLab and fall back to Gravatar rather than sending an
+      // unauthenticated request that would only 401/403.
+      this.fetchFromGravatar(avatarRequest);
+      return;
+    }
     let t = new Date().getTime();
     if (t < this.gitLabTimeout) {
       // Defer request until after timeout
@@ -212,7 +221,7 @@ export class AvatarManager {
         {
           hostname: "gitlab.com",
           path: "/api/v4/users?search=" + avatarRequest.email,
-          headers: { "User-Agent": "ging-git-view", "Private-Token": "w87U_3gAxWWaPtFgCcus" }, // Token only has read access
+          headers: { "User-Agent": "ging-git-view", "Private-Token": gitLabToken },
           agent: false,
           timeout: 15000
         },

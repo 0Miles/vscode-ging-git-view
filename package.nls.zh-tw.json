@@ -41,6 +41,7 @@
   "config.dateType.authorDate": "使用 commit 的 author 日期",
   "config.dateType.commitDate": "使用 commit 的 committer 日期",
   "config.fetchAvatars": "Fetch commit 作者和 committer 的頭像。啟用此設定即表示您同意將 commit 作者和 committer 的電子郵件地址傳送到 GitHub、GitLab 或 Gravatar（取決於存放庫的 remote 來源）。",
+  "config.gitLabToken": "GitLab [個人存取權杖](https://docs.gitlab.com/user/profile/personal_access_tokens/)（需 `read_user` 範圍），用於查詢 GitLab 存放庫上 committer 的頭像。留空則 GitLab 存放庫改用 Gravatar。僅在啟用 `#ging-git-view.history.fetchAvatars#` 時使用。",
   "config.autoFetchEnabled": "在背景定期從所有 remote fetch 並重新整理圖表。預設值：false",
   "config.autoFetchIntervalMinutes": "auto-fetch 執行的間隔（分鐘，1–60）。預設值：10",
   "config.fetchAndPrune": "從 remote fetch 時 prune 已刪除的 remote 追蹤參考（git fetch --prune）。預設值：false",

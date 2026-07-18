@@ -1054,6 +1054,11 @@
           "default": false,
           "description": "%config.fetchAvatars%"
         },
+        "ging-git-view.history.gitLabToken": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "%config.gitLabToken%"
+        },
         "ging-git-view.detailsPanel.compactFolders": {
           "type": "boolean",
           "default": true,

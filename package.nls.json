@@ -41,6 +41,7 @@
   "config.dateType.authorDate": "Use the author date of a commit",
   "config.dateType.commitDate": "Use the committer date of a commit",
   "config.fetchAvatars": "Fetch avatars of commit authors and committers. By enabling this setting, you consent to commit author and committer email addresses being sent GitHub, GitLab or Gravatar, depending on the repositories remote origin.",
+  "config.gitLabToken": "A GitLab [personal access token](https://docs.gitlab.com/user/profile/personal_access_tokens/) with the `read_user` scope, used to look up committer avatars on GitLab-hosted repositories. Leave empty to fall back to Gravatar for GitLab repositories. Only used when `#ging-git-view.history.fetchAvatars#` is enabled.",
   "config.autoFetchEnabled": "Periodically fetch from all remotes in the background and refresh the graph. Default: false",
   "config.autoFetchIntervalMinutes": "How often auto-fetch runs, in minutes (1–60). Default: 10",
   "config.fetchAndPrune": "Prune deleted remote-tracking references when fetching from remote(s) (git fetch --prune). Default: false",

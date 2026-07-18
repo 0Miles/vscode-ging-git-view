@@ -113,6 +113,10 @@ export const config = {
   fetchAndPrune: (): boolean => getConfig("fetch.prune", false),
   fetchAndPruneTags: (): boolean => getConfig("fetch.pruneTags", false),
   fetchAvatars: (): boolean => getConfig("history.fetchAvatars", false),
+  // Optional GitLab personal access token (read_user scope) used to look up
+  // committer avatars on GitLab. Empty by default; when unset, GitLab-hosted
+  // repos fall back to Gravatar (the GitLab user search API requires auth).
+  gitLabToken: (): string => getConfig("history.gitLabToken", ""),
   fileTreeCompactFolders: (): boolean => getConfig("detailsPanel.compactFolders", true),
   fileViewType: (): FileViewType => getConfig("detailsPanel.fileLayout", "File Tree"),
   graphColours: (): string[] =>
