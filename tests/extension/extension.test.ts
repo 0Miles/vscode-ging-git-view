@@ -18,9 +18,7 @@ suite("GitGraphPanel", () => {
   });
 
   function isPanelOpen() {
-    return vscode.window.tabGroups.all
-      .flatMap((g) => g.tabs)
-      .some((t) => t.label === "GING");
+    return vscode.window.tabGroups.all.flatMap((g) => g.tabs).some((t) => t.label === "GING");
   }
 
   async function openPanel() {

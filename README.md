@@ -79,15 +79,15 @@ the Settings UI — open Settings and search for **GING**.
 
 A few commonly adjusted settings:
 
-| Setting                                     | Default       | Description                                      |
-| ------------------------------------------- | ------------- | ------------------------------------------------ |
-| `ging-git-view.history.fetchAvatars`        | `false`       | Fetch avatars (sends email to external services) |
-| `ging-git-view.dates.format`                | `Date & Time` | Date format shown in the date column             |
-| `ging-git-view.dates.type`                  | `Author Date` | `Author Date` or `Commit Date`                   |
-| `ging-git-view.graph.edgeStyle`             | `rounded`     | `rounded` or `angular`                           |
-| `ging-git-view.history.initialCommitCount`  | `300`         | Commits to load on open                          |
-| `ging-git-view.repoSearchDepth`             | `0`           | Folder depth for repository search               |
-| `ging-git-view.statusBarButton`             | `true`        | Show the status bar button                       |
+| Setting                                    | Default       | Description                                      |
+| ------------------------------------------ | ------------- | ------------------------------------------------ |
+| `ging-git-view.history.fetchAvatars`       | `false`       | Fetch avatars (sends email to external services) |
+| `ging-git-view.dates.format`               | `Date & Time` | Date format shown in the date column             |
+| `ging-git-view.dates.type`                 | `Author Date` | `Author Date` or `Commit Date`                   |
+| `ging-git-view.graph.edgeStyle`            | `rounded`     | `rounded` or `angular`                           |
+| `ging-git-view.history.initialCommitCount` | `300`         | Commits to load on open                          |
+| `ging-git-view.repoSearchDepth`            | `0`           | Folder depth for repository search               |
+| `ging-git-view.statusBarButton`            | `true`        | Show the status bar button                       |
 
 See `contributes.configuration` in `package.json` for the full list of settings.
 

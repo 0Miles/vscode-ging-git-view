@@ -459,9 +459,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("ging-git-view.branches.collapseAll", () =>
       branchesView.collapseFolders()
     ),
-    vscode.commands.registerCommand("ging-git-view.branches.refresh", () =>
-      branchesView.refresh()
-    ),
+    vscode.commands.registerCommand("ging-git-view.branches.refresh", () => branchesView.refresh()),
     vscode.commands.registerCommand("ging-git-view.branches.showAll", () => {
       const repo = branchesView.getActiveRepo();
       if (repo === null) return;
@@ -478,14 +476,8 @@ export function activate(context: vscode.ExtensionContext) {
       toggleRemoteBranches
     ),
     // Likewise, the title button swaps between these by the showingInactive state.
-    vscode.commands.registerCommand(
-      "ging-git-view.branches.showInactive",
-      toggleInactiveBranches
-    ),
-    vscode.commands.registerCommand(
-      "ging-git-view.branches.hideInactive",
-      toggleInactiveBranches
-    ),
+    vscode.commands.registerCommand("ging-git-view.branches.showInactive", toggleInactiveBranches),
+    vscode.commands.registerCommand("ging-git-view.branches.hideInactive", toggleInactiveBranches),
     // Side-view branch actions all delegate to the graph webview so the exact
     // same menu flow (dialogs, remembered choices, refresh) runs there.
     vscode.commands.registerCommand("ging-git-view.branches.checkout", (item: unknown) =>
