@@ -1,6 +1,6 @@
 {
   "statusBar.text": "GING",
-  "statusBar.tooltip": "檢視 Git branch 圖",
+  "statusBar.tooltip": "開啟歷史檢視",
   "outputChannel.text": "GING",
   "ui.branch": "Branch",
   "ui.showRemoteBranches": "顯示 remote branch",

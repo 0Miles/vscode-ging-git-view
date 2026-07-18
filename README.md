@@ -59,19 +59,6 @@ tradeoffs, and release process clearer.
 - **Avatar support**: Optional avatars from GitHub, GitLab, or Gravatar
 - **Devcontainer ready**: Works in remote and container environments
 
-## Screenshots
-
-<!--
-TODO: add real screenshots / GIFs demonstrating:
-  1. The Branches and Remotes side views in the Source Control sidebar
-  2. History following the repository selected in the Source Control view
-  3. A multi-repository workspace (per-repo selection and switching)
-  4. The commit-graph webview and commit details
-No placeholder or mock images — only captures of the actual extension.
--->
-
-_Screenshots are being prepared and will be added here._
-
 ## Configuration
 
 All settings live under the `ging-git-view.*` prefix. The easiest way to configure the extension is
@@ -94,7 +81,6 @@ See `contributes.configuration` in `package.json` for the full list of settings.
 ## Installation
 
 - [GitHub Releases](https://github.com/0Miles/vscode-ging-git-view/releases) (`.vsix` manual install)
-- Visual Studio Marketplace: listing pending review
 
 ## Fork lineage and attribution
 

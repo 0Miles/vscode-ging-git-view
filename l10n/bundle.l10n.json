@@ -1,6 +1,6 @@
 {
   "statusBar.text": "GING",
-  "statusBar.tooltip": "View Graph",
+  "statusBar.tooltip": "Open History View",
   "outputChannel.text": "GING",
   "ui.branch": "Branch",
   "ui.showRemoteBranches": "Show Remote Branches",
