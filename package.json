@@ -12,14 +12,14 @@
     "git history",
     "git log"
   ],
-  "homepage": "https://github.com/0Miles/ging-git-view",
+  "homepage": "https://github.com/0Miles/vscode-ging-git-view",
   "bugs": {
-    "url": "https://github.com/0Miles/ging-git-view/issues"
+    "url": "https://github.com/0Miles/vscode-ging-git-view/issues"
   },
   "license": "MIT",
   "author": {
     "name": "Miles",
-    "email": "git@miles.tw"
+    "email": "inbox@miles.tw"
   },
   "contributors": [
     {
@@ -29,7 +29,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/0Miles/ging-git-view.git"
+    "url": "https://github.com/0Miles/vscode-ging-git-view.git"
   },
   "publisher": "0miles",
   "main": "./out/extension.js",

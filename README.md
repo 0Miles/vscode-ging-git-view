@@ -10,8 +10,8 @@
 > original Git Graph project, (neo) Git Graph, or Microsoft. See
 > [Fork lineage and attribution](#fork-lineage-and-attribution).
 
-[![](https://img.shields.io/github/license/0Miles/ging-git-view)](https://github.com/0Miles/ging-git-view?tab=MIT-1-ov-file)
-[![GitHub release](https://img.shields.io/github/v/release/0Miles/ging-git-view)](https://github.com/0Miles/ging-git-view/releases)
+[![](https://img.shields.io/github/license/0Miles/vscode-ging-git-view)](https://github.com/0Miles/vscode-ging-git-view?tab=MIT-1-ov-file)
+[![GitHub release](https://img.shields.io/github/v/release/0Miles/vscode-ging-git-view)](https://github.com/0Miles/vscode-ging-git-view/releases)
 
 ## What GING is
 
@@ -93,7 +93,7 @@ See `contributes.configuration` in `package.json` for the full list of settings.
 
 ## Installation
 
-- [GitHub Releases](https://github.com/0Miles/ging-git-view/releases) (`.vsix` manual install)
+- [GitHub Releases](https://github.com/0Miles/vscode-ging-git-view/releases) (`.vsix` manual install)
 - Visual Studio Marketplace: listing pending review
 
 ## Fork lineage and attribution
