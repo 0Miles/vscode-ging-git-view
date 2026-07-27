@@ -1,0 +1,27 @@
+name: Manual Publish
+
+# Manually publish the version currently in package.json to the VS Code
+# Marketplace. Use this for one-off / recovery publishes; the normal release
+# flow goes through release-please in release.yml.
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test
+      # dependencies are bundled by esbuild and pnpm's node_modules layout
+      # cannot be scanned by vsce, so --no-dependencies is required
+      - run: npx @vscode/vsce package --no-dependencies
+      - name: Publish to VS Code Marketplace
+        run: npx @vscode/vsce publish --no-dependencies --packagePath ./*.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
