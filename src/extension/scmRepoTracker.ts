@@ -22,7 +22,11 @@ export type ScmRepoTracker = {
    * Repositories row against the selection.
    */
   getSelectedRepoUris(): string[];
-  /** Fires (debounced) when the selected-repo set changes — never for the initial selection. */
+  /**
+   * Fires (debounced) when the selected-repo set changes. Whatever is already selected when the
+   * tracker binds is absorbed silently; focus VSCode assigns after that is not — see the note on
+   * `createScmRepoTracker`.
+   */
   readonly onDidChangeSelection: vscode.Event<string[]>;
   dispose(): void;
 };
@@ -35,8 +39,16 @@ type SelectedRepo = { path: string; uri: string };
  * view. Selection follows `Repository.ui.selected` (the same signal the GitHub PR extension reads).
  * VSCode focuses at most one repo at a time — multi-select in the repositories list changes which
  * repos are *visible*, not which is focused — so this is a 0-or-1 set; it stays a list because the
- * `scmProviderRootUri in ...` when-clause consumes one. The initial selection at startup is
- * captured silently so we don't drive the graph just because the workspace opened.
+ * `scmProviderRootUri in ...` when-clause consumes one.
+ *
+ * Only the selection already in place when we bind is absorbed silently, and on a cold start that
+ * is usually nothing — the git extension has not finished discovering repos yet. What follows is
+ * two ordinary change events: the first repo discovered takes focus, then VSCode restores the
+ * previous session's focused repo. Both fire, so opening a multi-repo workspace does open the graph
+ * while `followSourceControlSelection` is on, despite nobody having clicked anything.
+ *
+ * Suppressing that needs a startup settling window — a guess at how long discovery takes — so it is
+ * left alone deliberately rather than tuned to one machine's timings.
  */
 export function createScmRepoTracker(): ScmRepoTracker {
   const reposEmitter = new vscode.EventEmitter<void>();
@@ -103,7 +115,8 @@ export function createScmRepoTracker(): ScmRepoTracker {
       })
     );
     for (const repo of found.repositories) watchRepo(repo);
-    // Capture the startup selection silently — only later changes should drive the graph.
+    // Absorb whatever is selected right now without firing. Anything that lands afterwards goes
+    // through `recomputeSelection` and does fire, startup included — see the note above.
     selected = computeSelected();
     reposEmitter.fire();
   }
