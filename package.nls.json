@@ -78,6 +78,7 @@
   "config.sourceCodeProviderIntegrationLocation": "Specifies where the GING menu item appears on the title of a Source Control Provider in the Source Control View.",
   "config.sourceCodeProviderIntegrationLocation.inline": "Show inline on the Source Control Provider title",
   "config.sourceCodeProviderIntegrationLocation.moreActions": "Show on the 'More actions...' menu of the Source Control Provider",
+  "config.scmRepositoryButton": "Show a button on the focused repository's row in the Source Control Repositories view, which opens or reveals GING for that repository. Clicking the row itself only reacts when the focused repository changes. Default: true",
   "config.showStatusBarItem": "Show a Status Bar item which opens GING when clicked.",
   "config.showUncommittedChanges": "Show uncommitted changes (set to false to decrease load time on large repositories).",
   "config.tabIconColourTheme": "Specifies the colour theme of the icon displayed on the GING tab.",

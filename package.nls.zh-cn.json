@@ -78,6 +78,7 @@
   "config.sourceCodeProviderIntegrationLocation": "指定 GING 菜单项显示在源代码管理视图中源代码管理提供程序标题的位置。",
   "config.sourceCodeProviderIntegrationLocation.inline": "内联显示在源代码管理提供程序标题上",
   "config.sourceCodeProviderIntegrationLocation.moreActions": "显示在源代码管理提供程序的“更多操作...”菜单中",
+  "config.scmRepositoryButton": "在源代码管理存储库视图中，于当前聚焦的存储库行上显示一个按钮，用于打开或重新显示该存储库的 Git 图形。点击行本身只在聚焦的存储库改变时才有反应。默认值：true",
   "config.showStatusBarItem": "显示状态栏项，单击时打开 Git 图形。",
   "config.showUncommittedChanges": "显示 uncommitted 的更改（在大型仓库上设置为 false 以减少加载时间）。",
   "config.tabIconColourTheme": "指定 Git 图形选项卡上显示的图标的颜色主题。",

@@ -362,6 +362,13 @@
           "group": "ging-git-view@1"
         }
       ],
+      "scm/repository": [
+        {
+          "command": "ging-git-view.view",
+          "group": "inline",
+          "when": "scmProvider == git && config.ging-git-view.scmRepositoryButton && scmProviderRootUri in ging-git-view.focusedRepoUris"
+        }
+      ],
       "view/title": [
         {
           "command": "ging-git-view.branches.showAll",
@@ -1425,6 +1432,11 @@
           ],
           "default": "Inline",
           "description": "%config.sourceCodeProviderIntegrationLocation%"
+        },
+        "ging-git-view.scmRepositoryButton": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.scmRepositoryButton%"
         },
         "ging-git-view.statusBarButton": {
           "type": "boolean",

@@ -16,16 +16,27 @@ export type ScmRepoTracker = {
   readonly onDidChangeRepos: vscode.Event<void>;
   /** fs paths of the repos currently selected in the native Source Control view (`ui.selected`). */
   getSelectedRepoPaths(): string[];
+  /**
+   * The same repos as `getSelectedRepoPaths`, as `Uri.toString()` strings. This is the form the
+   * `scmProviderRootUri` context key takes, so a `when` clause can match a Source Control
+   * Repositories row against the selection.
+   */
+  getSelectedRepoUris(): string[];
   /** Fires (debounced) when the selected-repo set changes — never for the initial selection. */
   readonly onDidChangeSelection: vscode.Event<string[]>;
   dispose(): void;
 };
 
+/** A selected repo in both forms we need: fs path for repoManager, uri string for `when` clauses. */
+type SelectedRepo = { path: string; uri: string };
+
 /**
- * Tracks VSCode's built-in git repositories and which of them are selected in the Source Control
- * view. Selection follows `Repository.ui.selected` (the same signal the GitHub PR extension reads);
- * multiple repos can be selected at once. The initial selection at startup is captured silently so
- * we don't drive the graph just because the workspace opened.
+ * Tracks VSCode's built-in git repositories and which of them is focused in the Source Control
+ * view. Selection follows `Repository.ui.selected` (the same signal the GitHub PR extension reads).
+ * VSCode focuses at most one repo at a time — multi-select in the repositories list changes which
+ * repos are *visible*, not which is focused — so this is a 0-or-1 set; it stays a list because the
+ * `scmProviderRootUri in ...` when-clause consumes one. The initial selection at startup is
+ * captured silently so we don't drive the graph just because the workspace opened.
  */
 export function createScmRepoTracker(): ScmRepoTracker {
   const reposEmitter = new vscode.EventEmitter<void>();
@@ -34,21 +45,26 @@ export function createScmRepoTracker(): ScmRepoTracker {
   let apiSubs: vscode.Disposable[] = [];
   // Per-repo `ui.onDidChange` subscriptions; kept in sync as repos open/close.
   const uiSubs = new Map<BuiltinRepository, vscode.Disposable>();
-  let selected: string[] = [];
+  let selected: SelectedRepo[] = [];
   let selectionTimer: ReturnType<typeof setTimeout> | null = null;
 
   const sortedPaths = (repos: readonly BuiltinRepository[]) =>
     repos.map((r) => getPathFromUri(r.rootUri)).toSorted((a, b) => a.localeCompare(b));
 
-  function computeSelected(): string[] {
-    return api ? sortedPaths(api.repositories.filter((r) => r.ui.selected)) : [];
+  function computeSelected(): SelectedRepo[] {
+    if (!api) return [];
+    return api.repositories
+      .filter((r) => r.ui.selected)
+      .map((r) => ({ path: getPathFromUri(r.rootUri), uri: r.rootUri.toString() }))
+      .toSorted((a, b) => a.path.localeCompare(b.path));
   }
 
   function recomputeSelection(): void {
     const next = computeSelected();
-    if (next.length === selected.length && next.every((p, i) => p === selected[i])) return;
+    if (next.length === selected.length && next.every((r, i) => r.path === selected[i].path))
+      return;
     selected = next;
-    selectionEmitter.fire(selected);
+    selectionEmitter.fire(selected.map((r) => r.path));
   }
 
   // Switching the SC selection flips several repos' `ui.selected` in one burst; coalesce them so we
@@ -106,7 +122,8 @@ export function createScmRepoTracker(): ScmRepoTracker {
     onDidChangeRepos: reposEmitter.event,
     onDidChangeSelection: selectionEmitter.event,
     getRepoPaths: () => (api ? sortedPaths(api.repositories) : []),
-    getSelectedRepoPaths: () => selected.slice(),
+    getSelectedRepoPaths: () => selected.map((r) => r.path),
+    getSelectedRepoUris: () => selected.map((r) => r.uri),
     dispose: () => {
       if (selectionTimer !== null) clearTimeout(selectionTimer);
       enableSub.dispose();

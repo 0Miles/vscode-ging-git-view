@@ -78,6 +78,7 @@
   "config.sourceCodeProviderIntegrationLocation": "指定 GING 功能表項目顯示在原始檔控制檢視中原始檔控制提供者標題的位置。",
   "config.sourceCodeProviderIntegrationLocation.inline": "內嵌顯示在原始檔控制提供者標題上",
   "config.sourceCodeProviderIntegrationLocation.moreActions": "顯示在原始檔控制提供者的「更多動作...」功能表中",
+  "config.scmRepositoryButton": "在原始檔控制存放庫檢視中，於目前聚焦的存放庫列上顯示一顆按鈕，用於開啟或重新顯示該存放庫的 Git 圖形。點擊列本身只在聚焦的存放庫改變時才有反應。預設值：true",
   "config.showStatusBarItem": "顯示狀態列項目，按一下時開啟 Git 圖形。",
   "config.showUncommittedChanges": "顯示 uncommitted 的變更（在大型存放庫上設定為 false 以減少載入時間）。",
   "config.tabIconColourTheme": "指定 Git 圖形分頁上顯示的圖示的顏色主題。",

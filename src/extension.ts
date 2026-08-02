@@ -204,6 +204,24 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(scmRepoTracker.onDidChangeRepos(mirrorBuiltinIntoRepoManager));
   mirrorBuiltinIntoRepoManager();
 
+  // Publish the SC-focused repos so the `scm/repository` row button can show itself on just those
+  // rows (`scmProviderRootUri in ...`). Deliberately NOT gated on followSourceControlSelection: that
+  // setting only decides whether we auto-open the graph, while the button is the manual affordance
+  // someone who turned it off still needs. `onDidChangeSelection` stays silent for the startup
+  // selection, so `onDidChangeRepos` — which fires after the tracker captures it — seeds the key.
+  const syncFocusedRepoContext = () => {
+    void vscode.commands.executeCommand(
+      "setContext",
+      "ging-git-view.focusedRepoUris",
+      scmRepoTracker.getSelectedRepoUris()
+    );
+  };
+  context.subscriptions.push(
+    scmRepoTracker.onDidChangeSelection(syncFocusedRepoContext),
+    scmRepoTracker.onDidChangeRepos(syncFocusedRepoContext)
+  );
+  syncFocusedRepoContext();
+
   // Map raw repo paths (e.g. from the SC selection) to the repos repoManager knows, resolving
   // symlinks and dropping any it hasn't discovered.
   const toKnownRepos = (paths: string[]): string[] => {
