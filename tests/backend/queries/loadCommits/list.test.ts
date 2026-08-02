@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { gitClientFactory } from "@/backend/gitClient";
 import { loadCommits } from "@/backend/queries/loadCommits";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let repoWithRemote: string;
@@ -28,9 +28,9 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
-  fs.rmSync(repoWithRemote, { recursive: true, force: true });
-  fs.rmSync(remoteRepo, { recursive: true, force: true });
+  rmrf(repo);
+  rmrf(repoWithRemote);
+  rmrf(remoteRepo);
 });
 
 describe("loadCommits", () => {
@@ -208,7 +208,7 @@ describe("loadCommits", () => {
         signatureStatus: ""
       });
     } finally {
-      fs.rmSync(dirtyRepo, { recursive: true, force: true });
+      rmrf(dirtyRepo);
     }
   });
 
@@ -239,7 +239,7 @@ describe("loadCommits", () => {
       });
       expect(result.commits[0].hash).not.toBe("*");
     } finally {
-      fs.rmSync(dirtyRepo, { recursive: true, force: true });
+      rmrf(dirtyRepo);
     }
   });
 
@@ -267,7 +267,7 @@ describe("loadCommits", () => {
       });
       expect(result.commits[0].hash).not.toBe("*");
     } finally {
-      fs.rmSync(dirtyRepo, { recursive: true, force: true });
+      rmrf(dirtyRepo);
     }
   });
 
@@ -425,7 +425,7 @@ describe("loadCommits", () => {
       expect(wo!.author).toBe("Real Name");
       expect(wm!.author).toBe("Proper Name");
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -456,7 +456,7 @@ describe("loadCommits", () => {
       });
       expect(result.commits.some((c) => c.message === "add release file")).toBe(true);
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -507,7 +507,7 @@ describe("loadCommits", () => {
       expect(onlyAMsgs).toContain("a-only commit");
       expect(onlyAMsgs).not.toContain("b-only commit");
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -542,7 +542,7 @@ describe("loadCommits", () => {
       });
       expect(result.commits.some((c) => c.message === "detached-only commit")).toBe(true);
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -588,7 +588,7 @@ describe("loadCommits", () => {
       });
       expect(hidden.commits.some((c) => c.message === "tag-only commit")).toBe(false);
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -630,8 +630,8 @@ describe("loadCommits", () => {
       });
       expect(result.commits.some((c) => c.message === "signed commit")).toBe(true);
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
-      fs.rmSync(keyDir, { recursive: true, force: true });
+      rmrf(r);
+      rmrf(keyDir);
     }
   });
 
@@ -681,8 +681,8 @@ describe("loadCommits", () => {
         true
       );
     } finally {
-      fs.rmSync(local, { recursive: true, force: true });
-      fs.rmSync(bare, { recursive: true, force: true });
+      rmrf(local);
+      rmrf(bare);
     }
   });
 
@@ -726,7 +726,7 @@ describe("loadCommits", () => {
       });
       expect(withReflog.commits.some((c) => c.message === "reflog-only commit")).toBe(true);
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -766,7 +766,7 @@ describe("loadCommits", () => {
       expect(result.commits.some((c) => c.message === "feature-x commit")).toBe(true);
       expect(result.commits.some((c) => c.message === "main-only commit")).toBe(false);
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -814,8 +814,8 @@ describe("loadCommits", () => {
       // With the signer trusted, git reports a good signature ("G").
       expect(signed?.signatureStatus).toBe("G");
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
-      fs.rmSync(keyDir, { recursive: true, force: true });
+      rmrf(r);
+      rmrf(keyDir);
     }
   });
 
@@ -855,7 +855,7 @@ describe("loadCommits", () => {
       expect(stashNode).toBeDefined();
       expect(stashNode!.refs.some((ref) => ref.type === "stash")).toBe(true);
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -916,7 +916,7 @@ describe("loadCommits", () => {
       expect(stashIdx).toBeLessThan(baseIdx);
       expect(result.commits[stashIdx].parentHashes).toContain(baseHash);
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -966,7 +966,7 @@ describe("loadCommits", () => {
       expect(labels).not.toContain("upstream/feat");
       expect(labels).toContain("origin/main"); // other remote still shown
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 });

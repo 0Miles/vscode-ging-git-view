@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { mergeCommit } from "@/backend/actions/merge";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let featureCommitHash: string;
@@ -26,7 +26,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmrf(repo);
 });
 
 describe("mergeCommit", () => {

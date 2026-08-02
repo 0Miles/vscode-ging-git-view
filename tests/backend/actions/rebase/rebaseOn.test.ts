@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { rebaseOn } from "@/backend/actions/rebase";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
@@ -25,7 +25,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmrf(repo);
 });
 
 describe("rebaseOn", () => {

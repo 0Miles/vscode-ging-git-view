@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { pullBranch } from "@/backend/actions/branch";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let remote: string;
@@ -33,7 +33,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  for (const dir of [repo, remote, other]) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of [repo, remote, other]) rmrf(dir);
 });
 
 describe("pullBranch", () => {

@@ -13,6 +13,45 @@ export function bareGit(args: string[], gitDir: string): string {
   return cp.execFileSync("git", [`--git-dir=${gitDir}`, ...args], { stdio: "pipe" }).toString();
 }
 
+/** Block the thread for `ms`. Only used to space out cleanup retries, where the
+ *  test has already finished and there is nothing else to yield to. */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Remove a temp repo created by a test.
+ *
+ * On Windows a git child process can still hold the repo directory open for a
+ * short while after its promise resolves, so a plain `rmSync` intermittently
+ * throws `EPERM`/`EBUSY`. `rmSync`'s own `maxRetries` does not help: the error
+ * comes from the initial stat, ahead of Node's retry loop, so it gives up after
+ * 0ms. Hence the explicit backoff. A cleanup that never succeeds must not fail
+ * the test — the leftovers sit in the OS temp directory.
+ */
+export function rmrf(dir: string): void {
+  // Wait between attempts, then `null` for the final attempt, which reports instead.
+  for (const delay of [25, 50, 100, 200, 400, null]) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      if (delay === null) {
+        process.emitWarning(`could not remove test dir ${dir}: ${String(err)}`);
+        return;
+      }
+      sleepSync(delay);
+    }
+  }
+}
+
+/** Repo paths handed to the backend always use "/" separators (see
+ *  `getPathFromUri`), and git reports them that way too. `path.join` yields "\"
+ *  on Windows, so normalise before comparing against either. */
+export function toRepoPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 export function makeRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-"));
   try {
@@ -25,6 +64,12 @@ export function makeRepo(): string {
   git(["config", "user.name", "T"], dir);
   git(["config", "commit.gpgsign", "false"], dir);
   git(["config", "tag.gpgsign", "false"], dir);
+  // Git for Windows defaults `core.autocrlf` to true, which rewrites LF to CRLF on
+  // checkout and breaks working-tree assertions. Pin it per repo rather than relying
+  // only on the GIT_CONFIG_* override in setup.ts: simple-git's `.env(name, value)`
+  // spawns git with *only* those variables, so process.env does not reach it.
+  git(["config", "core.autocrlf", "false"], dir);
+  git(["config", "core.eol", "lf"], dir);
   fs.writeFileSync(path.join(dir, "f"), "x");
   git(["add", "."], dir);
   git(["commit", "-m", "init"], dir);

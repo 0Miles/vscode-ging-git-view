@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { cherrypickCommit } from "@/backend/actions/commit";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let cherrypickHash: string;
@@ -24,7 +24,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmrf(repo);
 });
 
 describe("cherrypickCommit", () => {
@@ -66,7 +66,7 @@ describe("cherrypickCommit", () => {
         .toString();
       expect(staged).toContain("h"); // change is staged
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -107,8 +107,8 @@ describe("cherrypickCommit", () => {
       const obj = cp.execFileSync("git", ["cat-file", "commit", "HEAD"], { cwd: r }).toString();
       expect(obj).toContain("-----BEGIN SSH SIGNATURE-----");
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
-      fs.rmSync(keyDir, { recursive: true, force: true });
+      rmrf(r);
+      rmrf(keyDir);
     }
   });
 });

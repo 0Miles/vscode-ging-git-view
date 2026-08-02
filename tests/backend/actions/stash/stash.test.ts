@@ -7,12 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { applyStash, dropStash, popStash } from "@/backend/actions/stash";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
 afterEach(() => {
-  if (repo) fs.rmSync(repo, { recursive: true, force: true });
+  if (repo) rmrf(repo);
 });
 
 function stashListLength(): number {

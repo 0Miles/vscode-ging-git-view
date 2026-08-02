@@ -1,11 +1,9 @@
-import * as fs from "node:fs";
-
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { loadStatistics, parseStatistics } from "@/backend/queries/loadStatistics";
 
-import { makeRepo } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@tests/backend/helpers";
 
 describe("parseStatistics", () => {
   it("counts commits per author and bins by the author's local time", () => {
@@ -57,7 +55,7 @@ describe("loadStatistics (real git)", () => {
     repo = makeRepo();
   });
   afterAll(() => {
-    fs.rmSync(repo, { recursive: true, force: true });
+    rmrf(repo);
   });
 
   it("summarizes a real repo's commits", async () => {

@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { deleteBranch } from "@/backend/actions/branch";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
@@ -17,7 +17,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmrf(repo);
 });
 
 describe("deleteBranch", () => {
@@ -111,8 +111,8 @@ describe("deleteBranch", () => {
         .trim();
       expect(after).toBe("");
     } finally {
-      fs.rmSync(localRepo, { recursive: true, force: true });
-      fs.rmSync(remote, { recursive: true, force: true });
+      rmrf(localRepo);
+      rmrf(remote);
     }
   });
 });

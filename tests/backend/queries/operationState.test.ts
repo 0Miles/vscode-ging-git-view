@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { operationState } from "@/backend/queries/operationState";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 // Run a git command that is expected to conflict (and so exit non-zero),
 // leaving the operation in progress.
@@ -67,7 +67,7 @@ beforeAll(() => {
 
 afterAll(() => {
   for (const dir of [cleanRepo, mergeRepo, rebaseRepo, cherryPickRepo, revertRepo]) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmrf(dir);
   }
 });
 

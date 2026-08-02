@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { pushTag } from "@/backend/actions/tag";
 
-import { bareGit, makeRepo } from "@tests/backend/helpers";
+import { bareGit, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let bare: string;
@@ -25,8 +25,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
-  fs.rmSync(bare, { recursive: true, force: true });
+  rmrf(repo);
+  rmrf(bare);
 });
 
 describe("pushTag", () => {

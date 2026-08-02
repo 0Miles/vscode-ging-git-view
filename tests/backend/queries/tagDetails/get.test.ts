@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { tagDetails } from "@/backend/queries/tagDetails";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
@@ -19,7 +19,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmrf(repo);
 });
 
 describe("tagDetails", () => {
@@ -57,8 +57,8 @@ describe("tagDetails", () => {
       const result = await tagDetails(simpleGit(r), { tagName: "signed-tag" });
       expect(result.details!.signatureStatus).toBe("G");
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
-      fs.rmSync(keyDir, { recursive: true, force: true });
+      rmrf(r);
+      rmrf(keyDir);
     }
   });
 

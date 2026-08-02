@@ -8,11 +8,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { abortOperation, continueOperation } from "@/backend/actions/operation";
 import { detectOperation } from "@/backend/queries/operationState";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 const repos: string[] = [];
 afterEach(() => {
-  for (const dir of repos.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of repos.splice(0)) rmrf(dir);
 });
 
 // Mirror the extension's gitClient: GIT_EDITOR=true (so --continue never opens

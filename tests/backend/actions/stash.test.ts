@@ -7,11 +7,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { renameStash } from "@/backend/actions/stash";
 import { loadStashes } from "@/backend/queries/loadStashes";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 const repos: string[] = [];
 afterEach(() => {
-  for (const dir of repos.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of repos.splice(0)) rmrf(dir);
 });
 
 describe("renameStash (real git)", () => {

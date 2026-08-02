@@ -7,10 +7,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { listWorktrees, parseWorktreeList } from "@/backend/queries/listWorktrees";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf, toRepoPath } from "@tests/backend/helpers";
 
 // Resolve symlinks up front: on macOS `os.tmpdir()` lives under /var -> /private/var, and
 // `git worktree list` reports the realpath. Comparing realpath-to-realpath avoids false misses.
+// `toRepoPath` covers the other half of that: git reports "/" separators even on Windows,
+// where `realpathSync` hands back "\".
 let repo: string;
 let featureWt: string;
 let detachedWt: string;
@@ -18,18 +20,18 @@ let soloRepo: string;
 let notARepo: string;
 
 beforeAll(() => {
-  repo = fs.realpathSync(makeRepo());
+  repo = toRepoPath(fs.realpathSync(makeRepo()));
   featureWt = `${repo}-wt-feature`;
   detachedWt = `${repo}-wt-detached`;
   git(["worktree", "add", featureWt, "-b", "feature/x"], repo);
   git(["worktree", "add", "--detach", detachedWt], repo);
-  soloRepo = fs.realpathSync(makeRepo());
-  notARepo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ngg-not-a-repo-")));
+  soloRepo = toRepoPath(fs.realpathSync(makeRepo()));
+  notARepo = toRepoPath(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ngg-not-a-repo-"))));
 });
 
 afterAll(() => {
   for (const dir of [featureWt, detachedWt, repo, soloRepo, notARepo]) {
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmrf(dir);
   }
 });
 

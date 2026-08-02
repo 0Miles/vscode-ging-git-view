@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { deleteTag } from "@/backend/actions/tag";
 
-import { bareGit, makeRepo } from "@tests/backend/helpers";
+import { bareGit, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let commitHash: string;
@@ -19,7 +19,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmrf(repo);
 });
 
 describe("deleteTag", () => {
@@ -54,8 +54,8 @@ describe("deleteTag", () => {
       expect(cp.execFileSync("git", ["tag"], { cwd: r }).toString()).not.toContain("v2.0");
       expect(bareGit(["tag"], remote)).not.toContain("v2.0");
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
-      fs.rmSync(remote, { recursive: true, force: true });
+      rmrf(r);
+      rmrf(remote);
     }
   });
 });

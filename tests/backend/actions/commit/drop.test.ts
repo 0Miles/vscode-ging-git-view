@@ -7,12 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { dropCommit } from "@/backend/actions/commit";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
 afterEach(() => {
-  if (repo) fs.rmSync(repo, { recursive: true, force: true });
+  if (repo) rmrf(repo);
 });
 
 function commitFile(name: string, content: string) {

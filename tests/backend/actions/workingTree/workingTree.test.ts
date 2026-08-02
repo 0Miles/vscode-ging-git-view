@@ -6,12 +6,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { cleanUntrackedFiles, resetUncommittedChanges } from "@/backend/actions/workingTree";
 
-import { makeRepo } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
 afterEach(() => {
-  if (repo) fs.rmSync(repo, { recursive: true, force: true });
+  if (repo) rmrf(repo);
 });
 
 describe("working tree actions", () => {

@@ -8,14 +8,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { fetchFromRemotes, fetchRemote, listRemoteNames } from "@/backend/actions/fetch";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let bare: string;
 let other: string;
 
 afterEach(() => {
-  for (const d of [repo, bare, other]) if (d) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of [repo, bare, other]) if (d) rmrf(d);
 });
 
 describe("fetchFromRemotes", () => {

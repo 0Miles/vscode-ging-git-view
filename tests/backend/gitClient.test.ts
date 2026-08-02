@@ -1,10 +1,8 @@
-import * as fs from "node:fs";
-
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { gitClientFactory } from "@/backend/gitClient";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 describe("gitClientFactory (real git)", () => {
   let repo: string;
@@ -12,7 +10,7 @@ describe("gitClientFactory (real git)", () => {
     repo = makeRepo();
   });
   afterAll(() => {
-    fs.rmSync(repo, { recursive: true, force: true });
+    rmrf(repo);
   });
 
   it("runs commands with GIT_EDITOR set (needs unsafe.allowUnsafeEditor)", async () => {

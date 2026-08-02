@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { deleteRemoteBranch } from "@/backend/actions/branch";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let localRepo: string;
 let remote: string;
@@ -24,8 +24,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(localRepo, { recursive: true, force: true });
-  fs.rmSync(remote, { recursive: true, force: true });
+  rmrf(localRepo);
+  rmrf(remote);
 });
 
 describe("deleteRemoteBranch", () => {

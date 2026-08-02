@@ -8,14 +8,14 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { loadRemotes } from "@/backend/queries/loadRemotes";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let bare: string;
 
 afterEach(() => {
-  if (repo) fs.rmSync(repo, { recursive: true, force: true });
-  if (bare) fs.rmSync(bare, { recursive: true, force: true });
+  if (repo) rmrf(repo);
+  if (bare) rmrf(bare);
 });
 
 function addRemote(name: string) {

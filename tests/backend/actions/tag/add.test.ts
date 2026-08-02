@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { addTag } from "@/backend/actions/tag";
 
-import { bareGit, git, makeRepo } from "@tests/backend/helpers";
+import { bareGit, git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let commitHash: string;
@@ -19,7 +19,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmrf(repo);
 });
 
 describe("addTag", () => {
@@ -130,8 +130,8 @@ describe("addTag", () => {
       );
       expect(bareGit(["tag", "-l", "v9.0"], remote).trim()).toBe("v9.0");
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
-      fs.rmSync(remote, { recursive: true, force: true });
+      rmrf(r);
+      rmrf(remote);
     }
   });
 
@@ -164,7 +164,7 @@ describe("addTag", () => {
         .toString();
       expect(tagObject).toContain("-----BEGIN SSH SIGNATURE-----");
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 });

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { commitDetails } from "@/backend/queries/commitDetails";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let commitHash: string;
@@ -18,7 +18,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmrf(repo);
 });
 
 describe("commitDetails", () => {
@@ -84,7 +84,7 @@ describe("commitDetails", () => {
       expect(changed!.additions).toEqual(expect.any(Number));
       expect(changed!.deletions).toEqual(expect.any(Number));
     } finally {
-      fs.rmSync(repo2, { recursive: true, force: true });
+      rmrf(repo2);
     }
   });
 
@@ -118,21 +118,32 @@ describe("commitDetails", () => {
     expect(result.commitDetails!.body).toContain("init");
   });
 
-  it("handles a filename containing a double quote", async () => {
-    const repo2 = makeRepo();
-    const fileName = String.fromCharCode(97, 34, 98) + ".txt"; // a"b.txt
-    try {
-      fs.writeFileSync(path.join(repo2, fileName), "content");
-      git(["add", "."], repo2);
-      git(["commit", "-m", "add quoted-name file"], repo2);
-      const hash = cp.execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo2 }).toString().trim();
-      const result = await commitDetails(simpleGit(repo2), { commitHash: hash, useMailmap: false });
-      const changed = result.commitDetails!.fileChanges.find((f) => f.newFilePath === fileName);
-      expect(changed).toBeDefined();
-    } finally {
-      fs.rmSync(repo2, { recursive: true, force: true });
+  // `"` is not a legal character in a Windows filename, so the case this covers
+  // (git quoting the path in its output) cannot arise there.
+  it.skipIf(process.platform === "win32")(
+    "handles a filename containing a double quote",
+    async () => {
+      const repo2 = makeRepo();
+      const fileName = String.fromCharCode(97, 34, 98) + ".txt"; // a"b.txt
+      try {
+        fs.writeFileSync(path.join(repo2, fileName), "content");
+        git(["add", "."], repo2);
+        git(["commit", "-m", "add quoted-name file"], repo2);
+        const hash = cp
+          .execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo2 })
+          .toString()
+          .trim();
+        const result = await commitDetails(simpleGit(repo2), {
+          commitHash: hash,
+          useMailmap: false
+        });
+        const changed = result.commitDetails!.fileChanges.find((f) => f.newFilePath === fileName);
+        expect(changed).toBeDefined();
+      } finally {
+        rmrf(repo2);
+      }
     }
-  });
+  );
 
   it("returns non-ASCII file paths unescaped", async () => {
     const repo2 = makeRepo();
@@ -152,7 +163,7 @@ describe("commitDetails", () => {
       const changed = result.commitDetails!.fileChanges.find((f) => f.newFilePath === fileName);
       expect(changed).toBeDefined();
     } finally {
-      fs.rmSync(repo2, { recursive: true, force: true });
+      rmrf(repo2);
     }
   });
 
@@ -184,7 +195,7 @@ describe("commitDetails", () => {
         withoutStash.commitDetails!.fileChanges.some((f) => f.newFilePath === "untracked.txt")
       ).toBe(false);
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 
@@ -212,7 +223,7 @@ describe("commitDetails", () => {
       expect(paths).toContain("on-feature");
       expect(paths).not.toContain("on-main"); // already present on the first parent
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 });

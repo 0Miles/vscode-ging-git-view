@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { pushBranch } from "@/backend/actions/branch";
 
-import { bareGit, git, makeRepo } from "@tests/backend/helpers";
+import { bareGit, git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let remote: string;
@@ -21,8 +21,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
-  fs.rmSync(remote, { recursive: true, force: true });
+  rmrf(repo);
+  rmrf(remote);
 });
 
 describe("pushBranch", () => {

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { compareCommits } from "@/backend/queries/compareCommits";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 const repos: string[] = [];
 
@@ -22,7 +22,7 @@ function revParse(repo: string, ref: string): string {
 }
 
 afterEach(() => {
-  for (const r of repos.splice(0)) fs.rmSync(r, { recursive: true, force: true });
+  for (const r of repos.splice(0)) rmrf(r);
 });
 
 describe("compareCommits", () => {

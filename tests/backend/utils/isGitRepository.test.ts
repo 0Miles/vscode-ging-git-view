@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { isGitRepository } from "@/backend/utils/git";
 
-import { makeRepo } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let nonGitDir: string;
@@ -16,8 +16,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
-  fs.rmSync(nonGitDir, { recursive: true, force: true });
+  rmrf(repo);
+  rmrf(nonGitDir);
 });
 
 describe("isGitRepository", () => {

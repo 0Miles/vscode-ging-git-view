@@ -1,10 +1,8 @@
-import * as fs from "node:fs";
-
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { getRemoteUrl } from "@/backend/utils/git";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repoWithRemote: string;
 let repoWithoutRemote: string;
@@ -17,8 +15,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repoWithRemote, { recursive: true, force: true });
-  fs.rmSync(repoWithoutRemote, { recursive: true, force: true });
+  rmrf(repoWithRemote);
+  rmrf(repoWithoutRemote);
 });
 
 describe("getRemoteUrl", () => {

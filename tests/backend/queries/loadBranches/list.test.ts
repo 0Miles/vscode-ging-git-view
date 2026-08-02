@@ -1,5 +1,4 @@
 import * as cp from "node:child_process";
-import * as fs from "node:fs";
 import * as os from "node:os";
 
 import { simpleGit } from "simple-git";
@@ -8,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { gitClientFactory } from "@/backend/gitClient";
 import { loadBranches } from "@/backend/queries/loadBranches";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let simpleRepo: string;
 let detachedRepo: string;
@@ -40,9 +39,9 @@ afterAll(() => {
   } else {
     process.env["LANG"] = originalLang;
   }
-  fs.rmSync(simpleRepo, { recursive: true, force: true });
-  fs.rmSync(detachedRepo, { recursive: true, force: true });
-  fs.rmSync(repoWithRemote, { recursive: true, force: true });
+  rmrf(simpleRepo);
+  rmrf(detachedRepo);
+  rmrf(repoWithRemote);
 });
 
 describe("loadBranches", () => {
@@ -152,7 +151,7 @@ describe("loadBranches", () => {
       expect(result.branches.every((b) => !/\x1b\[/.test(b))).toBe(true);
       expect(result.branches).toContain("feature");
     } finally {
-      fs.rmSync(r, { recursive: true, force: true });
+      rmrf(r);
     }
   });
 

@@ -1,17 +1,16 @@
 import * as cp from "node:child_process";
-import * as fs from "node:fs";
 
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { getUserDetails, setUserDetails } from "@/backend/actions/userDetails";
 
-import { makeRepo } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
 afterEach(() => {
-  if (repo) fs.rmSync(repo, { recursive: true, force: true });
+  if (repo) rmrf(repo);
 });
 
 function localConfig(key: string): string {

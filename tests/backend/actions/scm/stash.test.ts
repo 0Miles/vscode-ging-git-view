@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { stashApply, stashDrop, stashPop, stashPush } from "@/backend/actions/scm";
 
-import { makeRepo } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
@@ -22,7 +22,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmrf(repo);
 });
 
 describe("stashPush", () => {

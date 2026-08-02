@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { getCommitFileContent } from "@/backend/queries/commitFileContent";
 
-import { git, makeRepo } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 const repos: string[] = [];
 function newRepo(): string {
@@ -20,7 +20,7 @@ function head(repo: string): string {
 }
 
 afterEach(() => {
-  for (const r of repos.splice(0)) fs.rmSync(r, { recursive: true, force: true });
+  for (const r of repos.splice(0)) rmrf(r);
 });
 
 describe("getCommitFileContent", () => {

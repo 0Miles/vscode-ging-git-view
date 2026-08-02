@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createArchive } from "@/backend/actions/archive";
 
-import { makeRepo } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let outDir: string;
@@ -18,8 +18,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
-  fs.rmSync(outDir, { recursive: true, force: true });
+  rmrf(repo);
+  rmrf(outDir);
 });
 
 describe("createArchive", () => {

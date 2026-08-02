@@ -14,7 +14,14 @@ export default defineConfig({
         resolve: { alias },
         test: {
           name: "backend",
-          include: ["tests/backend/**/*.test.ts"]
+          include: ["tests/backend/**/*.test.ts"],
+          setupFiles: ["tests/backend/setup.ts"],
+          // These suites drive real git child processes, many of them in
+          // parallel. The 5s/10s defaults are comfortably exceeded on a loaded
+          // machine (Windows especially, where process spawn and on-access virus
+          // scanning are slower), so give them room rather than flaking.
+          testTimeout: 30_000,
+          hookTimeout: 60_000
         }
       },
       {
