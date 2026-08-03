@@ -1,7 +1,7 @@
 {
   "name": "ging-git-view",
   "displayName": "%displayName%",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "%description%",
   "categories": [
     "SCM Providers",
