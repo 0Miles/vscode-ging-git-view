@@ -3646,7 +3646,7 @@ function requestBranchRedundancy(repo: string, branch: string) {
 
 function showBranchRedundancy(branch: string, result: BranchRedundancy, token: number) {
   if (token !== redundancyCheckSeq || document.getElementById("actionRunning") === null) return;
-  const message = branchRedundancyMessage(branch, result);
+  const message = branchRedundancyMessage(branch, result) + branchRedundancyBasis(result);
   // A redundant branch, and every branch we couldn't judge, is a one-line
   // answer with nothing to list. Those stay plain centred alerts: the wide
   // left-aligned box exists to hold the commit table, and wrapping it round a
@@ -3677,6 +3677,31 @@ function showBranchRedundancy(branch: string, result: BranchRedundancy, token: n
  *  leaves `$` alone. */
 function fillTemplate(template: string, ...values: string[]): string {
   return values.reduce((text, value, i) => text.replace("{" + i + "}", () => value), template);
+}
+
+/**
+ * How current the branch the answer was measured against is.
+ *
+ * Nothing in this check fetches, so every answer is only as fresh as the local
+ * copy of the default branch: a branch squash-merged upstream an hour ago still
+ * reads as unmerged until the user fetches. Dating the basis is what lets them
+ * notice — without it there is no clue on screen that the answer has a
+ * best-before. Omitted when there is no basis to date (the `unknown` answers).
+ */
+function branchRedundancyBasis(result: BranchRedundancy): string {
+  if (result.kind === "unknown" || result.defaultBranchDate === 0) return "";
+  const date = getCommitDate(result.defaultBranchDate);
+  return (
+    '<div class="redundancyBasis" title="' +
+    escapeHtml(date.title) +
+    '">' +
+    fillTemplate(
+      l10n.redundancyBasisDate,
+      escapeHtml(displayRef(result.defaultBranch)),
+      escapeHtml(date.value)
+    ) +
+    "</div>"
+  );
 }
 
 /** The dialog's headline sentence. The verdict is merge-tree's; the commit

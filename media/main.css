@@ -1104,6 +1104,13 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
   overflow: auto;
   border-left: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
 }
+/* The freshness line, shown under every answer that has a basis to date —
+   including the plain centred dialogs, which carry no `.redundancyResult`. */
+#dialog .redundancyBasis {
+  margin-top: 6px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
 #dialog .redundancyDetailsNote {
   color: var(--vscode-descriptionForeground);
   font-style: italic;

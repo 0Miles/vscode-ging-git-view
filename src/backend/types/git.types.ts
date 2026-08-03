@@ -89,7 +89,7 @@ export type RedundancyCommit = {
  *  the answer to the on-demand check (ADR-0006), never a stored fact. */
 export type BranchRedundancy =
   /** Merging the branch into the default branch would change nothing. */
-  | { kind: "redundant"; defaultBranch: string }
+  | { kind: "redundant"; defaultBranch: string; defaultBranchDate: number }
   /** Merging would still change something. `commits` are the branch's own
    *  commits, newest first, each marked by patch-id with whether the default
    *  branch already carries it. Evidence shown alongside the verdict, never the
@@ -98,6 +98,7 @@ export type BranchRedundancy =
   | {
       kind: "unmerged";
       defaultBranch: string;
+      defaultBranchDate: number;
       commits: RedundancyCommit[];
       /** The branch has more commits than `commits` lists. */
       truncated: boolean;

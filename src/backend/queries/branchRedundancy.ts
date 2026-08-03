@@ -22,6 +22,20 @@ async function tryRaw(git: SimpleGit, args: string[]): Promise<string | null> {
   }
 }
 
+/** The date of `ref`'s tip, unix seconds, on the same basis the rest of the UI
+ *  dates commits; 0 when it can't be read, which the dialog renders as no date
+ *  rather than as 1970. */
+async function tipDate(git: SimpleGit, ref: string, dateType: DateType): Promise<number> {
+  const raw = await tryRaw(git, [
+    "log",
+    "-1",
+    "--format=" + (dateType === "Author Date" ? "%at" : "%ct"),
+    ref
+  ]);
+  const seconds = Number(raw?.trim());
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
 /**
  * Parse the branch's own commits out of a `--cherry-mark` log. `%m` is `=` when
  * the other side already carries an identical patch, and the plain right-side
@@ -90,13 +104,18 @@ export async function checkBranchRedundancy(
   const base = await tryRaw(git, ["merge-base", defaultBranch, input.branch]);
   if (base === null || base.trim() === "") return { kind: "unknown", reason: "noMergeBase" };
 
+  // Every answer is only as current as this ref. Nothing here fetches, so a
+  // branch merged upstream an hour ago still reads as unmerged until the user
+  // does — the date is what lets them notice (see ADR-0006).
+  const defaultBranchDate = await tipDate(git, defaultBranch, input.dateType);
+
   // The only step that needs git 2.38, so the only one whose failure may be
   // reported as such.
   const merged = await tryRaw(git, ["merge-tree", "--write-tree", defaultBranch, input.branch]);
   if (merged === null) return { kind: "unknown", reason: "unsupported" };
 
   if (merged.split(eolRegex)[0].trim() === target.trim()) {
-    return { kind: "redundant", defaultBranch };
+    return { kind: "redundant", defaultBranch, defaultBranchDate };
   }
 
   // `--right-only` keeps the branch's own commits; `--cherry-mark` sets `%m` to
@@ -130,6 +149,7 @@ export async function checkBranchRedundancy(
   return {
     kind: "unmerged",
     defaultBranch,
+    defaultBranchDate,
     // One over the cap was requested so the extra proves there are more; the
     // dialog says so rather than silently rendering a truncated list.
     truncated: commits.length > MAX_LISTED_COMMITS,

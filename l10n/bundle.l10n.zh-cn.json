@@ -55,6 +55,7 @@
   "dialog.redundancy.groupMissing": "不在 {0} 里（{1}）",
   "dialog.redundancy.groupCovered": "变更已在 {0} 上（{1}）",
   "dialog.redundancy.detailsLoading": "正在加载详细信息…",
+  "dialog.redundancy.basisDate": "以 {0} 为基准，其最后更新于 {1}。",
   "dialog.redundancy.truncated": "只列出最近的 commit。",
   "dialog.redundancy.noDefaultBranch": "无法判断 {0} 有没有未合并变更：这个存放库检测不到 default branch。",
   "dialog.redundancy.noMergeBase": "无法判断 {0} 有没有未合并变更：它与 default branch 没有共同的历史。",

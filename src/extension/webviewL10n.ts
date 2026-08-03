@@ -208,6 +208,7 @@ export function getWebviewLocalizedStrings() {
     redundancyGroupCovered: l10n.t("dialog.redundancy.groupCovered"),
     redundancyDetailsLoading: l10n.t("dialog.redundancy.detailsLoading"),
     redundancyTruncated: l10n.t("dialog.redundancy.truncated"),
+    redundancyBasisDate: l10n.t("dialog.redundancy.basisDate"),
     redundancyNoDefaultBranch: l10n.t("dialog.redundancy.noDefaultBranch"),
     redundancyNoMergeBase: l10n.t("dialog.redundancy.noMergeBase"),
     redundancyUnsupported: l10n.t("dialog.redundancy.unsupported"),

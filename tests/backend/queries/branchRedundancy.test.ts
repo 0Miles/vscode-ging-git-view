@@ -99,22 +99,28 @@ afterAll(() => {
 
 describe("checkBranchRedundancy (real git)", () => {
   it("reports a fast-forward-merged branch as redundant", async () => {
-    const r = await check("ff-merged", repo);
-    expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
+    const r = await check("ff-merged");
+    expect(r).toMatchObject({ kind: "redundant", defaultBranch: "main" });
+    if (r.kind !== "redundant") return;
+    expect(r.defaultBranchDate).toBeGreaterThan(0);
   });
 
   it("reports a squash-merged branch as redundant", async () => {
-    const r = await check("squashed", repo);
-    expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
+    const r = await check("squashed");
+    expect(r).toMatchObject({ kind: "redundant", defaultBranch: "main" });
+    if (r.kind !== "redundant") return;
+    expect(r.defaultBranchDate).toBeGreaterThan(0);
   });
 
   it("reports a rebase-merged branch as redundant", async () => {
-    const r = await check("rebased", repo);
-    expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
+    const r = await check("rebased");
+    expect(r).toMatchObject({ kind: "redundant", defaultBranch: "main" });
+    if (r.kind !== "redundant") return;
+    expect(r.defaultBranchDate).toBeGreaterThan(0);
   });
 
   it("lists the commits still missing, and those already applied", async () => {
-    const r = await check("partial", repo);
+    const r = await check("partial");
     expect(r.kind).toBe("unmerged");
     if (r.kind !== "unmerged") return;
     expect(r.defaultBranch).toBe("main");
@@ -130,7 +136,7 @@ describe("checkBranchRedundancy (real git)", () => {
   });
 
   it("lists every commit as missing on a branch main has never seen", async () => {
-    const r = await check("fresh", repo);
+    const r = await check("fresh");
     expect(r.kind).toBe("unmerged");
     if (r.kind !== "unmerged") return;
     expect(r.commits.map((c) => [c.subject, c.covered])).toEqual([["fresh", false]]);
@@ -140,7 +146,7 @@ describe("checkBranchRedundancy (real git)", () => {
     // Patch-ids find the commit on main and mark it covered, but merging would
     // restore the reverted file. The verdict is merge-tree's, so the branch is
     // unmerged even though every one of its commits looks already applied.
-    const r = await check("reverted", repo);
+    const r = await check("reverted");
     expect(r.kind).toBe("unmerged");
     if (r.kind !== "unmerged") return;
     expect(r.commits.map((c) => [c.subject, c.covered])).toEqual([["reverted", true]]);
@@ -149,12 +155,14 @@ describe("checkBranchRedundancy (real git)", () => {
   it("answers tautologically on the default branch itself", async () => {
     // Deliberate: the check runs on every branch with no special cases, so the
     // default branch answers "nothing to contribute" about itself (ADR-0006).
-    const r = await check("main", repo);
-    expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
+    const r = await check("main");
+    expect(r).toMatchObject({ kind: "redundant", defaultBranch: "main" });
+    if (r.kind !== "redundant") return;
+    expect(r.defaultBranchDate).toBeGreaterThan(0);
   });
 
   it("leaves out merge commits, which are not the branch's own work", async () => {
-    const r = await check("back-merged", repo);
+    const r = await check("back-merged");
     expect(r.kind).toBe("unmerged");
     if (r.kind !== "unmerged") return;
     expect(r.commits.map((c) => c.subject)).toEqual(["back-merged: bm"]);
@@ -162,7 +170,7 @@ describe("checkBranchRedundancy (real git)", () => {
   });
 
   it("reports no merge base for an unrelated history", async () => {
-    const r = await check("lonely", repo);
+    const r = await check("lonely");
     expect(r).toEqual({ kind: "unknown", reason: "noMergeBase" });
   });
 
