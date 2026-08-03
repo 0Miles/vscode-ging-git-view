@@ -1,10 +1,16 @@
 import type { SimpleGit } from "simple-git";
 
-import type { BranchRedundancy } from "@/backend/types";
+import type { BranchRedundancy, RedundancyCommit } from "@/backend/types";
 
 import { detectDefaultBranch } from "./defaultBranch";
 
 const eolRegex = /\r\n|\r|\n/g;
+const fieldSeparator = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
+
+/** How many of the branch's commits the dialog will list. A long-lived branch
+ *  can have thousands, and every one of them costs a row of HTML built into a
+ *  single `innerHTML` string — enough to lock up the webview. */
+const MAX_LISTED_COMMITS = 200;
 
 /** Run a git command, reporting failure as null rather than throwing: every
  *  step here has its own meaning for "this didn't work". */
@@ -17,24 +23,34 @@ async function tryRaw(git: SimpleGit, args: string[]): Promise<string | null> {
 }
 
 /**
- * Split the branch's own commits by whether the default branch already carries
- * an identical patch. `git cherry` prints one line per commit: `- <sha>` when
- * the patch-id is found upstream, `+ <sha>` when it isn't.
+ * Parse the branch's own commits out of a `--cherry-mark` log. `%m` is `=` when
+ * the other side already carries an identical patch, and the plain right-side
+ * `>` when it doesn't.
  *
- * The counts are reported to the user as detail, never as the verdict. Patch-ids
- * are wrong in both directions here — they miss a squash (several commits
- * collapsed into one hash differently) and they match a change that was applied
- * and then reverted — which is exactly why the verdict comes from merge-tree.
+ * These marks are reported to the user as detail, never as the verdict.
+ * Patch-ids are wrong in both directions here — they miss a squash (several
+ * commits collapsed into one hash differently) and they match a change that was
+ * applied and then reverted — which is exactly why the verdict comes from
+ * merge-tree.
  */
-function countCherry(raw: string | null): { unmerged: number; covered: number } {
-  let unmerged = 0;
-  let covered = 0;
-  if (raw === null) return { unmerged, covered };
+function parseCherryMarkLog(raw: string | null): RedundancyCommit[] {
+  if (raw === null) return [];
+  const commits: RedundancyCommit[] = [];
   for (const line of raw.split(eolRegex)) {
-    if (line.startsWith("+")) unmerged++;
-    else if (line.startsWith("-")) covered++;
+    const fields = line.split(fieldSeparator);
+    if (fields.length < 6) continue;
+    const date = Number(fields[4]);
+    commits.push({
+      hash: fields[1],
+      author: fields[2],
+      email: fields[3],
+      date: Number.isFinite(date) ? date : 0,
+      // The subject is last, so a separator inside it can't shift the fields.
+      subject: fields.slice(5).join(fieldSeparator),
+      covered: fields[0] === "="
+    });
   }
-  return { unmerged, covered };
+  return commits;
 }
 
 /**
@@ -55,7 +71,7 @@ function countCherry(raw: string | null): { unmerged: number; covered: number } 
  */
 export async function checkBranchRedundancy(
   git: SimpleGit,
-  input: { branch: string }
+  input: { branch: string; useMailmap: boolean }
 ): Promise<BranchRedundancy> {
   const defaultBranch = await detectDefaultBranch(git);
   if (defaultBranch === null) return { kind: "unknown", reason: "noDefaultBranch" };
@@ -83,6 +99,38 @@ export async function checkBranchRedundancy(
     return { kind: "redundant", defaultBranch };
   }
 
-  const cherry = await tryRaw(git, ["cherry", defaultBranch, input.branch]);
-  return { kind: "unmerged", defaultBranch, ...countCherry(cherry) };
+  // `--right-only` keeps the branch's own commits; `--cherry-mark` sets `%m` to
+  // `=` on the ones whose patch the default branch already carries.
+  //
+  // `--no-merges` matches what `git cherry` does implicitly (it passes
+  // `--max-parents=1`). Without it a branch that merged the default branch back
+  // in lists that merge commit as its own work, and expanding it would diff
+  // against its first parent — i.e. show every file the default branch changed
+  // since the fork.
+  const log = await tryRaw(git, [
+    "log",
+    "--right-only",
+    "--cherry-mark",
+    "--no-merges",
+    "--max-count=" + (MAX_LISTED_COMMITS + 1),
+    "--format=" +
+      [
+        "%m",
+        "%H",
+        input.useMailmap ? "%aN" : "%an",
+        input.useMailmap ? "%aE" : "%ae",
+        "%at",
+        "%s"
+      ].join(fieldSeparator),
+    defaultBranch + "..." + input.branch
+  ]);
+  const commits = parseCherryMarkLog(log);
+  return {
+    kind: "unmerged",
+    defaultBranch,
+    // One over the cap was requested so the extra proves there are more; the
+    // dialog says so rather than silently rendering a truncated list.
+    truncated: commits.length > MAX_LISTED_COMMITS,
+    commits: commits.slice(0, MAX_LISTED_COMMITS)
+  };
 }

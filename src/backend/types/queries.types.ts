@@ -41,6 +41,13 @@ type QueryPayloads = {
     request: { repo: string; branch: string; token: number };
     response: { branch: string; result: BranchRedundancy; token: number };
   };
+  /** Full details for one commit expanded in the redundancy dialog. Its own
+   *  command rather than a reuse of `commitDetails`: that response is bound to
+   *  the graph's expanded row, which drops anything it didn't ask for. */
+  redundancyCommitDetails: {
+    request: { repo: string; commitHash: string };
+    response: { commitHash: string; commitDetails: GitCommitDetails | null };
+  };
   loadBranches: {
     request: { showRemoteBranches: boolean; hard: boolean };
     response: {

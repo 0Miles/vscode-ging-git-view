@@ -69,6 +69,14 @@ beforeAll(() => {
   // Never seen by main.
   branchWith("fresh", "fr.txt");
 
+  // Merged main back into itself: the merge commit is not the branch's own work,
+  // and listing it would both inflate the count and, once expanded, diff against
+  // its first parent — i.e. everything main changed since the fork.
+  git(["checkout", "-qb", "back-merged"], repo);
+  commitFile("bm.txt", "back-merged: bm");
+  git(["merge", "--no-ff", "-m", "Merge main into back-merged", "main"], repo);
+  git(["checkout", "main"], repo);
+
   // Unrelated history.
   git(["checkout", "--orphan", "lonely"], repo);
   git(["rm", "-rf", "."], repo);
@@ -82,47 +90,88 @@ afterAll(() => {
 
 describe("checkBranchRedundancy (real git)", () => {
   it("reports a fast-forward-merged branch as redundant", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "ff-merged" });
+    const r = await checkBranchRedundancy(simpleGit(repo), {
+      branch: "ff-merged",
+      useMailmap: false
+    });
     expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
   });
 
   it("reports a squash-merged branch as redundant", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "squashed" });
+    const r = await checkBranchRedundancy(simpleGit(repo), {
+      branch: "squashed",
+      useMailmap: false
+    });
     expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
   });
 
   it("reports a rebase-merged branch as redundant", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "rebased" });
+    const r = await checkBranchRedundancy(simpleGit(repo), {
+      branch: "rebased",
+      useMailmap: false
+    });
     expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
   });
 
-  it("counts the commits still missing, and those already applied", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "partial" });
-    expect(r).toEqual({ kind: "unmerged", defaultBranch: "main", unmerged: 1, covered: 1 });
+  it("lists the commits still missing, and those already applied", async () => {
+    const r = await checkBranchRedundancy(simpleGit(repo), {
+      branch: "partial",
+      useMailmap: false
+    });
+    expect(r.kind).toBe("unmerged");
+    if (r.kind !== "unmerged") return;
+    expect(r.defaultBranch).toBe("main");
+    // Newest first, as git logs them.
+    expect(r.commits.map((c) => [c.subject, c.covered])).toEqual([
+      ["partial: pa2", false],
+      ["partial: pa1", true]
+    ]);
+    const [missing] = r.commits;
+    expect(missing.hash).toMatch(/^[0-9a-f]{40}$/);
+    expect(missing.author).toBe("T");
+    expect(missing.date).toBeGreaterThan(0);
   });
 
-  it("counts every commit as missing on a branch main has never seen", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "fresh" });
-    expect(r).toEqual({ kind: "unmerged", defaultBranch: "main", unmerged: 1, covered: 0 });
+  it("lists every commit as missing on a branch main has never seen", async () => {
+    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "fresh", useMailmap: false });
+    expect(r.kind).toBe("unmerged");
+    if (r.kind !== "unmerged") return;
+    expect(r.commits.map((c) => [c.subject, c.covered])).toEqual([["fresh", false]]);
   });
 
   it("still reports unmerged when the applied change was reverted", async () => {
-    // `git cherry` finds the patch-id in main and calls the commit covered, but
-    // merging would restore the reverted file. The verdict is merge-tree's, so
-    // the branch is unmerged with nothing attributable to a specific commit.
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "reverted" });
-    expect(r).toEqual({ kind: "unmerged", defaultBranch: "main", unmerged: 0, covered: 1 });
+    // Patch-ids find the commit on main and mark it covered, but merging would
+    // restore the reverted file. The verdict is merge-tree's, so the branch is
+    // unmerged even though every one of its commits looks already applied.
+    const r = await checkBranchRedundancy(simpleGit(repo), {
+      branch: "reverted",
+      useMailmap: false
+    });
+    expect(r.kind).toBe("unmerged");
+    if (r.kind !== "unmerged") return;
+    expect(r.commits.map((c) => [c.subject, c.covered])).toEqual([["reverted", true]]);
   });
 
   it("answers tautologically on the default branch itself", async () => {
     // Deliberate: the check runs on every branch with no special cases, so the
     // default branch answers "nothing to contribute" about itself (ADR-0006).
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "main" });
+    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "main", useMailmap: false });
     expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
   });
 
+  it("leaves out merge commits, which are not the branch's own work", async () => {
+    const r = await checkBranchRedundancy(simpleGit(repo), {
+      branch: "back-merged",
+      useMailmap: false
+    });
+    expect(r.kind).toBe("unmerged");
+    if (r.kind !== "unmerged") return;
+    expect(r.commits.map((c) => c.subject)).toEqual(["back-merged: bm"]);
+    expect(r.truncated).toBe(false);
+  });
+
   it("reports no merge base for an unrelated history", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "lonely" });
+    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "lonely", useMailmap: false });
     expect(r).toEqual({ kind: "unknown", reason: "noMergeBase" });
   });
 
@@ -130,7 +179,10 @@ describe("checkBranchRedundancy (real git)", () => {
     const lone = makeRepo();
     try {
       git(["branch", "-m", "main", "topic"], lone);
-      const r = await checkBranchRedundancy(simpleGit(lone), { branch: "topic" });
+      const r = await checkBranchRedundancy(simpleGit(lone), {
+        branch: "topic",
+        useMailmap: false
+      });
       expect(r).toEqual({ kind: "unknown", reason: "noDefaultBranch" });
     } finally {
       rmrf(lone);

@@ -371,7 +371,21 @@ export function registerMessageHandlers(
       command: "branchRedundancy",
       branch: msg.branch,
       token: msg.token,
-      result: await checkBranchRedundancy(gitClient.getInstance(), { branch: msg.branch })
+      result: await checkBranchRedundancy(gitClient.getInstance(), {
+        branch: msg.branch,
+        useMailmap: config.useMailmap()
+      })
+    });
+  });
+
+  bridge.onMessage("redundancyCommitDetails", async (msg) => {
+    bridge.post({
+      command: "redundancyCommitDetails",
+      commitHash: msg.commitHash,
+      ...(await commitDetails(gitClient.getInstance(), {
+        commitHash: msg.commitHash,
+        useMailmap: config.useMailmap()
+      }))
     });
   });
 

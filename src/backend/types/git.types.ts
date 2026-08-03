@@ -73,14 +73,33 @@ export type GitResetMode = "soft" | "mixed" | "hard";
 /** An in-progress git operation that can be continued or aborted. */
 export type GitOperation = "merge" | "rebase" | "cherrypick" | "revert";
 
+/** One of the branch's own commits, as listed in the redundancy dialog. */
+export type RedundancyCommit = {
+  hash: string;
+  subject: string;
+  author: string;
+  email: string;
+  /** Author date, unix seconds. */
+  date: number;
+  /** The default branch already carries a commit with an identical patch. */
+  covered: boolean;
+};
+
 /** Whether a branch still has anything to contribute to the default branch —
  *  the answer to the on-demand check (ADR-0006), never a stored fact. */
 export type BranchRedundancy =
   /** Merging the branch into the default branch would change nothing. */
   | { kind: "redundant"; defaultBranch: string }
-  /** Merging would still change something. The counts are the per-commit
-   *  patch-id split from `git cherry`: how many of the branch's own commits
-   *  have no counterpart on the default branch, and how many do. Evidence
-   *  shown alongside the verdict, never the verdict itself. */
-  | { kind: "unmerged"; defaultBranch: string; unmerged: number; covered: number }
+  /** Merging would still change something. `commits` are the branch's own
+   *  commits, newest first, each marked by patch-id with whether the default
+   *  branch already carries it. Evidence shown alongside the verdict, never the
+   *  verdict itself — a commit can be `covered` on a branch that is still
+   *  unmerged (the change was applied there and later reverted). */
+  | {
+      kind: "unmerged";
+      defaultBranch: string;
+      commits: RedundancyCommit[];
+      /** The branch has more commits than `commits` lists. */
+      truncated: boolean;
+    }
   | { kind: "unknown"; reason: "noDefaultBranch" | "noMergeBase" | "unsupported" };

@@ -154,7 +154,8 @@ code {
 }
 
 /* Commit Table */
-#commitTable table {
+#commitTable table,
+.commitList table {
   width: 100%;
   border-collapse: collapse;
 }
@@ -162,12 +163,17 @@ code {
 #commitTable tbody,
 #commitTable tr,
 #commitTable th,
-#commitTable td {
+#commitTable td,
+.commitList table,
+.commitList tbody,
+.commitList tr,
+.commitList td {
   padding: 0;
   margin: 0;
 }
 #commitTable th,
-#commitTable td {
+#commitTable td,
+.commitList td {
   white-space: nowrap;
   font-size: 13px;
   cursor: default;
@@ -179,10 +185,13 @@ code {
 #commitTable tr.commit:hover td,
 #commitTable tr.commit.contextMenuActive td,
 #commitTable tr.commit.dialogActive td,
-#commitTable tr.commit.commitDetailsOpen td {
+#commitTable tr.commit.commitDetailsOpen td,
+.commitList tr.commit:hover td,
+.commitList tr.commit.commitDetailsOpen td {
   background-color: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15));
 }
-#commitTable tr.commit:hover td {
+#commitTable tr.commit:hover td,
+.commitList tr.commit:hover td {
   cursor: pointer;
 }
 #commitTable tr.commit.muted td {
@@ -211,7 +220,8 @@ code {
 .commitSignature.bad {
   color: var(--vscode-errorForeground);
 }
-#commitTable td {
+#commitTable td,
+.commitList tr.commit td {
   line-height: 24px;
   padding: 0 4px;
 }
@@ -404,7 +414,8 @@ body.cdvDocked #content {
   padding-bottom: 8px;
   box-sizing: border-box;
 }
-#commitDetailsFiles ul {
+#commitDetailsFiles ul,
+.commitDetailsFiles ul {
   list-style-type: none;
   -webkit-margin-before: 0;
   -webkit-margin-after: 0;
@@ -412,10 +423,12 @@ body.cdvDocked #content {
   -webkit-margin-end: 0px;
   -webkit-padding-start: 30px;
 }
-#commitDetailsFiles > ul {
+#commitDetailsFiles > ul,
+.commitDetailsFiles > ul {
   -webkit-padding-start: 10px;
 }
-#commitDetailsFiles li {
+#commitDetailsFiles li,
+.commitDetailsFiles li {
   margin-top: 4px;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1009,6 +1022,75 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
 }
 #dialog .conflictPrediction.hasConflict {
   color: var(--vscode-errorForeground);
+}
+/* Branch redundancy dialog: a summary sentence over the branch's own commits,
+   rendered as the graph's commit rows minus the graph and ref-label column
+   (see `.commitList` co-selectors under "Commit Table"), each expandable into
+   the same Commit Details View summary + file pane. */
+#dialog.active:has(.redundancyResult) {
+  text-align: left;
+  max-width: 700px;
+}
+#dialog .redundancySummary {
+  display: block;
+}
+#dialog .commitList {
+  margin-top: 12px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+#dialog .commitList td:nth-child(1) {
+  width: 100%;
+  max-width: 0;
+}
+#dialog .commitList tr.commitListGroup td {
+  color: var(--vscode-descriptionForeground);
+  font-weight: bold;
+  line-height: 22px;
+  padding: 10px 4px 2px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+#dialog .commitList tr.commitListGroup:first-child td {
+  padding-top: 0;
+}
+#dialog .commitList tr.commitListDetails {
+  display: none;
+}
+#dialog .commitList tr.commitListDetails.open {
+  display: table-row;
+}
+#dialog .commitList tr.commitListDetails td {
+  white-space: normal;
+  font-size: 13px;
+  line-height: 18px;
+  padding: 8px 10px;
+  background-color: var(
+    --vscode-quickInput-background,
+    var(--vscode-editorWidget-background, var(--vscode-editor-background))
+  );
+  border-bottom: 2px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  /* The two panes sit side by side, as in the docked details view — but laid
+     out with flex rather than the absolute positioning `#commitDetails` uses,
+     since a dialog row has no fixed height to position against. */
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+#dialog .commitDetailsSummary {
+  flex: 0 0 45%;
+  max-height: 260px;
+  overflow: auto;
+  user-select: text;
+}
+#dialog .commitDetailsFiles {
+  flex: 1 1 auto;
+  max-height: 260px;
+  overflow: auto;
+  border-left: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+}
+#dialog .redundancyDetailsNote {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
 }
 #dialog .conflictPredictionList {
   margin: 4px 0 0 0;

@@ -8,7 +8,8 @@ import type {
   GitFileChangeType,
   GitOperation,
   GitResetMode,
-  GitTagDetails
+  GitTagDetails,
+  RedundancyCommit
 } from "@/backend/types";
 import { displayRef } from "@/backend/utils/branchRef";
 
@@ -1053,15 +1054,7 @@ class GitGraphView {
         '" title="' +
         escapeHtml(this.commits[i].author + " <" + this.commits[i].email + ">") +
         '">' +
-        (this.config.fetchAvatars
-          ? '<span class="avatar" data-email="' +
-            escapeHtml(this.commits[i].email) +
-            '">' +
-            (typeof this.avatars[this.commits[i].email] === "string"
-              ? '<img class="avatarImg" src="' + this.avatars[this.commits[i].email] + '">'
-              : "") +
-            "</span>"
-          : "") +
+        this.avatarHtml(this.commits[i].email) +
         escapeHtml(this.commits[i].author) +
         '</td><td class="' +
         (hiddenCommit ? "hidden" : "") +
@@ -2987,6 +2980,23 @@ class GitGraphView {
     this.expandedCommit.srcElem.classList.add("commitDetailsOpen");
     this.saveState();
 
+    this.renderCommitDetailsPanel(
+      this.commitSummaryHtml(commitDetails, true),
+      commitDetails.fileChanges,
+      fileTree
+    );
+  }
+
+  /**
+   * The Commit Details View's summary block — the key/value header, avatar and
+   * message body. Shared with the branch-redundancy dialog, which renders the
+   * same commit the same way.
+   *
+   * `interactive` is false for that dialog: the clickable parent hashes and the
+   * hashes linkified inside the body both navigate the graph's own rows, and a
+   * commit listed in a dialog need not be among them.
+   */
+  public commitSummaryHtml(commitDetails: GitCommitDetails, interactive: boolean): string {
     let html =
       '<span class="commitDetailsSummaryTop' +
       (typeof this.avatars[commitDetails.email] === "string" ? " withAvatar" : "") +
@@ -2998,7 +3008,7 @@ class GitGraphView {
       "</b>" +
       commitDetails.parents
         .map((p) =>
-          this.commitLookup[p] !== undefined
+          interactive && this.commitLookup[p] !== undefined
             ? '<span class="commitBodyHash" data-hash="' + p + '">' + abbrevCommit(p) + "</span>"
             : abbrevCommit(p)
         )
@@ -3046,6 +3056,7 @@ class GitGraphView {
         '"></span>';
     html += "</span></span><br><br>";
     const resolveHash = (token: string): string | null => {
+      if (!interactive) return null;
       if (this.commitLookup[token] !== undefined) return token;
       for (const h in this.commitLookup) {
         if (h.startsWith(token)) return h;
@@ -3062,8 +3073,7 @@ class GitGraphView {
       )
     );
     if (this.config.markdown) body = renderInlineMarkdown(body);
-    html += body.replace(/\n/g, "<br>");
-    this.renderCommitDetailsPanel(html, commitDetails.fileChanges, fileTree);
+    return html + body.replace(/\n/g, "<br>");
   }
 
   /** Show the comparison of the two commits referenced by the expanded commit's
@@ -3479,6 +3489,32 @@ class GitGraphView {
     return this.gitRepos[this.currentRepo]?.fileViewType ?? this.config.fileViewType;
   }
 
+  /** The Commit Details View's file section for a set of changes, in whichever
+   *  layout the repo is set to. Shared with the branch-redundancy dialog so a
+   *  commit's files read the same wherever they are shown; the dialog's copy is
+   *  inert, since the diff actions are bound to the graph's expanded row. */
+  /** The avatar span of a commit table's author cell — empty until the image
+   *  for that address has been fetched, and empty entirely when avatars are
+   *  turned off. Shared with the branch-redundancy dialog's list. */
+  public avatarHtml(email: string): string {
+    if (!this.config.fetchAvatars) return "";
+    return (
+      '<span class="avatar" data-email="' +
+      escapeHtml(email) +
+      '">' +
+      (typeof this.avatars[email] === "string"
+        ? '<img class="avatarImg" src="' + this.avatars[email] + '">'
+        : "") +
+      "</span>"
+    );
+  }
+
+  public commitFilesHtml(fileChanges: GitFileChange[]): string {
+    const fileTree = generateGitFileTree(fileChanges);
+    if (this.config.fileTreeCompactFolders) compactGitFileTree(fileTree);
+    return this.generateCdvFilesHtml(fileChanges, fileTree, this.getFileViewType());
+  }
+
   private generateCdvFilesHtml(
     fileChanges: GitFileChange[],
     fileTree: GitFolder,
@@ -3595,25 +3631,42 @@ function conflictPredictionPlaceholder(repo: string, theirs: string): string {
 // late answer must neither replace whatever the user opened in the meantime nor
 // reappear after they dismissed the "checking" dialog.
 let redundancyCheckSeq = 0;
+/** The repo the open dialog is reporting on, for its lazy detail requests. */
+let redundancyRepo: string | null = null;
 
 /** Ask whether `branch` still has anything to contribute to the default branch.
  *  Deliberately reports and forgets: the answer is a snapshot, and folding it
  *  into the always-on merged badge would break that badge's "safe to delete"
  *  promise (ADR-0006). */
 function requestBranchRedundancy(repo: string, branch: string) {
+  redundancyRepo = repo;
   showActionRunningDialog(l10n.redundancyChecking);
   sendMessage({ command: "branchRedundancy", repo, branch, token: ++redundancyCheckSeq });
 }
 
 function showBranchRedundancy(branch: string, result: BranchRedundancy, token: number) {
   if (token !== redundancyCheckSeq || document.getElementById("actionRunning") === null) return;
-  showDialog(branchRedundancyMessage(branch, result), null, l10n.dialogDismiss, null, null);
+  showDialog(
+    '<div class="redundancyResult">' +
+      '<span class="redundancySummary">' +
+      branchRedundancyMessage(branch, result) +
+      "</span>" +
+      (result.kind === "unmerged" ? redundancyCommitList(result) : "") +
+      "</div>",
+    null,
+    l10n.dialogDismiss,
+    null,
+    null
+  );
+  document.querySelectorAll("#dialog .commitList tr.commit").forEach((row) => {
+    row.addEventListener("click", () => toggleRedundancyCommit(<HTMLElement>row));
+  });
 }
 
-/** The dialog text for a redundancy answer. The verdict is merge-tree's; the
- *  commit counts are `git cherry` evidence reported alongside it, and are left
- *  out when they attribute nothing — which is what a squash merge with later
- *  work, and a change that was applied then reverted, both look like. */
+/** The dialog's headline sentence. The verdict is merge-tree's; the commit
+ *  counts are patch-id evidence reported alongside it, and are left out when
+ *  they attribute nothing — which is what a squash merge with later work, and a
+ *  change that was applied then reverted, both look like. */
 function branchRedundancyMessage(branch: string, result: BranchRedundancy): string {
   const name = "<b><i>" + escapeHtml(branch) + "</i></b>";
   if (result.kind === "unknown") {
@@ -3629,20 +3682,135 @@ function branchRedundancyMessage(branch: string, result: BranchRedundancy): stri
   if (result.kind === "redundant") {
     return l10n.redundancyNone.replace("{0}", name).replace("{1}", target);
   }
-  if (result.unmerged === 0) {
+  const missing = result.commits.filter((c) => !c.covered).length;
+  const covered = result.commits.length - missing;
+  if (missing === 0) {
     return l10n.redundancyUnmergedUnknown.replace("{0}", name).replace("{1}", target);
   }
-  if (result.covered === 0) {
+  if (covered === 0) {
     return l10n.redundancyUnmerged
       .replace("{0}", name)
-      .replace("{1}", String(result.unmerged))
+      .replace("{1}", String(missing))
       .replace("{2}", target);
   }
   return l10n.redundancyUnmergedPartial
     .replace("{0}", name)
-    .replace("{1}", String(result.unmerged))
+    .replace("{1}", String(missing))
     .replace("{2}", target)
-    .replace("{3}", String(result.covered));
+    .replace("{3}", String(covered));
+}
+
+/** The branch's commits, split by whether the default branch already carries an
+ *  identical patch. Both groups are shown: "already applied" is the half that
+ *  explains why a branch the badge calls unmerged may still be nearly done. */
+function redundancyCommitList(result: Extract<BranchRedundancy, { kind: "unmerged" }>): string {
+  const target = escapeHtml(displayRef(result.defaultBranch));
+  const group = (title: string, commits: readonly RedundancyCommit[]) =>
+    commits.length === 0
+      ? ""
+      : '<tr class="commitListGroup"><td colspan="4">' +
+        // Function replacements: a branch name may contain `$&` or `$'`, which
+        // a string replacement would expand.
+        title.replace("{0}", () => target).replace("{1}", () => String(commits.length)) +
+        "</td></tr>" +
+        commits.map(redundancyCommitRow).join("");
+  return (
+    '<div class="commitList"><table>' +
+    group(
+      l10n.redundancyGroupMissing,
+      result.commits.filter((c) => !c.covered)
+    ) +
+    group(
+      l10n.redundancyGroupCovered,
+      result.commits.filter((c) => c.covered)
+    ) +
+    (result.truncated
+      ? '<tr class="commitListGroup"><td colspan="4">' +
+        escapeHtml(l10n.redundancyTruncated) +
+        "</td></tr>"
+      : "") +
+    "</table></div>"
+  );
+}
+
+/** One row of the list, built from the same cells as the graph's commit table
+ *  with the graph and ref-label column dropped, followed by the (initially
+ *  empty) details row that expanding it fills in. */
+function redundancyCommitRow(commit: RedundancyCommit): string {
+  const date = getCommitDate(commit.date);
+  const avatar = gitGraph.avatarHtml(commit.email);
+  return (
+    '<tr class="commit" data-hash="' +
+    commit.hash +
+    '"><td>' +
+    escapeHtml(replaceEmojiShortcodes(commit.subject, viewState.customEmojiShortcodeMappings)) +
+    '</td><td title="' +
+    escapeHtml(date.title) +
+    '">' +
+    escapeHtml(date.value) +
+    '</td><td title="' +
+    escapeHtml(commit.author + " <" + commit.email + ">") +
+    '">' +
+    avatar +
+    escapeHtml(commit.author) +
+    '</td><td title="' +
+    escapeHtml(commit.hash) +
+    '">' +
+    abbrevCommit(commit.hash) +
+    '</td></tr><tr class="commitListDetails" data-hash="' +
+    commit.hash +
+    '"><td colspan="4"></td></tr>'
+  );
+}
+
+/** The details row that follows `row` in the list. Safe as a selector: the hash
+ *  comes back from git as hex. */
+function redundancyDetailsCell(commitHash: string): HTMLElement | null {
+  return document.querySelector(
+    '#dialog .commitList tr.commitListDetails[data-hash="' + commitHash + '"] td'
+  );
+}
+
+/** Expand or collapse a row, fetching its details the first time it opens. */
+function toggleRedundancyCommit(row: HTMLElement) {
+  const hash = row.dataset.hash!;
+  const cell = redundancyDetailsCell(hash);
+  if (cell === null) return;
+  if (!row.classList.toggle("commitDetailsOpen")) {
+    cell.parentElement!.classList.remove("open");
+    return;
+  }
+  cell.parentElement!.classList.add("open");
+  if (cell.dataset.requested === "true" || redundancyRepo === null) return;
+  cell.dataset.requested = "true";
+  cell.dataset.token = String(redundancyCheckSeq);
+  cell.innerHTML =
+    '<span class="redundancyDetailsNote">' + escapeHtml(l10n.redundancyDetailsLoading) + "</span>";
+  sendMessage({ command: "redundancyCommitDetails", repo: redundancyRepo, commitHash: hash });
+}
+
+/**
+ * Fill in a row's details, using the graph's own Commit Details View renderers
+ * so the same commit reads the same in both places.
+ *
+ * Nothing to do when the dialog has since closed — the row is gone with it. The
+ * token guards the case where it has since been *reopened* for another branch
+ * that happens to contain the same commit: that row was never expanded, and
+ * filling it silently would leave content the user can't see and can't refresh.
+ */
+function showRedundancyCommitDetails(commitHash: string, details: GitCommitDetails | null) {
+  const cell = redundancyDetailsCell(commitHash);
+  if (cell === null || cell.dataset.token !== String(redundancyCheckSeq)) return;
+  cell.innerHTML =
+    details === null
+      ? '<span class="redundancyDetailsNote">' +
+        escapeHtml(l10n.unableToLoadCommitDetails) +
+        "</span>"
+      : '<div class="commitDetailsSummary">' +
+        gitGraph.commitSummaryHtml(details, false) +
+        '</div><div class="commitDetailsFiles">' +
+        gitGraph.commitFilesHtml(details.fileChanges) +
+        "</div>";
 }
 
 /* Command Processing */
@@ -3722,6 +3890,9 @@ window.addEventListener("message", (event) => {
       break;
     case "branchRedundancy":
       showBranchRedundancy(msg.branch, msg.result, msg.token);
+      break;
+    case "redundancyCommitDetails":
+      showRedundancyCommitDetails(msg.commitHash, msg.commitDetails);
       break;
     case "predictConflicts": {
       const elem = document.getElementById("conflictPrediction");
