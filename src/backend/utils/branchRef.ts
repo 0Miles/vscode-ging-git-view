@@ -52,3 +52,12 @@ export function branchKeyFromRefname(refname: string): string | null {
   }
   return null;
 }
+
+/** `git for-each-ref --format=%(refname)` output — full refnames, one per line —
+ *  in the branch-list format; unparseable and non-branch lines are dropped. */
+export function parseRefnames(raw: string): string[] {
+  return raw
+    .split("\n")
+    .map((line) => branchKeyFromRefname(line.trim()))
+    .filter((key): key is string => key !== null);
+}

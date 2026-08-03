@@ -137,6 +137,7 @@
   "command.branches.pull": "拉取到当前 branch…",
   "command.branches.fetchIntoLocal": "Fetch 到本地 branch…",
   "command.branches.deleteRemote": "删除远程 branch…",
+  "command.branches.checkRedundancy": "检查此 branch 是否有未合并变更",
   "command.branches.collapseAll": "折叠全部 branch",
   "view.remotes": "远程",
   "view.remotes.welcomeNoRepo": "未选取存储库。\n[打开历史视图](command:ging-git-view.view)",

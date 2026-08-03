@@ -143,12 +143,14 @@ export function activate(context: vscode.ExtensionContext) {
     set("branch.delete", cmv.branch.delete);
     set("branch.merge", cmv.branch.merge);
     set("branch.rebase", cmv.branch.rebase);
+    set("branch.checkRedundancy", cmv.branch.checkRedundancy);
     set("branch.copyName", cmv.branch.copyName);
     set("remoteBranch.checkout", cmv.remoteBranch.checkout);
     set("remoteBranch.merge", cmv.remoteBranch.merge);
     set("remoteBranch.pull", cmv.remoteBranch.pull);
     set("remoteBranch.fetch", cmv.remoteBranch.fetch);
     set("remoteBranch.delete", cmv.remoteBranch.delete);
+    set("remoteBranch.checkRedundancy", cmv.remoteBranch.checkRedundancy);
     set("remoteBranch.copyName", cmv.remoteBranch.copyName);
   };
   syncBranchMenuVisibility();
@@ -557,6 +559,9 @@ export function activate(context: vscode.ExtensionContext) {
     ),
     vscode.commands.registerCommand("ging-git-view.branches.deleteRemote", (item: unknown) =>
       runRefActionInGraph(item, "deleteRemote")
+    ),
+    vscode.commands.registerCommand("ging-git-view.branches.checkRedundancy", (item: unknown) =>
+      runRefActionInGraph(item, "checkRedundancy")
     ),
     vscode.commands.registerCommand("ging-git-view.branches.copyName", (item: unknown) => {
       const target = branchActionTarget(item);

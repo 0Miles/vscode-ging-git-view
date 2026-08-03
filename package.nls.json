@@ -137,6 +137,7 @@
   "command.branches.pull": "Pull into Current Branch…",
   "command.branches.fetchIntoLocal": "Fetch into Local Branch…",
   "command.branches.deleteRemote": "Delete Remote Branch…",
+  "command.branches.checkRedundancy": "Check for Unmerged Changes",
   "command.branches.collapseAll": "Collapse Branches",
   "view.remotes": "Remotes",
   "view.remotes.welcomeNoRepo": "No repository selected.\n[Open History View](command:ging-git-view.view)",

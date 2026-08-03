@@ -72,3 +72,15 @@ export type CommitOrdering = "date" | "author-date" | "topo";
 export type GitResetMode = "soft" | "mixed" | "hard";
 /** An in-progress git operation that can be continued or aborted. */
 export type GitOperation = "merge" | "rebase" | "cherrypick" | "revert";
+
+/** Whether a branch still has anything to contribute to the default branch —
+ *  the answer to the on-demand check (ADR-0006), never a stored fact. */
+export type BranchRedundancy =
+  /** Merging the branch into the default branch would change nothing. */
+  | { kind: "redundant"; defaultBranch: string }
+  /** Merging would still change something. The counts are the per-commit
+   *  patch-id split from `git cherry`: how many of the branch's own commits
+   *  have no counterpart on the default branch, and how many do. Evidence
+   *  shown alongside the verdict, never the verdict itself. */
+  | { kind: "unmerged"; defaultBranch: string; unmerged: number; covered: number }
+  | { kind: "unknown"; reason: "noDefaultBranch" | "noMergeBase" | "unsupported" };

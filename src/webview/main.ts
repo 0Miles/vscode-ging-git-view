@@ -1,4 +1,5 @@
 import type {
+  BranchRedundancy,
   CommitOrdering,
   GitCommandStatus,
   GitCommitDetails,
@@ -1952,6 +1953,17 @@ class GitGraphView {
             });
           }
         }
+        // Offered on every branch — including the checked-out one and the
+        // default branch itself — but not on the symbolic "<remote>/HEAD",
+        // which is not a branch, matching the remote actions above.
+        const remoteRef = sourceElem.classList.contains("remote");
+        if (!remoteRef || splitRemoteRef(refName) !== null) {
+          menu.push({
+            title: l10n.checkRedundancy,
+            visible: remoteRef ? cmv.remoteBranch.checkRedundancy : cmv.branch.checkRedundancy,
+            onClick: () => requestBranchRedundancy(this.currentRepo!, refName)
+          });
+        }
         // Create a pull request from this branch on its remote.
         if (this.remotes.length > 0) {
           menu.push({
@@ -2307,6 +2319,13 @@ class GitGraphView {
   }
   private dispatchRefAction(msg: GG.ResponseRunRefAction) {
     const ref = msg.ref;
+    // The one action that reads the same on both sides: it inspects the branch
+    // rather than acting on it, so neither the remote split nor the head guards
+    // below apply.
+    if (msg.action === "checkRedundancy") {
+      requestBranchRedundancy(msg.repo, ref);
+      return;
+    }
     if (msg.isRemote) {
       switch (msg.action) {
         case "checkout":
@@ -3570,6 +3589,62 @@ function conflictPredictionPlaceholder(repo: string, theirs: string): string {
   );
 }
 
+/* Branch redundancy (on-demand check) */
+// Correlates an answer with the request that asked for it. The check runs a
+// merge and may scan history, so it can outlive the dialog that started it: a
+// late answer must neither replace whatever the user opened in the meantime nor
+// reappear after they dismissed the "checking" dialog.
+let redundancyCheckSeq = 0;
+
+/** Ask whether `branch` still has anything to contribute to the default branch.
+ *  Deliberately reports and forgets: the answer is a snapshot, and folding it
+ *  into the always-on merged badge would break that badge's "safe to delete"
+ *  promise (ADR-0006). */
+function requestBranchRedundancy(repo: string, branch: string) {
+  showActionRunningDialog(l10n.redundancyChecking);
+  sendMessage({ command: "branchRedundancy", repo, branch, token: ++redundancyCheckSeq });
+}
+
+function showBranchRedundancy(branch: string, result: BranchRedundancy, token: number) {
+  if (token !== redundancyCheckSeq || document.getElementById("actionRunning") === null) return;
+  showDialog(branchRedundancyMessage(branch, result), null, l10n.dialogDismiss, null, null);
+}
+
+/** The dialog text for a redundancy answer. The verdict is merge-tree's; the
+ *  commit counts are `git cherry` evidence reported alongside it, and are left
+ *  out when they attribute nothing — which is what a squash merge with later
+ *  work, and a change that was applied then reverted, both look like. */
+function branchRedundancyMessage(branch: string, result: BranchRedundancy): string {
+  const name = "<b><i>" + escapeHtml(branch) + "</i></b>";
+  if (result.kind === "unknown") {
+    const reason =
+      result.reason === "noDefaultBranch"
+        ? l10n.redundancyNoDefaultBranch
+        : result.reason === "noMergeBase"
+          ? l10n.redundancyNoMergeBase
+          : l10n.redundancyUnsupported;
+    return reason.replace("{0}", name);
+  }
+  const target = "<b><i>" + escapeHtml(displayRef(result.defaultBranch)) + "</i></b>";
+  if (result.kind === "redundant") {
+    return l10n.redundancyNone.replace("{0}", name).replace("{1}", target);
+  }
+  if (result.unmerged === 0) {
+    return l10n.redundancyUnmergedUnknown.replace("{0}", name).replace("{1}", target);
+  }
+  if (result.covered === 0) {
+    return l10n.redundancyUnmerged
+      .replace("{0}", name)
+      .replace("{1}", String(result.unmerged))
+      .replace("{2}", target);
+  }
+  return l10n.redundancyUnmergedPartial
+    .replace("{0}", name)
+    .replace("{1}", String(result.unmerged))
+    .replace("{2}", target)
+    .replace("{3}", String(result.covered));
+}
+
 /* Command Processing */
 window.addEventListener("message", (event) => {
   const msg: GG.ResponseMessage = event.data;
@@ -3644,6 +3719,9 @@ window.addEventListener("message", (event) => {
           generateGitFileTree(msg.fileChanges)
         );
       }
+      break;
+    case "branchRedundancy":
+      showBranchRedundancy(msg.branch, msg.result, msg.token);
       break;
     case "predictConflicts": {
       const elem = document.getElementById("conflictPrediction");

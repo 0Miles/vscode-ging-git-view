@@ -33,6 +33,7 @@ import { applyStash, dropStash, popStash, renameStash } from "@/backend/actions/
 import { addTag, deleteTag, pushTag } from "@/backend/actions/tag";
 import { cleanUntrackedFiles, resetUncommittedChanges } from "@/backend/actions/workingTree";
 import { GitClient } from "@/backend/gitClient";
+import { checkBranchRedundancy } from "@/backend/queries/branchRedundancy";
 import { commitDetails } from "@/backend/queries/commitDetails";
 import { compareCommits } from "@/backend/queries/compareCommits";
 import { loadBranches } from "@/backend/queries/loadBranches";
@@ -362,6 +363,15 @@ export function registerMessageHandlers(
         fromHash: msg.fromHash,
         toHash: msg.toHash
       }))
+    });
+  });
+
+  bridge.onMessage("branchRedundancy", async (msg) => {
+    bridge.post({
+      command: "branchRedundancy",
+      branch: msg.branch,
+      token: msg.token,
+      result: await checkBranchRedundancy(gitClient.getInstance(), { branch: msg.branch })
     });
   });
 

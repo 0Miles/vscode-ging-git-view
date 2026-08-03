@@ -1,6 +1,11 @@
 import type { SimpleGit } from "simple-git";
 
-import { PRIMARY_BRANCHES, REMOTE_PREFIX, splitRemoteRef } from "@/backend/utils/branchRef";
+import {
+  parseRefnames,
+  PRIMARY_BRANCHES,
+  REMOTE_PREFIX,
+  splitRemoteRef
+} from "@/backend/utils/branchRef";
 
 /** The remote names appearing in a ref list, `origin` first when present. */
 function remotesIn(refs: readonly string[]): string[] {
@@ -11,6 +16,25 @@ function remotesIn(refs: readonly string[]): string[] {
     seen.push(split.remote);
   }
   return seen.includes("origin") ? ["origin", ...seen.filter((r) => r !== "origin")] : seen;
+}
+
+/** {@link resolveDefaultBranch} against the repo's own ref list — the entry
+ *  point for callers that don't already hold one. Deliberately scans both
+ *  namespaces regardless of what the view is showing (see the note on
+ *  `allRefs` below), and reports null on a failed read, which disables every
+ *  default-branch-derived feature. */
+export async function detectDefaultBranch(git: SimpleGit): Promise<string | null> {
+  try {
+    const raw = await git.raw([
+      "for-each-ref",
+      "--format=%(refname)",
+      "refs/heads",
+      "refs/remotes"
+    ]);
+    return await resolveDefaultBranch(git, parseRefnames(raw));
+  } catch {
+    return null;
+  }
 }
 
 /**

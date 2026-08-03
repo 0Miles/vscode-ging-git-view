@@ -1,9 +1,9 @@
 import type { SimpleGit } from "simple-git";
 
-import { branchKeyFromRefname } from "@/backend/utils/branchRef";
+import { branchKeyFromRefname, parseRefnames } from "@/backend/utils/branchRef";
 import { isGitRepository } from "@/backend/utils/git";
 
-import { resolveDefaultBranch } from "./defaultBranch";
+import { detectDefaultBranch } from "./defaultBranch";
 
 type LoadBranchesInput = {
   showRemoteBranches: boolean;
@@ -44,23 +44,6 @@ export type LoadBranchesResult = {
 /** The `refs/…` namespaces to scan, matching what the branch list contains. */
 function refNamespaces(showRemoteBranches: boolean): string[] {
   return showRemoteBranches ? ["refs/heads", "refs/remotes"] : ["refs/heads"];
-}
-
-/** Every branch ref in the repo, in branch-list format. Deliberately ignores
- *  `showRemoteBranches`: which branch is the default is a fact about the repo,
- *  not about what the view is currently showing. */
-async function listAllBranchRefs(git: SimpleGit): Promise<string[]> {
-  const raw = await git.raw(["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"]);
-  return parseRefnames(raw);
-}
-
-/** Full refnames, one per line, converted to branch-list format; unparseable
- *  and non-branch lines are dropped. */
-function parseRefnames(raw: string): string[] {
-  return raw
-    .split("\n")
-    .map((line) => branchKeyFromRefname(line.trim()))
-    .filter((key): key is string => key !== null);
 }
 
 /** Parse `git for-each-ref --format='%(refname)\t%(committerdate:unix)'` into a
@@ -122,7 +105,7 @@ export async function loadBranches(
     result.defaultBranch = null;
     result.mergedBranches = [];
     try {
-      const defaultBranch = await resolveDefaultBranch(git, await listAllBranchRefs(git));
+      const defaultBranch = await detectDefaultBranch(git);
       result.defaultBranch = defaultBranch;
       if (defaultBranch !== null) {
         const raw = await git.raw([

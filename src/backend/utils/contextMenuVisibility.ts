@@ -23,6 +23,7 @@ export const DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY: ContextMenuActionsVisibili
     delete: true,
     merge: true,
     rebase: true,
+    checkRedundancy: true,
     copyName: true
   },
   remoteBranch: {
@@ -31,6 +32,7 @@ export const DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY: ContextMenuActionsVisibili
     pull: true,
     fetch: true,
     delete: true,
+    checkRedundancy: true,
     copyName: true
   },
   tag: { viewDetails: true, delete: true, push: true, createArchive: true, copyName: true },

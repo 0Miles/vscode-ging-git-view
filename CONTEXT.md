@@ -26,15 +26,19 @@ _Avoid_: discovered repo, tracked repo
 
 ### 分支的狀態
 
-Default branch 是基準;merged 與 inactive 是兩個彼此獨立的事實,一個分支可以兩者皆是、皆非、或只中其一;hidable 則由前兩者推導而來,是唯一決定畫面呈現的集合。
+Default branch 是基準;merged 與 inactive 是兩個彼此獨立的事實,一個分支可以兩者皆是、皆非、或只中其一;hidable 則由前兩者推導而來,是唯一決定畫面呈現的集合。Redundant 涵蓋 merged 涵蓋不到的那一半,但它不參與 hidable,也不改變畫面的預設呈現。
 
 **Default branch**:
-存放庫的主線分支,由 GING 偵測得來,使用者無法指定。它是判定 merged branch 的唯一基準;偵測不到時,已合併相關的顯示與隱藏全部靜默停用。
+存放庫的主線分支,由 GING 偵測得來,使用者無法指定。它是判定 merged branch 與 redundant branch 的唯一基準;偵測不到時,已合併相關的顯示與隱藏靜默停用,而隨選的查詢據實回報無從判定。
 _Avoid_: base branch, merge base, mainline, 主線
 
 **Merged branch**:
 tip 已經是 default branch 祖先的分支 —— 換句話說,`git branch -d` 會允許刪除它。判定純看 ancestry:squash merge 與 rebase merge 產出的分支**不算**,即使它們的內容早已進了主線。default branch 自己與其本地對應也不算。
 _Avoid_: stale branch, 可刪除分支, 已合入分支
+
+**Redundant branch**:
+合併進 default branch 也不會改變任何內容的分支 —— 它已經沒有東西可以貢獻。判定只看當下內容、不看歷史,所以 squash merge 與 rebase merge 產出的分支算,把改動全數 revert 掉的、以及與他人各自寫出相同修改的也算。每個 merged branch 都是 redundant branch,反之不然;而 redundant **不**保證 `git branch -d` 會放行。
+_Avoid_: absorbed branch, landed branch, 已落地分支, squash-merged branch
 
 **Inactive branch**:
 最後一個 commit 已超過門檻天數沒動的分支。與 merged branch 完全獨立 —— 剛合併的分支是 merged 但不 inactive,長年沒人碰的實驗分支是 inactive 但不 merged。

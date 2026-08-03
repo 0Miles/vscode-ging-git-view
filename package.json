@@ -281,6 +281,11 @@
       },
       {
         "category": "GING",
+        "command": "ging-git-view.branches.checkRedundancy",
+        "title": "%command.branches.checkRedundancy%"
+      },
+      {
+        "category": "GING",
         "command": "ging-git-view.remotes.add",
         "title": "%command.remotes.add%",
         "icon": "$(add)"
@@ -540,19 +545,29 @@
           "group": "2_modify@3"
         },
         {
+          "command": "ging-git-view.branches.checkRedundancy",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.checkRedundancy",
+          "group": "3_inspect@1"
+        },
+        {
+          "command": "ging-git-view.branches.checkRedundancy",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.checkRedundancy",
+          "group": "3_inspect@1"
+        },
+        {
           "command": "ging-git-view.branches.createPullRequest",
           "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current|remote)$/",
-          "group": "3_share@1"
+          "group": "4_share@1"
         },
         {
           "command": "ging-git-view.branches.copyName",
           "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.copyName",
-          "group": "4_copy@1"
+          "group": "5_copy@1"
         },
         {
           "command": "ging-git-view.branches.copyName",
           "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.copyName",
-          "group": "4_copy@1"
+          "group": "5_copy@1"
         }
       ],
       "commandPalette": [
@@ -658,6 +673,10 @@
         },
         {
           "command": "ging-git-view.branches.deleteRemote",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.checkRedundancy",
           "when": "false"
         },
         {
@@ -828,6 +847,9 @@
                 "rebase": {
                   "type": "boolean"
                 },
+                "checkRedundancy": {
+                  "type": "boolean"
+                },
                 "copyName": {
                   "type": "boolean"
                 }
@@ -850,6 +872,9 @@
                   "type": "boolean"
                 },
                 "delete": {
+                  "type": "boolean"
+                },
+                "checkRedundancy": {
                   "type": "boolean"
                 },
                 "copyName": {

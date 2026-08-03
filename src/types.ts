@@ -39,6 +39,7 @@ export type ContextMenuActionsVisibility = {
     delete: boolean;
     merge: boolean;
     rebase: boolean;
+    checkRedundancy: boolean;
     copyName: boolean;
   };
   remoteBranch: {
@@ -47,6 +48,7 @@ export type ContextMenuActionsVisibility = {
     pull: boolean;
     fetch: boolean;
     delete: boolean;
+    checkRedundancy: boolean;
     copyName: boolean;
   };
   tag: {
@@ -375,7 +377,8 @@ export type RefAction =
   | "createPullRequest"
   | "pull"
   | "fetchIntoLocal"
-  | "deleteRemote";
+  | "deleteRemote"
+  | "checkRedundancy";
 
 export type ResponseRunRefAction = {
   command: "runRefAction";

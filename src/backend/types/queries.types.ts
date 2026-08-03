@@ -1,4 +1,5 @@
 import type {
+  BranchRedundancy,
   CommitOrdering,
   GitCommitDetails,
   GitCommitNode,
@@ -29,6 +30,16 @@ type QueryPayloads = {
   predictConflicts: {
     request: { repo: string; ours: string; theirs: string; token: number };
     response: { ok: boolean; conflictFiles: string[]; token: number };
+  };
+  /** Whether `branch` still has anything to contribute to the default branch.
+   *  On-demand only — the always-on `dimmedBranches` signal is ancestry-only
+   *  and deliberately blind to squash and rebase merges (ADR-0002, ADR-0006).
+   *  The branch is echoed back so the dialog can name what it answered about,
+   *  and `token` correlates the answer with the request that asked for it (the
+   *  messaging is command-keyed, not request-id'd). */
+  branchRedundancy: {
+    request: { repo: string; branch: string; token: number };
+    response: { branch: string; result: BranchRedundancy; token: number };
   };
   loadBranches: {
     request: { showRemoteBranches: boolean; hard: boolean };

@@ -137,6 +137,7 @@
   "command.branches.pull": "Pull 到目前 branch…",
   "command.branches.fetchIntoLocal": "Fetch 到本機 branch…",
   "command.branches.deleteRemote": "刪除 remote branch…",
+  "command.branches.checkRedundancy": "檢查此 branch 是否有未合併變更",
   "command.branches.collapseAll": "折疊全部 branch",
   "view.remotes": "遠端",
   "view.remotes.welcomeNoRepo": "未選取存放庫。\n[開啟歷史檢視](command:ging-git-view.view)",
