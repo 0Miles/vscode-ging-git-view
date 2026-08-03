@@ -56,6 +56,7 @@ import { RequestMessage, ResponseMessage } from "@/types";
 
 import { resolveBranchFilter } from "./branchFilter";
 import { BranchFilterStore } from "./branchFilterStore";
+import { classifyMerged } from "./branchMerged";
 import { RepoManager } from "./repoManager";
 import { WebviewBridge } from "./webviewBridge";
 
@@ -230,12 +231,18 @@ export function registerMessageHandlers(
   });
 
   bridge.onMessage("loadBranches", async (msg) => {
-    const result = await loadBranches(gitClient.getInstance(), {
-      showRemoteBranches: msg.showRemoteBranches,
-      hard: msg.hard,
-      currentRepo: currentRepo!,
-      gitPath: config.gitPath()
-    });
+    const { mergedBranches, defaultBranch, ...result } = await loadBranches(
+      gitClient.getInstance(),
+      {
+        showRemoteBranches: msg.showRemoteBranches,
+        hard: msg.hard,
+        currentRepo: currentRepo!,
+        gitPath: config.gitPath(),
+        // The graph dims the ref chips of merged branches. Dates are not
+        // requested — inactivity is a side-view concept only.
+        includeMerged: true
+      }
+    );
     // Resolve the filter to apply: an existing side-view selection (pruned to
     // the branches that still exist), else the configured default. Seed it back
     // silently — the value travels to the graph in this same response, so firing
@@ -250,7 +257,26 @@ export function registerMessageHandlers(
       }
     );
     branchFilterStore.set(currentRepo!, filter, { silent: true });
-    bridge.post({ command: "loadBranches", ...result, filter });
+    // Only the hidable half reaches the graph. Applying the exemptions here —
+    // against the same head/selection/patterns the side-view uses — is what
+    // stops the two surfaces answering differently for a branch like `develop`,
+    // which is merged but never hidden.
+    const merged = classifyMerged({
+      branches: result.branches,
+      merged: mergedBranches ?? [],
+      defaultBranch: defaultBranch ?? null,
+      exemptions: {
+        head: result.head,
+        selected: filter,
+        patterns: config.inactiveBranchAlwaysShow()
+      }
+    });
+    bridge.post({
+      command: "loadBranches",
+      ...result,
+      filter,
+      dimmedBranches: [...merged.hidable]
+    });
   });
 
   bridge.onMessage("loadRemotes", async () => {

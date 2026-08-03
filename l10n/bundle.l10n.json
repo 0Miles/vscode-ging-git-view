@@ -324,6 +324,7 @@
   "detail.commitDate": "Commit Date: ",
   "detail.comparingCommits": "Displaying all changes from {0} to {1}.",
   "branchView.current": "current",
+  "branchView.mergedInto": "Merged into {0}",
   "branchView.age.day": "{0}d",
   "branchView.age.week": "{0}w",
   "branchView.age.month": "{0}mo",

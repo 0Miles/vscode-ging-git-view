@@ -40,6 +40,12 @@ type QueryPayloads = {
       /** ref → last commit time (unix seconds); present only when the host
        *  requested dates (the side-view does, the graph panel doesn't). */
       branchDates?: Record<string, number>;
+      /** Refs the graph should render dimmed, in branch-list format: merged
+       *  into the default branch and not exempt — i.e. exactly the branches the
+       *  side-view's "hide merged" toggle would remove. The exemptions are
+       *  applied on the host so the two surfaces can't disagree (ADR-0003). The
+       *  graph dims these; it never hides them. */
+      dimmedBranches?: string[];
       /** The branch filter resolved by the host (the side-view's per-repo
        *  selection, or the configured default). Empty = show all. */
       filter: string[];

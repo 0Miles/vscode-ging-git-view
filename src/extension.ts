@@ -17,6 +17,7 @@ import { gitClientFactory } from "./backend/gitClient";
 import { getCommitFileContent } from "./backend/queries/commitFileContent";
 import { loadDanglingCommits, loadReflog } from "./backend/queries/loadReflog";
 import { loadStatistics } from "./backend/queries/loadStatistics";
+import { displayRef } from "./backend/utils/branchRef";
 import { formatGitError } from "./backend/utils/gitError";
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
 import { repoContainingPath, resolveToKnownRepo } from "./backend/utils/repoMatch";
@@ -26,7 +27,6 @@ import { AskpassManager } from "./extension/askpass/askpassManager";
 import { createBranchDataService } from "./extension/branchDataService";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
 import { createBranchFilterStore } from "./extension/branchFilterStore";
-import { REMOTE_PREFIX } from "./extension/branchTree";
 import { createLogger } from "./extension/logger";
 import { registerMessageHandlers } from "./extension/messageHandler";
 import {
@@ -106,11 +106,17 @@ export function activate(context: vscode.ExtensionContext) {
   // hidden unless this is on (or they're exempt — head/selected/always-show).
   const resolveShowInactive = (repo: string): boolean =>
     repoManager.getRepos()[repo]?.showInactiveBranches ?? config.showInactiveBranchesByDefault();
+  // "Show merged branches" is the second, independent hide toggle: branches
+  // already merged into the repo's default branch. Same per-repo shape, same
+  // exemptions (head / selected / always-show).
+  const resolveShowMerged = (repo: string): boolean =>
+    repoManager.getRepos()[repo]?.showMergedBranches ?? config.showMergedBranchesByDefault();
   const branchesView = createBranchesView({
     dataService: branchDataService,
     filterStore: branchFilterStore,
     resolveShowRemote,
     resolveShowInactive,
+    resolveShowMerged,
     resolveInactiveThresholdDays: config.inactiveBranchThresholdDays,
     resolveExemptPatterns: config.inactiveBranchAlwaysShow
   });
@@ -147,32 +153,48 @@ export function activate(context: vscode.ExtensionContext) {
   };
   syncBranchMenuVisibility();
 
-  // Toggle "show remote branches" for the active repo. Bound to both the Show
-  // and Hide commands (the title button swaps between them by state), persists
-  // per-repo, re-lists the side-view, and pushes the new value into the graph.
-  const toggleRemoteBranches = (): void => {
-    const repo = branchesView.getActiveRepo();
-    if (repo === null) return;
-    const state = repoManager.getRepos()[repo];
-    if (state === undefined) return;
-    const next = !(state.showRemoteBranches ?? config.showRemoteBranches());
-    repoManager.setRepoState(repo, { ...state, showRemoteBranches: next });
-    branchesView.refresh();
-    currentBridge?.post({ command: "setShowRemoteBranches", value: next });
+  /**
+   * Build a side-view visibility toggle for the active repo. Each is bound to
+   * both its Show and its Hide command — the title button swaps between the two
+   * by state — flips the per-repo override (falling back to the global default
+   * when unset), persists it, and re-lists the view.
+   */
+  const makeVisibilityToggle = (
+    field: "showRemoteBranches" | "showInactiveBranches" | "showMergedBranches",
+    globalDefault: () => boolean,
+    onToggled?: (next: boolean) => void
+  ) => {
+    return (): void => {
+      const repo = branchesView.getActiveRepo();
+      if (repo === null) return;
+      const state = repoManager.getRepos()[repo];
+      if (state === undefined) return;
+      const next = !(state[field] ?? globalDefault());
+      repoManager.setRepoState(repo, { ...state, [field]: next });
+      branchesView.refresh();
+      onToggled?.(next);
+    };
   };
 
-  // Toggle "show inactive branches" for the active repo. Bound to both the Show
-  // and Hide commands (the title button swaps between them by state) and
-  // persisted per-repo. Side-view only — it doesn't change the graph's filter.
-  const toggleInactiveBranches = (): void => {
-    const repo = branchesView.getActiveRepo();
-    if (repo === null) return;
-    const state = repoManager.getRepos()[repo];
-    if (state === undefined) return;
-    const next = !(state.showInactiveBranches ?? config.showInactiveBranchesByDefault());
-    repoManager.setRepoState(repo, { ...state, showInactiveBranches: next });
-    branchesView.refresh();
-  };
+  const toggleRemoteBranches = makeVisibilityToggle(
+    "showRemoteBranches",
+    config.showRemoteBranches,
+    // The only one the graph cares about: it decides which refs `git log` walks.
+    (next) => currentBridge?.post({ command: "setShowRemoteBranches", value: next })
+  );
+  // Side-view only. The graph neither hides inactive branches nor hides merged
+  // ones — it dims the merged refs' chips instead, driven by the load response.
+  const toggleInactiveBranches = makeVisibilityToggle(
+    "showInactiveBranches",
+    config.showInactiveBranchesByDefault
+  );
+  // Deliberately separate from the inactive toggle (ADR-0004): the two rules
+  // classify opposite things — a merged branch is safe to forget, an idle
+  // unmerged one is work you forgot — so they get one switch each.
+  const toggleMergedBranches = makeVisibilityToggle(
+    "showMergedBranches",
+    config.showMergedBranchesByDefault
+  );
 
   void (async () => {
     repoManager.removeReposNotInWorkspace();
@@ -352,7 +374,7 @@ export function activate(context: vscode.ExtensionContext) {
     const msg: ResponseRunRefAction = {
       command: "runRefAction",
       repo: target.repo,
-      ref: target.isRemote ? target.branch.slice(REMOTE_PREFIX.length) : target.branch,
+      ref: displayRef(target.branch),
       isRemote: target.isRemote,
       action,
       seq: ++refActionSeq
@@ -496,6 +518,8 @@ export function activate(context: vscode.ExtensionContext) {
     // Likewise, the title button swaps between these by the showingInactive state.
     vscode.commands.registerCommand("ging-git-view.branches.showInactive", toggleInactiveBranches),
     vscode.commands.registerCommand("ging-git-view.branches.hideInactive", toggleInactiveBranches),
+    vscode.commands.registerCommand("ging-git-view.branches.showMerged", toggleMergedBranches),
+    vscode.commands.registerCommand("ging-git-view.branches.hideMerged", toggleMergedBranches),
     // Side-view branch actions all delegate to the graph webview so the exact
     // same menu flow (dialogs, remembered choices, refresh) runs there.
     vscode.commands.registerCommand("ging-git-view.branches.checkout", (item: unknown) =>
@@ -539,9 +563,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (target !== null) {
         // Match the graph's copy format: remote refs without the "remotes/"
         // prefix ("origin/main"), exactly as their labels read.
-        void vscode.env.clipboard.writeText(
-          target.isRemote ? target.branch.slice(REMOTE_PREFIX.length) : target.branch
-        );
+        void vscode.env.clipboard.writeText(displayRef(target.branch));
       }
     }),
     // --- Remotes side-view commands ---

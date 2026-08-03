@@ -164,11 +164,14 @@ export const config = {
   showRemoteBranches: (): boolean => getConfig("show.remoteBranches", true),
   // Branches side-view: how many days of inactivity before a branch is hidden
   // (0 disables the feature), the always-show name/glob exemptions, and the
-  // global default for the per-repo "show inactive" toggle.
+  // global defaults for the two per-repo hide toggles. `alwaysShow` exempts a
+  // branch from both rules — it is the "I always want to see this" list, not an
+  // inactivity-specific one.
   inactiveBranchThresholdDays: (): number => getConfig("branches.inactiveAfterDays", 30),
   inactiveBranchAlwaysShow: (): string[] =>
     getConfig("branches.alwaysShow", ["main", "master", "develop", "dev", "trunk"]),
   showInactiveBranchesByDefault: (): boolean => getConfig("branches.showInactiveByDefault", false),
+  showMergedBranchesByDefault: (): boolean => getConfig("branches.showMergedByDefault", false),
   showRemoteHeads: (): boolean => getConfig("show.remoteHeads", true),
   showSignatureStatus: (): boolean => getConfig("history.showSignatures", false),
   showStashes: (): boolean => getConfig("show.stashes", true),

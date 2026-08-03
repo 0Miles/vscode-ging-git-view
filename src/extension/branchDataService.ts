@@ -24,7 +24,10 @@ export function createBranchDataService(deps: {
 
     /** The repo's branches and checked-out head; `isRepo` is false when the
      *  path isn't a git repository. `branchDates` maps each ref to its last
-     *  commit time (unix seconds) for inactive-branch classification. */
+     *  commit time (unix seconds) for inactive-branch classification, and
+     *  `mergedBranches` / `defaultBranch` feed the merged one — a null
+     *  `defaultBranch` means merged classification is unavailable and the
+     *  caller must disable it rather than guess one. */
     async listBranches(
       repo: string,
       showRemoteBranches: boolean
@@ -33,19 +36,24 @@ export function createBranchDataService(deps: {
       head: string | null;
       isRepo: boolean;
       branchDates: Record<string, number>;
+      mergedBranches: string[];
+      defaultBranch: string | null;
     }> {
       const result = await loadBranches(instanceFor(repo), {
         showRemoteBranches,
         hard: true,
         currentRepo: repo,
         gitPath: deps.gitPath(),
-        includeDates: true
+        includeDates: true,
+        includeMerged: true
       });
       return {
         branches: result.branches,
         head: result.head,
         isRepo: result.isRepo,
-        branchDates: result.branchDates ?? {}
+        branchDates: result.branchDates ?? {},
+        mergedBranches: result.mergedBranches ?? [],
+        defaultBranch: result.defaultBranch ?? null
       };
     }
   };

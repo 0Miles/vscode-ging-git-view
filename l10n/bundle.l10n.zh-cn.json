@@ -324,6 +324,7 @@
   "detail.commitDate": "Commit 日期：",
   "detail.comparingCommits": "正在显示从 {0} 到 {1} 的所有更改。",
   "branchView.current": "当前",
+  "branchView.mergedInto": "已合并进 {0}",
   "branchView.age.day": "{0} 天",
   "branchView.age.week": "{0} 周",
   "branchView.age.month": "{0} 个月",

@@ -204,6 +204,18 @@
       },
       {
         "category": "GING",
+        "command": "ging-git-view.branches.showMerged",
+        "title": "%command.branches.showMerged%",
+        "icon": "$(git-merge)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.hideMerged",
+        "title": "%command.branches.hideMerged%",
+        "icon": "$(git-merge)"
+      },
+      {
+        "category": "GING",
         "command": "ging-git-view.branches.checkout",
         "title": "%command.branches.checkout%"
       },
@@ -411,6 +423,16 @@
           "group": "1_visibility@1"
         },
         {
+          "command": "ging-git-view.branches.showMerged",
+          "when": "view == ging-git-view.branches && !ging-git-view.branchView.showingMerged",
+          "group": "1_visibility@2"
+        },
+        {
+          "command": "ging-git-view.branches.hideMerged",
+          "when": "view == ging-git-view.branches && ging-git-view.branchView.showingMerged",
+          "group": "1_visibility@2"
+        },
+        {
           "command": "ging-git-view.viewReflog",
           "when": "view == ging-git-view.branches",
           "group": "2_tools@1"
@@ -576,6 +598,14 @@
         },
         {
           "command": "ging-git-view.branches.hideInactive",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.showMerged",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.hideMerged",
           "when": "false"
         },
         {
@@ -1404,6 +1434,11 @@
           "type": "boolean",
           "default": false,
           "description": "%config.branches.showInactiveByDefault%"
+        },
+        "ging-git-view.branches.showMergedByDefault": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.branches.showMergedByDefault%"
         },
         "ging-git-view.show.remoteHeads": {
           "type": "boolean",

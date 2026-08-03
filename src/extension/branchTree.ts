@@ -10,7 +10,7 @@
  * test project; the TreeItem rendering lives in `branchesView.ts`.
  */
 
-export const REMOTE_PREFIX = "remotes/";
+import { displayRef, PRIMARY_BRANCHES, REMOTE_PREFIX } from "@/backend/utils/branchRef";
 
 export type BranchTreeLeaf = {
   type: "leaf";
@@ -23,9 +23,16 @@ export type BranchTreeLeaf = {
   isHead: boolean;
   /** True for a remote-tracking branch (`remotes/…`). */
   isRemote: boolean;
-  /** True when classified inactive (older than the threshold) and surfaced in
-   *  "show inactive" mode; the view renders these dimmed. */
+  /** True when already merged into the default branch. A fact: set even for
+   *  branches that are never hidden. The view renders these with a badge. */
+  isMerged: boolean;
+  /** True when the last commit predates the inactivity threshold. Likewise a
+   *  fact; the view renders these with an age label. */
   isInactive: boolean;
+  /** True when one of the hide toggles would remove this branch — i.e. it is
+   *  merged or inactive and not exempt. The view renders these dimmed, so the
+   *  grey exactly predicts what pressing "hide" does (ADR-0003). */
+  isHidable: boolean;
   /** Last commit time (unix seconds) when known, for the age label. */
   lastActivitySec?: number;
 };
@@ -50,9 +57,6 @@ export type BranchTreeGroup = {
 
 export type BranchTreeNode = BranchTreeLeaf | BranchTreeFolder | BranchTreeGroup;
 
-/** Branches surfaced ahead of the rest, in this order, within each folder. */
-const PRIMARY_BRANCHES = ["main", "master", "develop", "dev", "trunk"];
-
 function leafSortKey(name: string): [number, string] {
   const lower = name.toLowerCase();
   const primary = PRIMARY_BRANCHES.indexOf(lower);
@@ -70,17 +74,21 @@ function newFolder(): MutableFolder {
 
 /** The display path of a branch (remote prefix stripped) split into segments. */
 function displaySegments(branch: string): string[] {
-  const display = branch.startsWith(REMOTE_PREFIX) ? branch.slice(REMOTE_PREFIX.length) : branch;
-  return display.split("/");
+  return displayRef(branch).split("/");
 }
 
-/** Extra per-branch metadata used to mark inactive leaves; omitted by callers
- *  that don't surface inactivity (then every leaf is active with no age). The
- *  fields come as a pair: a flagged leaf without its date would silently lose
- *  the age label. */
+/** Extra per-branch metadata used to mark leaves; omitted by callers that don't
+ *  surface branch state (then every leaf is plain, with no age). The fields come
+ *  as a set: an inactive leaf without its date would silently lose the age
+ *  label. */
 export type BranchTreeMeta = {
-  /** Refs to flag as inactive (rendered dimmed). */
+  /** Refs already merged into the default branch (rendered with a badge). */
+  merged: ReadonlySet<string>;
+  /** Refs whose last commit predates the threshold (rendered with an age). */
   inactive: ReadonlySet<string>;
+  /** Refs a hide toggle would remove (rendered dimmed): the union of the two
+   *  above, minus the exempt branches. */
+  hidable: ReadonlySet<string>;
   /** ref → last commit time (unix seconds), for the age label. */
   dates: Readonly<Record<string, number>>;
 };
@@ -110,7 +118,9 @@ export function buildBranchTree(
       name: segments[segments.length - 1],
       isHead: branch === head,
       isRemote,
+      isMerged: meta?.merged?.has(branch) ?? false,
       isInactive: meta?.inactive?.has(branch) ?? false,
+      isHidable: meta?.hidable?.has(branch) ?? false,
       lastActivitySec: meta?.dates?.[branch]
     });
   }

@@ -9,6 +9,7 @@ import type {
   GitResetMode,
   GitTagDetails
 } from "@/backend/types";
+import { displayRef } from "@/backend/utils/branchRef";
 
 import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
 import { Graph } from "./graph";
@@ -107,6 +108,12 @@ class GitGraphView {
   // pushed in via `loadBranches`/`setBranchFilter`. A list of selected refs; an
   // empty list means "show all branches". null until the first load resolves it.
   private currentBranches: string[] | null = null;
+  // Refs the host says to render dimmed: merged into the default branch and not
+  // exempt. Sent in `loadBranches` format (`main`, `remotes/origin/main`) and
+  // kept verbatim for change detection and state persistence; `dimmedRefs` holds
+  // the same set normalised to the names the graph's chips carry (`origin/main`).
+  private dimmedBranches: string[] = [];
+  private dimmedRefs = new Set<string>();
   private currentRepo!: string;
   // The last branch-deletion request, so a failed non-force delete can offer a
   // one-click force delete.
@@ -247,7 +254,10 @@ class GitGraphView {
           prevState.gitBranchHead,
           true,
           true,
-          prevState.currentBranches ?? []
+          prevState.currentBranches ?? [],
+          // Restore the dimmed set too: without it the saved commits render
+          // undimmed until the next load resolves, a visible flash.
+          prevState.dimmedBranches ?? []
         );
         this.loadCommits(
           prevState.commits,
@@ -418,23 +428,26 @@ class GitGraphView {
     branchHead: string | null,
     hard: boolean,
     isRepo: boolean,
-    filter: string[]
+    filter: string[],
+    dimmedBranches: string[] = []
   ) {
     if (!isRepo) {
       this.triggerLoadBranchesCallback(false, isRepo);
       return;
     }
+    const dimmedUnchanged = arraysEqual(this.dimmedBranches, dimmedBranches, (a, b) => a === b);
     const branchesUnchanged =
       arraysEqual(this.gitBranches, branchOptions, (a, b) => a === b) &&
       this.gitBranchHead === branchHead;
     const filterUnchanged = arraysEqual(this.currentBranches ?? [], filter, (a, b) => a === b);
-    if (!hard && branchesUnchanged && filterUnchanged) {
+    if (!hard && branchesUnchanged && filterUnchanged && dimmedUnchanged) {
       this.triggerLoadBranchesCallback(false, isRepo);
       return;
     }
 
     this.gitBranches = branchOptions;
     this.gitBranchHead = branchHead;
+    this.setDimmedBranches(dimmedBranches);
     this.updateRepoTitle();
     // The branch filter is owned by the extension host (the Branches side-view);
     // apply whatever it resolved for this repo. An empty list means "show all".
@@ -442,6 +455,14 @@ class GitGraphView {
     this.saveState();
 
     this.triggerLoadBranchesCallback(true, isRepo);
+  }
+
+  /** Store the dimmed-branch set, normalising the host's `remotes/origin/x` to
+   *  the `origin/x` form the graph's ref chips carry. Without this the remote
+   *  chips would silently never match and never dim. */
+  private setDimmedBranches(dimmedBranches: string[]) {
+    this.dimmedBranches = dimmedBranches;
+    this.dimmedRefs = new Set(dimmedBranches.map(displayRef));
   }
 
   /** Apply a branch filter pushed from the extension host — a selection change
@@ -757,6 +778,7 @@ class GitGraphView {
       gitRepos: this.gitRepos,
       gitBranches: this.gitBranches,
       gitBranchHead: this.gitBranchHead,
+      dimmedBranches: this.dimmedBranches,
       remotes: this.remotes,
       pushDefault: this.pushDefault,
       commits: this.commits,
@@ -849,11 +871,23 @@ class GitGraphView {
     const widthsAtVertices = this.config.branchLabelsAlignedToGraph
       ? this.graph.getWidthsAtVertices()
       : [];
+    // Whether a branch ref chip should read as dimmed. The host has already
+    // applied the exemptions (head, filter selection, "always show" patterns),
+    // so this is a plain lookup — replicating that rule here is exactly how the
+    // two surfaces would drift apart.
+    const isDimmedRef = (name: string) => this.dimmedRefs.has(name);
     // A bare `<span class="gitRef …">`; `dataName`/`label` are pre-escaped.
-    const refSpan = (type: string, dataName: string, label: string, active: boolean) =>
+    const refSpan = (
+      type: string,
+      dataName: string,
+      label: string,
+      active: boolean,
+      dimmed = false
+    ) =>
       '<span class="gitRef ' +
       type +
       (active ? " active" : "") +
+      (dimmed ? " dimmedRef" : "") +
       '" data-name="' +
       dataName +
       '">' +
@@ -903,7 +937,9 @@ class GitGraphView {
             // Nested .gitRef.remote so the existing context-menu / double-click
             // handlers resolve a click on the badge to the remote branch.
             badges +=
-              '<span class="gitRef remote gitRefCombined" data-name="' +
+              '<span class="gitRef remote gitRefCombined' +
+              (isDimmedRef(r.name) ? " dimmedRef" : "") +
+              '" data-name="' +
               escapeHtml(r.name) +
               '">' +
               escapeHtml(r.remote) +
@@ -913,6 +949,7 @@ class GitGraphView {
         const headHtml =
           '<span class="gitRef head' +
           (head.active ? " active" : "") +
+          (isDimmedRef(head.name) ? " dimmedRef" : "") +
           '" data-name="' +
           escapeHtml(head.name) +
           '">' +
@@ -926,7 +963,13 @@ class GitGraphView {
       }
       for (const r of remotes) {
         if (!consumed.has(r.name)) {
-          refBranches += refSpan("remote", escapeHtml(r.name), escapeHtml(r.name), false);
+          refBranches += refSpan(
+            "remote",
+            escapeHtml(r.name),
+            escapeHtml(r.name),
+            false,
+            isDimmedRef(r.name)
+          );
         }
       }
       refBranches += stashHtml;
@@ -3662,7 +3705,14 @@ window.addEventListener("message", (event) => {
       gitGraph.loadAvatar(msg.email, msg.image);
       break;
     case "loadBranches":
-      gitGraph.loadBranches(msg.branches, msg.head, msg.hard, msg.isRepo, msg.filter);
+      gitGraph.loadBranches(
+        msg.branches,
+        msg.head,
+        msg.hard,
+        msg.isRepo,
+        msg.filter,
+        msg.dimmedBranches ?? []
+      );
       break;
     case "setBranchFilter":
       gitGraph.setBranchFilter(msg.branches);

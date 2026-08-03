@@ -1,27 +1,31 @@
 import * as vscode from "vscode";
 
+import { displayRef, REMOTE_PREFIX } from "@/backend/utils/branchRef";
 import * as l10n from "@/l10n";
 
 import { classifyInactive, relativeAge } from "./branchActivity";
 import { BranchDataService } from "./branchDataService";
+import { type BranchExemptions } from "./branchExempt";
 import { BranchFilterStore } from "./branchFilterStore";
-import {
-  type BranchTreeLeaf,
-  type BranchTreeNode,
-  buildGroupedBranchRoots,
-  REMOTE_PREFIX
-} from "./branchTree";
+import { classifyMerged } from "./branchMerged";
+import { type BranchTreeLeaf, type BranchTreeNode, buildGroupedBranchRoots } from "./branchTree";
 
-/** Scheme of the opaque per-branch URIs given to inactive leaves so the
- *  FileDecorationProvider below can dim them. */
-const INACTIVE_SCHEME = "gga-branch";
+/** Scheme of the opaque per-branch URIs carrying a leaf's decoration flags, so
+ *  the FileDecorationProvider below can dim it and/or badge it. */
+const BRANCH_SCHEME = "gga-branch";
 
-/** An opaque URI carrying the branch ref, used only to attach the "inactive"
- *  file decoration (dimmed label). */
-function inactiveBranchUri(ref: string): vscode.Uri {
+/** Authority flag characters. The two states are independent — a merged branch
+ *  exempt from hiding is badged but not dimmed (ADR-0003) — so they're encoded
+ *  as a set rather than an enum. */
+const FLAG_DIMMED = "d";
+const FLAG_MERGED = "m";
+
+/** An opaque URI carrying the branch ref plus its decoration flags. The ref is
+ *  only there to keep the URI unique per leaf; the provider reads the flags. */
+function branchDecorationUri(ref: string, flags: { dimmed: boolean; merged: boolean }): vscode.Uri {
   return vscode.Uri.from({
-    scheme: INACTIVE_SCHEME,
-    authority: "inactive",
+    scheme: BRANCH_SCHEME,
+    authority: (flags.dimmed ? FLAG_DIMMED : "") + (flags.merged ? FLAG_MERGED : ""),
     path: "/" + encodeURIComponent(ref)
   });
 }
@@ -33,7 +37,8 @@ class BranchItem extends vscode.TreeItem {
     public readonly node: BranchTreeNode,
     public readonly repo: string,
     selectionGen: number,
-    folderGen: number
+    folderGen: number,
+    defaultBranch: string | null
   ) {
     super(
       node.type === "group" ? l10n.t("branchView.group." + node.kind) : node.name,
@@ -70,17 +75,29 @@ class BranchItem extends vscode.TreeItem {
       this.iconPath = new vscode.ThemeIcon(
         node.isHead ? "check" : node.isRemote ? "cloud" : "git-branch"
       );
-      if (node.isHead) this.description = l10n.t("branchView.current");
-      this.tooltip = node.branch;
-      if (node.isInactive) {
-        // Dimmed via the FileDecorationProvider keyed on this scheme; the age
-        // label hints how long the branch has been idle. (Inactive leaves are
-        // never the head, so this never clobbers the "current" description.)
-        this.resourceUri = inactiveBranchUri(node.branch);
-        if (node.lastActivitySec !== undefined) {
-          const age = relativeAge(node.lastActivitySec, Math.floor(Date.now() / 1000));
-          this.description = l10n.t("branchView.age." + age.unit, age.value);
-        }
+      // The description carries the facts that read as words. Both can apply at
+      // once now that the age is no longer gated on the branch being hideable —
+      // a long-idle checked-out branch reads "current · 3mo".
+      const description: string[] = [];
+      if (node.isHead) description.push(l10n.t("branchView.current"));
+      if (node.isInactive && node.lastActivitySec !== undefined) {
+        const age = relativeAge(node.lastActivitySec, Math.floor(Date.now() / 1000));
+        description.push(l10n.t("branchView.age." + age.unit, age.value));
+      }
+      if (description.length > 0) this.description = description.join(" · ");
+      this.tooltip =
+        node.isMerged && defaultBranch !== null
+          ? node.branch + "\n" + l10n.t("branchView.mergedInto", displayRef(defaultBranch))
+          : node.branch;
+      // Dimming (hidable) and the merged badge both arrive through the
+      // FileDecorationProvider, keyed on the flags in this URI. They're
+      // independent: an exempt merged branch is badged but not dimmed. A leaf
+      // with neither gets no resourceUri at all.
+      if (node.isHidable || node.isMerged) {
+        this.resourceUri = branchDecorationUri(node.branch, {
+          dimmed: node.isHidable,
+          merged: node.isMerged
+        });
       }
       // No `command`: a left click selects (and filters); git operations are on
       // the right-click context menu.
@@ -101,6 +118,10 @@ type BranchesProviderDeps = {
   /** The "show inactive branches" state for a repo (per-repo override or the
    *  global default). */
   resolveShowInactive: (repo: string) => boolean;
+  /** The "show merged branches" state for a repo (per-repo override or the
+   *  global default). Independent of the inactive toggle — a branch hidden by
+   *  either rule is gone regardless of the other (ADR-0004). */
+  resolveShowMerged: (repo: string) => boolean;
   /** The inactivity threshold in days (`<= 0` disables the feature). */
   resolveInactiveThresholdDays: () => number;
   /** "Always show" name/glob patterns that exempt a branch from being hidden. */
@@ -112,6 +133,10 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
   private roots: BranchTreeNode[] = [];
   private repo: string | null = null;
+  // The default branch the current roots' merged flags were computed against,
+  // for the badge tooltip. Null when it couldn't be resolved (merged marking is
+  // then disabled entirely).
+  private defaultBranch: string | null = null;
   // Guards against an in-flight fetch being overwritten by a slower earlier one.
   private fetchId = 0;
   // Bumped by "Show All" to re-key leaf items and so clear the visual selection.
@@ -141,6 +166,7 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
     const id = ++this.fetchId;
     const repo = this.repo;
     const showInactive = repo !== null && this.deps.resolveShowInactive(repo);
+    const showMerged = repo !== null && this.deps.resolveShowMerged(repo);
     // Keep the title toggles' icons in sync with the active repo's state.
     void vscode.commands.executeCommand(
       "setContext",
@@ -152,45 +178,66 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
       "ging-git-view.branchView.showingInactive",
       showInactive
     );
+    void vscode.commands.executeCommand(
+      "setContext",
+      "ging-git-view.branchView.showingMerged",
+      showMerged
+    );
     if (repo === null) {
       this.roots = [];
+      this.defaultBranch = null;
       this._onDidChangeTreeData.fire();
       return;
     }
     try {
-      const { branches, head, isRepo, branchDates } = await this.deps.dataService.listBranches(
-        repo,
-        this.deps.resolveShowRemote(repo)
-      );
+      const { branches, head, isRepo, branchDates, mergedBranches, defaultBranch } =
+        await this.deps.dataService.listBranches(repo, this.deps.resolveShowRemote(repo));
       if (id !== this.fetchId) return; // superseded by a newer fetch
+      this.defaultBranch = defaultBranch;
       if (!isRepo) {
         this.roots = [];
       } else {
-        // A branch is "inactive" when idle beyond the threshold and not exempt
-        // (head / selected / always-show). When hidden we drop them before
-        // building the tree (empty folders fall away with their leaves); when
-        // shown we tag them so the view dims them. The selection used for
-        // exemption is read here, so toggling to "hide" keeps a branch that was
-        // selected while inactive ones were shown.
+        // Both rules yield a fact set and the hidable subset it implies. The
+        // facts drive the markings (age label, merged badge) and apply even to
+        // exempt branches; only the hidable sets are dimmed and dropped.
+        // Reading the selection here is what lets toggling to "hide" keep a
+        // branch that was selected while it was still visible.
+        const exemptions: BranchExemptions = {
+          head,
+          selected: this.deps.filterStore.get(repo),
+          patterns: this.deps.resolveExemptPatterns()
+        };
         const inactive = classifyInactive({
           branches,
-          head,
           dates: branchDates,
           nowSec: Math.floor(Date.now() / 1000),
           thresholdDays: this.deps.resolveInactiveThresholdDays(),
-          exemptPatterns: this.deps.resolveExemptPatterns(),
-          selected: this.deps.filterStore.get(repo)
+          exemptions
         });
-        this.roots = showInactive
-          ? buildGroupedBranchRoots(branches, head, { inactive, dates: branchDates })
-          : buildGroupedBranchRoots(
-              branches.filter((b) => !inactive.has(b)),
-              head
-            );
+        const merged = classifyMerged({
+          branches,
+          merged: mergedBranches,
+          defaultBranch,
+          exemptions
+        });
+        // Hiding is a union across the two toggles: a branch removed by either
+        // rule is gone whatever the other says. Dimming covers the whole hidable
+        // union, so the grey on a surviving branch always means "some toggle
+        // would remove this".
+        const hidden = new Set<string>();
+        if (!showInactive) for (const branch of inactive.hidable) hidden.add(branch);
+        if (!showMerged) for (const branch of merged.hidable) hidden.add(branch);
+        const hidable = new Set([...inactive.hidable, ...merged.hidable]);
+        this.roots = buildGroupedBranchRoots(
+          hidden.size === 0 ? branches : branches.filter((b) => !hidden.has(b)),
+          head,
+          { merged: merged.matched, inactive: inactive.matched, hidable, dates: branchDates }
+        );
       }
     } catch {
       if (id !== this.fetchId) return;
       this.roots = [];
+      this.defaultBranch = null;
     }
     this._onDidChangeTreeData.fire();
   }
@@ -207,7 +254,10 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
         : element.node.type === "folder" || element.node.type === "group"
           ? element.node.children
           : [];
-    return nodes.map((node) => new BranchItem(node, this.repo!, this.selectionGen, this.folderGen));
+    return nodes.map(
+      (node) =>
+        new BranchItem(node, this.repo!, this.selectionGen, this.folderGen, this.defaultBranch)
+    );
   }
 
   /** Required by `treeView.reveal`: the chain is rebuilt by walking the current
@@ -217,7 +267,13 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
     if (this.repo === null) return undefined;
     const chain = findNodeChain(this.roots, element.node);
     if (chain === null || chain.length < 2) return undefined;
-    return new BranchItem(chain[chain.length - 2], this.repo, this.selectionGen, this.folderGen);
+    return new BranchItem(
+      chain[chain.length - 2],
+      this.repo,
+      this.selectionGen,
+      this.folderGen,
+      this.defaultBranch
+    );
   }
 
   /** Wrap the leaf for `ref` (if currently in the tree) so it can be revealed. */
@@ -226,11 +282,18 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
     const chain = findNodeChain(this.roots, (n) => n.type === "leaf" && n.branch === ref);
     return chain === null
       ? null
-      : new BranchItem(chain[chain.length - 1], this.repo, this.selectionGen, this.folderGen);
+      : new BranchItem(
+          chain[chain.length - 1],
+          this.repo,
+          this.selectionGen,
+          this.folderGen,
+          this.defaultBranch
+        );
   }
 
   /** All leaf refs currently in the tree (depth-first), for the search picker.
-   *  Reflects what the view shows: hidden remotes/inactive branches excluded. */
+   *  Reflects what the view shows: hidden remotes, and branches removed by
+   *  either hide toggle, are excluded. */
   visibleLeaves(): BranchTreeLeaf[] {
     const out: BranchTreeLeaf[] = [];
     const walk = (nodes: BranchTreeNode[]) => {
@@ -340,14 +403,21 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     showCollapseAll: false
   });
 
-  // Dims inactive branch leaves (which carry an `INACTIVE_SCHEME` resourceUri);
-  // returns nothing for every other resource in the workbench.
-  const inactiveDecoration: vscode.FileDecoration = {
-    color: new vscode.ThemeColor("disabledForeground")
-  };
+  // Renders the two independent leaf markings carried in the URI's flags:
+  // dimmed (a hide toggle would remove this branch) and the merged badge.
+  // Returns nothing for every other resource in the workbench.
+  // No `tooltip` here: every leaf sets `TreeItem.tooltip` explicitly (the ref,
+  // plus "merged into <default branch>" when badged), and that always wins over
+  // a decoration tooltip — one set here would never be read.
+  const dimColor = new vscode.ThemeColor("disabledForeground");
   const decorationSub = vscode.window.registerFileDecorationProvider({
     provideFileDecoration: (uri) =>
-      uri.scheme === INACTIVE_SCHEME ? inactiveDecoration : undefined
+      uri.scheme === BRANCH_SCHEME
+        ? {
+            color: uri.authority.includes(FLAG_DIMMED) ? dimColor : undefined,
+            badge: uri.authority.includes(FLAG_MERGED) ? "✓" : undefined
+          }
+        : undefined
   });
 
   // Debounce so a rapid multi-select (Ctrl/Cmd-click several branches) coalesces

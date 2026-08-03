@@ -577,6 +577,23 @@ svg.fileIcon {
 .gitRef.active {
   border-color: var(--git-graph-color);
 }
+/* A branch the side-view's "hide merged" toggle would remove — merged into the
+   default branch and not exempt, so never the checked-out branch. Dimmed via
+   colour rather than `opacity`, which would make the chip translucent and let
+   the row selection bleed through it (the base .gitRef is deliberately opaque).
+   Never hides the chip: its context menu is the only way to act on the branch
+   from the graph. */
+.gitRef.dimmedRef {
+  color: var(--vscode-disabledForeground, rgba(128, 128, 128, 0.8));
+  border-color: color-mix(
+    in srgb,
+    var(--vscode-editor-foreground, rgb(128, 128, 128)) 25%,
+    transparent
+  );
+}
+.gitRef.dimmedRef > svg {
+  background-color: color-mix(in srgb, var(--git-graph-color) 45%, var(--vscode-editor-background));
+}
 .gitRef.active .gitRefName {
   font-weight: bold;
 }

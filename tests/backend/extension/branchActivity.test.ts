@@ -1,61 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  branchGlobMatches,
-  classifyInactive,
-  isAlwaysShown,
-  relativeAge
-} from "@/extension/branchActivity";
+import { classifyInactive, relativeAge } from "@/extension/branchActivity";
 
 const DAY = 86_400;
 const NOW = 1_700_000_000; // fixed "now" so the tests are deterministic
 
-describe("branchGlobMatches", () => {
-  it("matches an exact name", () => {
-    expect(branchGlobMatches("main", "main")).toBe(true);
-    expect(branchGlobMatches("maine", "main")).toBe(false);
-  });
-
-  it("supports * over a path segment", () => {
-    expect(branchGlobMatches("release/1.2", "release/*")).toBe(true);
-    expect(branchGlobMatches("release/", "release/*")).toBe(true); // * matches empty
-    expect(branchGlobMatches("feature/x", "release/*")).toBe(false);
-  });
-
-  it("collapses runs of * (no catastrophic backtracking)", () => {
-    expect(branchGlobMatches("release/1.2", "release/****")).toBe(true);
-    // A pathological pattern against a non-matching name must return quickly.
-    expect(branchGlobMatches("a".repeat(50) + "!", "*".repeat(40) + "b")).toBe(false);
-  });
-
-  it("supports ? for a single char and treats other metachars literally", () => {
-    expect(branchGlobMatches("v1", "v?")).toBe(true);
-    expect(branchGlobMatches("v12", "v?")).toBe(false);
-    expect(branchGlobMatches("a.b", "a.b")).toBe(true);
-    expect(branchGlobMatches("axb", "a.b")).toBe(false); // '.' is literal, not regex
-  });
-});
-
-describe("isAlwaysShown", () => {
-  it("exempts a remote branch by its bare and remote-qualified name", () => {
-    expect(isAlwaysShown("remotes/origin/main", ["main"])).toBe(true);
-    expect(isAlwaysShown("remotes/origin/main", ["origin/main"])).toBe(true);
-    expect(isAlwaysShown("remotes/origin/main", ["remotes/origin/main"])).toBe(true);
-    expect(isAlwaysShown("remotes/origin/feature", ["main"])).toBe(false);
-  });
-
-  it("matches glob patterns against the bare remote name", () => {
-    expect(isAlwaysShown("remotes/origin/release/9", ["release/*"])).toBe(true);
-  });
-});
-
 describe("classifyInactive", () => {
   const base = {
-    head: "main" as string | null,
     nowSec: NOW,
     thresholdDays: 30,
-    exemptPatterns: ["main"],
-    selected: [] as string[]
+    exemptions: { head: "main", selected: [] as string[], patterns: ["main"] }
   };
 
   it("flags branches older than the threshold", () => {
@@ -64,14 +18,16 @@ describe("classifyInactive", () => {
       branches: ["main", "old", "fresh"],
       dates: { main: NOW, old: NOW - 40 * DAY, fresh: NOW - 5 * DAY }
     });
-    expect([...result]).toEqual(["old"]);
+    expect([...result.matched]).toEqual(["old"]);
+    expect([...result.hidable]).toEqual(["old"]);
   });
 
-  it("never flags the head, selected, or always-show branches", () => {
+  it("still reports the head, selected and always-show branches as inactive", () => {
+    // The fact is unconditional — that is what puts an age label on `main` and
+    // on the branch you're standing on. Only `hidable` honours the exemptions.
     const result = classifyInactive({
       ...base,
-      selected: ["picked"],
-      exemptPatterns: ["main", "keep"],
+      exemptions: { head: "main", selected: ["picked"], patterns: ["main", "keep"] },
       branches: ["main", "picked", "keep", "old"],
       dates: {
         main: NOW - 99 * DAY,
@@ -80,7 +36,8 @@ describe("classifyInactive", () => {
         old: NOW - 99 * DAY
       }
     });
-    expect([...result]).toEqual(["old"]);
+    expect([...result.matched].toSorted()).toEqual(["keep", "main", "old", "picked"]);
+    expect([...result.hidable]).toEqual(["old"]);
   });
 
   it("keeps branches whose age is unknown (no date entry)", () => {
@@ -89,7 +46,7 @@ describe("classifyInactive", () => {
       branches: ["main", "mystery"],
       dates: { main: NOW }
     });
-    expect(result.size).toBe(0);
+    expect(result.matched.size).toBe(0);
   });
 
   it("disables classification when the threshold is 0 or negative", () => {
@@ -99,7 +56,8 @@ describe("classifyInactive", () => {
       branches: ["main", "ancient"],
       dates: { main: NOW, ancient: NOW - 9999 * DAY }
     });
-    expect(result.size).toBe(0);
+    expect(result.matched.size).toBe(0);
+    expect(result.hidable.size).toBe(0);
   });
 
   it("treats a branch exactly at the cutoff as still active", () => {
@@ -108,7 +66,7 @@ describe("classifyInactive", () => {
       branches: ["main", "edge"],
       dates: { main: NOW, edge: NOW - 30 * DAY }
     });
-    expect(result.has("edge")).toBe(false);
+    expect(result.matched.has("edge")).toBe(false);
   });
 });
 

@@ -13,6 +13,15 @@ const leaves = (nodes: ReturnType<typeof buildBranchTree>): BranchTreeLeaf[] =>
 const folders = (nodes: ReturnType<typeof buildBranchTree>): BranchTreeFolder[] =>
   nodes.filter((n): n is BranchTreeFolder => n.type === "folder");
 
+/** Every set empty — spread over a partial to keep each test to the one flag
+ *  it is actually about. */
+const noMeta = {
+  merged: new Set<string>(),
+  inactive: new Set<string>(),
+  hidable: new Set<string>(),
+  dates: {}
+};
+
 describe("buildBranchTree", () => {
   it("returns an empty array for no branches", () => {
     expect(buildBranchTree([], null)).toEqual([]);
@@ -65,27 +74,51 @@ describe("buildBranchTree", () => {
     expect(tree[tree.length - 1].type).toBe("folder");
   });
 
-  it("defaults leaves to active with no last-activity time", () => {
+  it("defaults leaves to plain with no last-activity time", () => {
     const leaf = leaves(buildBranchTree(["main"], "main"))[0];
     expect(leaf.isInactive).toBe(false);
+    expect(leaf.isMerged).toBe(false);
+    expect(leaf.isHidable).toBe(false);
     expect(leaf.lastActivitySec).toBeUndefined();
   });
 
   it("tags inactive leaves and carries the last-activity time from meta", () => {
     const tree = buildBranchTree(["main", "stale"], "main", {
+      ...noMeta,
       inactive: new Set(["stale"]),
+      hidable: new Set(["stale"]),
       dates: { main: 100, stale: 50 }
     });
     const main = leaves(tree).find((l) => l.name === "main")!;
     const stale = leaves(tree).find((l) => l.name === "stale")!;
     expect(main.isInactive).toBe(false);
     expect(stale.isInactive).toBe(true);
+    expect(stale.isHidable).toBe(true);
     expect(stale.lastActivitySec).toBe(50);
+  });
+
+  it("carries the three leaf flags independently", () => {
+    // An exempt merged branch is marked but not hidable; a hidable inactive one
+    // is not merged. Nothing collapses the three into a single state.
+    const tree = buildBranchTree(["main", "done", "stale"], "main", {
+      merged: new Set(["main", "done"]),
+      inactive: new Set(["stale"]),
+      hidable: new Set(["done", "stale"]),
+      dates: { stale: 50 }
+    });
+    const main = leaves(tree).find((l) => l.name === "main")!;
+    const done = leaves(tree).find((l) => l.name === "done")!;
+    const stale = leaves(tree).find((l) => l.name === "stale")!;
+    expect([main.isMerged, main.isHidable]).toEqual([true, false]);
+    expect([done.isMerged, done.isHidable, done.isInactive]).toEqual([true, true, false]);
+    expect([stale.isMerged, stale.isHidable, stale.isInactive]).toEqual([false, true, true]);
   });
 
   it("tags an inactive leaf nested inside a folder", () => {
     const tree = buildBranchTree(["feature/old"], null, {
+      ...noMeta,
       inactive: new Set(["feature/old"]),
+      hidable: new Set(["feature/old"]),
       dates: { "feature/old": 50 }
     });
     const feature = folders(tree).find((f) => f.name === "feature")!;
@@ -125,15 +158,19 @@ describe("buildGroupedBranchRoots", () => {
     expect(local.children.some((n) => n.type === "folder" && n.name === "feature")).toBe(true);
   });
 
-  it("passes inactivity meta through to both groups", () => {
+  it("passes leaf meta through to both groups", () => {
     const roots = buildGroupedBranchRoots(["main", "stale", "remotes/origin/old"], "main", {
+      merged: new Set(["remotes/origin/old"]),
       inactive: new Set(["stale", "remotes/origin/old"]),
+      hidable: new Set(["stale", "remotes/origin/old"]),
       dates: { stale: 50, "remotes/origin/old": 40 }
     }) as BranchTreeGroup[];
     const remoteLeaf = folders(roots[0].children)[0].children[0] as BranchTreeLeaf;
     expect(remoteLeaf.isInactive).toBe(true);
+    expect(remoteLeaf.isMerged).toBe(true);
     expect(remoteLeaf.lastActivitySec).toBe(40);
     const stale = leaves(roots[1].children).find((l) => l.name === "stale")!;
     expect(stale.isInactive).toBe(true);
+    expect(stale.isMerged).toBe(false);
   });
 });

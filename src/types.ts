@@ -90,6 +90,9 @@ export type GitRepoState = {
   /** Per-repo "Show Inactive Branches" override in the side-view; null/undefined
    *  uses the global default. */
   showInactiveBranches?: boolean | null;
+  /** Per-repo "Show Merged Branches" override in the side-view; null/undefined
+   *  uses the global default. Independent of `showInactiveBranches`. */
+  showMergedBranches?: boolean | null;
   /** Custom display name for the repo in the Repo dropdown; empty/unset
    *  falls back to the derived folder name. */
   customName?: string | null;

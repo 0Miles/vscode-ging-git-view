@@ -47,7 +47,8 @@ tradeoffs, and release process clearer.
 
 ## Features
 
-- **Branches view**: A sidebar view with search, multi-select, remote/local grouping, and an inactive-branch filter
+- **Branches view**: A sidebar view with search, multi-select, remote/local grouping, and independent filters for inactive and already-merged branches
+- **Merged-branch marking**: Branches already merged into the repo's default branch are badged in the sidebar and dimmed in the graph, so you can see what is safe to delete (ancestry only — squash and rebase merges are not detected)
 - **Remotes view**: Add, edit, rename, and remove remotes from the sidebar
 - **Source Control integration**: History follows the repository selected in the Source Control view
 - **Multi-repo**: Work with multiple repositories in one workspace
