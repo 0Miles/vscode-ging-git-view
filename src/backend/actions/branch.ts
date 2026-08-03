@@ -7,7 +7,7 @@ import type {
   BatchRefResult
 } from "@/backend/types";
 import { REMOTE_PREFIX, splitRemoteRef } from "@/backend/utils/branchRef";
-import { formatGitError } from "@/backend/utils/gitError";
+import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 
 export async function createBranch(
   git: SimpleGit,
@@ -74,17 +74,6 @@ async function mapRefsSequentially(
     }
   }
   return results;
-}
-
-/**
- * Whether git refused a deletion only because the branch is not fully merged,
- * read off the **raw** error. The hint quotes the literal command `git branch
- * -D`, which stays in English across locales, so it is a translation-safe
- * marker — but `formatGitError` keeps only the `error:` line and drops it, so
- * this must run before the error is formatted.
- */
-function isNotFullyMergedError(error: unknown): boolean {
-  return (error instanceof Error ? error.message : String(error)).includes("git branch -D");
 }
 
 /** The two git operations a batch deletion splits into. */
