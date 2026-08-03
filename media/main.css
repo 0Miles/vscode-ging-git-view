@@ -5,6 +5,20 @@
 html {
   overflow-y: scroll;
 }
+/* The "this is the selected thing" colours, shared by the commit row whose
+   details are open and by the toolbar's branch-filter chip. Quick Pick's focused
+   item first, list selection next, a neutral tint last. Defined once so the two
+   surfaces can't drift apart — they are meant to read as the same highlight. */
+:root {
+  --ging-selected-background: var(
+    --vscode-quickInputList-focusBackground,
+    var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, 0.25))
+  );
+  --ging-selected-foreground: var(
+    --vscode-quickInputList-focusForeground,
+    var(--vscode-list-activeSelectionForeground, var(--vscode-editor-foreground))
+  );
+}
 body {
   margin: 0;
   padding: 0;
@@ -293,19 +307,13 @@ code {
   height: 2px;
   background-color: var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
 }
-/* The row whose Commit Details View is open is the selected row: use the
-   Quick Pick focused-item colours (falling back to list selection). Hovering
-   it keeps the selection colour (as native lists do) — this rule wins over
-   the shared hover rule above because it comes later at equal specificity. */
+/* The row whose Commit Details View is open is the selected row: use the shared
+   selection colours. Hovering it keeps the selection colour (as native lists
+   do) — this rule wins over the shared hover rule above because it comes later
+   at equal specificity. */
 #commitTable tr.commit.commitDetailsOpen td {
-  background-color: var(
-    --vscode-quickInputList-focusBackground,
-    var(--vscode-list-activeSelectionBackground, rgba(128, 128, 128, 0.25))
-  );
-  color: var(
-    --vscode-quickInputList-focusForeground,
-    var(--vscode-list-activeSelectionForeground, var(--vscode-editor-foreground))
-  );
+  background-color: var(--ging-selected-background);
+  color: var(--ging-selected-foreground);
 }
 /* Docked-to-bottom Commit Details View: a fixed panel below the graph
    rather than a row inserted into the table. Its inner panels are positioned
@@ -741,9 +749,10 @@ body.tagLabelsRightAligned .gitRef.tag {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The branch-filter chip, styled as a badge so it reads as state rather than as
-   another toolbar button. Read-only: the clear button is the only thing in it
-   that responds to a click. */
+/* The branch-filter chip. It wears the same selection colours as the commit row
+   whose details are open, so "something is selected" looks the same wherever the
+   graph says it. Read-only: the clear button is the only thing in it that
+   responds to a click. */
 #branchFilterChip {
   display: none;
 }
@@ -753,10 +762,10 @@ body.tagLabelsRightAligned .gitRef.tag {
   gap: 3px;
   flex: 0 1 auto;
   min-width: 0;
-  padding: 0 2px 0 6px;
+  padding: 0 5px 0 6px;
   border-radius: 10px;
-  background-color: var(--vscode-badge-background, rgba(128, 128, 128, 0.25));
-  color: var(--vscode-badge-foreground, var(--vscode-editor-foreground));
+  background-color: var(--ging-selected-background);
+  color: var(--ging-selected-foreground);
   font-size: 11px;
   line-height: 18px;
   user-select: none;
