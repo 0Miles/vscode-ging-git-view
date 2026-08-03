@@ -2,7 +2,9 @@ import * as vscode from "vscode";
 
 import { displayRef, REMOTE_PREFIX } from "@/backend/utils/branchRef";
 import * as l10n from "@/l10n";
+import type { BatchAction, BatchSkipped } from "@/types";
 
+import { resolveActionTargets } from "./branchActionTargets";
 import { classifyInactive, relativeAge } from "./branchActivity";
 import { BranchDataService } from "./branchDataService";
 import { type BranchExemptions } from "./branchExempt";
@@ -149,6 +151,12 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
 
   getRepo(): string | null {
     return this.repo;
+  }
+
+  /** The tree as currently built, for deriving a batch action's targets (which
+   *  needs the tree order, not the selection array's). */
+  getRoots(): readonly BranchTreeNode[] {
+    return this.roots;
   }
 
   setRepo(repo: string | null): void {
@@ -364,6 +372,15 @@ function selectedBranchRefs(items: BranchItem[]): string[] {
     .map((i) => i.node.branch);
 }
 
+/** A batch context-menu command's action targets, as refs rather than tree
+ *  nodes — the form both the graph webview and the clipboard need. */
+export type BranchActionTargets = {
+  repo: string;
+  /** Branch-list-format refs, in tree order. */
+  targets: string[];
+  skipped: BatchSkipped[];
+};
+
 /** The branch a context-menu command operates on. */
 export type BranchActionTarget = {
   repo: string;
@@ -532,7 +549,29 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     }
   };
 
+  /** Resolve a batch action's targets from a tree-view multi-selection. VSCode
+   *  passes the clicked item first and the whole selection second, but only for
+   *  a `canSelectMany` tree — a keybinding or the command palette supplies just
+   *  the one, hence the `[item]` fallback at the call sites. */
+  const actionTargetsForSelection = (
+    items: unknown[],
+    action: BatchAction
+  ): BranchActionTargets | null => {
+    const repo = provider.getRepo();
+    if (repo === null) return null;
+    const selected = selectedBranchRefs(
+      items.filter((i): i is BranchItem => i instanceof BranchItem)
+    );
+    const { targets, skipped } = resolveActionTargets(provider.getRoots(), selected, action);
+    return {
+      repo,
+      targets: targets.map((leaf) => leaf.branch),
+      skipped: skipped.map((s) => ({ ref: s.leaf.branch, reason: s.reason }))
+    };
+  };
+
   return {
+    actionTargetsForSelection,
     setActiveRepo: (repo: string | null): void => {
       // Drop any pending write from the previous repo before switching.
       if (debounce !== undefined) {

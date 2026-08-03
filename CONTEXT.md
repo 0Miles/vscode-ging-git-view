@@ -51,3 +51,19 @@ _Avoid_: dimmed branch, hidden branch
 **Branch filter**:
 圖形要顯示哪些分支的選集,每個存放庫一份,空集合表示顯示全部。它決定圖形讀得到哪些 commit,也是 hidable branch 的豁免來源之一。分支側檢視的選取會寫入它,但兩者**不對稱**:選取非空時必定等於 filter;filter 非空時選取卻可能是空的 —— 多選搜尋、設定帶來的開場篩選、以及切換存放庫後還原的選集,都沒有對應的樹選取。圖形工具列上的篩選標示讀的是 filter,不是選取。
 _Avoid_: branch selection, selected branches
+
+### 側檢視的選取
+
+側檢視的選取只有一個集合,卻同時餵給兩件事:圖形要顯示什麼,以及右鍵動作要作用在誰身上。以下三個詞把「使用者選了什麼」「動作實際作用在什麼」「哪些動作能這樣作用」釘開。
+
+**Branch selection**:
+分支側檢視中被反白的 leaf 集合。folder 與 group 標題不計入 —— 它們是把 ref 依 `/` 切出來的顯示分組,在 git 裡不存在。空的選取集是使用者明確表達的「顯示全部」,不是「還沒選」。
+_Avoid_: 勾選, checked branches, 篩選器, selected refs
+
+**Action target**:
+某個動作實際會作用到的分支 —— branch selection 扣掉該動作在 git 語意上不可能成立的成員(刪除扣掉 checked-out 的那個;fast-forward 扣掉遠端分支與 checked-out 的那個)。扣掉了誰一律對使用者明講,不靜默略過。只有 git 執行後才知道的失敗(未完全合併、沒有 upstream)不在扣除範圍內,那些交給 git 報錯。
+_Avoid_: 選取的分支, selected branches, 有效選取
+
+**Batch action**:
+branch selection 有多個成員時,作用於整個 action target 的動作。能不能批次由 git 語意決定,不由 UI 方便與否決定 —— 只有拆得成 N 個彼此獨立、互不改變前提的操作才算。因此 delete、push、fast-forward、copy name 是 batch action;merge 與 pull 不是,序列合併第二次的基準已經被第一次改掉了。
+_Avoid_: 多選動作, bulk action, 批次處理

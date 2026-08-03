@@ -8,11 +8,14 @@ import {
   checkoutBranch,
   createBranch,
   deleteBranch,
+  deleteBranches,
   deleteRemoteBranch,
   fastForwardBranch,
+  fastForwardBranches,
   fetchIntoLocalBranch,
   pullBranch,
   pushBranch,
+  pushBranches,
   renameBranch
 } from "@/backend/actions/branch";
 import {
@@ -43,6 +46,7 @@ import { operationState } from "@/backend/queries/operationState";
 import { predictConflicts } from "@/backend/queries/predictConflicts";
 import { getNewPathOfRenamedFile } from "@/backend/queries/renamedFilePath";
 import { tagDetails } from "@/backend/queries/tagDetails";
+import type { BatchActionRequest, BatchRefResult } from "@/backend/types";
 import { GitFileChangeType } from "@/backend/types";
 import { formatGitError } from "@/backend/utils/gitError";
 import { pullRequestCreateUrl } from "@/backend/utils/pullRequest";
@@ -151,6 +155,20 @@ export function registerMessageHandlers(
     });
   }
 
+  /** The batch counterpart of `registerAction`. It cannot reuse that wrapper:
+   *  that one collapses the outcome into a single `status`, whereas a batch's
+   *  whole point is that each ref succeeds or fails on its own. The batch
+   *  actions therefore never throw — they report per ref. */
+  function registerBatchAction<T extends BatchActionRequest["command"]>(
+    command: T,
+    handler: (msg: Extract<RequestMessage, { command: T }>) => Promise<BatchRefResult[]>
+  ) {
+    bridge.onMessage(command, async (msg) => {
+      const results = await handler(msg);
+      bridge.post({ command, results } as ResponseMessage);
+    });
+  }
+
   // --- Action handlers ---
 
   registerAction("addTag", (msg) => addTag(gitClient.getInstance(), msg, config.signTags()));
@@ -159,6 +177,12 @@ export function registerMessageHandlers(
   registerAction("createBranch", (msg) => createBranch(gitClient.getInstance(), msg));
   registerAction("deleteBranch", (msg) => deleteBranch(gitClient.getInstance(), msg));
   registerAction("deleteRemoteBranch", (msg) => deleteRemoteBranch(gitClient.getInstance(), msg));
+
+  registerBatchAction("deleteBranches", (msg) => deleteBranches(gitClient.getInstance(), msg));
+  registerBatchAction("pushBranches", (msg) => pushBranches(gitClient.getInstance(), msg));
+  registerBatchAction("fastForwardBranches", (msg) =>
+    fastForwardBranches(gitClient.getInstance(), msg)
+  );
   registerAction("fetchIntoLocalBranch", (msg) =>
     fetchIntoLocalBranch(gitClient.getInstance(), msg)
   );

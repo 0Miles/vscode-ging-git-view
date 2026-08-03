@@ -46,7 +46,13 @@ import * as l10n from "./l10n";
 import { initL10n } from "./l10n";
 import { RepoFileWatcher } from "./repoFileWatcher";
 import { StatusBarItem } from "./statusBarItem";
-import type { RefAction, ResponseRunRefAction } from "./types";
+import type {
+  BatchSkipped,
+  DelegatedBatchAction,
+  RefAction,
+  ResponseRunRefAction,
+  ResponseRunRefBatchAction
+} from "./types";
 
 export function activate(context: vscode.ExtensionContext) {
   initL10n(context.extensionPath);
@@ -74,7 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
   // A side-view branch action waiting for the graph webview to (re)load. The
   // webview dedupes the two delivery paths (direct post + selectRepo flush) by
   // the message's monotonic seq.
-  let pendingRefAction: ResponseRunRefAction | null = null;
+  let pendingRefAction: ResponseRunRefAction | ResponseRunRefBatchAction | null = null;
   let refActionSeq = 0;
   const flushPendingRefAction = (repo: string) => {
     if (pendingRefAction === null) return;
@@ -386,6 +392,50 @@ export function activate(context: vscode.ExtensionContext) {
     currentBridge?.post(msg);
   };
 
+  // The same "skipped, because X" lines the batch confirmation dialog shows,
+  // for the case where nothing is left to confirm and there is no dialog.
+  const skippedNotes = (skipped: BatchSkipped[]): string[] =>
+    (
+      [
+        ["checkedOut", "dialog.batch.skippedCheckedOut"],
+        ["remote", "dialog.batch.skippedRemote"]
+      ] as const
+    ).flatMap(([reason, key]) => {
+      const refs = skipped.filter((s) => s.reason === reason).map((s) => displayRef(s.ref));
+      return refs.length === 0 ? [] : [l10n.t(key, refs.join(", "))];
+    });
+
+  // The batch counterpart. Same two delivery paths and the same seq counter, so
+  // a single and a batch action can never be mistaken for one another's retry.
+  // `copyName` deliberately does not come through here: it asks nothing, so it
+  // runs in the host without opening the graph at all (ADR-0009).
+  const runRefBatchActionInGraph = async (
+    items: unknown[],
+    action: DelegatedBatchAction
+  ): Promise<void> => {
+    const resolved = branchesView.actionTargetsForSelection(items, action);
+    if (resolved === null) return;
+    if (resolved.targets.length === 0) {
+      // Every selected branch was ruled out. Naming them and the reason is the
+      // whole point — "nothing happened" on its own reads like a bug.
+      void vscode.window.showInformationMessage(
+        [l10n.t("branchView.batch.noTargets"), ...skippedNotes(resolved.skipped)].join(" ")
+      );
+      return;
+    }
+    const msg: ResponseRunRefBatchAction = {
+      command: "runRefBatchAction",
+      repo: resolved.repo,
+      action,
+      targets: resolved.targets,
+      skipped: resolved.skipped,
+      seq: ++refActionSeq
+    };
+    pendingRefAction = msg;
+    await openGraphView(resolved.repo);
+    currentBridge?.post(msg);
+  };
+
   // Run a Remotes side-view action against its repo's git instance, then
   // refresh everything that may show remote state: both side-views (remote
   // renames/removals change remote-tracking refs) and an open graph.
@@ -571,6 +621,31 @@ export function activate(context: vscode.ExtensionContext) {
         void vscode.env.clipboard.writeText(displayRef(target.branch));
       }
     }),
+    // --- Batch (multi-selection) branch commands ---
+    // These replace their single-branch counterparts while several branches are
+    // selected; package.json swaps the menu on `listMultiSelection`.
+    vscode.commands.registerCommand(
+      "ging-git-view.branches.deleteSelected",
+      (item: unknown, items?: unknown[]) => runRefBatchActionInGraph(items ?? [item], "delete")
+    ),
+    vscode.commands.registerCommand(
+      "ging-git-view.branches.pushSelected",
+      (item: unknown, items?: unknown[]) => runRefBatchActionInGraph(items ?? [item], "push")
+    ),
+    vscode.commands.registerCommand(
+      "ging-git-view.branches.fastForwardSelected",
+      (item: unknown, items?: unknown[]) => runRefBatchActionInGraph(items ?? [item], "fastForward")
+    ),
+    // The one batch action that asks nothing, so it stays in the host and never
+    // disturbs the graph panel (ADR-0009). Tree order, one ref per line.
+    vscode.commands.registerCommand(
+      "ging-git-view.branches.copyNameSelected",
+      (item: unknown, items?: unknown[]) => {
+        const resolved = branchesView.actionTargetsForSelection(items ?? [item], "copyName");
+        if (resolved === null || resolved.targets.length === 0) return;
+        void vscode.env.clipboard.writeText(resolved.targets.map(displayRef).join("\n"));
+      }
+    ),
     // --- Remotes side-view commands ---
     vscode.commands.registerCommand("ging-git-view.remotes.refresh", () => remotesView.refresh()),
     vscode.commands.registerCommand("ging-git-view.remotes.add", async () => {

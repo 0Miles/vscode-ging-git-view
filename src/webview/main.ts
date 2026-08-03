@@ -1,4 +1,6 @@
 import type {
+  BatchDeleteResult,
+  BatchRefResult,
   BranchRedundancy,
   CommitOrdering,
   GitCommandStatus,
@@ -125,8 +127,17 @@ class GitGraphView {
   // A branch action delegated by the Branches side-view, held until this view
   // shows the right repo with its data loaded. lastRefActionSeq dedupes the
   // host's two delivery paths (direct post + post-reload flush).
-  private pendingRefAction: GG.ResponseRunRefAction | null = null;
+  private pendingRefAction: GG.ResponseRunRefAction | GG.ResponseRunRefBatchAction | null = null;
   private lastRefActionSeq = 0;
+  // The refs a batch delete asked git to remove without force, so the refusals
+  // git reports as "not fully merged" can be re-offered as one force round
+  // rather than one dialog per branch.
+  private pendingDeleteBatch: {
+    deleteOnRemotes: boolean;
+    /** The first round's results once a force round is in flight, so the final
+     *  summary still covers the refs the force round did not retry. */
+    earlier: BatchDeleteResult[] | null;
+  } | null = null;
 
   private graph: Graph;
   private config: Config;
@@ -2362,6 +2373,14 @@ class GitGraphView {
     this.pendingRefAction = msg;
     this.tryRunPendingRefAction();
   }
+  /** Entry point for batch branch actions delegated by the Branches side-view.
+   *  Shares the sequence counter and the wait-for-load queue with the single
+   *  action above, so the host's two delivery paths dedupe the same way. */
+  public runRefBatchAction(msg: GG.ResponseRunRefBatchAction) {
+    if (msg.seq <= this.lastRefActionSeq) return; // duplicate delivery
+    this.pendingRefAction = msg;
+    this.tryRunPendingRefAction();
+  }
   /** Run the pending delegated action once this view shows its repo with no
    *  load in flight (a fresh panel / repo switch reloads branches+commits; the
    *  remotes for that repo arrive before them, as requests are handled in
@@ -2372,7 +2391,8 @@ class GitGraphView {
     if (this.loadBranchesCallback !== null || this.loadCommitsCallback !== null) return;
     this.pendingRefAction = null;
     this.lastRefActionSeq = pending.seq;
-    this.dispatchRefAction(pending);
+    if (pending.command === "runRefBatchAction") this.dispatchRefBatchAction(pending);
+    else this.dispatchRefAction(pending);
   }
   private dispatchRefAction(msg: GG.ResponseRunRefAction) {
     const ref = msg.ref;
@@ -2448,6 +2468,184 @@ class GitGraphView {
       }
     }
   }
+  /** Run a batch action delegated by the Branches side-view. The dialogs are
+   *  written for the batch rather than replaying a single-branch dialog N times:
+   *  one confirmation for the whole set, and — for delete — one force round at
+   *  the end instead of a prompt per branch (ADR-0009). */
+  private dispatchRefBatchAction(msg: GG.ResponseRunRefBatchAction) {
+    // The host reports an empty target set itself, and never sends one.
+    if (msg.targets.length === 0) return;
+    switch (msg.action) {
+      case "delete":
+        this.deleteBranchesAction(msg.targets, msg.skipped);
+        break;
+      case "push":
+        if (this.remotes.length > 0) this.pushBranchesAction(msg.targets, msg.skipped);
+        break;
+      case "fastForward":
+        this.fastForwardBranchesAction(msg.targets, msg.skipped);
+        break;
+    }
+  }
+  /** Refs as the bolded, remote-prefix-free names the rest of the dialogs use. */
+  private batchRefNames(refs: string[]): string {
+    return refs.map((r) => "<b><i>" + escapeHtml(displayRef(r)) + "</i></b>").join(", ");
+  }
+  /** A batch confirmation body: the count-bearing question, every branch it will
+   *  touch, and — never silently — the selected branches it will not. */
+  private batchConfirmBody(
+    template: string,
+    targets: string[],
+    skipped: GG.BatchSkipped[]
+  ): string {
+    const note = (noteTemplate: string, reason: GG.BatchSkipped["reason"]) => {
+      const refs = skipped.filter((s) => s.reason === reason).map((s) => s.ref);
+      return refs.length === 0
+        ? ""
+        : "<br><br>" + noteTemplate.replace("{0}", this.batchRefNames(refs));
+    };
+    return (
+      template.replace("{0}", String(targets.length)) +
+      "<br>" +
+      this.batchRefNames(targets) +
+      note(l10n.dialogBatchSkippedCheckedOut, "checkedOut") +
+      note(l10n.dialogBatchSkippedRemote, "remote")
+    );
+  }
+  private deleteBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
+    const inputs: DialogInput[] = [
+      {
+        type: "checkbox",
+        name: l10n.dialogDeleteForceDelete,
+        value: this.config.dialogDeleteBranchForceDelete
+      }
+    ];
+    // Only worth offering when there is a remote to delete on.
+    if (this.remotes.length > 0) {
+      inputs.push({ type: "checkbox", name: l10n.dialogDeleteOnRemotes, value: false });
+    }
+    // No remember key: a batch delete is confirmed from scratch every time.
+    showFormDialog(
+      this.batchConfirmBody(l10n.dialogDeleteBatchConfirm, targets, skipped),
+      inputs,
+      l10n.deleteBranches,
+      (values) =>
+        this.sendDeleteBranches(
+          targets,
+          values[0] === "checked",
+          inputs.length > 1 && values[1] === "checked",
+          null
+        ),
+      null
+    );
+  }
+  /** Send a delete round. `earlier` is null for the first round and carries its
+   *  results for the force round, so the final summary covers every ref even
+   *  though the force round only retries some of them. Always assigned, never
+   *  merged into whatever was there: a stale value would make the next batch
+   *  skip its own force round and summarise the wrong refs. */
+  private sendDeleteBranches(
+    refs: string[],
+    forceDelete: boolean,
+    deleteOnRemotes: boolean,
+    earlier: BatchDeleteResult[] | null
+  ) {
+    this.pendingDeleteBatch = { deleteOnRemotes, earlier };
+    sendMessage({
+      command: "deleteBranches",
+      repo: this.currentRepo!,
+      refs,
+      forceDelete,
+      deleteOnRemotes
+    });
+    showActionRunningDialog(l10n.deletingBranches);
+  }
+  /** Handle a batch delete response: gather the branches git refused only
+   *  because they are not fully merged and offer them as a single force round,
+   *  then summarise. */
+  public handleDeleteBranchesResponse(results: BatchDeleteResult[]) {
+    const pending = this.pendingDeleteBatch;
+    if (pending === null) return; // not ours (or already summarised)
+    this.pendingDeleteBatch = null;
+    if (pending.earlier === null) {
+      const retryable = results.filter((r) => r.notFullyMerged).map((r) => r.ref);
+      if (retryable.length > 0) {
+        showConfirmationDialog(
+          l10n.dialogDeleteBatchForceConfirm.replace("{0}", String(retryable.length)) +
+            "<br>" +
+            this.batchRefNames(retryable),
+          () => this.sendDeleteBranches(retryable, true, pending.deleteOnRemotes, results),
+          null,
+          // Declining the force round still ends a batch that did real work, so
+          // report what the first round managed rather than closing in silence.
+          () => this.reportBatchResults(results, l10n.unableToDeleteBranch)
+        );
+        return;
+      }
+    }
+    // The force round only covers the refs it retried, so fold it back into the
+    // first round's results to keep every ref — and the original order.
+    const retried = new Map(results.map((r) => [r.ref, r]));
+    const merged =
+      pending.earlier === null ? results : pending.earlier.map((r) => retried.get(r.ref) ?? r);
+    this.reportBatchResults(merged, l10n.unableToDeleteBranch);
+  }
+  private pushBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
+    // No remember key: a force mode remembered from a single push must not
+    // silently apply to a batch, where it would rewrite several branches at once.
+    this.showPushForm(
+      {
+        oneRemote: this.batchConfirmBody(l10n.dialogPushBatchConfirm, targets, skipped),
+        manyRemotes: this.batchConfirmBody(l10n.dialogPushBatchSelectRemote, targets, skipped)
+      },
+      undefined,
+      (remotes, forceMode) => {
+        if (remotes.length === 0) return;
+        sendMessage({
+          command: "pushBranches",
+          repo: this.currentRepo!,
+          branchNames: targets,
+          remotes,
+          forceMode
+        });
+        showActionRunningDialog(l10n.pushingBranch);
+      }
+    );
+  }
+  private fastForwardBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
+    showConfirmationDialog(
+      this.batchConfirmBody(l10n.dialogFastForwardBatchConfirm, targets, skipped),
+      () => {
+        sendMessage({
+          command: "fastForwardBranches",
+          repo: this.currentRepo!,
+          branchNames: targets
+        });
+        showActionRunningDialog(l10n.fastForwardingBranches);
+      },
+      null
+    );
+  }
+  /** Summarise a finished batch. Failures are collected into one dialog listing
+   *  each ref and its git error — one dialog per failed ref would punish exactly
+   *  the case the batch exists to make cheap. */
+  public reportBatchResults(results: BatchRefResult[], errorTitle: string) {
+    const failed = results.filter((r) => r.status !== null);
+    if (failed.length === 0) {
+      this.refresh(true, true); // keep the scroll position, as single actions do
+      return;
+    }
+    showErrorDialog(
+      errorTitle +
+        "<br>" +
+        l10n.dialogBatchResult
+          .replace("{0}", String(results.length - failed.length))
+          .replace("{1}", String(failed.length)),
+      failed.map((r) => displayRef(r.ref) + ": " + r.status).join("\n"),
+      null,
+      () => this.refresh(false)
+    );
+  }
   /** Display label for the checked-out branch in dialogs: its actual name when
    *  on a branch, or the generic "current branch" wording when detached. */
   private currentBranchLabel(): string {
@@ -2505,18 +2703,20 @@ class GitGraphView {
     }
     return this.remotes.includes("origin") ? "origin" : this.remotes[0];
   }
-  private pushBranchAction(branchName: string) {
-    const push = (remotes: string[], forceMode: "normal" | "force" | "forceWithLease") => {
-      if (remotes.length === 0) return;
-      sendMessage({
-        command: "pushBranch",
-        repo: this.currentRepo!,
-        branchName,
-        remotes,
-        forceMode
-      });
-      showActionRunningDialog(l10n.pushingBranch);
-    };
+  /**
+   * The push form: a force-mode select, preceded by one checkbox per remote when
+   * there is more than one (the push-default remote pre-checked). `bodies` picks
+   * the wording for each of those two shapes, since only the caller knows
+   * whether it is pushing one branch or several.
+   *
+   * `rememberKey` is undefined for the batch, where a force mode remembered from
+   * a single push must not silently apply to several branches at once.
+   */
+  private showPushForm(
+    bodies: { oneRemote: string; manyRemotes: string },
+    rememberKey: string | undefined,
+    push: (remotes: string[], forceMode: "normal" | "force" | "forceWithLease") => void
+  ) {
     const forceInput: DialogSelectInput = {
       type: "select",
       name: l10n.dialogPushForce,
@@ -2526,39 +2726,57 @@ class GitGraphView {
         { name: l10n.dialogPushForceForce, value: "force" },
         { name: l10n.dialogPushForceLease, value: "forceWithLease" }
       ],
-      remember: true
+      remember: rememberKey !== undefined
     };
-    const boldName = "<b><i>" + escapeHtml(branchName) + "</i></b>";
     if (this.remotes.length === 1) {
       showFormDialog(
-        l10n.dialogPushBranchConfirm.replace("{0}", boldName),
+        bodies.oneRemote,
         [forceInput],
         l10n.pushBranch,
         (values) => push([this.remotes[0]], toPushForceMode(values[0])),
         null,
-        "pushBranchForce"
+        rememberKey
       );
-    } else {
-      // One checkbox per remote, so the branch can be pushed to several at once
-      //; the push-default remote is pre-checked.
-      const remoteInputs: DialogInput[] = this.remotes.map((r) => ({
-        type: "checkbox",
-        name: r,
-        value: r === this.defaultPushRemote()
-      }));
-      showFormDialog(
-        l10n.dialogPushBranchSelectRemote.replace("{0}", boldName),
-        [...remoteInputs, forceInput],
-        l10n.pushBranch,
-        (values) =>
-          push(
-            this.remotes.filter((_, i) => values[i] === "checked"),
-            toPushForceMode(values[this.remotes.length])
-          ),
-        null,
-        "pushBranchForce"
-      );
+      return;
     }
+    const remoteInputs: DialogInput[] = this.remotes.map((r) => ({
+      type: "checkbox",
+      name: r,
+      value: r === this.defaultPushRemote()
+    }));
+    showFormDialog(
+      bodies.manyRemotes,
+      [...remoteInputs, forceInput],
+      l10n.pushBranch,
+      (values) =>
+        push(
+          this.remotes.filter((_, i) => values[i] === "checked"),
+          toPushForceMode(values[this.remotes.length])
+        ),
+      null,
+      rememberKey
+    );
+  }
+  private pushBranchAction(branchName: string) {
+    const boldName = "<b><i>" + escapeHtml(branchName) + "</i></b>";
+    this.showPushForm(
+      {
+        oneRemote: l10n.dialogPushBranchConfirm.replace("{0}", boldName),
+        manyRemotes: l10n.dialogPushBranchSelectRemote.replace("{0}", boldName)
+      },
+      "pushBranchForce",
+      (remotes, forceMode) => {
+        if (remotes.length === 0) return;
+        sendMessage({
+          command: "pushBranch",
+          repo: this.currentRepo!,
+          branchName,
+          remotes,
+          forceMode
+        });
+        showActionRunningDialog(l10n.pushingBranch);
+      }
+    );
   }
   /** Push a tag to a remote. Confirms when a single remote exists, otherwise
    *  prompts which remote to push to. Only invoked when a remote is configured. */
@@ -4117,6 +4335,18 @@ window.addEventListener("message", (event) => {
     case "runRefAction":
       gitGraph.runRefAction(msg);
       break;
+    case "runRefBatchAction":
+      gitGraph.runRefBatchAction(msg);
+      break;
+    case "deleteBranches":
+      gitGraph.handleDeleteBranchesResponse(msg.results);
+      break;
+    case "pushBranches":
+      gitGraph.reportBatchResults(msg.results, l10n.unableToPushBranch);
+      break;
+    case "fastForwardBranches":
+      gitGraph.reportBatchResults(msg.results, l10n.unableToFastForward);
+      break;
     case "mergeBranch":
       refreshGraphOrDisplayError(msg.status, l10n.unableToMergeBranch);
       break;
@@ -4407,7 +4637,8 @@ function hideContextMenu() {
 function showConfirmationDialog(
   message: string,
   confirmed: () => void,
-  sourceElem: HTMLElement | null
+  sourceElem: HTMLElement | null,
+  onDismiss?: () => void
 ) {
   showDialog(
     message,
@@ -4417,7 +4648,8 @@ function showConfirmationDialog(
       hideDialog();
       confirmed();
     },
-    sourceElem
+    sourceElem,
+    onDismiss
   );
 }
 function showRefInputDialog(

@@ -1,6 +1,8 @@
 import {
   ActionRequest,
   ActionResponse,
+  BatchActionRequest,
+  BatchActionResponse,
   CommitOrdering,
   GitFileChangeType,
   QueryRequest,
@@ -401,8 +403,47 @@ export type ResponseRunRefAction = {
   seq: number;
 };
 
+/** An action that runs against the whole selection when several branches are
+ *  selected. Membership is decided by git semantics, not UI convenience — only
+ *  operations that split into N independent steps qualify (CONTEXT.md, "Batch
+ *  action"), which is why `merge` and `pull` are absent. */
+export type BatchAction = "delete" | "push" | "fastForward" | "copyName";
+
+/** The batch actions that ask the user something, and so run their dialog in
+ *  the graph webview (ADR-0009). `copyName` is the sole exclusion: it asks
+ *  nothing and runs in the extension host without opening the graph. */
+export type DelegatedBatchAction = Exclude<BatchAction, "copyName">;
+
+/** A selected branch the batch action could not apply to. Only reasons the
+ *  side-view can determine on its own; anything that needs git to answer is
+ *  left to fail and appear in the result summary. */
+export type BatchSkipped = { ref: string; reason: "checkedOut" | "remote" };
+
+/**
+ * A batch branch action the Branches side-view delegates to the graph webview.
+ *
+ * Unlike {@link ResponseRunRefAction}, refs stay in the branch-list format
+ * (`main`, `remotes/origin/main`) rather than the display format: that is the
+ * format the batch backend requests take, so the webview passes them straight
+ * through and only applies `displayRef` when rendering.
+ */
+export type ResponseRunRefBatchAction = {
+  command: "runRefBatchAction";
+  repo: string;
+  action: DelegatedBatchAction;
+  /** The branches the action will run against, already normalised by the host. */
+  targets: string[];
+  /** Selected branches excluded from `targets`, listed in the confirmation so
+   *  the gap between what was selected and what will happen is never silent. */
+  skipped: BatchSkipped[];
+  /** Monotonic per-session sequence number, shared with `runRefAction` so the
+   *  webview's duplicate-delivery guard covers both. */
+  seq: number;
+};
+
 export type RequestMessage =
   | ActionRequest
+  | BatchActionRequest
   | QueryRequest
   | RequestFetchAvatar
   | RequestSelectRepo
@@ -426,6 +467,7 @@ export type RequestMessage =
 
 export type ResponseMessage =
   | ActionResponse
+  | BatchActionResponse
   | QueryResponse
   | ResponseFetchAvatar
   | ResponseLoadRepos
@@ -441,4 +483,5 @@ export type ResponseMessage =
   | ResponseSetRepo
   | ResponseSetBranchFilter
   | ResponseSetShowRemoteBranches
-  | ResponseRunRefAction;
+  | ResponseRunRefAction
+  | ResponseRunRefBatchAction;

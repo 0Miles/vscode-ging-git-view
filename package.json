@@ -286,6 +286,26 @@
       },
       {
         "category": "GING",
+        "command": "ging-git-view.branches.deleteSelected",
+        "title": "%command.branches.deleteSelected%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.pushSelected",
+        "title": "%command.branches.pushSelected%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.fastForwardSelected",
+        "title": "%command.branches.fastForwardSelected%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.branches.copyNameSelected",
+        "title": "%command.branches.copyNameSelected%"
+      },
+      {
+        "category": "GING",
         "command": "ging-git-view.remotes.add",
         "title": "%command.remotes.add%",
         "icon": "$(add)"
@@ -481,92 +501,112 @@
         },
         {
           "command": "ging-git-view.branches.checkout",
-          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.checkout",
+          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.checkout && !listMultiSelection",
           "group": "1_action@1"
         },
         {
           "command": "ging-git-view.branches.checkout",
-          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.checkout",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.checkout && !listMultiSelection",
           "group": "1_action@1"
         },
         {
           "command": "ging-git-view.branches.rename",
-          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.rename",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.rename && !listMultiSelection",
           "group": "1_action@2"
         },
         {
           "command": "ging-git-view.branches.merge",
-          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.merge",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.merge && !listMultiSelection",
           "group": "1_action@2"
         },
         {
           "command": "ging-git-view.branches.push",
-          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.push",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.push && !listMultiSelection",
           "group": "1_action@3"
         },
         {
           "command": "ging-git-view.branches.createArchive",
-          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.createArchive",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.createArchive && !listMultiSelection",
           "group": "1_action@4"
         },
         {
           "command": "ging-git-view.branches.delete",
-          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.delete",
+          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.delete && !listMultiSelection",
           "group": "2_modify@1"
         },
         {
           "command": "ging-git-view.branches.merge",
-          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.merge",
+          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.merge && !listMultiSelection",
           "group": "2_modify@2"
         },
         {
           "command": "ging-git-view.branches.rebase",
-          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.rebase",
+          "when": "view == ging-git-view.branches && viewItem == branch-local && ging-git-view.cmv.branch.rebase && !listMultiSelection",
           "group": "2_modify@3"
         },
         {
           "command": "ging-git-view.branches.fastForward",
-          "when": "view == ging-git-view.branches && viewItem == branch-local",
+          "when": "view == ging-git-view.branches && viewItem == branch-local && !listMultiSelection",
           "group": "2_modify@4"
         },
         {
           "command": "ging-git-view.branches.pull",
-          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.pull",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.pull && !listMultiSelection",
           "group": "2_modify@1"
         },
         {
           "command": "ging-git-view.branches.fetchIntoLocal",
-          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.fetch",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.fetch && !listMultiSelection",
           "group": "2_modify@2"
         },
         {
           "command": "ging-git-view.branches.deleteRemote",
-          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.delete",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.delete && !listMultiSelection",
           "group": "2_modify@3"
         },
         {
           "command": "ging-git-view.branches.checkRedundancy",
-          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.checkRedundancy",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.checkRedundancy && !listMultiSelection",
           "group": "3_inspect@1"
         },
         {
           "command": "ging-git-view.branches.checkRedundancy",
-          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.checkRedundancy",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.checkRedundancy && !listMultiSelection",
           "group": "3_inspect@1"
         },
         {
           "command": "ging-git-view.branches.createPullRequest",
-          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current|remote)$/",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current|remote)$/ && !listMultiSelection",
           "group": "4_share@1"
         },
         {
           "command": "ging-git-view.branches.copyName",
-          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.copyName",
+          "when": "view == ging-git-view.branches && viewItem =~ /^branch-(local|current)$/ && ging-git-view.cmv.branch.copyName && !listMultiSelection",
           "group": "5_copy@1"
         },
         {
           "command": "ging-git-view.branches.copyName",
-          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.copyName",
+          "when": "view == ging-git-view.branches && viewItem == branch-remote && ging-git-view.cmv.remoteBranch.copyName && !listMultiSelection",
+          "group": "5_copy@1"
+        },
+        {
+          "command": "ging-git-view.branches.pushSelected",
+          "when": "view == ging-git-view.branches && listMultiSelection && viewItem =~ /^branch-(local|current|remote)$/ && ging-git-view.cmv.branch.push",
+          "group": "1_action@3"
+        },
+        {
+          "command": "ging-git-view.branches.deleteSelected",
+          "when": "view == ging-git-view.branches && listMultiSelection && viewItem =~ /^branch-(local|current|remote)$/ && (ging-git-view.cmv.branch.delete || ging-git-view.cmv.remoteBranch.delete)",
+          "group": "2_modify@1"
+        },
+        {
+          "command": "ging-git-view.branches.fastForwardSelected",
+          "when": "view == ging-git-view.branches && listMultiSelection && viewItem =~ /^branch-(local|current|remote)$/",
+          "group": "2_modify@4"
+        },
+        {
+          "command": "ging-git-view.branches.copyNameSelected",
+          "when": "view == ging-git-view.branches && listMultiSelection && viewItem =~ /^branch-(local|current|remote)$/ && (ging-git-view.cmv.branch.copyName || ging-git-view.cmv.remoteBranch.copyName)",
           "group": "5_copy@1"
         }
       ],
@@ -677,6 +717,22 @@
         },
         {
           "command": "ging-git-view.branches.checkRedundancy",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.deleteSelected",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.pushSelected",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.fastForwardSelected",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.branches.copyNameSelected",
           "when": "false"
         },
         {
