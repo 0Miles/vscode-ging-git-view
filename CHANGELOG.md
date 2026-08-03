@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.2.0...v0.3.0) (2026-08-03)
+
+
+### Features
+
+* **branches:** act on the whole selection in the sidebar menu ([e691493](https://github.com/0Miles/vscode-ging-git-view/commit/e69149327807b651786955b587aaae81a0e7feea))
+* **graph:** dress the context menus as native ones, with icons and keyboard navigation ([1c7c716](https://github.com/0Miles/vscode-ging-git-view/commit/1c7c716afcd644039971f3f221fa15bed98a7bc4))
+* **graph:** report the branch filter in the toolbar, and let it be cleared there ([70050b2](https://github.com/0Miles/vscode-ging-git-view/commit/70050b293e55cca8045746b363433ac19fbf50b0))
+
+
+### Bug Fixes
+
+* **branches:** offer the force delete a failed delete was meant to offer ([99e9d91](https://github.com/0Miles/vscode-ging-git-view/commit/99e9d91e4ab7ed2da75eb309571db3b5ad6f10b8))
+
 ## [0.2.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.1.0...v0.2.0) (2026-08-03)
 
 
