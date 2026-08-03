@@ -3806,11 +3806,13 @@ function showRedundancyCommitDetails(commitHash: string, details: GitCommitDetai
       ? '<span class="redundancyDetailsNote">' +
         escapeHtml(l10n.unableToLoadCommitDetails) +
         "</span>"
-      : '<div class="commitDetailsSummary">' +
+      : // The flex layout goes on this wrapper, not on the cell: `display: flex`
+        // on a `<td>` stops it being a table cell, and its `colspan` with it.
+        '<div class="commitDetailsPanel"><div class="commitDetailsSummary">' +
         gitGraph.commitSummaryHtml(details, false) +
         '</div><div class="commitDetailsFiles">' +
         gitGraph.commitFilesHtml(details.fileChanges) +
-        "</div>";
+        "</div></div>";
 }
 
 /* Command Processing */

@@ -1029,7 +1029,10 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
    the same Commit Details View summary + file pane. */
 #dialog.active:has(.redundancyResult) {
   text-align: left;
-  max-width: 700px;
+  /* A definite width: the dialog is otherwise shrink-to-fit, and a table of
+     nowrap cells would collapse the subject column to nothing. */
+  width: min(760px, 90vw);
+  max-width: none;
 }
 #dialog .redundancySummary {
   display: block;
@@ -1039,7 +1042,10 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
   max-height: 55vh;
   overflow-y: auto;
 }
-#dialog .commitList td:nth-child(1) {
+/* The subject column absorbs the width the fixed-size columns leave, and
+   ellipsises. Restricted to commit rows: the group headings and the details
+   row are single `colspan` cells, and `max-width: 0` would collapse them. */
+#dialog .commitList tr.commit td:nth-child(1) {
   width: 100%;
   max-width: 0;
 }
@@ -1069,9 +1075,13 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
     var(--vscode-editorWidget-background, var(--vscode-editor-background))
   );
   border-bottom: 2px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
-  /* The two panes sit side by side, as in the docked details view — but laid
-     out with flex rather than the absolute positioning `#commitDetails` uses,
-     since a dialog row has no fixed height to position against. */
+}
+/* The two panes sit side by side, as in the docked details view — but laid out
+   with flex rather than the absolute positioning `#commitDetails` uses, since a
+   dialog row has no fixed height to position against. The flex container is
+   this wrapper and not the cell itself: `display: flex` on a `<td>` stops it
+   being a table cell, and its `colspan` stops applying with it. */
+#dialog .commitDetailsPanel {
   display: flex;
   gap: 12px;
   align-items: flex-start;
