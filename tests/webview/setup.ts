@@ -35,9 +35,16 @@ export function createVscodeMock(initialState: WebViewState | null = null) {
 export function setupHtml(viewState: GG.GitGraphViewState) {
   document.body.innerHTML = `
     <div id="controls">
-      <div id="repoTitle">
-        <span id="repoTitleName"></span>
-        <span id="repoTitleBranch"></span>
+      <div id="controlsLeft">
+        <div id="repoTitle">
+          <span id="repoTitleName"></span>
+          <span id="repoTitleBranch"></span>
+        </div>
+        <div id="branchFilterChip">
+          <span id="branchFilterIcon"></span>
+          <span id="branchFilterText"></span>
+          <div id="branchFilterClear" title="Show All"></div>
+        </div>
       </div>
       <div id="refreshBtn" class="roundedBtn">Refresh</div>
       <div id="blinkHeadBtn" class="roundedBtn">Locate HEAD</div>

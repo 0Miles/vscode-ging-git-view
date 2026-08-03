@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  branchFilterLabel,
   commitMatchesQuery,
   commitNodeTooltip,
   commitsReachableFrom,
@@ -258,5 +259,38 @@ describe("isNotFullyMergedBranchError", () => {
   it("returns false for other errors and for null", () => {
     expect(isNotFullyMergedBranchError("error: some unrelated failure")).toBe(false);
     expect(isNotFullyMergedBranchError(null)).toBe(false);
+  });
+});
+
+describe("branchFilterLabel", () => {
+  const tooltip = "Showing only:\n{0}";
+  const three = ["main", "wip", "remotes/origin/done"];
+
+  it("returns null for an empty filter, which means show all", () => {
+    expect(branchFilterLabel([], tooltip)).toBeNull();
+  });
+
+  it("shows the branch name when a single branch is filtered", () => {
+    expect(branchFilterLabel(["main"], tooltip)).toEqual({
+      text: "main",
+      tooltip: "Showing only:\nmain"
+    });
+  });
+
+  it("strips the remotes/ prefix, matching the graph's ref chips", () => {
+    expect(branchFilterLabel(["remotes/origin/feature/x"], tooltip)).toEqual({
+      text: "origin/feature/x",
+      tooltip: "Showing only:\norigin/feature/x"
+    });
+  });
+
+  it("counts the branches beyond the first, not the whole filter", () => {
+    expect(branchFilterLabel(three, tooltip)?.text).toBe("main +2");
+  });
+
+  it("lists every filtered branch in the tooltip, one per line", () => {
+    expect(branchFilterLabel(three, tooltip)?.tooltip).toBe(
+      "Showing only:\nmain\nwip\norigin/done"
+    );
   });
 });

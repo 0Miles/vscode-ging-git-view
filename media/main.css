@@ -705,15 +705,23 @@ body.tagLabelsRightAligned .gitRef.tag {
   border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.5));
   font-size: 13px;
 }
+/* The left-hand group: the repo title block, followed by the branch-filter chip
+   when a filter is in force. margin-right:auto lives here rather than on either
+   child, so the icon buttons stay pinned right whether or not the chip shows. */
+#controlsLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  min-width: 0;
+}
 /* Repo title block on the left: repo name and the checked-out branch on one
-   line, vertically centred in the bar. margin-right:auto pushes the icon
-   buttons to the right; min-width:0 lets the block shrink so long names
-   ellipsise instead of pushing them out. */
+   line, vertically centred in the bar. min-width:0 lets the block shrink so long
+   names ellipsise instead of pushing the chip out. */
 #repoTitle {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-right: auto;
   padding-left: 4px;
   min-width: 0;
   line-height: 1.2;
@@ -732,6 +740,59 @@ body.tagLabelsRightAligned .gitRef.tag {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* The branch-filter chip, styled as a badge so it reads as state rather than as
+   another toolbar button. Read-only: the clear button is the only thing in it
+   that responds to a click. */
+#branchFilterChip {
+  display: none;
+}
+#branchFilterChip.active {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0 2px 0 6px;
+  border-radius: 10px;
+  background-color: var(--vscode-badge-background, rgba(128, 128, 128, 0.25));
+  color: var(--vscode-badge-foreground, var(--vscode-editor-foreground));
+  font-size: 11px;
+  line-height: 18px;
+  user-select: none;
+}
+#branchFilterIcon,
+#branchFilterClear {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+#branchFilterIcon svg,
+#branchFilterClear svg {
+  fill: currentColor;
+}
+#branchFilterText {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Always visible, never gated behind hover: the chip only appears while the
+   graph is filtered, so hiding its one exit would strand the user. */
+#branchFilterClear {
+  padding: 0 2px;
+  border-radius: 8px;
+  opacity: 0.75;
+  cursor: pointer;
+}
+#branchFilterClear:hover {
+  opacity: 1;
+  background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.3));
+}
+/* 9x12 keeps the shared close icon's 12:16 viewBox ratio: any other box letter-
+   boxes the glyph, painting a cross visibly narrower than the funnel beside it. */
+#branchFilterClear svg {
+  width: 9px;
+  height: 12px;
 }
 /* Each button is a 20x20 positioned box so its inner <svg> can be offset
    within it (the svgs are absolutely positioned). */

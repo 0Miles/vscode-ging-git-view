@@ -298,6 +298,13 @@ export type RequestOpenScmView = {
   command: "openScmView";
 };
 
+/** Clear the branch filter from the graph's filter chip. Carries no repo: the
+ *  host answers it with the Branches side-view's own "show all" command, which
+ *  resolves the repo itself. */
+export type RequestClearBranchFilter = {
+  command: "clearBranchFilter";
+};
+
 export type RequestViewFileAtRevision = {
   command: "viewFileAtRevision";
   repo: string;
@@ -410,6 +417,7 @@ export type RequestMessage =
   | RequestOpenMergeEditor
   | RequestOpenExternalUrl
   | RequestOpenScmView
+  | RequestClearBranchFilter
   | RequestFetch
   | RequestCreateArchive
   | RequestExportPatch

@@ -26,7 +26,7 @@ _Avoid_: discovered repo, tracked repo
 
 ### 分支的狀態
 
-Default branch 是基準;merged 與 inactive 是兩個彼此獨立的事實,一個分支可以兩者皆是、皆非、或只中其一;hidable 則由前兩者推導而來,是唯一決定畫面呈現的集合。Redundant 涵蓋 merged 涵蓋不到的那一半,但它不參與 hidable,也不改變畫面的預設呈現。
+Default branch 是基準;merged 與 inactive 是兩個彼此獨立的事實,一個分支可以兩者皆是、皆非、或只中其一;hidable 則由前兩者推導而來,是唯一決定畫面呈現的集合。Redundant 涵蓋 merged 涵蓋不到的那一半,但它不參與 hidable,也不改變畫面的預設呈現。以上都是算出來的事實;branch filter 則是使用者自己挑的,兩者一起決定圖形看得到什麼。
 
 **Default branch**:
 存放庫的主線分支,由 GING 偵測得來,使用者無法指定。它是判定 merged branch 與 redundant branch 的唯一基準;偵測不到時,已合併相關的顯示與隱藏靜默停用,而隨選的查詢據實回報無從判定。
@@ -47,3 +47,7 @@ _Avoid_: stale branch, old branch, 廢棄分支
 **Hidable branch**:
 是 merged branch 或 inactive branch,且不在豁免名單上 —— 豁免的是 checked-out 的那個、目前被分支篩選選取的、以及符合「總是顯示」樣式的。它是唯一決定畫面呈現的集合:淡化的是它,按下隱藏會消失的也是它。merged 與 inactive 這兩個事實則各自獨立地驅動標記(badge 與年齡標籤),即使該分支被豁免也照標。
 _Avoid_: dimmed branch, hidden branch
+
+**Branch filter**:
+圖形要顯示哪些分支的選集,每個存放庫一份,空集合表示顯示全部。它決定圖形讀得到哪些 commit,也是 hidable branch 的豁免來源之一。分支側檢視的選取會寫入它,但兩者**不對稱**:選取非空時必定等於 filter;filter 非空時選取卻可能是空的 —— 多選搜尋、設定帶來的開場篩選、以及切換存放庫後還原的選集,都沒有對應的樹選取。圖形工具列上的篩選標示讀的是 filter,不是選取。
+_Avoid_: branch selection, selected branches

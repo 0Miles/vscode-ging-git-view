@@ -43,5 +43,9 @@ export const svgIcons = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="16" viewBox="0 0 14 16"><path fill-rule="evenodd" d="M7 10h4v1H7v-1zm-3 1l3-3-3-3-.75.75L5.5 8l-2.25 2.25L4 11zm10-8v10c0 .55-.45 1-1 1H1c-.55 0-1-.45-1-1V3c0-.55.45-1 1-1h12c.55 0 1 .45 1 1zm-1 0H1v10h12V3z"/></svg>',
   // Custom crosshair/target for the "Locate HEAD" control.
   locate:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M9 1a1 1 0 0 0-2 0v1.06A6 6 0 0 0 2.06 7H1a1 1 0 0 0 0 2h1.06A6 6 0 0 0 7 13.94V15a1 1 0 1 0 2 0v-1.06A6 6 0 0 0 13.94 9H15a1 1 0 1 0 0-2h-1.06A6 6 0 0 0 9 2.06V1zM8 3.7a4.3 4.3 0 1 1 0 8.6 4.3 4.3 0 0 1 0-8.6zM8 5.5A2.5 2.5 0 1 0 8 10.5a2.5 2.5 0 0 0 0-5z"/></svg>'
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M9 1a1 1 0 0 0-2 0v1.06A6 6 0 0 0 2.06 7H1a1 1 0 0 0 0 2h1.06A6 6 0 0 0 7 13.94V15a1 1 0 1 0 2 0v-1.06A6 6 0 0 0 13.94 9H15a1 1 0 1 0 0-2h-1.06A6 6 0 0 0 9 2.06V1zM8 3.7a4.3 4.3 0 1 1 0 8.6 4.3 4.3 0 0 1 0-8.6zM8 5.5A2.5 2.5 0 1 0 8 10.5a2.5 2.5 0 0 0 0-5z"/></svg>',
+  // Funnel for the toolbar's branch-filter chip. Deliberately not the "search"
+  // magnifier: this marks a standing state, not an action you can invoke.
+  filter:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M1 2h14l-5.5 6.5v5l-3-1.5V8.5z"/></svg>'
 };

@@ -29,6 +29,7 @@ import {
 } from "./utils/fileTree";
 import {
   arraysEqual,
+  branchFilterLabel,
   commitMatchesQuery,
   commitNodeTooltip,
   commitsReachableFrom,
@@ -107,8 +108,9 @@ class GitGraphView {
   private commitLookup: { [hash: string]: number } = {};
   private avatars: AvatarImageCollection = {};
   // The branch filter, owned by the extension host (the Branches side-view) and
-  // pushed in via `loadBranches`/`setBranchFilter`. A list of selected refs; an
-  // empty list means "show all branches". null until the first load resolves it.
+  // pushed in via `loadBranches`/`setBranchFilter`. The refs to show; an empty
+  // list means "show all branches". null until the first load resolves it.
+  // Write it only through `setCurrentBranches`, which redraws the toolbar chip.
   private currentBranches: string[] | null = null;
   // Refs the host says to render dimmed: merged into the default branch and not
   // exempt. Sent in `loadBranches` format (`main`, `remotes/origin/main`) and
@@ -201,6 +203,16 @@ class GitGraphView {
         }
       });
     }
+    const filterIcon = document.getElementById("branchFilterIcon");
+    if (filterIcon) filterIcon.innerHTML = svgIcons.filter;
+    const filterClear = document.getElementById("branchFilterClear");
+    if (filterClear) {
+      filterClear.innerHTML = svgIcons.close;
+      // The host owns the filter, so this only asks. The chip disappears when
+      // the resulting `setBranchFilter` comes back — no optimistic clear, which
+      // would show "all branches" over a graph still rendering the subset.
+      filterClear.addEventListener("click", () => sendMessage({ command: "clearBranchFilter" }));
+    }
     const findInput = <HTMLInputElement | null>document.getElementById("findInput");
     if (findInput) {
       findInput.addEventListener("keyup", (e) => {
@@ -241,7 +253,7 @@ class GitGraphView {
       if (prevState.columnVisibility) this.columnVisibility = prevState.columnVisibility;
       this.alwaysAcceptCheckoutCommit = prevState.alwaysAcceptCheckoutCommit === true;
       if (!repoRetargeted && typeof this.gitRepos[prevState.currentRepo] !== "undefined") {
-        this.currentBranches = prevState.currentBranches;
+        this.setCurrentBranches(prevState.currentBranches);
         this.currentRepo = prevState.currentRepo;
         this.maxCommits = prevState.maxCommits;
         this.expandedCommit = deserializeExpandedCommit(prevState.expandedCommit);
@@ -281,7 +293,7 @@ class GitGraphView {
     this.currentRepo = repo;
     this.maxCommits = this.config.initialLoadCommits;
     this.clearExpandedCommit();
-    this.currentBranches = null;
+    this.setCurrentBranches(null);
     this.applyShowRemoteBranchesForRepo();
     this.updateRepoTitle();
     this.saveState();
@@ -306,6 +318,27 @@ class GitGraphView {
     const override = this.gitRepos[this.currentRepo]?.showRemoteBranches;
     this.showRemoteBranches =
       typeof override === "boolean" ? override : this.config.showRemoteBranches;
+  }
+
+  /** Record the branch filter and redraw the chip that reports it. Every write
+   *  to `currentBranches` goes through here: the chip is the only outward sign
+   *  that the graph is showing a subset, so any path that changed the filter
+   *  without redrawing it would leave the toolbar quietly lying. `null` means
+   *  "not resolved yet" (a repo switch) and reads the same as "show all". */
+  private setCurrentBranches(branches: string[] | null) {
+    this.currentBranches = branches;
+    this.renderBranchFilterChip();
+  }
+
+  /** Redraw the toolbar's branch-filter chip from the current filter. */
+  private renderBranchFilterChip() {
+    const chip = document.getElementById("branchFilterChip");
+    const text = document.getElementById("branchFilterText");
+    if (chip === null || text === null) return;
+    const label = branchFilterLabel(this.currentBranches ?? [], l10n.branchFilterTooltip);
+    chip.classList.toggle("active", label !== null);
+    text.textContent = label?.text ?? "";
+    chip.title = label?.tooltip ?? "";
   }
 
   /** Refresh the toolbar's title block: the repo's display name (custom name,
@@ -380,7 +413,7 @@ class GitGraphView {
     this.currentRepo = repo;
     this.maxCommits = this.config.initialLoadCommits;
     this.clearExpandedCommit();
-    this.currentBranches = null;
+    this.setCurrentBranches(null);
     this.applyShowRemoteBranchesForRepo();
     this.updateRepoTitle();
     this.saveState();
@@ -453,7 +486,7 @@ class GitGraphView {
     this.updateRepoTitle();
     // The branch filter is owned by the extension host (the Branches side-view);
     // apply whatever it resolved for this repo. An empty list means "show all".
-    this.currentBranches = filter;
+    this.setCurrentBranches(filter);
     this.saveState();
 
     this.triggerLoadBranchesCallback(true, isRepo);
@@ -472,7 +505,7 @@ class GitGraphView {
    *  show all. Deduped against the current filter to avoid a redundant reload. */
   public setBranchFilter(branches: string[]) {
     if (arraysEqual(this.currentBranches ?? [], branches, (a, b) => a === b)) return;
-    this.currentBranches = branches;
+    this.setCurrentBranches(branches);
     this.reloadForBranchChange();
   }
   private triggerLoadBranchesCallback(changes: boolean, isRepo: boolean) {

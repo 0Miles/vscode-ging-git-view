@@ -93,9 +93,16 @@ export function buildWebviewHtml(opts: {
   if (numRepos > 0) {
     body = `<body style="${colorVars}">
 		<div id="controls">
-      <div id="repoTitle">
-        <span id="repoTitleName"></span>
-        <span id="repoTitleBranch"></span>
+      <div id="controlsLeft">
+        <div id="repoTitle">
+          <span id="repoTitleName"></span>
+          <span id="repoTitleBranch"></span>
+        </div>
+        <div id="branchFilterChip">
+          <span id="branchFilterIcon"></span>
+          <span id="branchFilterText"></span>
+          <div id="branchFilterClear" title="${l10nStrings.showAll}"></div>
+        </div>
       </div>
       <div id="findBtn" class="iconBtn" title="${l10nStrings.find}"></div>
       <div id="terminalBtn" class="iconBtn" title="${l10nStrings.openTerminal}"></div>

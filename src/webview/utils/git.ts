@@ -1,5 +1,27 @@
+import { displayRef } from "@/backend/utils/branchRef";
+
 export const refInvalid = /^[-/].*|[\\" ><~^:?*[]|\.\.|\/\/|\/\.|@{|[./]$|\.lock$|^@$/g;
 export const ELLIPSIS = "&#8230;";
+
+/**
+ * Text for the toolbar's branch-filter chip, or null when there is nothing to
+ * show. Null means the filter is empty — the domain's "show all" — so the
+ * caller hides the chip rather than rendering an empty one.
+ *
+ * `refs` arrives in the branch-list format the host sends; the chip spells
+ * branches the way the graph's ref chips do, so `remotes/` is stripped. Only
+ * the first branch fits the toolbar, hence `+N` for the rest; the tooltip
+ * (`tooltipTemplate`, with `{0}` replaced) carries the full list.
+ */
+export function branchFilterLabel(
+  refs: readonly string[],
+  tooltipTemplate: string
+): { text: string; tooltip: string } | null {
+  if (refs.length === 0) return null;
+  const names = refs.map(displayRef);
+  const text = names.length === 1 ? names[0] : names[0] + " +" + (names.length - 1);
+  return { text, tooltip: tooltipTemplate.replace("{0}", names.join("\n")) };
+}
 
 /** Case-insensitive match of a Find-widget query against a commit's searchable
  *  fields: message, author name/email, hash, and ref (branch/tag) names. */

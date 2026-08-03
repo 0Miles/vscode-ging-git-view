@@ -481,6 +481,14 @@ export function registerMessageHandlers(
     void vscode.commands.executeCommand("workbench.view.scm");
   });
 
+  // The graph's filter chip clears the filter through the very command the
+  // Branches side-view's title button runs. Writing `branchFilterStore` here
+  // instead would only do half the job — the tree's visual selection would stay
+  // highlighted while the graph showed everything.
+  bridge.onMessage("clearBranchFilter", () => {
+    void vscode.commands.executeCommand("ging-git-view.branches.showAll");
+  });
+
   bridge.onMessage("openMergeEditor", (msg) => {
     const uri = vscode.Uri.joinPath(vscode.Uri.file(msg.repo), msg.filePath);
     // The built-in git extension's 3-way merge editor; fall back to a plain

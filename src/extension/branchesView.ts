@@ -392,6 +392,18 @@ export type BranchesView = ReturnType<typeof createBranchesView>;
  * Create and wire the Branches side-view: a native multi-select TreeView whose
  * selection drives the per-repo branch filter (empty selection = show all). The
  * view follows whichever repo is active and re-reads its branches on demand.
+ *
+ * The tree's selection and the filter are only **weakly** synchronised: a
+ * non-empty selection always equals the filter, but a non-empty filter may have
+ * no selection behind it (the multi-pick search, a config-seeded opening filter,
+ * a filter restored after a repo switch). That is deliberate, not a gap to
+ * close: `TreeView.selection` is readonly and `reveal` selects a single element,
+ * so there is no way to put a multi-branch filter back onto the tree. Making it
+ * symmetrical means moving the input to `TreeItem.checkboxState`, which is
+ * programmatically settable — at the cost of the click-a-row-to-filter gesture,
+ * a permanent checkbox on every row, and a highlight that no longer means
+ * anything. The graph's filter chip therefore reports the *filter*, never the
+ * selection, so it stays truthful in the asymmetric cases.
  */
 export function createBranchesView(deps: BranchesProviderDeps) {
   const provider = new BranchesProvider(deps);

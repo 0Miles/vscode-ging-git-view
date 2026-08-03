@@ -10,6 +10,7 @@
   "ui.loading": "載入中 ...",
   "ui.loadMore": "載入更多 commit",
   "ui.showAll": "顯示全部",
+  "ui.branchFilterTooltip": "已篩選為：\n{0}",
   "ui.filterPlaceholder": "篩選{0}...",
   "ui.noResultsFound": "未找到結果。",
   "ui.description": "描述",
