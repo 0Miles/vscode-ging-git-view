@@ -3646,13 +3646,21 @@ function requestBranchRedundancy(repo: string, branch: string) {
 
 function showBranchRedundancy(branch: string, result: BranchRedundancy, token: number) {
   if (token !== redundancyCheckSeq || document.getElementById("actionRunning") === null) return;
+  const message = branchRedundancyMessage(branch, result);
+  // A redundant branch, and every branch we couldn't judge, is a one-line
+  // answer with nothing to list. Those stay plain centred alerts: the wide
+  // left-aligned box exists to hold the commit table, and wrapping it round a
+  // single sentence just makes the dialog look like something failed to load.
+  const list =
+    result.kind === "unmerged" && result.commits.length > 0 ? redundancyCommitList(result) : "";
   showDialog(
-    '<div class="redundancyResult">' +
-      '<span class="redundancySummary">' +
-      branchRedundancyMessage(branch, result) +
-      "</span>" +
-      (result.kind === "unmerged" ? redundancyCommitList(result) : "") +
-      "</div>",
+    list === ""
+      ? message
+      : '<div class="redundancyResult"><span class="redundancySummary">' +
+          message +
+          "</span>" +
+          list +
+          "</div>",
     null,
     l10n.dialogDismiss,
     null,
