@@ -1,6 +1,8 @@
 import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@/backend/types";
 import * as GG from "@/types";
 
+import type { SvgIconName } from "./utils/icons";
+
 declare global {
   function acquireVsCodeApi(): {
     // The real VS Code API yields undefined when no state was saved; tests'
@@ -55,6 +57,18 @@ declare global {
     onClick: () => void;
     /** When false, the item is hidden (contextMenuActionsVisibility). */
     visible?: boolean;
+    /**
+     * Icon drawn in the item's leading gutter. Omit where no glyph honestly
+     * fits the action — a misleading icon costs more than a blank slot, and
+     * the label still starts at the same x either way.
+     */
+    icon?: SvgIconName;
+    /**
+     * Renders a checkmark in that same gutter and marks the item up as a
+     * `menuitemcheckbox`. Mutually exclusive with `icon` in practice: the
+     * toggling menus (column visibility, commit ordering) carry no icons.
+     */
+    checked?: boolean;
   }
 
   type ContextMenuElement = ContextMenuItem | null;

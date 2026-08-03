@@ -828,10 +828,10 @@ body.tagLabelsRightAligned .gitRef.tag {
   stroke-opacity: 0.5;
   stroke-width: 0;
 }
-#findBtn svg,
-#terminalBtn svg {
-  stroke-width: 0.5px;
-}
+/* The stroke is only a hover weight bump. Octicons v19 glyphs are heavier than
+   the v2/v3 ones these replaced, so the per-button stroke exceptions that used
+   to thicken the thinner Find/Terminal outlines are gone — a uniform 0.5px is
+   enough now, and more than that blobs the counters shut. */
 #findBtn:hover svg,
 #terminalBtn:hover svg,
 #blinkHeadBtn:hover svg,
@@ -840,19 +840,10 @@ body.tagLabelsRightAligned .gitRef.tag {
   opacity: 1;
   stroke-width: 0.5px;
 }
-#findBtn:hover svg,
-#terminalBtn:hover svg {
-  stroke-width: 1px;
-}
 #findBtn svg,
 #terminalBtn svg,
 #blinkHeadBtn svg,
-#fetchBtn svg {
-  left: 1px;
-  top: 1px;
-  width: 18px !important;
-  height: 18px !important;
-}
+#fetchBtn svg,
 #refreshBtn svg {
   left: 2px;
   top: 2px;
@@ -876,18 +867,47 @@ body.tagLabelsRightAligned .gitRef.tag {
   line-height: 28px;
 }
 
-/* Context Menu */
+/* Context Menu — a copy of VS Code's own `.monaco-menu` metrics so the menu is
+   indistinguishable from a native one. The numbers below are that ruleset:
+   8px/6px radii, 24px rows inset 4px from the container, a full-width
+   separator, and a 13px type size.
+
+   The `--vscode-cornerRadius-*` and `--vscode-strokeThickness` design tokens
+   only reach webviews from VS Code ~1.13x, and `engines.vscode` is ^1.98.0 —
+   hence a fallback on every one of them, carrying the pre-token native values.
+   `--vscode-shadow-lg` is never injected into a webview at all (it lives on
+   `.monaco-workbench`), but it is a hardcoded, theme-independent value there,
+   so the fallback reproduces it exactly. */
 #contextMenu {
   display: none;
   position: absolute;
   /* Above the graph SVG (z-index: 2) and the docked CDV (z-index: 80). */
   z-index: 300;
   background-color: var(--vscode-menu-background);
-  box-shadow: 0 1px 4px 1px var(--vscode-widget-shadow);
+  box-shadow: var(--vscode-shadow-lg, 0 0 12px rgba(0, 0, 0, 0.14));
   color: var(--vscode-menu-foreground);
+  border: var(--vscode-strokeThickness, 1px) solid var(--vscode-menu-border, transparent);
+  border-radius: var(--vscode-cornerRadius-large, 5px);
   list-style-type: none;
+  min-width: 160px;
+  font-size: 13px;
   margin: 0;
   padding: 4px 0;
+  outline: 0;
+  white-space: nowrap;
+  animation: contextMenuFadeIn 0.083s linear;
+}
+/* High contrast themes drop the shadow entirely and lean on the border. */
+body.vscode-high-contrast #contextMenu {
+  box-shadow: none;
+}
+@keyframes contextMenuFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 #contextMenu.active {
   display: block;
@@ -896,16 +916,52 @@ body.tagLabelsRightAligned .gitRef.tag {
   cursor: default;
 }
 #contextMenu li.contextMenuItem {
-  padding: 6px 20px;
+  display: flex;
+  align-items: center;
+  height: 24px;
+  margin: 0 4px;
+  /* 4 + 16 (gutter) + 6 (its margin) = the 2em native reserves to the left of
+     a menu label, and the same 2em of trailing room. */
+  padding: 0 26px 0 4px;
+  border-radius: var(--vscode-cornerRadius-medium, 4px);
+  outline: 0;
 }
-#contextMenu li.contextMenuItem:hover {
+#contextMenu li.contextMenuItem:hover,
+#contextMenu li.contextMenuItem:focus {
   background-color: var(--vscode-menu-selectionBackground);
   color: var(--vscode-menu-selectionForeground);
 }
+/* Only keyboard focus draws the selection border; a pointer usually leaves
+   :focus set without :focus-visible, and native menus stay borderless there. */
+#contextMenu li.contextMenuItem:focus-visible {
+  outline: 1px solid var(--vscode-menu-selectionBorder, transparent);
+  outline-offset: -1px;
+}
+/* The leading gutter is reserved on every row, checked or not, so that labels
+   line up whether or not the action has an icon. */
+#contextMenu li.contextMenuItem .contextMenuItemGutter {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  margin-right: 6px;
+}
+#contextMenu li.contextMenuItem .contextMenuItemGutter svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  fill-opacity: 0.85;
+}
+#contextMenu li.contextMenuItem .contextMenuItemLabel {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 #contextMenu li.contextMenuDivider {
-  margin: 4px 10px;
+  height: 0;
+  margin: 5px 0;
   border-top: 1px solid var(--vscode-menu-separatorBackground);
-  opacity: 0.5;
 }
 
 /* Dialogs */
@@ -1247,8 +1303,10 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
   margin-right: 10px;
   vertical-align: top;
   animation: loadingIconAnimation 2s linear infinite;
-  width: 18px !important;
-  height: 24px !important;
+  /* Square, matching the icon's 16x16 viewBox — the old 18x24 override dated
+     from the 12x16 Octicons v2 glyph and now distorts. */
+  width: 20px !important;
+  height: 20px !important;
 }
 
 /* Buttons — styled to mirror VS Code's native button component, reusing the

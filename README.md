@@ -108,6 +108,10 @@ the original `Git Graph` project, `(neo) Git Graph`, or Microsoft.
 
 MIT — see [LICENSE](LICENSE).
 
+The webview's icon artwork is derived from [GitHub Octicons](https://github.com/primer/octicons)
+(MIT, © GitHub Inc.). Its notice is reproduced under "Third-party notices" in
+[LICENSE](LICENSE).
+
 ---
 
 **Disclaimer:** GING is an independent, community-maintained project. It is not affiliated with,

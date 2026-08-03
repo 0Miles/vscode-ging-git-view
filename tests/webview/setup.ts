@@ -62,7 +62,7 @@ export function setupHtml(viewState: GG.GitGraphViewState) {
       <div id="findNext" class="findBtn"></div>
       <div id="findClose" class="findBtn"></div>
     </div>
-    <ul id="contextMenu"></ul>
+    <ul id="contextMenu" role="menu" tabindex="-1"></ul>
     <div id="dialogBacking"></div>
     <div id="dialog"></div>
     <div id="scrollShadow"></div>

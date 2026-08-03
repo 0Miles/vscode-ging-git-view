@@ -1181,7 +1181,8 @@ class GitGraphView {
         this.renderGraph();
       };
       const item = (col: "date" | "author" | "commit", label: string) => ({
-        title: (this.columnVisibility[col] ? "✓ " : "") + label,
+        title: label,
+        checked: this.columnVisibility[col],
         onClick: () => toggle(col)
       });
       // Per-repo commit-ordering override (null = use the global setting).
@@ -1197,7 +1198,8 @@ class GitGraphView {
         this.requestLoadCommits(true, () => {});
       };
       const orderItem = (order: CommitOrdering | null, label: string) => ({
-        title: (currentOrder === order ? "✓ " : "") + label,
+        title: label,
+        checked: currentOrder === order,
         onClick: () => setOrder(order)
       });
       showContextMenu(
@@ -1227,6 +1229,7 @@ class GitGraphView {
         [
           {
             title: l10n.addTag + ELLIPSIS,
+            icon: "tag",
             visible: cmv.addTag,
             onClick: () => {
               const hasRemotes = this.remotes.length > 0;
@@ -1302,6 +1305,7 @@ class GitGraphView {
           },
           {
             title: l10n.createBranch + ELLIPSIS,
+            icon: "branch",
             visible: cmv.createBranch,
             onClick: () => {
               showFormDialog(
@@ -1353,6 +1357,7 @@ class GitGraphView {
           {
             visible: cmv.checkout,
             title: l10n.checkout + ELLIPSIS,
+            icon: "arrowSwitch",
             onClick: () => {
               const doCheckout = () => {
                 sendMessage({
@@ -1387,6 +1392,7 @@ class GitGraphView {
           {
             visible: cmv.cherrypick,
             title: l10n.cherryPick + ELLIPSIS,
+            icon: "cherryPick",
             onClick: () => {
               const confirmMsg = l10n.dialogCherryPickConfirm.replace(
                 "{0}",
@@ -1471,6 +1477,7 @@ class GitGraphView {
           {
             visible: cmv.revert,
             title: l10n.revert + ELLIPSIS,
+            icon: "undo",
             onClick: () => {
               if (this.commits[this.commitLookup[hash]].parentHashes.length === 1) {
                 showConfirmationDialog(
@@ -1524,6 +1531,7 @@ class GitGraphView {
           {
             visible: cmv.merge,
             title: l10n.merge + ELLIPSIS,
+            icon: "gitMerge",
             onClick: () => {
               showFormDialog(
                 l10n.dialogMergeConfirm
@@ -1564,6 +1572,7 @@ class GitGraphView {
           {
             visible: cmv.reset,
             title: l10n.reset + ELLIPSIS,
+            icon: "history",
             onClick: () => {
               showSelectDialog(
                 l10n.dialogResetConfirm
@@ -1592,6 +1601,7 @@ class GitGraphView {
           {
             visible: cmv.rebase,
             title: l10n.rebaseOnCommit + ELLIPSIS,
+            icon: "rebase",
             onClick: () => {
               showConfirmationDialog(
                 l10n.dialogRebaseConfirm
@@ -1606,9 +1616,10 @@ class GitGraphView {
             }
           },
           ...(canDrop
-            ? [
+            ? <ContextMenuElement[]>[
                 {
                   title: l10n.drop + ELLIPSIS,
+                  icon: "trash",
                   visible: cmv.drop,
                   onClick: () => {
                     showConfirmationDialog(
@@ -1702,6 +1713,7 @@ class GitGraphView {
           null,
           {
             title: l10n.resetUncommitted + ELLIPSIS,
+            icon: "history",
             visible: ucv.reset,
             onClick: () => {
               showConfirmationDialog(
@@ -1713,6 +1725,7 @@ class GitGraphView {
           },
           {
             title: l10n.cleanUntracked + ELLIPSIS,
+            icon: "trash",
             visible: ucv.clean,
             onClick: () => {
               showConfirmationDialog(
@@ -1774,6 +1787,7 @@ class GitGraphView {
           },
           {
             title: l10n.stashDrop + ELLIPSIS,
+            icon: "trash",
             visible: cmv.stash.drop,
             onClick: () => {
               showConfirmationDialog(
@@ -1789,6 +1803,7 @@ class GitGraphView {
           },
           {
             title: l10n.stashRename + ELLIPSIS,
+            icon: "pencil",
             visible: true,
             onClick: () => {
               // Pre-fill with the stash's current displayed name (its commit
@@ -1840,6 +1855,7 @@ class GitGraphView {
           },
           {
             title: l10n.deleteTag + ELLIPSIS,
+            icon: "trash",
             visible: cmv.tag.delete,
             onClick: () => {
               const confirmMsg = l10n.dialogDeleteConfirm
@@ -1886,6 +1902,7 @@ class GitGraphView {
         if (this.remotes.length > 0) {
           menu.push({
             title: l10n.pushTag + ELLIPSIS,
+            icon: "repoPush",
             visible: cmv.tag.push,
             onClick: () => this.pushTagAction(refName)
           });
@@ -1899,18 +1916,21 @@ class GitGraphView {
           if (this.gitBranchHead !== refName) {
             menu.push({
               title: l10n.checkoutBranch,
+              icon: "arrowSwitch",
               visible: cmv.branch.checkout,
               onClick: () => this.checkoutBranchAction(refName, false)
             });
           }
           menu.push({
             title: l10n.renameBranch + ELLIPSIS,
+            icon: "pencil",
             visible: cmv.branch.rename,
             onClick: () => this.renameBranchAction(refName)
           });
           if (this.remotes.length > 0) {
             menu.push({
               title: l10n.pushBranch + ELLIPSIS,
+              icon: "repoPush",
               visible: cmv.branch.push,
               onClick: () => this.pushBranchAction(refName)
             });
@@ -1926,21 +1946,25 @@ class GitGraphView {
             menu.push(
               {
                 title: l10n.deleteBranch + ELLIPSIS,
+                icon: "trash",
                 visible: cmv.branch.delete,
                 onClick: () => this.deleteBranchAction(refName)
               },
               {
                 title: l10n.merge + ELLIPSIS,
+                icon: "gitMerge",
                 visible: cmv.branch.merge,
                 onClick: () => this.mergeBranchAction(refName)
               },
               {
                 title: l10n.rebaseOnBranch + ELLIPSIS,
+                icon: "rebase",
                 visible: cmv.branch.rebase,
                 onClick: () => this.rebaseOnBranchAction(refName)
               },
               {
                 title: l10n.fastForwardBranch,
+                icon: "moveToEnd",
                 visible: true,
                 onClick: () => this.fastForwardBranchAction(refName)
               }
@@ -1950,11 +1974,13 @@ class GitGraphView {
           menu = [
             {
               title: l10n.checkoutBranch + ELLIPSIS,
+              icon: "arrowSwitch",
               visible: cmv.remoteBranch.checkout,
               onClick: () => this.checkoutBranchAction(refName, true)
             },
             {
               title: l10n.merge + ELLIPSIS,
+              icon: "gitMerge",
               visible: cmv.remoteBranch.merge,
               onClick: () => this.mergeBranchAction(refName)
             }
@@ -1964,16 +1990,19 @@ class GitGraphView {
           if (splitRemoteRef(refName) !== null) {
             menu.push({
               title: l10n.pullIntoCurrentBranch + ELLIPSIS,
+              icon: "repoPull",
               visible: cmv.remoteBranch.pull,
               onClick: () => this.pullRemoteBranchAction(refName)
             });
             menu.push({
               title: l10n.fetchIntoLocalBranch + ELLIPSIS,
+              icon: "download",
               visible: cmv.remoteBranch.fetch,
               onClick: () => this.fetchIntoLocalBranchAction(refName, sourceElem)
             });
             menu.push({
               title: l10n.deleteRemoteBranch + ELLIPSIS,
+              icon: "trash",
               visible: cmv.remoteBranch.delete,
               onClick: () => this.deleteRemoteBranchAction(refName)
             });
@@ -1994,6 +2023,7 @@ class GitGraphView {
         if (this.remotes.length > 0) {
           menu.push({
             title: l10n.createPullRequest + ELLIPSIS,
+            icon: "gitPullRequest",
             onClick: () =>
               this.createPullRequestAction(refName, sourceElem.classList.contains("remote"))
           });
@@ -2012,6 +2042,7 @@ class GitGraphView {
       if (issueUrl !== null) {
         menu.push({
           title: l10n.viewIssue,
+          icon: "issue",
           onClick: () => sendMessage({ command: "openExternalUrl", url: issueUrl })
         });
       }
@@ -3404,6 +3435,7 @@ class GitGraphView {
       if (sourceElem.classList.contains("gitDiffPossible") && v.viewDiff) {
         menu.push({
           title: l10n.viewDiff,
+          icon: "fileDiff",
           onClick: () =>
             sendMessage({
               command: "viewDiff",
@@ -3421,6 +3453,7 @@ class GitGraphView {
       if (notDeleted && v.viewFileAtThisRevision) {
         menu.push({
           title: l10n.viewFileAtRevision,
+          icon: "viewRevision",
           onClick: () =>
             sendMessage({
               command: "viewFileAtRevision",
@@ -3433,6 +3466,7 @@ class GitGraphView {
       if (notDeleted && v.viewDiffWithWorkingFile) {
         menu.push({
           title: l10n.viewDiffWithWorking,
+          icon: "compare",
           onClick: () =>
             sendMessage({
               command: "viewDiffWithWorking",
@@ -3445,6 +3479,7 @@ class GitGraphView {
       if (notDeleted && v.openFile) {
         menu.push({
           title: l10n.openFile,
+          icon: "openFile",
           onClick: () =>
             sendMessage({ command: "openFile", repo: this.currentRepo!, filePath, commitHash })
         });
@@ -3454,6 +3489,7 @@ class GitGraphView {
       if (notDeleted && v.resetFileToThisRevision) {
         menu.push({
           title: l10n.resetFileToRevision + ELLIPSIS,
+          icon: "history",
           onClick: () => {
             showConfirmationDialog(
               l10n.dialogResetFileConfirm
@@ -4222,10 +4258,28 @@ function showContextMenu(e: MouseEvent, rawItems: ContextMenuElement[], sourceEl
     i: number,
     event = <MouseEvent>e;
   for (i = 0; i < items.length; i++) {
+    const item = items[i];
+    if (item === null) {
+      html += '<li class="contextMenuDivider" role="separator"></li>';
+      continue;
+    }
+    // Every item reserves the same leading gutter, so the labels of icon-less
+    // items still line up with the rest (native menus reserve it for the
+    // checkmark whether or not the item is checkable).
+    const gutter =
+      item.checked === true ? svgIcons.check : item.icon !== undefined ? svgIcons[item.icon] : "";
     html +=
-      items[i] !== null
-        ? '<li class="contextMenuItem" data-index="' + i + '">' + items[i]!.title + "</li>"
-        : '<li class="contextMenuDivider"></li>';
+      '<li class="contextMenuItem" role="' +
+      (item.checked === undefined ? "menuitem" : "menuitemcheckbox") +
+      '" tabindex="-1" data-index="' +
+      i +
+      '"' +
+      (item.checked === undefined ? "" : ' aria-checked="' + item.checked + '"') +
+      '><span class="contextMenuItemGutter">' +
+      gutter +
+      '</span><span class="contextMenuItemLabel">' +
+      item.title +
+      "</span></li>";
   }
 
   hideContextMenuListener();
@@ -4262,20 +4316,89 @@ function showContextMenu(e: MouseEvent, rawItems: ContextMenuElement[], sourceEl
 
   addListenerToClass("contextMenuItem", "click", (ev) => {
     ev.stopPropagation();
+    // The click can land on the item's gutter or label span, so resolve back to
+    // the <li> that carries data-index rather than trusting ev.target.
+    const item = (<HTMLElement>ev.target).closest<HTMLElement>(".contextMenuItem");
+    if (item === null) return;
     hideContextMenu();
-    items[parseInt((<HTMLElement>ev.target).dataset.index!)]!.onClick();
+    items[parseInt(item.dataset.index!)]!.onClick();
   });
 
   contextMenuSource = sourceElem;
   contextMenuSource.classList.add("contextMenuActive");
+  // Focusable only while its menu is open, so closing can hand focus back
+  // instead of dropping it on the body. The commit table itself stays outside
+  // the tab order — see docs/adr/0007.
+  contextMenuSource.tabIndex = -1;
+  // Nothing is focused within the menu yet: matching native menus, the first
+  // arrow key is what moves onto an item.
+  contextMenu.focus({ preventScroll: true });
+}
+
+/** The menu's focusable items, in visual order (dividers excluded). */
+function contextMenuItemElems() {
+  return Array.from(contextMenu.querySelectorAll<HTMLElement>(".contextMenuItem"));
+}
+
+function focusContextMenuItem(index: number) {
+  const elems = contextMenuItemElems();
+  if (elems.length === 0) return;
+  // Wrap around, mirroring native menu behaviour at either end.
+  const target = elems[((index % elems.length) + elems.length) % elems.length]!;
+  target.focus({ preventScroll: true });
+  if (typeof target.scrollIntoView === "function") target.scrollIntoView({ block: "nearest" });
+}
+
+function contextMenuKeydownListener(e: KeyboardEvent) {
+  const elems = contextMenuItemElems();
+  const focused = elems.indexOf(<HTMLElement>document.activeElement);
+  switch (e.key) {
+    case "ArrowDown":
+      e.preventDefault();
+      focusContextMenuItem(focused + 1);
+      break;
+    case "ArrowUp":
+      // From the container (focused === -1) this lands on the last item, which
+      // is what pressing Up on a freshly opened native menu does.
+      e.preventDefault();
+      focusContextMenuItem(focused - 1);
+      break;
+    case "Home":
+      e.preventDefault();
+      focusContextMenuItem(0);
+      break;
+    case "End":
+      e.preventDefault();
+      focusContextMenuItem(elems.length - 1);
+      break;
+    case "Enter":
+    case " ":
+      if (focused === -1) return;
+      e.preventDefault();
+      elems[focused]!.click();
+      break;
+    case "Tab":
+      // Native menus dismiss rather than letting Tab walk out of them.
+      e.preventDefault();
+      hideContextMenu();
+      break;
+  }
 }
 function hideContextMenu() {
+  // Only hand focus back when it was inside the menu to begin with. Dismissing
+  // by clicking elsewhere must not yank focus away from wherever the click
+  // just put it.
+  const returnFocus = contextMenu.contains(document.activeElement);
   contextMenu.className = "";
   contextMenu.innerHTML = "";
   contextMenu.style.left = "0px";
   contextMenu.style.top = "0px";
   if (contextMenuSource !== null) {
     contextMenuSource.classList.remove("contextMenuActive");
+    if (returnFocus && contextMenuSource.isConnected) {
+      contextMenuSource.focus({ preventScroll: true });
+    }
+    contextMenuSource.removeAttribute("tabindex");
     contextMenuSource = null;
   }
 }
@@ -4649,7 +4772,12 @@ document.addEventListener("keydown", (e) => {
     }
     return;
   }
-  if (contextMenu.classList.contains("active")) return;
+  // An open menu owns the keyboard: arrows walk its items instead of scrolling
+  // the graph, and Enter runs the focused action. Escape is handled on keyup.
+  if (contextMenu.classList.contains("active")) {
+    contextMenuKeydownListener(e);
+    return;
+  }
   // Don't hijack keys (arrows, Ctrl+R/H/F) while the user is typing in a text
   // field such as the Find input or a dropdown filter.
   const active = document.activeElement;

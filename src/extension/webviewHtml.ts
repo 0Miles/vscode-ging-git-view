@@ -124,7 +124,7 @@ export function buildWebviewHtml(opts: {
 			<div id="findOpenCdv" class="findBtn" title="${l10nStrings.findOpenCommitDetails}">&#9776;</div>
 			<div id="findClose" class="findBtn" title="${l10nStrings.findClose}">&#10005;</div>
 		</div>
-		<ul id="contextMenu"></ul>
+		<ul id="contextMenu" role="menu" tabindex="-1"></ul>
 		<div id="dialogBacking"></div>
 		<div id="dialog"></div>
 		<div id="scrollShadow"></div>

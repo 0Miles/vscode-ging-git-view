@@ -197,7 +197,6 @@ const html = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <link rel="stylesheet" type="text/css" href="./main.css">
-<link rel="stylesheet" type="text/css" href="./dropdown.css">
 <style>:root{${rootVars}} html,body{height:100%;}</style>
 </head>
 <body style="--git-graph-color0:#0085d9;">
@@ -214,7 +213,7 @@ const html = `<!DOCTYPE html>
   <div id="content"><div id="commitGraph"></div><div id="commitTable"></div></div>
   <div id="footer"></div>
   <div id="findWidget"><input id="findInput" type="text"><span id="findCount"></span><div id="findPrev" class="findBtn"></div><div id="findNext" class="findBtn"></div><div id="findOpenCdv" class="findBtn">&#9776;</div><div id="findClose" class="findBtn"></div></div>
-  <ul id="contextMenu"></ul>
+  <ul id="contextMenu" role="menu" tabindex="-1"></ul>
   <div id="dialogBacking"></div>
   <div id="dialog"></div>
   <div id="scrollShadow"></div>
@@ -234,7 +233,7 @@ const html = `<!DOCTYPE html>
 </html>`;
 
 fs.mkdirSync(OUT, { recursive: true });
-for (const f of ["main.css", "dropdown.css"]) {
+for (const f of ["main.css"]) {
   fs.copyFileSync(path.join(ROOT, "media", f), path.join(OUT, f));
 }
 fs.copyFileSync(path.join(ROOT, "out", "web.min.js"), path.join(OUT, "web.min.js"));
