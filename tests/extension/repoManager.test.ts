@@ -1,5 +1,4 @@
 import * as assert from "node:assert";
-import * as fs from "node:fs";
 
 import { Config } from "@/config";
 import { createRepoManager } from "@/extension/repoManager";
@@ -7,7 +6,7 @@ import { ExtensionState } from "@/extensionState";
 import { StatusBarItem } from "@/statusBarItem";
 import { GitRepoSet } from "@/types";
 
-import { makeRepo } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@tests/backend/helpers";
 
 function makeManager(initialRepos: GitRepoSet = {}) {
   const store = { repos: { ...initialRepos } };
@@ -196,8 +195,10 @@ suite("repoManager", () => {
       repo = makeRepo();
     });
 
+    // rmrf, not rmSync: a bare rmSync cannot delete git's read-only objects in the
+    // extension host's Node build, and fails the hook with EPERM. See `rmrf`.
     teardown(() => {
-      if (fs.existsSync(repo)) fs.rmSync(repo, { recursive: true, force: true });
+      rmrf(repo);
     });
 
     test("returns false and keeps repos when all repos still exist", async () => {
@@ -208,7 +209,7 @@ suite("repoManager", () => {
     });
 
     test("returns true and removes repos that no longer exist", async () => {
-      fs.rmSync(repo, { recursive: true, force: true });
+      rmrf(repo);
       const { manager, store } = makeManager({ [repo]: { columnWidths: null } });
       const changed = await manager.checkReposExist();
       assert.strictEqual(changed, true);
@@ -216,7 +217,7 @@ suite("repoManager", () => {
     });
 
     test("calls sendRepos when repos are removed", async () => {
-      fs.rmSync(repo, { recursive: true, force: true });
+      rmrf(repo);
       const { manager, statusBar } = makeManager({ [repo]: { columnWidths: null } });
       await manager.checkReposExist();
       assert.ok(statusBar.lastCount >= 0);

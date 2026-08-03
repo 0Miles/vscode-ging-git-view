@@ -1,10 +1,19 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
+import * as os from "node:os";
 
 import { Config } from "@/config";
 import { RepoManager } from "@/extension/repoManager";
 import { RepoSearch } from "@/extension/workspaceSearch";
 import { createRepoWatcher } from "@/extension/workspaceWatcher";
+
+import { rmrf, toRepoPath } from "@tests/backend/helpers";
+
+/** `mkdtempSync` takes a prefix, not an `XXXXXX` template, and "/tmp" only
+ *  exists on POSIX — go through `os.tmpdir()` so this works on Windows too. */
+function makeTmpDir(): string {
+  return fs.mkdtempSync(os.tmpdir() + "/ngg-watcher-test-");
+}
 
 type StubUri = { fsPath: string };
 type StubFolder = { uri: StubUri };
@@ -169,7 +178,7 @@ suite("workspaceWatcher / onWatcherDelete", () => {
 
 suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
   test("triggers searchDirectoryForRepos for a new directory", async () => {
-    const tmp = fs.mkdtempSync("/tmp/ngg-watcher-test-");
+    const tmp = makeTmpDir();
     try {
       const { watcher, watcherHandles, searched } = makeStubs(["/ws/a"]);
       watcher.startWatching();
@@ -178,15 +187,16 @@ suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
       // suspends on await isDirectory() (real fs.stat I/O), which can be slow
       // on loaded CI runners.
       await new Promise<void>((r) => setTimeout(r, 500));
-      assert.ok(searched.includes(tmp));
+      // getPathFromUri normalises "\" to "/", so compare against the normalised path.
+      assert.ok(searched.includes(toRepoPath(tmp)));
       watcher.dispose();
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      rmrf(tmp);
     }
   });
 
   test("deduplicates paths fired in the same debounce window", async () => {
-    const tmp = fs.mkdtempSync("/tmp/ngg-watcher-test-");
+    const tmp = makeTmpDir();
     try {
       const { watcher, watcherHandles, searched } = makeStubs(["/ws/a"]);
       watcher.startWatching();
@@ -197,13 +207,13 @@ suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
       // on await isDirectory() (real fs.stat I/O), which can be slow on loaded CI runners.
       await new Promise<void>((r) => setTimeout(r, 500));
       assert.strictEqual(
-        searched.filter((p) => p === tmp).length,
+        searched.filter((p) => p === toRepoPath(tmp)).length,
         1,
         "same path should only be searched once"
       );
       watcher.dispose();
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      rmrf(tmp);
     }
   });
 
@@ -217,17 +227,17 @@ suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
   });
 
   test("strips /.git suffix before searching", async () => {
-    const tmp = fs.mkdtempSync("/tmp/ngg-watcher-test-");
+    const tmp = makeTmpDir();
     try {
       const { watcher, watcherHandles, searched } = makeStubs(["/ws/a"]);
       watcher.startWatching();
       watcherHandles[0].fireCreate(makeUri(tmp + "/.git"));
       // Same 500ms rationale as the tests above: real fs I/O after the debounce.
       await new Promise<void>((r) => setTimeout(r, 500));
-      assert.ok(searched.includes(tmp));
+      assert.ok(searched.includes(toRepoPath(tmp)));
       watcher.dispose();
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      rmrf(tmp);
     }
   });
 });
@@ -244,13 +254,16 @@ suite("workspaceWatcher / onWatcherChange (debounced)", () => {
 
   test("deduplicates paths fired in the same debounce window", async () => {
     // Fire a change for a path that does not exist so removeReposWithinFolder is called
+    const missing = toRepoPath(os.tmpdir() + "/ngg-does-not-exist-xyz");
     const { watcher, watcherHandles, removed } = makeStubs(["/ws/a"]);
     watcher.startWatching();
-    watcherHandles[0].fireChange(makeUri("/tmp/ngg-does-not-exist-xyz"));
-    watcherHandles[0].fireChange(makeUri("/tmp/ngg-does-not-exist-xyz"));
-    await new Promise<void>((r) => setTimeout(r, 10));
+    watcherHandles[0].fireChange(makeUri(missing));
+    watcherHandles[0].fireChange(makeUri(missing));
+    // 500ms, not one tick: after the 0ms debounce fires, processChangeEvents
+    // suspends on await doesPathExist() (real fs.stat I/O).
+    await new Promise<void>((r) => setTimeout(r, 500));
     assert.strictEqual(
-      removed.filter((p) => p === "/tmp/ngg-does-not-exist-xyz").length,
+      removed.filter((p) => p === missing).length,
       1,
       "same path should only be processed once"
     );

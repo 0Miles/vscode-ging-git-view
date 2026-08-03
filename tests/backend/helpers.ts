@@ -20,14 +20,51 @@ function sleepSync(ms: number): void {
 }
 
 /**
+ * Drop the read-only bit from every file under `dir`.
+ *
+ * Git writes loose objects and packfiles with mode 444, which on Windows sets
+ * `FILE_ATTRIBUTE_READONLY`, and `DeleteFile` refuses to unlink such a file.
+ * Some Node builds clear the attribute for you inside recursive `rm` (Node
+ * 24.10 does); the one shipped in VS Code's extension host (Node 24.18) does
+ * not, and fails with `EPERM` on `.git/objects/**` every single time. Waiting
+ * cannot fix that, so clear the bit before retrying.
+ */
+function makeWritable(dir: string): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return; // already gone, or unreadable — the caller reports the failure
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue; // chmod would follow it out of the tree
+    if (entry.isDirectory()) {
+      makeWritable(full);
+    } else {
+      try {
+        fs.chmodSync(full, 0o666);
+      } catch {
+        // best effort — the retry reports if the directory still will not go
+      }
+    }
+  }
+}
+
+/**
  * Remove a temp repo created by a test.
  *
- * On Windows a git child process can still hold the repo directory open for a
- * short while after its promise resolves, so a plain `rmSync` intermittently
- * throws `EPERM`/`EBUSY`. `rmSync`'s own `maxRetries` does not help: the error
- * comes from the initial stat, ahead of Node's retry loop, so it gives up after
- * 0ms. Hence the explicit backoff. A cleanup that never succeeds must not fail
- * the test — the leftovers sit in the OS temp directory.
+ * Two things break a plain `rmSync` on Windows, and both are handled here:
+ *
+ * - Read-only git objects, which fail deterministically. See `makeWritable`.
+ * - A git child process still holding the directory open for a short while
+ *   after its promise resolves, which fails intermittently with `EPERM`/
+ *   `EBUSY`. `rmSync`'s own `maxRetries` does not cover this: the error comes
+ *   from the initial stat, ahead of Node's retry loop, so it gives up after
+ *   0ms. Hence the explicit backoff.
+ *
+ * A cleanup that never succeeds must not fail the test — the leftovers sit in
+ * the OS temp directory.
  */
 export function rmrf(dir: string): void {
   // Wait between attempts, then `null` for the final attempt, which reports instead.
@@ -40,6 +77,7 @@ export function rmrf(dir: string): void {
         process.emitWarning(`could not remove test dir ${dir}: ${String(err)}`);
         return;
       }
+      makeWritable(dir);
       sleepSync(delay);
     }
   }

@@ -1,11 +1,12 @@
 import * as assert from "node:assert";
 import * as fs from "node:fs";
+import * as os from "node:os";
 
 import { Config } from "@/config";
 import { RepoManager } from "@/extension/repoManager";
 import { createRepoSearch } from "@/extension/workspaceSearch";
 
-import { makeRepo } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@tests/backend/helpers";
 
 function makeStubs(initialRepoPaths: string[] = [], maxDepth = 2, gitPath = "git") {
   const repos: Record<string, { columnWidths: null }> = {};
@@ -53,8 +54,10 @@ suite("workspaceSearch / searchDirectoryForRepos", () => {
     repo = makeRepo();
   });
 
+  // rmrf, not rmSync: a bare rmSync cannot delete git's read-only objects in the
+  // extension host's Node build, and fails the hook with EPERM. See `rmrf`.
   teardown(() => {
-    if (fs.existsSync(repo)) fs.rmSync(repo, { recursive: true, force: true });
+    rmrf(repo);
   });
 
   test("returns true and adds repo when a git repo is found", async () => {
@@ -72,13 +75,14 @@ suite("workspaceSearch / searchDirectoryForRepos", () => {
       assert.strictEqual(found, false);
       assert.deepStrictEqual(added, []);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmrf(dir);
     }
   });
 
   test("returns false for a non-existent directory", async () => {
     const { repoSearch, added } = makeStubs();
-    const found = await repoSearch.searchDirectoryForRepos("/tmp/ngg-does-not-exist-xyz", 0);
+    const missing = os.tmpdir() + "/ngg-does-not-exist-xyz";
+    const found = await repoSearch.searchDirectoryForRepos(missing, 0);
     assert.strictEqual(found, false);
     assert.deepStrictEqual(added, []);
   });
@@ -102,7 +106,7 @@ suite("workspaceSearch / searchDirectoryForRepos", () => {
       assert.strictEqual(found, true);
       assert.ok(added.some((p) => p.startsWith(parent)));
     } finally {
-      fs.rmSync(parent, { recursive: true, force: true });
+      rmrf(parent);
     }
   });
 
@@ -118,7 +122,7 @@ suite("workspaceSearch / searchDirectoryForRepos", () => {
       assert.strictEqual(found, false);
       assert.deepStrictEqual(added, []);
     } finally {
-      fs.rmSync(parent, { recursive: true, force: true });
+      rmrf(parent);
     }
   });
 });
