@@ -50,6 +50,7 @@
   "dialog.redundancy.none": "{0} has no unmerged changes: merging it into {1} would change nothing.",
   "dialog.redundancy.unmerged": "{0} has {1} commit(s) that are not in {2}.",
   "dialog.redundancy.unmergedPartial": "{0} has {1} commit(s) that are not in {2}; the changes of {3} other commit(s) are already there.",
+  "dialog.redundancy.unmergedAtLeast": "{0} has at least {1} commit(s) that are not in {2}.",
   "dialog.redundancy.unmergedUnknown": "{0} still has changes that are not in {1}, but none of them can be traced to a single commit.",
   "dialog.redundancy.groupMissing": "Not in {0} ({1})",
   "dialog.redundancy.groupCovered": "Changes already applied to {0} ({1})",

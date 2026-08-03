@@ -202,6 +202,7 @@ export function getWebviewLocalizedStrings() {
     redundancyNone: l10n.t("dialog.redundancy.none"),
     redundancyUnmerged: l10n.t("dialog.redundancy.unmerged"),
     redundancyUnmergedPartial: l10n.t("dialog.redundancy.unmergedPartial"),
+    redundancyUnmergedAtLeast: l10n.t("dialog.redundancy.unmergedAtLeast"),
     redundancyUnmergedUnknown: l10n.t("dialog.redundancy.unmergedUnknown"),
     redundancyGroupMissing: l10n.t("dialog.redundancy.groupMissing"),
     redundancyGroupCovered: l10n.t("dialog.redundancy.groupCovered"),

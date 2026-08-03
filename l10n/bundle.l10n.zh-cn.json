@@ -50,6 +50,7 @@
   "dialog.redundancy.none": "{0} 没有未合并的变更：把它合并进 {1} 不会产生任何改变。",
   "dialog.redundancy.unmerged": "{0} 有 {1} 个 commit 不在 {2} 里。",
   "dialog.redundancy.unmergedPartial": "{0} 有 {1} 个 commit 不在 {2} 里；另外 {3} 个 commit 的变更已经在那里了。",
+  "dialog.redundancy.unmergedAtLeast": "{0} 至少有 {1} 个 commit 不在 {2} 里。",
   "dialog.redundancy.unmergedUnknown": "{0} 仍有变更不在 {1} 里，但无法归到任何单一 commit 上。",
   "dialog.redundancy.groupMissing": "不在 {0} 里（{1}）",
   "dialog.redundancy.groupCovered": "变更已在 {0} 上（{1}）",

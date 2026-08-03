@@ -373,7 +373,8 @@ export function registerMessageHandlers(
       token: msg.token,
       result: await checkBranchRedundancy(gitClient.getInstance(), {
         branch: msg.branch,
-        useMailmap: config.useMailmap()
+        useMailmap: config.useMailmap(),
+        dateType: config.dateType()
       })
     });
   });

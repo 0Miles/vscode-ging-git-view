@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { BranchRedundancy, RedundancyCommit } from "@/backend/types";
+import type { BranchRedundancy, DateType, RedundancyCommit } from "@/backend/types";
 
 import { detectDefaultBranch } from "./defaultBranch";
 
@@ -71,7 +71,7 @@ function parseCherryMarkLog(raw: string | null): RedundancyCommit[] {
  */
 export async function checkBranchRedundancy(
   git: SimpleGit,
-  input: { branch: string; useMailmap: boolean }
+  input: { branch: string; useMailmap: boolean; dateType: DateType }
 ): Promise<BranchRedundancy> {
   const defaultBranch = await detectDefaultBranch(git);
   if (defaultBranch === null) return { kind: "unknown", reason: "noDefaultBranch" };
@@ -119,7 +119,9 @@ export async function checkBranchRedundancy(
         "%H",
         input.useMailmap ? "%aN" : "%an",
         input.useMailmap ? "%aE" : "%ae",
-        "%at",
+        // Same basis as the graph's rows, so the two never date a commit
+        // differently (`loadCommits` picks the field the same way).
+        input.dateType === "Author Date" ? "%at" : "%ct",
         "%s"
       ].join(fieldSeparator),
     defaultBranch + "..." + input.branch

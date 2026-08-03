@@ -10,6 +10,15 @@ import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
+/** The query under test, with the settings it reads pinned. */
+function check(branch: string, target?: string) {
+  return checkBranchRedundancy(simpleGit(target ?? repo), {
+    branch,
+    useMailmap: false,
+    dateType: "Author Date"
+  });
+}
+
 /** Add `file` and commit it on the current branch. */
 function commitFile(file: string, message: string) {
   fs.writeFileSync(path.join(repo, file), file + "\n");
@@ -90,34 +99,22 @@ afterAll(() => {
 
 describe("checkBranchRedundancy (real git)", () => {
   it("reports a fast-forward-merged branch as redundant", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), {
-      branch: "ff-merged",
-      useMailmap: false
-    });
+    const r = await check("ff-merged", repo);
     expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
   });
 
   it("reports a squash-merged branch as redundant", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), {
-      branch: "squashed",
-      useMailmap: false
-    });
+    const r = await check("squashed", repo);
     expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
   });
 
   it("reports a rebase-merged branch as redundant", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), {
-      branch: "rebased",
-      useMailmap: false
-    });
+    const r = await check("rebased", repo);
     expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
   });
 
   it("lists the commits still missing, and those already applied", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), {
-      branch: "partial",
-      useMailmap: false
-    });
+    const r = await check("partial", repo);
     expect(r.kind).toBe("unmerged");
     if (r.kind !== "unmerged") return;
     expect(r.defaultBranch).toBe("main");
@@ -133,7 +130,7 @@ describe("checkBranchRedundancy (real git)", () => {
   });
 
   it("lists every commit as missing on a branch main has never seen", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "fresh", useMailmap: false });
+    const r = await check("fresh", repo);
     expect(r.kind).toBe("unmerged");
     if (r.kind !== "unmerged") return;
     expect(r.commits.map((c) => [c.subject, c.covered])).toEqual([["fresh", false]]);
@@ -143,10 +140,7 @@ describe("checkBranchRedundancy (real git)", () => {
     // Patch-ids find the commit on main and mark it covered, but merging would
     // restore the reverted file. The verdict is merge-tree's, so the branch is
     // unmerged even though every one of its commits looks already applied.
-    const r = await checkBranchRedundancy(simpleGit(repo), {
-      branch: "reverted",
-      useMailmap: false
-    });
+    const r = await check("reverted", repo);
     expect(r.kind).toBe("unmerged");
     if (r.kind !== "unmerged") return;
     expect(r.commits.map((c) => [c.subject, c.covered])).toEqual([["reverted", true]]);
@@ -155,15 +149,12 @@ describe("checkBranchRedundancy (real git)", () => {
   it("answers tautologically on the default branch itself", async () => {
     // Deliberate: the check runs on every branch with no special cases, so the
     // default branch answers "nothing to contribute" about itself (ADR-0006).
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "main", useMailmap: false });
+    const r = await check("main", repo);
     expect(r).toEqual({ kind: "redundant", defaultBranch: "main" });
   });
 
   it("leaves out merge commits, which are not the branch's own work", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), {
-      branch: "back-merged",
-      useMailmap: false
-    });
+    const r = await check("back-merged", repo);
     expect(r.kind).toBe("unmerged");
     if (r.kind !== "unmerged") return;
     expect(r.commits.map((c) => c.subject)).toEqual(["back-merged: bm"]);
@@ -171,7 +162,7 @@ describe("checkBranchRedundancy (real git)", () => {
   });
 
   it("reports no merge base for an unrelated history", async () => {
-    const r = await checkBranchRedundancy(simpleGit(repo), { branch: "lonely", useMailmap: false });
+    const r = await check("lonely", repo);
     expect(r).toEqual({ kind: "unknown", reason: "noMergeBase" });
   });
 
@@ -179,10 +170,7 @@ describe("checkBranchRedundancy (real git)", () => {
     const lone = makeRepo();
     try {
       git(["branch", "-m", "main", "topic"], lone);
-      const r = await checkBranchRedundancy(simpleGit(lone), {
-        branch: "topic",
-        useMailmap: false
-      });
+      const r = await check("topic", lone);
       expect(r).toEqual({ kind: "unknown", reason: "noDefaultBranch" });
     } finally {
       rmrf(lone);

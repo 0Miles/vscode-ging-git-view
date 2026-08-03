@@ -3489,10 +3489,6 @@ class GitGraphView {
     return this.gitRepos[this.currentRepo]?.fileViewType ?? this.config.fileViewType;
   }
 
-  /** The Commit Details View's file section for a set of changes, in whichever
-   *  layout the repo is set to. Shared with the branch-redundancy dialog so a
-   *  commit's files read the same wherever they are shown; the dialog's copy is
-   *  inert, since the diff actions are bound to the graph's expanded row. */
   /** The avatar span of a commit table's author cell — empty until the image
    *  for that address has been fetched, and empty entirely when avatars are
    *  turned off. Shared with the branch-redundancy dialog's list. */
@@ -3509,6 +3505,10 @@ class GitGraphView {
     );
   }
 
+  /** The Commit Details View's file section for a set of changes, in whichever
+   *  layout the repo is set to. Shared with the branch-redundancy dialog so a
+   *  commit's files read the same wherever they are shown; the dialog's copy is
+   *  inert, since the diff actions are bound to the graph's expanded row. */
   public commitFilesHtml(fileChanges: GitFileChange[]): string {
     const fileTree = generateGitFileTree(fileChanges);
     if (this.config.fileTreeCompactFolders) compactGitFileTree(fileTree);
@@ -3663,6 +3663,14 @@ function showBranchRedundancy(branch: string, result: BranchRedundancy, token: n
   });
 }
 
+/** Substitute `{0}`, `{1}`, … in an l10n template. Function replacements
+ *  throughout: the values are branch names and commit text, which may contain
+ *  `$&` or `$'` — a string replacement would expand those, and `escapeHtml`
+ *  leaves `$` alone. */
+function fillTemplate(template: string, ...values: string[]): string {
+  return values.reduce((text, value, i) => text.replace("{" + i + "}", () => value), template);
+}
+
 /** The dialog's headline sentence. The verdict is merge-tree's; the commit
  *  counts are patch-id evidence reported alongside it, and are left out when
  *  they attribute nothing — which is what a squash merge with later work, and a
@@ -3676,28 +3684,32 @@ function branchRedundancyMessage(branch: string, result: BranchRedundancy): stri
         : result.reason === "noMergeBase"
           ? l10n.redundancyNoMergeBase
           : l10n.redundancyUnsupported;
-    return reason.replace("{0}", name);
+    return fillTemplate(reason, name);
   }
   const target = "<b><i>" + escapeHtml(displayRef(result.defaultBranch)) + "</i></b>";
   if (result.kind === "redundant") {
-    return l10n.redundancyNone.replace("{0}", name).replace("{1}", target);
+    return fillTemplate(l10n.redundancyNone, name, target);
   }
   const missing = result.commits.filter((c) => !c.covered).length;
   const covered = result.commits.length - missing;
+  // Past the listing cap the counts are the cap's, not the branch's, so the
+  // sentence has to stop asserting an exact number rather than state a wrong one.
+  if (result.truncated) {
+    return fillTemplate(l10n.redundancyUnmergedAtLeast, name, String(missing), target);
+  }
   if (missing === 0) {
-    return l10n.redundancyUnmergedUnknown.replace("{0}", name).replace("{1}", target);
+    return fillTemplate(l10n.redundancyUnmergedUnknown, name, target);
   }
   if (covered === 0) {
-    return l10n.redundancyUnmerged
-      .replace("{0}", name)
-      .replace("{1}", String(missing))
-      .replace("{2}", target);
+    return fillTemplate(l10n.redundancyUnmerged, name, String(missing), target);
   }
-  return l10n.redundancyUnmergedPartial
-    .replace("{0}", name)
-    .replace("{1}", String(missing))
-    .replace("{2}", target)
-    .replace("{3}", String(covered));
+  return fillTemplate(
+    l10n.redundancyUnmergedPartial,
+    name,
+    String(missing),
+    target,
+    String(covered)
+  );
 }
 
 /** The branch's commits, split by whether the default branch already carries an
@@ -3709,9 +3721,7 @@ function redundancyCommitList(result: Extract<BranchRedundancy, { kind: "unmerge
     commits.length === 0
       ? ""
       : '<tr class="commitListGroup"><td colspan="4">' +
-        // Function replacements: a branch name may contain `$&` or `$'`, which
-        // a string replacement would expand.
-        title.replace("{0}", () => target).replace("{1}", () => String(commits.length)) +
+        fillTemplate(title, target, String(commits.length)) +
         "</td></tr>" +
         commits.map(redundancyCommitRow).join("");
   return (

@@ -1023,6 +1023,12 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
 #dialog .conflictPrediction.hasConflict {
   color: var(--vscode-errorForeground);
 }
+#dialog .conflictPredictionList {
+  margin: 4px 0 0 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow-y: auto;
+}
 /* Branch redundancy dialog: a summary sentence over the branch's own commits,
    rendered as the graph's commit rows minus the graph and ref-label column
    (see `.commitList` co-selectors under "Commit Table"), each expandable into
@@ -1101,12 +1107,6 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
 #dialog .redundancyDetailsNote {
   color: var(--vscode-descriptionForeground);
   font-style: italic;
-}
-#dialog .conflictPredictionList {
-  margin: 4px 0 0 0;
-  padding-left: 18px;
-  max-height: 120px;
-  overflow-y: auto;
 }
 #dialogBacking.active {
   display: block;
