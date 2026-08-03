@@ -42,6 +42,8 @@ const OCTICON = {
   file: '<path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"/>',
   fileDiff:
     '<path d="M1 1.75C1 .784 1.784 0 2.75 0h7.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16H2.75A1.75 1.75 0 0 1 1 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V4.664a.25.25 0 0 0-.073-.177l-2.914-2.914a.25.25 0 0 0-.177-.073ZM8 3.25a.75.75 0 0 1 .75.75v1.5h1.5a.75.75 0 0 1 0 1.5h-1.5v1.5a.75.75 0 0 1-1.5 0V7h-1.5a.75.75 0 0 1 0-1.5h1.5V4A.75.75 0 0 1 8 3.25Zm-3 8a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z"/>',
+  filter:
+    '<path d="M.75 3h14.5a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1 0-1.5ZM3 7.75A.75.75 0 0 1 3.75 7h8.5a.75.75 0 0 1 0 1.5h-8.5A.75.75 0 0 1 3 7.75Zm3 4a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"/>',
   folderClosed:
     '<path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/>',
   folderOpen:
@@ -102,9 +104,6 @@ const DRAWN = {
     '<path fill-rule="evenodd" d="M1 2h2v2H1V2zm4 0h10v2H5V2zM2 4h1v8H2V4zm1 3h3v1H3V7zm0 4h3v1H3v-1zm3-5h2v2H6V6zm4 0h5v2h-5V6zm-4 4h2v2H6v-2zm4 0h5v2h-5v-2z"/>',
   fileListView:
     '<path fill-rule="evenodd" d="M1 3h2v2H1V3zm4 0h10v2H5V3zM1 7h2v2H1V7zm4 0h10v2H5V7zM1 11h2v2H1v-2zm4 0h10v2H5v-2z"/>',
-  // Funnel for the toolbar's branch-filter chip. Deliberately not the "search"
-  // magnifier: this marks a standing state, not an action you can invoke.
-  filter: '<path fill-rule="evenodd" d="M1 2h14l-5.5 6.5v5l-3-1.5V8.5z"/>',
   // Crosshair/target for the "Locate HEAD" control.
   locate:
     '<path fill-rule="evenodd" d="M9 1a1 1 0 0 0-2 0v1.06A6 6 0 0 0 2.06 7H1a1 1 0 0 0 0 2h1.06A6 6 0 0 0 7 13.94V15a1 1 0 1 0 2 0v-1.06A6 6 0 0 0 13.94 9H15a1 1 0 1 0 0-2h-1.06A6 6 0 0 0 9 2.06V1zM8 3.7a4.3 4.3 0 1 1 0 8.6 4.3 4.3 0 0 1 0-8.6zM8 5.5A2.5 2.5 0 1 0 8 10.5a2.5 2.5 0 0 0 0-5z"/>'
@@ -126,8 +125,12 @@ export const svgIcons = {
   locate: svg(DRAWN.locate),
   download: svg(OCTICON.download),
   refresh: svg(OCTICON.sync),
-  /* 11px: the branch-filter chip is smaller than a toolbar button. */
-  filter: svg(DRAWN.filter, 11),
+  /* The branch-filter chip. Still not the "search" magnifier — this marks a
+     standing state, not an action you can invoke. 12px rather than the chip's
+     original 11, which suited a solid funnel but not three hairlines: at 11 the
+     gap between the top two bars closes and the glyph reads as two bars, not
+     three. 12 is the smallest size that keeps all three apart. */
+  filter: svg(OCTICON.filter, 12),
 
   /* Commit Details View */
   close: svg(OCTICON.x),
