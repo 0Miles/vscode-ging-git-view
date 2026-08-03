@@ -174,6 +174,49 @@ describe("checkBranchRedundancy (real git)", () => {
     expect(r).toEqual({ kind: "unknown", reason: "noMergeBase" });
   });
 
+  it("dates the default branch from its reflog, not from its tip", async () => {
+    // The tip is backdated to 2020; the reflog entry for it is from this run.
+    // The reflog wins because the date on screen is there to say how current
+    // this copy is, not how old the newest commit on it happens to be.
+    const dated = makeRepo();
+    try {
+      git(
+        ["commit", "--allow-empty", "--date=2020-01-01T00:00:00", "-m", "chore: backdated"],
+        dated
+      );
+      const r = await check("main", dated);
+      expect(r.kind).toBe("redundant");
+      if (r.kind !== "redundant") return;
+      expect(r.defaultBranchDate).toBeGreaterThan(Date.now() / 1000 - 3600);
+    } finally {
+      rmrf(dated);
+    }
+  });
+
+  it("falls back to the tip's date when the ref has no reflog", async () => {
+    // What a fresh `git clone` looks like: it writes no reflog for the refs it
+    // creates, so there is nothing to read until a fetch moves one.
+    const noReflog = makeRepo();
+    try {
+      git(["config", "core.logAllRefUpdates", "false"], noReflog);
+      git(["checkout", "-b", "scratch"], noReflog);
+      git(["branch", "-D", "main"], noReflog);
+      git(["checkout", "-b", "main"], noReflog); // re-created with no reflog
+      git(
+        ["commit", "--allow-empty", "--date=2020-01-01T00:00:00", "-m", "chore: backdated"],
+        noReflog
+      );
+      const r = await check("main", noReflog);
+      expect(r.kind).toBe("redundant");
+      if (r.kind !== "redundant") return;
+      expect(r.defaultBranchDate).toBe(
+        Math.floor(new Date("2020-01-01T00:00:00").getTime() / 1000)
+      );
+    } finally {
+      rmrf(noReflog);
+    }
+  });
+
   it("reports no default branch when none can be detected", async () => {
     const lone = makeRepo();
     try {

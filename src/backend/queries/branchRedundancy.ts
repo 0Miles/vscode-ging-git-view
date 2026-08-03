@@ -22,18 +22,46 @@ async function tryRaw(git: SimpleGit, args: string[]): Promise<string | null> {
   }
 }
 
-/** The date of `ref`'s tip, unix seconds, on the same basis the rest of the UI
- *  dates commits; 0 when it can't be read, which the dialog renders as no date
- *  rather than as 1970. */
-async function tipDate(git: SimpleGit, ref: string, dateType: DateType): Promise<number> {
-  const raw = await tryRaw(git, [
-    "log",
-    "-1",
-    "--format=" + (dateType === "Author Date" ? "%at" : "%ct"),
-    ref
-  ]);
+/** A unix-seconds timestamp from git output, or 0 for anything unusable — which
+ *  the dialog renders as no date rather than as 1970. */
+function toSeconds(raw: string | null | undefined): number {
   const seconds = Number(raw?.trim());
   return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
+/**
+ * When `ref` last changed here, unix seconds; 0 when nothing can be read.
+ *
+ * The reflog is preferred because it answers the question the date is on screen
+ * for — how current this copy is — rather than how old the newest commit on it
+ * happens to be. A quiet project fetched a minute ago would otherwise be dated
+ * months back and read as stale.
+ *
+ * The fallback is not an edge case: `git clone` writes no reflog for the
+ * remote-tracking refs it creates, so a freshly cloned repo has none until a
+ * fetch actually moves the ref. It dates the tip instead, on the same basis the
+ * rest of the UI dates commits. (The reflog path has no author/committer
+ * distinction to honour — an entry records one moment, when the update
+ * happened.)
+ *
+ * A missing reflog is not an error: git exits 0 with empty output, so the
+ * emptiness is what selects the fallback.
+ */
+async function basisDate(git: SimpleGit, ref: string, dateType: DateType): Promise<number> {
+  const reflog = await tryRaw(git, ["log", "-g", "-1", "--format=%gd", "--date=unix", ref]);
+  // `%gd` reads `<ref>@{<unix>}`. Ref names may not contain `@{`, so anchoring
+  // on the last one can't be fooled by the ref itself.
+  const entry = /@\{(\d+)\}$/.exec(reflog?.trim() ?? "");
+  if (entry !== null) return toSeconds(entry[1]);
+
+  return toSeconds(
+    await tryRaw(git, [
+      "log",
+      "-1",
+      "--format=" + (dateType === "Author Date" ? "%at" : "%ct"),
+      ref
+    ])
+  );
 }
 
 /**
@@ -107,7 +135,7 @@ export async function checkBranchRedundancy(
   // Every answer is only as current as this ref. Nothing here fetches, so a
   // branch merged upstream an hour ago still reads as unmerged until the user
   // does — the date is what lets them notice (see ADR-0006).
-  const defaultBranchDate = await tipDate(git, defaultBranch, input.dateType);
+  const defaultBranchDate = await basisDate(git, defaultBranch, input.dateType);
 
   // The only step that needs git 2.38, so the only one whose failure may be
   // reported as such.
