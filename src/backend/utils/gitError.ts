@@ -37,3 +37,21 @@ export function formatGitError(error: unknown): string {
   // 4. Nothing recognisable — surface the first non-empty line.
   return lines[0];
 }
+
+/** Whether git refused an operation only because a branch is not fully merged
+ *  (so the same delete with `-D` would succeed).
+ *
+ *  git puts the branch name and the refusal on its `error:` line, but the hint
+ *  that identifies the case — the literal command `git branch -D`, which stays
+ *  in English across locales — on the *next* line:
+ *
+ *      error: The branch 'x' is not fully merged.
+ *      If you are sure you want to delete it, run 'git branch -D x'.
+ *
+ *  `formatGitError` keeps only the first of those, so this must be read off the
+ *  **raw** error, before formatting — a caller that classifies the formatted
+ *  message can never match. */
+export function isNotFullyMergedError(error: unknown): boolean {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw.includes("git branch -D");
+}

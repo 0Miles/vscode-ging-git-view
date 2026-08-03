@@ -46,9 +46,9 @@ import { operationState } from "@/backend/queries/operationState";
 import { predictConflicts } from "@/backend/queries/predictConflicts";
 import { getNewPathOfRenamedFile } from "@/backend/queries/renamedFilePath";
 import { tagDetails } from "@/backend/queries/tagDetails";
-import type { BatchActionRequest, BatchRefResult } from "@/backend/types";
+import type { ActionResponseExtra, BatchActionRequest, BatchRefResult } from "@/backend/types";
 import { GitFileChangeType } from "@/backend/types";
-import { formatGitError } from "@/backend/utils/gitError";
+import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 import { pullRequestCreateUrl } from "@/backend/utils/pullRequest";
 import { abbrevCommit } from "@/backend/utils/string";
 import { Config } from "@/config";
@@ -142,16 +142,29 @@ export function registerMessageHandlers(
 
   function registerAction<T extends RequestMessage["command"]>(
     command: T,
-    handler: (msg: Extract<RequestMessage, { command: T }>) => Promise<void>
+    handler: (msg: Extract<RequestMessage, { command: T }>) => Promise<void>,
+    /** Response fields beyond `status`, derived from the raw error the handler
+     *  threw (null when it succeeded). Classification that needs git's full
+     *  output belongs here: `status` is only the one line `formatGitError`
+     *  picked out, so markers on any other line are gone by the time the
+     *  webview sees it. Required for the actions that declare extras, absent
+     *  for the rest — the response is posted through a cast, so this parameter
+     *  is what keeps a declared field from being silently dropped. */
+    ...classify: [ActionResponseExtra<T>] extends [never]
+      ? []
+      : [(error: unknown) => ActionResponseExtra<T>]
   ) {
+    const [classifyError] = classify as [((error: unknown) => object) | undefined];
     bridge.onMessage(command, async (msg) => {
       let status: string | null = null;
+      let error: unknown = null;
       try {
         await handler(msg);
       } catch (e: unknown) {
+        error = e;
         status = formatGitError(e);
       }
-      bridge.post({ command, status } as ResponseMessage);
+      bridge.post({ command, status, ...classifyError?.(error) } as ResponseMessage);
     });
   }
 
@@ -175,7 +188,11 @@ export function registerMessageHandlers(
   registerAction("deleteTag", (msg) => deleteTag(gitClient.getInstance(), msg));
   registerAction("pushTag", (msg) => pushTag(gitClient.getInstance(), msg));
   registerAction("createBranch", (msg) => createBranch(gitClient.getInstance(), msg));
-  registerAction("deleteBranch", (msg) => deleteBranch(gitClient.getInstance(), msg));
+  registerAction(
+    "deleteBranch",
+    (msg) => deleteBranch(gitClient.getInstance(), msg),
+    (error) => ({ notFullyMerged: isNotFullyMergedError(error) })
+  );
   registerAction("deleteRemoteBranch", (msg) => deleteRemoteBranch(gitClient.getInstance(), msg));
 
   registerBatchAction("deleteBranches", (msg) => deleteBranches(gitClient.getInstance(), msg));

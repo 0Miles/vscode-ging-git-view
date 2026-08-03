@@ -203,16 +203,6 @@ export function graphNavigationTarget(
   return children[alternative ? 1 : 0]?.hash;
 }
 
-/**
- * Whether a failed branch-deletion error indicates the branch is not fully
- * merged (so a force delete would succeed). Git's hint includes the
- * literal command `git branch -D`, which stays in English across locales, so
- * it is a reliable, translation-safe marker.
- */
-export function isNotFullyMergedBranchError(status: string | null): boolean {
-  return status !== null && status.includes("git branch -D");
-}
-
 export function arraysEqual<T>(a: T[], b: T[], equalElements: (a: T, b: T) => boolean) {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {

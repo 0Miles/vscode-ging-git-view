@@ -7,6 +7,7 @@ import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { deleteBranch } from "@/backend/actions/branch";
+import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 
 import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
@@ -51,6 +52,39 @@ describe("deleteBranch", () => {
         deleteOnRemotes: false
       })
     ).rejects.toThrow();
+  });
+
+  // Regression: the force-delete offer used to be decided in the webview from
+  // the formatted `status`, looking for git's `git branch -D` hint — which
+  // `formatGitError` had already dropped, so the offer never appeared. Drive
+  // the real deletion and the real formatter here rather than a hand-written
+  // error string: the two have to stay consistent about which line the marker
+  // lives on, and only git can say what that output actually is.
+  it("refuses an unmerged branch with a marker that only survives on the raw error", async () => {
+    git(["checkout", "-b", "unmerged-classified"], repo);
+    fs.writeFileSync(path.join(repo, "h"), "z");
+    git(["add", "."], repo);
+    git(["commit", "-m", "another unmerged commit"], repo);
+    git(["checkout", "main"], repo);
+
+    let error: unknown = null;
+    try {
+      await deleteBranch(simpleGit(repo), {
+        branchName: "unmerged-classified",
+        forceDelete: false,
+        deleteOnRemotes: false
+      });
+    } catch (e: unknown) {
+      error = e;
+    }
+
+    expect(error).not.toBeNull();
+    expect(isNotFullyMergedError(error)).toBe(true);
+    // The formatted status the webview receives no longer carries the marker,
+    // so classifying it there cannot work — hence the host-side flag.
+    expect(formatGitError(error)).not.toContain("git branch -D");
+    // Unrelated failures must not be mistaken for this case.
+    expect(isNotFullyMergedError(new Error("error: some unrelated failure"))).toBe(false);
   });
 
   it("force-deletes a branch with unmerged changes", async () => {

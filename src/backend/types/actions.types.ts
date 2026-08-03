@@ -113,12 +113,36 @@ export type BatchActionResponse = {
 export type BatchActionPayload<T extends keyof BatchActionPayloads> =
   BatchActionPayloads[T]["request"];
 
+/**
+ * Fields an action's response carries on top of `status`. Reserved for facts
+ * the host can establish and the webview cannot: `status` has been narrowed to
+ * a single line by `formatGitError` before it crosses the bridge, so anything
+ * that has to be read off git's full output must be classified host-side and
+ * sent as its own field.
+ */
+type ActionResponseExtras = {
+  deleteBranch: {
+    /** git refused the delete only because the branch is not fully merged, so
+     *  the webview can offer a force delete. See `isNotFullyMergedError`. */
+    notFullyMerged: boolean;
+  };
+};
+
+/** The extra response fields action `T` carries — `never` for the actions that
+ *  report nothing beyond `status`, which is most of them. */
+export type ActionResponseExtra<T> = T extends keyof ActionResponseExtras
+  ? ActionResponseExtras[T]
+  : never;
+
 export type ActionRequest = {
   [K in keyof ActionPayloads]: { command: K; repo: string } & ActionPayloads[K];
 }[keyof ActionPayloads];
 
 export type ActionResponse = {
-  [K in keyof ActionPayloads]: { command: K; status: GitCommandStatus };
+  [K in keyof ActionPayloads]: {
+    command: K;
+    status: GitCommandStatus;
+  } & (K extends keyof ActionResponseExtras ? ActionResponseExtras[K] : unknown);
 }[keyof ActionPayloads];
 
 export type ActionPayload<T extends keyof ActionPayloads> = ActionPayloads[T];

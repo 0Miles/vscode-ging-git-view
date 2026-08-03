@@ -38,7 +38,6 @@ import {
   dropCommitPossible,
   ELLIPSIS,
   graphNavigationTarget,
-  isNotFullyMergedBranchError,
   latestTagName,
   refInvalid,
   signatureCategory,
@@ -399,10 +398,12 @@ class GitGraphView {
   }
 
   /** Handle a deleteBranch response: if it failed only because the branch isn't
-   *  fully merged, offer a force delete; otherwise refresh or show the error. */
-  public handleDeleteBranchResponse(status: string | null) {
+   *  fully merged, offer a force delete; otherwise refresh or show the error.
+   *  `notFullyMerged` is classified by the host — `status` carries only git's
+   *  primary error line, which does not say a force delete would work. */
+  public handleDeleteBranchResponse(status: string | null, notFullyMerged: boolean) {
     const pending = this.pendingDeleteBranch;
-    if (isNotFullyMergedBranchError(status) && pending !== null) {
+    if (notFullyMerged && pending !== null) {
       showConfirmationDialog(
         l10n.dialogForceDeleteBranchConfirm.replace(
           "{0}",
@@ -4271,7 +4272,7 @@ window.addEventListener("message", (event) => {
       refreshGraphOrDisplayError(msg.status, l10n.unableToCreateBranch);
       break;
     case "deleteBranch":
-      gitGraph.handleDeleteBranchResponse(msg.status);
+      gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
       break;
     case "deleteRemoteBranch":
       refreshGraphOrDisplayError(msg.status, l10n.unableToDeleteRemoteBranch);

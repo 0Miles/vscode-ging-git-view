@@ -7,7 +7,6 @@ import {
   commitsReachableFrom,
   dropCommitPossible,
   graphNavigationTarget,
-  isNotFullyMergedBranchError,
   latestTagName,
   signatureCategory,
   substituteRefSpaces
@@ -241,24 +240,6 @@ describe("graphNavigationTarget", () => {
     ];
     expect(graphNavigationTarget(linear[1], linear, "parent", true)).toBeUndefined(); // root, no parent
     expect(graphNavigationTarget(linear[1], linear, "child", true)).toBeUndefined(); // only one child
-  });
-});
-
-describe("isNotFullyMergedBranchError", () => {
-  it("detects git's not-fully-merged error via the locale-stable command hint", () => {
-    const err =
-      "error: the branch 'feature' is not fully merged\n" +
-      "hint: If you are sure you want to delete it, run 'git branch -D feature'\n";
-    expect(isNotFullyMergedBranchError(err)).toBe(true);
-    // The command hint stays in English even when the rest is translated.
-    const translated =
-      "錯誤: 分支「feature」沒有完全合併\n提示： 請執行「git branch -D feature」\n";
-    expect(isNotFullyMergedBranchError(translated)).toBe(true);
-  });
-
-  it("returns false for other errors and for null", () => {
-    expect(isNotFullyMergedBranchError("error: some unrelated failure")).toBe(false);
-    expect(isNotFullyMergedBranchError(null)).toBe(false);
   });
 });
 
