@@ -20,10 +20,12 @@ import { loadStatistics } from "./backend/queries/loadStatistics";
 import { displayRef } from "./backend/utils/branchRef";
 import { formatGitError } from "./backend/utils/gitError";
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
+import { CATALOGUE_REF_ACTIONS, isBatchAction } from "./backend/utils/refActionCatalogue";
 import { repoContainingPath, resolveToKnownRepo } from "./backend/utils/repoMatch";
 import { config } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
+import { createBranchActionDelegate } from "./extension/branchActionDelegate";
 import { createBranchDataService } from "./extension/branchDataService";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
 import { createBranchFilterStore } from "./extension/branchFilterStore";
@@ -46,13 +48,7 @@ import * as l10n from "./l10n";
 import { initL10n } from "./l10n";
 import { RepoFileWatcher } from "./repoFileWatcher";
 import { StatusBarItem } from "./statusBarItem";
-import type {
-  BatchSkipped,
-  DelegatedBatchAction,
-  RefAction,
-  ResponseRunRefAction,
-  ResponseRunRefBatchAction
-} from "./types";
+import type { BatchSkipped } from "./types";
 
 export function activate(context: vscode.ExtensionContext) {
   initL10n(context.extensionPath);
@@ -77,20 +73,6 @@ export function activate(context: vscode.ExtensionContext) {
   const scmRepoTracker = createScmRepoTracker();
   let currentPanel: WebviewPanel | undefined;
   let currentBridge: WebviewBridge | undefined;
-  // A side-view branch action waiting for the graph webview to (re)load. The
-  // webview dedupes the two delivery paths (direct post + selectRepo flush) by
-  // the message's monotonic seq.
-  let pendingRefAction: ResponseRunRefAction | ResponseRunRefBatchAction | null = null;
-  let refActionSeq = 0;
-  const flushPendingRefAction = (repo: string) => {
-    if (pendingRefAction === null) return;
-    // A selectRepo for some other repo (e.g. the user clicked around while the
-    // panel opened) must not discard the action — its own repo's load is still
-    // coming, and that selectRepo will flush it.
-    if (pendingRefAction.repo !== repo) return;
-    currentBridge?.post(pendingRefAction);
-    pendingRefAction = null;
-  };
 
   // Branches side-view: a native TreeView (in the Source Control container) that
   // replaces the in-graph branch dropdown. Its selection drives a per-repo
@@ -334,7 +316,7 @@ export function activate(context: vscode.ExtensionContext) {
           remotesView.setActiveRepo(repo);
           // The webview is alive and (re)loading this repo: deliver any waiting
           // side-view action now (the webview holds it until the load lands).
-          flushPendingRefAction(repo);
+          branchActionDelegate.flushPendingRefAction(repo);
         }
       });
       currentPanel = createWebviewPanel({
@@ -369,29 +351,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   };
 
-  // Delegate a side-view context-menu action to the graph webview, where the
-  // exact same flow as its own branch menu runs (dialogs included). The panel
-  // is opened/revealed first so any confirmation appears focused. Two delivery
-  // paths, deduped by seq in the webview: the direct post covers an open panel
-  // already showing the repo (same-repo setRepo doesn't reload, so no
-  // selectRepo would fire); the selectRepo flush covers fresh panels and repo
-  // switches, whose in-flight load would otherwise race the message.
-  const runRefActionInGraph = async (item: unknown, action: RefAction): Promise<void> => {
-    const target = branchActionTarget(item);
-    if (target === null) return;
-    const msg: ResponseRunRefAction = {
-      command: "runRefAction",
-      repo: target.repo,
-      ref: displayRef(target.branch),
-      isRemote: target.isRemote,
-      action,
-      seq: ++refActionSeq
-    };
-    pendingRefAction = msg;
-    await openGraphView(target.repo);
-    currentBridge?.post(msg);
-  };
-
   // The same "skipped, because X" lines the batch confirmation dialog shows,
   // for the case where nothing is left to confirm and there is no dialog.
   const skippedNotes = (skipped: BatchSkipped[]): string[] =>
@@ -405,36 +364,22 @@ export function activate(context: vscode.ExtensionContext) {
       return refs.length === 0 ? [] : [l10n.t(key, refs.join(", "))];
     });
 
-  // The batch counterpart. Same two delivery paths and the same seq counter, so
-  // a single and a batch action can never be mistaken for one another's retry.
-  // `copyName` deliberately does not come through here: it asks nothing, so it
-  // runs in the host without opening the graph at all (ADR-0009).
-  const runRefBatchActionInGraph = async (
-    items: unknown[],
-    action: DelegatedBatchAction
-  ): Promise<void> => {
-    const resolved = branchesView.actionTargetsForSelection(items, action);
-    if (resolved === null) return;
-    if (resolved.targets.length === 0) {
-      // Every selected branch was ruled out. Naming them and the reason is the
-      // whole point — "nothing happened" on its own reads like a bug.
+  // Side-view branch actions, single and batch, all go through the one
+  // delegate (ADR-0010): it validates against the shared action catalogue,
+  // applies the head guard, and delivers graph-bound actions to the webview
+  // over its two deduped paths — where the exact same flow as the in-graph
+  // branch menu runs (dialogs included).
+  const branchActionDelegate = createBranchActionDelegate({
+    resolveTarget: branchActionTarget,
+    resolveBatchTargets: branchesView.actionTargetsForSelection,
+    openGraphView,
+    post: (msg) => currentBridge?.post(msg),
+    writeClipboard: (text) => void vscode.env.clipboard.writeText(text),
+    showNoTargets: (skipped) =>
       void vscode.window.showInformationMessage(
-        [l10n.t("branchView.batch.noTargets"), ...skippedNotes(resolved.skipped)].join(" ")
-      );
-      return;
-    }
-    const msg: ResponseRunRefBatchAction = {
-      command: "runRefBatchAction",
-      repo: resolved.repo,
-      action,
-      targets: resolved.targets,
-      skipped: resolved.skipped,
-      seq: ++refActionSeq
-    };
-    pendingRefAction = msg;
-    await openGraphView(resolved.repo);
-    currentBridge?.post(msg);
-  };
+        [l10n.t("branchView.batch.noTargets"), ...skippedNotes(skipped)].join(" ")
+      )
+  });
 
   // Run a Remotes side-view action against its repo's git instance, then
   // refresh everything that may show remote state: both side-views (remote
@@ -572,80 +517,29 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("ging-git-view.branches.hideInactive", toggleInactiveBranches),
     vscode.commands.registerCommand("ging-git-view.branches.showMerged", toggleMergedBranches),
     vscode.commands.registerCommand("ging-git-view.branches.hideMerged", toggleMergedBranches),
-    // Side-view branch actions all delegate to the graph webview so the exact
-    // same menu flow (dialogs, remembered choices, refresh) runs there.
-    vscode.commands.registerCommand("ging-git-view.branches.checkout", (item: unknown) =>
-      runRefActionInGraph(item, "checkout")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.merge", (item: unknown) =>
-      runRefActionInGraph(item, "merge")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.rename", (item: unknown) =>
-      runRefActionInGraph(item, "rename")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.delete", (item: unknown) =>
-      runRefActionInGraph(item, "delete")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.rebase", (item: unknown) =>
-      runRefActionInGraph(item, "rebase")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.fastForward", (item: unknown) =>
-      runRefActionInGraph(item, "fastForward")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.push", (item: unknown) =>
-      runRefActionInGraph(item, "push")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.createArchive", (item: unknown) =>
-      runRefActionInGraph(item, "createArchive")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.createPullRequest", (item: unknown) =>
-      runRefActionInGraph(item, "createPullRequest")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.pull", (item: unknown) =>
-      runRefActionInGraph(item, "pull")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.fetchIntoLocal", (item: unknown) =>
-      runRefActionInGraph(item, "fetchIntoLocal")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.deleteRemote", (item: unknown) =>
-      runRefActionInGraph(item, "deleteRemote")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.checkRedundancy", (item: unknown) =>
-      runRefActionInGraph(item, "checkRedundancy")
-    ),
-    vscode.commands.registerCommand("ging-git-view.branches.copyName", (item: unknown) => {
-      const target = branchActionTarget(item);
-      if (target !== null) {
-        // Match the graph's copy format: remote refs without the "remotes/"
-        // prefix ("origin/main"), exactly as their labels read.
-        void vscode.env.clipboard.writeText(displayRef(target.branch));
+    // Side-view branch actions, generated from the shared action catalogue
+    // (ADR-0010) — an entry there is what makes a command exist, so the two
+    // can never drift apart. The command IDs follow the one convention:
+    // `branches.<action>`, plus `branches.<action>Selected` for actions that
+    // run against a multi-selection (package.json swaps the menu between them
+    // on `listMultiSelection`).
+    ...CATALOGUE_REF_ACTIONS.flatMap((action) => {
+      const commands = [
+        vscode.commands.registerCommand(`ging-git-view.branches.${action}`, (item: unknown) =>
+          branchActionDelegate.run(item, action)
+        )
+      ];
+      if (isBatchAction(action)) {
+        commands.push(
+          vscode.commands.registerCommand(
+            `ging-git-view.branches.${action}Selected`,
+            (item: unknown, items?: unknown[]) =>
+              branchActionDelegate.runBatch(items ?? [item], action)
+          )
+        );
       }
+      return commands;
     }),
-    // --- Batch (multi-selection) branch commands ---
-    // These replace their single-branch counterparts while several branches are
-    // selected; package.json swaps the menu on `listMultiSelection`.
-    vscode.commands.registerCommand(
-      "ging-git-view.branches.deleteSelected",
-      (item: unknown, items?: unknown[]) => runRefBatchActionInGraph(items ?? [item], "delete")
-    ),
-    vscode.commands.registerCommand(
-      "ging-git-view.branches.pushSelected",
-      (item: unknown, items?: unknown[]) => runRefBatchActionInGraph(items ?? [item], "push")
-    ),
-    vscode.commands.registerCommand(
-      "ging-git-view.branches.fastForwardSelected",
-      (item: unknown, items?: unknown[]) => runRefBatchActionInGraph(items ?? [item], "fastForward")
-    ),
-    // The one batch action that asks nothing, so it stays in the host and never
-    // disturbs the graph panel (ADR-0009). Tree order, one ref per line.
-    vscode.commands.registerCommand(
-      "ging-git-view.branches.copyNameSelected",
-      (item: unknown, items?: unknown[]) => {
-        const resolved = branchesView.actionTargetsForSelection(items ?? [item], "copyName");
-        if (resolved === null || resolved.targets.length === 0) return;
-        void vscode.env.clipboard.writeText(resolved.targets.map(displayRef).join("\n"));
-      }
-    ),
     // --- Remotes side-view commands ---
     vscode.commands.registerCommand("ging-git-view.remotes.refresh", () => remotesView.refresh()),
     vscode.commands.registerCommand("ging-git-view.remotes.add", async () => {

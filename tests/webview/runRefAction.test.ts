@@ -116,7 +116,6 @@ describe("runRefAction delegated from the Branches side-view", () => {
       command: "runRefAction",
       repo: REPO,
       ref: "feature",
-      isRemote: false,
       action: "merge",
       seq: 1
     });
@@ -133,19 +132,19 @@ describe("runRefAction delegated from the Branches side-view", () => {
       command: "runRefAction",
       repo: REPO,
       ref: "feature",
-      isRemote: false,
       action: "merge",
       seq: 1
     });
     expect(document.getElementById("dialog")!.classList.contains("active")).toBe(false);
   });
 
+  // The wire carries the canonical ref; the `remotes/` prefix is what makes
+  // the action remote — there is no separate flag (ADR-0010).
   it("runs remote-branch actions with the remote/branch split applied", () => {
     receive({
       command: "runRefAction",
       repo: REPO,
-      ref: "origin/feature",
-      isRemote: true,
+      ref: "remotes/origin/feature",
       action: "deleteRemote",
       seq: 2
     });
@@ -162,16 +161,20 @@ describe("runRefAction delegated from the Branches side-view", () => {
     dismissDialog();
   });
 
-  it("ignores actions that never apply to the checked-out branch", () => {
+  // The head guard runs in the host, before the message is ever sent
+  // (ADR-0010) — see the branchActionDelegate tests. What this side pins is
+  // the remote-count guard, the one check that cannot move to the host.
+  it("drops an action that needs a remote when the repo has none", () => {
+    receive({ command: "loadRemotes", remotes: [], pushDefault: null });
     receive({
       command: "runRefAction",
       repo: REPO,
-      ref: "main",
-      isRemote: false,
-      action: "delete",
+      ref: "feature",
+      action: "push",
       seq: 3
     });
     expect(document.getElementById("dialog")!.classList.contains("active")).toBe(false);
+    receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
   });
 
   it("holds an action for another repo instead of running it here", () => {
@@ -179,7 +182,6 @@ describe("runRefAction delegated from the Branches side-view", () => {
       command: "runRefAction",
       repo: "/somewhere/else",
       ref: "feature",
-      isRemote: false,
       action: "merge",
       seq: 4
     });

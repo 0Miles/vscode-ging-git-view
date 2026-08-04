@@ -4,6 +4,7 @@
  * in the fast backend test project, like its neighbours in this directory.
  */
 
+import { batchSkipReason } from "@/backend/utils/refActionCatalogue";
 import type { BatchAction } from "@/types";
 
 import type { BranchTreeLeaf, BranchTreeNode } from "./branchTree";
@@ -24,18 +25,9 @@ export type ActionTargets = {
   skipped: SkippedTarget[];
 };
 
-/** Why `leaf` cannot take `action`, or null when it can. */
-function skipReason(leaf: BranchTreeLeaf, action: BatchAction): SkipReason | null {
-  // A remote-tracking ref is deletable (it just takes the other git command),
-  // so only the two local-only operations rule it out.
-  if (leaf.isRemote && (action === "push" || action === "fastForward")) return "remote";
-  // git refuses to fetch into the checked-out ref, and the branch you are on
-  // cannot be deleted.
-  if (leaf.isHead && (action === "delete" || action === "fastForward")) return "checkedOut";
-  return null;
-}
-
-/** The action targets for `selected` (a set of refs, in any order). */
+/** The action targets for `selected` (a set of refs, in any order). Which
+ *  branches an action rules out is derived from the shared action catalogue
+ *  (`batchSkipReason`), the same facts the single-action path enforces. */
 export function resolveActionTargets(
   roots: readonly BranchTreeNode[],
   selected: readonly string[],
@@ -51,7 +43,7 @@ export function resolveActionTargets(
     for (const node of nodes) {
       if (node.type === "leaf") {
         if (!wanted.has(node.branch)) continue;
-        const reason = skipReason(node, action);
+        const reason = batchSkipReason(action, node);
         if (reason === null) targets.push(node);
         else skipped.push({ leaf: node, reason });
       } else {

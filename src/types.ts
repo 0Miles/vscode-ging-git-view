@@ -372,47 +372,28 @@ export type ResponseSetShowRemoteBranches = {
   value: boolean;
 };
 
-/** A branch action the Branches side-view delegates to the graph webview, so
- *  the exact same context-menu flow (dialogs included) runs there. */
-export type RefAction =
-  | "checkout"
-  | "rename"
-  | "delete"
-  | "merge"
-  | "rebase"
-  | "fastForward"
-  | "push"
-  | "createArchive"
-  | "createPullRequest"
-  | "pull"
-  | "fetchIntoLocal"
-  | "deleteRemote"
-  | "checkRedundancy";
+// The side-view branch action vocabulary is declared once, in the shared
+// action catalogue (ADR-0010); the wire unions here are derived from it.
+export type {
+  BatchAction,
+  DelegatedBatchAction,
+  RefAction
+} from "./backend/utils/refActionCatalogue";
+import type { DelegatedBatchAction, RefAction } from "./backend/utils/refActionCatalogue";
 
 export type ResponseRunRefAction = {
   command: "runRefAction";
   repo: string;
-  /** Webview-format ref: "main" for local, "origin/feature" for remote
-   *  (the "remotes/" prefix already stripped). */
+  /** Canonical ref ("main", "remotes/origin/feature") — the `remotes/` prefix
+   *  is the remote-ness, there is no separate flag. `displayRef` is applied
+   *  only when rendering. */
   ref: string;
-  isRemote: boolean;
   action: RefAction;
   /** Monotonic per-session sequence number. The webview ignores a message whose
    *  seq it has already executed, so the host may deliver the same action over
    *  two paths (direct post + post-reload flush) without it running twice. */
   seq: number;
 };
-
-/** An action that runs against the whole selection when several branches are
- *  selected. Membership is decided by git semantics, not UI convenience — only
- *  operations that split into N independent steps qualify (CONTEXT.md, "Batch
- *  action"), which is why `merge` and `pull` are absent. */
-export type BatchAction = "delete" | "push" | "fastForward" | "copyName";
-
-/** The batch actions that ask the user something, and so run their dialog in
- *  the graph webview (ADR-0009). `copyName` is the sole exclusion: it asks
- *  nothing and runs in the extension host without opening the graph. */
-export type DelegatedBatchAction = Exclude<BatchAction, "copyName">;
 
 /** A selected branch the batch action could not apply to. Only reasons the
  *  side-view can determine on its own; anything that needs git to answer is
@@ -421,11 +402,9 @@ export type BatchSkipped = { ref: string; reason: "checkedOut" | "remote" };
 
 /**
  * A batch branch action the Branches side-view delegates to the graph webview.
- *
- * Unlike {@link ResponseRunRefAction}, refs stay in the branch-list format
- * (`main`, `remotes/origin/main`) rather than the display format: that is the
- * format the batch backend requests take, so the webview passes them straight
- * through and only applies `displayRef` when rendering.
+ * Refs are canonical, like {@link ResponseRunRefAction}'s — the format the
+ * batch backend requests take, so the webview passes them straight through and
+ * only applies `displayRef` when rendering.
  */
 export type ResponseRunRefBatchAction = {
   command: "runRefBatchAction";

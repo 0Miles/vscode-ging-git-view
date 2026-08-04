@@ -52,6 +52,18 @@ _Avoid_: dimmed branch, hidden branch
 圖形要顯示哪些分支的選集,每個存放庫一份,空集合表示顯示全部。它決定圖形讀得到哪些 commit,也是 hidable branch 的豁免來源之一。分支側檢視的選取會寫入它,但兩者**不對稱**:選取非空時必定等於 filter;filter 非空時選取卻可能是空的 —— 多選搜尋、設定帶來的開場篩選、以及切換存放庫後還原的選集,都沒有對應的樹選取。圖形工具列上的篩選標示讀的是 filter,不是選取。
 _Avoid_: branch selection, selected branches
 
+### Ref 的兩種形
+
+同一條分支有兩種寫法,差別只在 `remotes/` 前綴 —— 但兩種寫法的職責截然不同,混用就會出現「`origin/main` 到底是遠端分支還是撞名的本地分支」這種歧義。
+
+**Canonical ref**:
+分支在 git 裡的完整身分(`main`、`remotes/origin/main`)。`remotes/` 前綴本身就是「這是遠端分支」這件事實,不需要旁邊再放一個布林重述一次。凡是把 ref 當**輸入**傳遞 —— 元件之間、行程之間 —— 一律用這個形。
+_Avoid_: branch-list format, full ref, 完整分支名
+
+**Display ref**:
+canonical ref 的呈現形 —— 剝掉 `remotes/` 前綴(`origin/main`),與畫面上的標籤一字不差。只存在於輸出端:畫面、對話框、剪貼簿。它永不回流當輸入:本地分支可以真的叫 `origin/main`,前綴一剝,身分就丟了。
+_Avoid_: short name, ref label, 顯示名稱
+
 ### 側檢視的選取
 
 側檢視的選取只有一個集合,卻同時餵給兩件事:圖形要顯示什麼,以及右鍵動作要作用在誰身上。以下三個詞把「使用者選了什麼」「動作實際作用在什麼」「哪些動作能這樣作用」釘開。

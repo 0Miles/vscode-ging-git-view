@@ -14,7 +14,8 @@ import type {
   GitTagDetails,
   RedundancyCommit
 } from "@/backend/types";
-import { displayRef } from "@/backend/utils/branchRef";
+import { displayRef, REMOTE_PREFIX } from "@/backend/utils/branchRef";
+import { REF_ACTION_CATALOGUE } from "@/backend/utils/refActionCatalogue";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
 import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
@@ -2395,98 +2396,55 @@ class GitGraphView {
     if (pending.command === "runRefBatchAction") this.dispatchRefBatchAction(pending);
     else this.dispatchRefAction(pending);
   }
+  /** One handler per delegated action, keyed by the catalogue-derived union —
+   *  a new catalogue entry fails compilation here until it is handled, so a
+   *  silent no-op cannot be expressed (ADR-0010). Handlers take the display
+   *  ref (what the in-graph menu's actions eat); the remote/local split, where
+   *  an action has one, comes off the canonical ref's prefix. The head guard
+   *  is the host's, applied before the message was ever sent. */
+  private readonly refActionHandlers: Record<
+    GG.RefAction,
+    (ref: string, isRemote: boolean) => void
+  > = {
+    checkout: (ref, isRemote) => this.checkoutBranchAction(ref, isRemote),
+    rename: (ref) => this.renameBranchAction(ref),
+    delete: (ref, isRemote) =>
+      isRemote ? this.deleteRemoteBranchAction(ref) : this.deleteBranchAction(ref),
+    merge: (ref) => this.mergeBranchAction(ref),
+    rebase: (ref) => this.rebaseOnBranchAction(ref),
+    fastForward: (ref) => this.fastForwardBranchAction(ref),
+    push: (ref) => this.pushBranchAction(ref),
+    createArchive: (ref) => sendMessage({ command: "createArchive", repo: this.currentRepo!, ref }),
+    createPullRequest: (ref, isRemote) => this.createPullRequestAction(ref, isRemote),
+    pull: (ref) => this.pullRemoteBranchAction(ref),
+    fetchIntoLocal: (ref) => this.fetchIntoLocalBranchAction(ref),
+    deleteRemote: (ref) => this.deleteRemoteBranchAction(ref),
+    checkRedundancy: (ref) => requestBranchRedundancy(this.currentRepo!, ref)
+  };
   private dispatchRefAction(msg: GG.ResponseRunRefAction) {
-    const ref = msg.ref;
-    // The one action that reads the same on both sides: it inspects the branch
-    // rather than acting on it, so neither the remote split nor the head guards
-    // below apply.
-    if (msg.action === "checkRedundancy") {
-      requestBranchRedundancy(msg.repo, ref);
-      return;
-    }
-    if (msg.isRemote) {
-      switch (msg.action) {
-        case "checkout":
-          this.checkoutBranchAction(ref, true);
-          break;
-        case "merge":
-          this.mergeBranchAction(ref);
-          break;
-        case "pull":
-          this.pullRemoteBranchAction(ref);
-          break;
-        case "fetchIntoLocal":
-          this.fetchIntoLocalBranchAction(ref);
-          break;
-        case "deleteRemote":
-          this.deleteRemoteBranchAction(ref);
-          break;
-        case "createPullRequest":
-          if (this.remotes.length > 0) this.createPullRequestAction(ref, true);
-          break;
-      }
-    } else {
-      // Mirror the in-graph menu's guards: these never apply to the checked-out
-      // branch (the menu wouldn't have offered them).
-      if (
-        ref === this.gitBranchHead &&
-        (msg.action === "checkout" ||
-          msg.action === "delete" ||
-          msg.action === "merge" ||
-          msg.action === "rebase" ||
-          msg.action === "fastForward")
-      ) {
-        return;
-      }
-      switch (msg.action) {
-        case "checkout":
-          this.checkoutBranchAction(ref, false);
-          break;
-        case "rename":
-          this.renameBranchAction(ref);
-          break;
-        case "delete":
-          this.deleteBranchAction(ref);
-          break;
-        case "merge":
-          this.mergeBranchAction(ref);
-          break;
-        case "rebase":
-          this.rebaseOnBranchAction(ref);
-          break;
-        case "fastForward":
-          this.fastForwardBranchAction(ref);
-          break;
-        case "push":
-          if (this.remotes.length > 0) this.pushBranchAction(ref);
-          break;
-        case "createArchive":
-          sendMessage({ command: "createArchive", repo: this.currentRepo!, ref });
-          break;
-        case "createPullRequest":
-          if (this.remotes.length > 0) this.createPullRequestAction(ref, false);
-          break;
-      }
-    }
+    // Only this side knows the remotes, so this one guard cannot move to the host.
+    if (REF_ACTION_CATALOGUE[msg.action].needsRemotes && this.remotes.length === 0) return;
+    this.refActionHandlers[msg.action](displayRef(msg.ref), msg.ref.startsWith(REMOTE_PREFIX));
   }
   /** Run a batch action delegated by the Branches side-view. The dialogs are
    *  written for the batch rather than replaying a single-branch dialog N times:
    *  one confirmation for the whole set, and — for delete — one force round at
    *  the end instead of a prompt per branch (ADR-0009). */
+  /** The batch counterpart of {@link refActionHandlers} — same total-record
+   *  guarantee over the delegated batch actions. */
+  private readonly refBatchActionHandlers: Record<
+    GG.DelegatedBatchAction,
+    (targets: string[], skipped: GG.BatchSkipped[]) => void
+  > = {
+    delete: (targets, skipped) => this.deleteBranchesAction(targets, skipped),
+    push: (targets, skipped) => this.pushBranchesAction(targets, skipped),
+    fastForward: (targets, skipped) => this.fastForwardBranchesAction(targets, skipped)
+  };
   private dispatchRefBatchAction(msg: GG.ResponseRunRefBatchAction) {
     // The host reports an empty target set itself, and never sends one.
     if (msg.targets.length === 0) return;
-    switch (msg.action) {
-      case "delete":
-        this.deleteBranchesAction(msg.targets, msg.skipped);
-        break;
-      case "push":
-        if (this.remotes.length > 0) this.pushBranchesAction(msg.targets, msg.skipped);
-        break;
-      case "fastForward":
-        this.fastForwardBranchesAction(msg.targets, msg.skipped);
-        break;
-    }
+    if (REF_ACTION_CATALOGUE[msg.action].needsRemotes && this.remotes.length === 0) return;
+    this.refBatchActionHandlers[msg.action](msg.targets, msg.skipped);
   }
   /** Refs as the bolded, remote-prefix-free names the rest of the dialogs use. */
   private batchRefNames(refs: string[]): string {
