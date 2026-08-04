@@ -153,6 +153,7 @@
   "dialog.batch.skippedCheckedOut": "Skipped, currently checked out: {0}",
   "dialog.batch.skippedRemote": "Skipped, remote branch: {0}",
   "dialog.batch.result": "{0} succeeded, {1} failed",
+  "dialog.batch.busy": "Another batch action is still in progress. Wait for it to finish first.",
   "dialog.renameBranch.title": "Enter the new name for the branch {0}:",
   "dialog.renameBranch.submit": "Rename Branch",
   "dialog.push.tag.confirm": "Are you sure you want to push the tag {0}?",

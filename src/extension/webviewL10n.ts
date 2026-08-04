@@ -230,6 +230,7 @@ export function getWebviewLocalizedStrings() {
     dialogBatchSkippedCheckedOut: l10n.t("dialog.batch.skippedCheckedOut"),
     dialogBatchSkippedRemote: l10n.t("dialog.batch.skippedRemote"),
     dialogBatchResult: l10n.t("dialog.batch.result"),
+    dialogBatchBusy: l10n.t("dialog.batch.busy"),
     dialogRenameBranchTitle: l10n.t("dialog.renameBranch.title"),
     dialogRenameBranchSubmit: l10n.t("dialog.renameBranch.submit"),
     dialogPushTagConfirm: l10n.t("dialog.push.tag.confirm"),

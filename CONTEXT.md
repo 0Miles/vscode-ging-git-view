@@ -67,3 +67,7 @@ _Avoid_: 選取的分支, selected branches, 有效選取
 **Batch action**:
 branch selection 有多個成員時,作用於整個 action target 的動作。能不能批次由 git 語意決定,不由 UI 方便與否決定 —— 只有拆得成 N 個彼此獨立、互不改變前提的操作才算。因此 delete、push、fast-forward、copy name 是 batch action;merge 與 pull 不是,序列合併第二次的基準已經被第一次改掉了。
 _Avoid_: 多選動作, bulk action, 批次處理
+
+**Batch run**:
+一次 batch action 的執行過程 —— 從使用者確認、參數已定的那一刻起,經送出、結果回收、至多一輪重試(目前只有 delete 的 force 回合),到摘要收場。重試回合只涵蓋它重送的 ref,摘要一律摺疊回第一回合的完整 ref 集與原始順序;拒絕重試仍以第一回合的結果收場,不靜默關閉。同時至多一個 batch run 在飛,再開一個會被明白拒絕,不會靜默吞掉。初始確認框不屬於 batch run —— 那是各動作自己的 interface。
+_Avoid_: 批次流程, batch flow, retry loop

@@ -153,6 +153,7 @@
   "dialog.batch.skippedCheckedOut": "已略過（目前 checked out）：{0}",
   "dialog.batch.skippedRemote": "已略過（remote branch）：{0}",
   "dialog.batch.result": "成功 {0} 個，失敗 {1} 個",
+  "dialog.batch.busy": "另一個批次動作仍在進行中，請先等它完成。",
   "dialog.renameBranch.title": "輸入 {0} branch 的新名稱",
   "dialog.renameBranch.submit": "重新命名 branch",
   "dialog.push.tag.confirm": "你確定要 push tag {0} 嗎？",

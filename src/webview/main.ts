@@ -1,4 +1,5 @@
 import type {
+  BatchActionRequest,
   BatchDeleteResult,
   BatchRefResult,
   BranchRedundancy,
@@ -15,6 +16,7 @@ import type {
 } from "@/backend/types";
 import { displayRef } from "@/backend/utils/branchRef";
 
+import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
 import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
 import { Graph } from "./graph";
 import { formatDate, pad2 } from "./utils/date";
@@ -93,6 +95,10 @@ function deserializeExpandedCommit(
   };
 }
 
+/** The batch actions a BatchRun can execute, named by their protocol command
+ *  so the tag can never drift from the messages it labels. */
+type BatchActionKind = BatchActionRequest["command"];
+
 class GitGraphView {
   private gitRepos: GG.GitRepoSet;
   private gitBranches: string[] = [];
@@ -128,15 +134,9 @@ class GitGraphView {
   // host's two delivery paths (direct post + post-reload flush).
   private pendingRefAction: GG.ResponseRunRefAction | GG.ResponseRunRefBatchAction | null = null;
   private lastRefActionSeq = 0;
-  // The refs a batch delete asked git to remove without force, so the refusals
-  // git reports as "not fully merged" can be re-offered as one force round
-  // rather than one dialog per branch.
-  private pendingDeleteBatch: {
-    deleteOnRemotes: boolean;
-    /** The first round's results once a force round is in flight, so the final
-     *  summary still covers the refs the force round did not retry. */
-    earlier: BatchDeleteResult[] | null;
-  } | null = null;
+  // The one batch run in flight (at most): rounds, retry offer and summary all
+  // live behind its interface — the adapters below only execute its commands.
+  private batchRun = new BatchRun();
 
   private graph: Graph;
   private config: Config;
@@ -2513,6 +2513,111 @@ class GitGraphView {
       note(l10n.dialogBatchSkippedRemote, "remote")
     );
   }
+  /** What one batch action needs to execute its run's commands: how to send a
+   *  round, what to show while it runs, how to title a failed summary, and —
+   *  for actions with a retry round — the retry confirmation's body. */
+  private batchSpec(action: BatchActionKind): {
+    send: (refs: string[], round: 1 | 2, params: unknown) => void;
+    running: string;
+    errorTitle: string;
+    retryBody?: (refs: string[]) => string;
+  } {
+    switch (action) {
+      case "deleteBranches":
+        return {
+          send: (refs, round, params) => {
+            const p = params as { forceDelete: boolean; deleteOnRemotes: boolean };
+            sendMessage({
+              command: "deleteBranches",
+              repo: this.currentRepo!,
+              refs,
+              // The retry round exists to force what round 1 could not delete.
+              forceDelete: round === 2 || p.forceDelete,
+              deleteOnRemotes: p.deleteOnRemotes
+            });
+          },
+          running: l10n.deletingBranches,
+          errorTitle: l10n.unableToDeleteBranch,
+          retryBody: (refs) =>
+            l10n.dialogDeleteBatchForceConfirm.replace("{0}", String(refs.length)) +
+            "<br>" +
+            this.batchRefNames(refs)
+        };
+      case "pushBranches":
+        return {
+          send: (refs, _round, params) => {
+            const p = params as {
+              remotes: string[];
+              forceMode: "normal" | "force" | "forceWithLease";
+            };
+            sendMessage({
+              command: "pushBranches",
+              repo: this.currentRepo!,
+              branchNames: refs,
+              remotes: p.remotes,
+              forceMode: p.forceMode
+            });
+          },
+          running: l10n.pushingBranch,
+          errorTitle: l10n.unableToPushBranch
+        };
+      case "fastForwardBranches":
+        return {
+          send: (refs) => {
+            sendMessage({
+              command: "fastForwardBranches",
+              repo: this.currentRepo!,
+              branchNames: refs
+            });
+          },
+          running: l10n.fastForwardingBranches,
+          errorTitle: l10n.unableToFastForward
+        };
+    }
+  }
+  /** Start one batch run and execute its first command. The action tag feeds
+   *  the run and the command executor from the one argument, so the two can
+   *  never drift apart. */
+  private startBatchRun(
+    action: BatchActionKind,
+    targets: string[],
+    options: Omit<BatchRunOptions, "action"> = {}
+  ) {
+    this.runBatchCommand(this.batchRun.start(targets, { ...options, action }), action);
+  }
+  /** Execute one BatchRun command, re-entering as the retry dialog resolves.
+   *  All round state lives in the run; this only performs its side effects. */
+  private runBatchCommand(command: BatchRunCommand, action: BatchActionKind) {
+    const spec = this.batchSpec(action);
+    switch (command.kind) {
+      case "send":
+        spec.send(command.refs, command.round, command.params);
+        showActionRunningDialog(spec.running);
+        break;
+      case "offerRetry":
+        showConfirmationDialog(
+          spec.retryBody?.(command.refs) ?? "",
+          () => this.runBatchCommand(this.batchRun.onRetryConfirmed(), action),
+          null,
+          // Declining the retry round still ends a batch that did real work, so
+          // report what the first round managed rather than closing in silence.
+          () => this.runBatchCommand(this.batchRun.onRetryDeclined(), action)
+        );
+        break;
+      case "summarise":
+        this.reportBatchResults(command.results, spec.errorTitle);
+        break;
+      case "busy":
+        showErrorDialog(l10n.dialogBatchBusy, null, null);
+        break;
+      case "none":
+        break;
+    }
+  }
+  /** Feed a batch action's response to the run in flight. */
+  public handleBatchActionResponse(action: BatchActionKind, results: BatchRefResult[]) {
+    this.runBatchCommand(this.batchRun.onResults(results, action), action);
+  }
   private deleteBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     const inputs: DialogInput[] = [
       {
@@ -2531,65 +2636,17 @@ class GitGraphView {
       inputs,
       l10n.deleteBranches,
       (values) =>
-        this.sendDeleteBranches(
-          targets,
-          values[0] === "checked",
-          inputs.length > 1 && values[1] === "checked",
-          null
-        ),
+        this.startBatchRun("deleteBranches", targets, {
+          // The one classification the host makes more reliably than us: a
+          // refusal a force round can fix.
+          retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
+          params: {
+            forceDelete: values[0] === "checked",
+            deleteOnRemotes: inputs.length > 1 && values[1] === "checked"
+          }
+        }),
       null
     );
-  }
-  /** Send a delete round. `earlier` is null for the first round and carries its
-   *  results for the force round, so the final summary covers every ref even
-   *  though the force round only retries some of them. Always assigned, never
-   *  merged into whatever was there: a stale value would make the next batch
-   *  skip its own force round and summarise the wrong refs. */
-  private sendDeleteBranches(
-    refs: string[],
-    forceDelete: boolean,
-    deleteOnRemotes: boolean,
-    earlier: BatchDeleteResult[] | null
-  ) {
-    this.pendingDeleteBatch = { deleteOnRemotes, earlier };
-    sendMessage({
-      command: "deleteBranches",
-      repo: this.currentRepo!,
-      refs,
-      forceDelete,
-      deleteOnRemotes
-    });
-    showActionRunningDialog(l10n.deletingBranches);
-  }
-  /** Handle a batch delete response: gather the branches git refused only
-   *  because they are not fully merged and offer them as a single force round,
-   *  then summarise. */
-  public handleDeleteBranchesResponse(results: BatchDeleteResult[]) {
-    const pending = this.pendingDeleteBatch;
-    if (pending === null) return; // not ours (or already summarised)
-    this.pendingDeleteBatch = null;
-    if (pending.earlier === null) {
-      const retryable = results.filter((r) => r.notFullyMerged).map((r) => r.ref);
-      if (retryable.length > 0) {
-        showConfirmationDialog(
-          l10n.dialogDeleteBatchForceConfirm.replace("{0}", String(retryable.length)) +
-            "<br>" +
-            this.batchRefNames(retryable),
-          () => this.sendDeleteBranches(retryable, true, pending.deleteOnRemotes, results),
-          null,
-          // Declining the force round still ends a batch that did real work, so
-          // report what the first round managed rather than closing in silence.
-          () => this.reportBatchResults(results, l10n.unableToDeleteBranch)
-        );
-        return;
-      }
-    }
-    // The force round only covers the refs it retried, so fold it back into the
-    // first round's results to keep every ref — and the original order.
-    const retried = new Map(results.map((r) => [r.ref, r]));
-    const merged =
-      pending.earlier === null ? results : pending.earlier.map((r) => retried.get(r.ref) ?? r);
-    this.reportBatchResults(merged, l10n.unableToDeleteBranch);
   }
   private pushBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     // No remember key: a force mode remembered from a single push must not
@@ -2602,28 +2659,14 @@ class GitGraphView {
       undefined,
       (remotes, forceMode) => {
         if (remotes.length === 0) return;
-        sendMessage({
-          command: "pushBranches",
-          repo: this.currentRepo!,
-          branchNames: targets,
-          remotes,
-          forceMode
-        });
-        showActionRunningDialog(l10n.pushingBranch);
+        this.startBatchRun("pushBranches", targets, { params: { remotes, forceMode } });
       }
     );
   }
   private fastForwardBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     showConfirmationDialog(
       this.batchConfirmBody(l10n.dialogFastForwardBatchConfirm, targets, skipped),
-      () => {
-        sendMessage({
-          command: "fastForwardBranches",
-          repo: this.currentRepo!,
-          branchNames: targets
-        });
-        showActionRunningDialog(l10n.fastForwardingBranches);
-      },
+      () => this.startBatchRun("fastForwardBranches", targets),
       null
     );
   }
@@ -4340,13 +4383,13 @@ window.addEventListener("message", (event) => {
       gitGraph.runRefBatchAction(msg);
       break;
     case "deleteBranches":
-      gitGraph.handleDeleteBranchesResponse(msg.results);
+      gitGraph.handleBatchActionResponse("deleteBranches", msg.results);
       break;
     case "pushBranches":
-      gitGraph.reportBatchResults(msg.results, l10n.unableToPushBranch);
+      gitGraph.handleBatchActionResponse("pushBranches", msg.results);
       break;
     case "fastForwardBranches":
-      gitGraph.reportBatchResults(msg.results, l10n.unableToFastForward);
+      gitGraph.handleBatchActionResponse("fastForwardBranches", msg.results);
       break;
     case "mergeBranch":
       refreshGraphOrDisplayError(msg.status, l10n.unableToMergeBranch);
