@@ -10,9 +10,9 @@
 export type RefKinds = "local" | "remote" | "both";
 
 export type RefActionSpec = {
-  /** Which branches the action applies to. The `remotes/` prefix of the
-   *  canonical ref is the fact this is checked against — there is no separate
-   *  remote flag anywhere (CONTEXT.md, "Ref 的兩種形"). */
+  /** Which branches the action applies to. On the wire, the `remotes/` prefix
+   *  of the canonical ref is the fact this is checked against — no separate
+   *  remote flag travels with it (CONTEXT.md, "Ref 的兩種形"). */
   refKinds: RefKinds;
   /** True when the action never applies to the checked-out branch — the same
    *  fact package.json expresses as `viewItem == branch-local` (rather than

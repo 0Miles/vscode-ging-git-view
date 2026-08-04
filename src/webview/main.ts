@@ -2404,7 +2404,7 @@ class GitGraphView {
    *  is the host's, applied before the message was ever sent. */
   private readonly refActionHandlers: Record<
     GG.RefAction,
-    (ref: string, isRemote: boolean) => void
+    (ref: string, isRemote: boolean, repo: string) => void
   > = {
     checkout: (ref, isRemote) => this.checkoutBranchAction(ref, isRemote),
     rename: (ref) => this.renameBranchAction(ref),
@@ -2414,22 +2414,22 @@ class GitGraphView {
     rebase: (ref) => this.rebaseOnBranchAction(ref),
     fastForward: (ref) => this.fastForwardBranchAction(ref),
     push: (ref) => this.pushBranchAction(ref),
-    createArchive: (ref) => sendMessage({ command: "createArchive", repo: this.currentRepo!, ref }),
+    createArchive: (ref, _isRemote, repo) => sendMessage({ command: "createArchive", repo, ref }),
     createPullRequest: (ref, isRemote) => this.createPullRequestAction(ref, isRemote),
     pull: (ref) => this.pullRemoteBranchAction(ref),
     fetchIntoLocal: (ref) => this.fetchIntoLocalBranchAction(ref),
     deleteRemote: (ref) => this.deleteRemoteBranchAction(ref),
-    checkRedundancy: (ref) => requestBranchRedundancy(this.currentRepo!, ref)
+    checkRedundancy: (ref, _isRemote, repo) => requestBranchRedundancy(repo, ref)
   };
   private dispatchRefAction(msg: GG.ResponseRunRefAction) {
     // Only this side knows the remotes, so this one guard cannot move to the host.
     if (REF_ACTION_CATALOGUE[msg.action].needsRemotes && this.remotes.length === 0) return;
-    this.refActionHandlers[msg.action](displayRef(msg.ref), msg.ref.startsWith(REMOTE_PREFIX));
+    this.refActionHandlers[msg.action](
+      displayRef(msg.ref),
+      msg.ref.startsWith(REMOTE_PREFIX),
+      msg.repo
+    );
   }
-  /** Run a batch action delegated by the Branches side-view. The dialogs are
-   *  written for the batch rather than replaying a single-branch dialog N times:
-   *  one confirmation for the whole set, and — for delete — one force round at
-   *  the end instead of a prompt per branch (ADR-0009). */
   /** The batch counterpart of {@link refActionHandlers} — same total-record
    *  guarantee over the delegated batch actions. */
   private readonly refBatchActionHandlers: Record<
@@ -2440,6 +2440,10 @@ class GitGraphView {
     push: (targets, skipped) => this.pushBranchesAction(targets, skipped),
     fastForward: (targets, skipped) => this.fastForwardBranchesAction(targets, skipped)
   };
+  /** Run a batch action delegated by the Branches side-view. The dialogs are
+   *  written for the batch rather than replaying a single-branch dialog N times:
+   *  one confirmation for the whole set, and — for delete — one force round at
+   *  the end instead of a prompt per branch (ADR-0009). */
   private dispatchRefBatchAction(msg: GG.ResponseRunRefBatchAction) {
     // The host reports an empty target set itself, and never sends one.
     if (msg.targets.length === 0) return;
