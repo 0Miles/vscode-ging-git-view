@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.1](https://github.com/0Miles/vscode-ging-git-view/compare/v0.3.0...v0.3.1) (2026-08-05)
+
+
+### Bug Fixes
+
+* **branches:** address code-review findings on the catalogue refactor ([72af9d4](https://github.com/0Miles/vscode-ging-git-view/commit/72af9d41efa5d57bf972e935a10eee085532d751))
+* **graph:** gate the repo dropdown on VSCode's repo-selection mode ([021ace1](https://github.com/0Miles/vscode-ging-git-view/commit/021ace1247d22ea250bba551085a8a691e23bf21))
+* **graph:** keep the focused repo in view when arrowing the dropdown ([adf96bf](https://github.com/0Miles/vscode-ging-git-view/commit/adf96bf452ab0a8f50332a4febd6655b9e75d870))
+* **graph:** show a repo dropdown in the toolbar when several repos are known ([09b9d21](https://github.com/0Miles/vscode-ging-git-view/commit/09b9d21ef1008adc570df952a8da812220106244)), closes [#16](https://github.com/0Miles/vscode-ging-git-view/issues/16)
+* **graph:** stop the repo title swallowing clicks and its own tooltip ([bd44c57](https://github.com/0Miles/vscode-ging-git-view/commit/bd44c576cfd1dbaed058eed94b4b538d97e64095))
+* **harness:** align seeded messages with the current ResponseMessage types ([#28](https://github.com/0Miles/vscode-ging-git-view/issues/28)) ([db6986d](https://github.com/0Miles/vscode-ging-git-view/commit/db6986db232c52c353a80057111c3b6df6752749)), closes [#14](https://github.com/0Miles/vscode-ging-git-view/issues/14)
+* **watcher:** stop muting the file watcher for query messages ([#27](https://github.com/0Miles/vscode-ging-git-view/issues/27)) ([b4e3aa6](https://github.com/0Miles/vscode-ging-git-view/commit/b4e3aa657ab89f788bc76baabc4710dedcb8c03a))
+
 ## [0.3.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.2.0...v0.3.0) (2026-08-03)
 
 
