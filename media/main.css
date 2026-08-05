@@ -749,13 +749,29 @@ body.tagLabelsRightAligned .gitRef.tag {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The repo dropdown affordances, present only when several repos are known:
-   the chevron beside the name, and the pointer cursor over the whole block. */
+/* The repo dropdown (#16). With several repos known the title block becomes a
+   select-style trigger — dropdown theme colours, border and chevron — and its
+   popup lists every repo. With one repo it stays the plain label above. */
+#repoDropdown {
+  position: relative;
+  min-width: 0;
+}
 #repoTitleChevron {
   display: none;
 }
 #repoTitle.multipleRepos {
   cursor: pointer;
+  padding: 2px 6px;
+  background-color: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 2px;
+  outline: 0;
+}
+/* Keyboard-focusable (tabindex from JS), so it needs a visible focus ring. */
+#repoTitle.multipleRepos:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: -1px;
 }
 #repoTitle.multipleRepos #repoTitleChevron {
   display: flex;
@@ -765,6 +781,62 @@ body.tagLabelsRightAligned .gitRef.tag {
 }
 #repoTitleChevron svg {
   fill: currentColor;
+}
+#repoDropdownList {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  /* Same elevation as the context menu: above the graph SVG and docked CDV. */
+  z-index: 300;
+  box-sizing: border-box;
+  min-width: 100%;
+  /* Grows with content, clamped to the viewport rather than a fixed cap. */
+  max-width: calc(100vw - 20px);
+  max-height: 60vh;
+  overflow-y: auto;
+  margin: 2px 0 0;
+  padding: 4px 0;
+  list-style-type: none;
+  font-size: 13px;
+  background-color: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  box-shadow: var(--vscode-shadow-lg, 0 0 12px rgba(0, 0, 0, 0.14));
+  border: var(--vscode-strokeThickness, 1px) solid
+    var(--vscode-dropdown-border, rgba(128, 128, 128, 0.35));
+  border-radius: var(--vscode-cornerRadius-large, 5px);
+  outline: 0;
+  animation: popupFadeIn 0.083s linear;
+}
+@keyframes popupFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+body.vscode-high-contrast #repoDropdownList {
+  box-shadow: none;
+}
+#repoDropdownList.active {
+  display: block;
+}
+.repoDropdownItem {
+  padding: 3px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  outline: 0;
+}
+/* The current repo wears the shared selection colours; hover and keyboard
+   focus read as the same highlight, like a native select's option list. */
+.repoDropdownItem.current,
+.repoDropdownItem:hover,
+.repoDropdownItem:focus {
+  background-color: var(--ging-selected-background);
+  color: var(--ging-selected-foreground);
 }
 /* The branch-filter chip. It wears the same selection colours as the commit row
    whose details are open, so "something is selected" looks the same wherever the

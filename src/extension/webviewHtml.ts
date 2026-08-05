@@ -94,11 +94,14 @@ export function buildWebviewHtml(opts: {
     body = `<body style="${colorVars}">
 		<div id="controls">
       <div id="controlsLeft">
-        <div id="repoTitle">
-          <span id="repoTitleName"></span>
-          <span id="repoTitleChevron"></span>
-          <span id="repoTitleBranch"></span>
+        <div id="repoDropdown">
+          <div id="repoTitle">
+            <span id="repoTitleName"></span>
+            <span id="repoTitleChevron"></span>
+          </div>
+          <ul id="repoDropdownList" role="listbox" tabindex="-1"></ul>
         </div>
+        <span id="repoTitleBranch"></span>
         <div id="branchFilterChip">
           <span id="branchFilterIcon"></span>
           <span id="branchFilterText"></span>
