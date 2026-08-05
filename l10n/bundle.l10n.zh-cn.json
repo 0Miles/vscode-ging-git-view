@@ -10,6 +10,7 @@
   "ui.loading": "加载中 ...",
   "ui.loadMore": "加载更多 commit",
   "ui.showAll": "显示全部",
+  "ui.switchRepo": "切换仓库",
   "ui.branchFilterTooltip": "已筛选为：\n{0}",
   "ui.filterPlaceholder": "筛选{0}...",
   "ui.noResultsFound": "未找到结果。",

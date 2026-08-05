@@ -10,6 +10,7 @@
   "ui.loading": "Loading ...",
   "ui.loadMore": "Load More Commits",
   "ui.showAll": "Show All",
+  "ui.switchRepo": "Switch Repository",
   "ui.branchFilterTooltip": "Filtered to:\n{0}",
   "ui.filterPlaceholder": "Filter {0}...",
   "ui.noResultsFound": "No results found.",

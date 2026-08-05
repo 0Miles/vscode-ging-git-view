@@ -214,6 +214,18 @@ class GitGraphView {
         }
       });
     }
+    const repoTitle = document.getElementById("repoTitle");
+    if (repoTitle) {
+      const chevron = document.getElementById("repoTitleChevron");
+      if (chevron) chevron.innerHTML = svgIcons.chevronDown;
+      repoTitle.addEventListener("click", (e) => {
+        // Opened by a plain click, unlike the contextmenu-driven menus — stop
+        // the click before it reaches the document listener that would dismiss
+        // the menu it just opened.
+        e.stopPropagation();
+        this.showRepoDropdown(<MouseEvent>e);
+      });
+    }
     const filterIcon = document.getElementById("branchFilterIcon");
     if (filterIcon) filterIcon.innerHTML = svgIcons.filter;
     const filterClear = document.getElementById("branchFilterClear");
@@ -352,25 +364,54 @@ class GitGraphView {
     chip.title = label?.tooltip ?? "";
   }
 
+  /** The name the toolbar and repo dropdown show for a repo: its custom name
+   *  when one is set, else its folder name. */
+  private repoDisplayName(repo: string): string {
+    return this.gitRepos[repo]?.customName || repo.substring(repo.lastIndexOf("/") + 1);
+  }
+
   /** Refresh the toolbar's title block: the repo's display name (custom name,
-   *  else its folder name) over the checked-out branch. The branch may lag one
-   *  load behind on a repo switch; the loadBranches response corrects it. */
+   *  else its folder name) over the checked-out branch. With several repos
+   *  known the block doubles as the repo dropdown's trigger, so it also gains
+   *  the affordances for that — the chevron, the cursor and the tooltip (#16). */
   private updateRepoTitle() {
+    const titleElem = document.getElementById("repoTitle");
     const nameElem = document.getElementById("repoTitleName");
     const branchElem = document.getElementById("repoTitleBranch");
-    if (nameElem === null || branchElem === null) return;
+    if (titleElem === null || nameElem === null || branchElem === null) return;
+    const multipleRepos = Object.keys(this.gitRepos).length > 1;
+    titleElem.classList.toggle("multipleRepos", multipleRepos);
+    titleElem.title = multipleRepos ? l10n.switchRepo : "";
     const repo: string | undefined = this.currentRepo;
     if (repo === undefined) {
       nameElem.textContent = "";
       branchElem.textContent = "";
       return;
     }
-    const name = this.gitRepos[repo]?.customName || repo.substring(repo.lastIndexOf("/") + 1);
     const branch = this.gitBranchHead ?? "";
-    nameElem.textContent = name;
+    nameElem.textContent = this.repoDisplayName(repo);
     nameElem.title = repo;
     branchElem.textContent = branch;
     branchElem.title = branch;
+  }
+
+  /** Open the repo dropdown: a menu of every known repository from which the
+   *  user can switch the graph. Only offered when several repos are known —
+   *  with one repo the title is a plain label and the click does nothing. */
+  private showRepoDropdown(e: MouseEvent) {
+    const repoPaths = Object.keys(this.gitRepos);
+    if (repoPaths.length < 2) return;
+    const sourceElem = document.getElementById("repoTitle");
+    if (sourceElem === null) return;
+    showContextMenu(
+      e,
+      repoPaths.map((repo) => ({
+        title: escapeHtml(this.repoDisplayName(repo)),
+        checked: repo === this.currentRepo,
+        onClick: () => this.setRepo(repo)
+      })),
+      sourceElem
+    );
   }
 
   /** Apply a "Show Remote Branches" change driven by the Branches side-view's
@@ -418,7 +459,7 @@ class GitGraphView {
     }
   }
 
-  /** Switch the visible repo without going through the dropdown — driven by an
+  /** Switch the visible repo: driven by the toolbar's repo dropdown or by an
    *  extension-side message (e.g. user clicked a repo in the sidebar). */
   public setRepo(repo: string) {
     if (this.currentRepo === repo) return;

@@ -749,6 +749,23 @@ body.tagLabelsRightAligned .gitRef.tag {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The repo dropdown affordances, present only when several repos are known:
+   the chevron beside the name, and the pointer cursor over the whole block. */
+#repoTitleChevron {
+  display: none;
+}
+#repoTitle.multipleRepos {
+  cursor: pointer;
+}
+#repoTitle.multipleRepos #repoTitleChevron {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+#repoTitleChevron svg {
+  fill: currentColor;
+}
 /* The branch-filter chip. It wears the same selection colours as the commit row
    whose details are open, so "something is selected" looks the same wherever the
    graph says it. Read-only: the clear button is the only thing in it that
