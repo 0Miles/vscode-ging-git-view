@@ -74,6 +74,8 @@ const VIEW_STATE = {
   dialogMergeSquash: false,
   dialogResetMode: "mixed",
   customBranchGlobPatterns: [],
+  // Remembered dialog options; the extension always injects this store.
+  dialogMemory: {},
   // Fully-populated so every context menu renders (the extension always sends a
   // complete object; an empty {} would make `cmv.branch.x` throw).
   contextMenuActionsVisibility: {
@@ -87,19 +89,18 @@ const VIEW_STATE = {
       reset: true,
       rebase: true,
       drop: true,
-      openDirectoryDiff: true,
       copyHash: true,
       copySubject: true
     },
     branch: {
       checkout: true,
-      checkoutAndPull: true,
       rename: true,
       push: true,
       createArchive: true,
       delete: true,
       merge: true,
       rebase: true,
+      checkRedundancy: true,
       copyName: true
     },
     remoteBranch: {
@@ -108,6 +109,7 @@ const VIEW_STATE = {
       pull: true,
       fetch: true,
       delete: true,
+      checkRedundancy: true,
       copyName: true
     },
     tag: { viewDetails: true, delete: true, push: true, createArchive: true, copyName: true },
@@ -124,6 +126,7 @@ const VIEW_STATE = {
   },
   customEmojiShortcodeMappings: {},
   dateFormat: "Date & Time",
+  dateCustomFormat: "DD MMM YYYY",
   defaultColumnVisibility: { date: true, author: true, commit: true },
   enhancedAccessibility: false,
   fetchAvatars: false,
@@ -144,14 +147,12 @@ const VIEW_STATE = {
   onLoadScrollToHead: false,
   referenceInputSpaceSubstitution: "None",
   repos: { [REPO]: { columnWidths: null } },
-  repositoryDropdownOrder: "Workspace Full Path",
   showCurrentBranchByDefault: false,
 
   uncommittedChangesAtHead: false,
   showSpecificBranches: [],
   showRemoteBranches: true,
-  showTags: true,
-  grid: { x: 16, y: 24, offsetX: 16, offsetY: 12, expandY: 250 }
+  showTags: true
 };
 
 const SAMPLE_COMMITS = [
@@ -192,24 +193,42 @@ const rootVars = Object.entries(THEME_VARS)
   .map(([k, v]) => `${k}:${v};`)
   .join("");
 
+// Mirror buildWebviewHtml: per-column graph colour variables on <body>, plus
+// the [data-color] → --git-graph-color mapping the graph SVG relies on.
+let colorVars = "",
+  colorParams = "";
+for (let i = 0; i < VIEW_STATE.graphColours.length; i++) {
+  colorVars += "--git-graph-color" + i + ":" + VIEW_STATE.graphColours[i] + "; ";
+  colorParams += '[data-color="' + i + '"]{--git-graph-color:var(--git-graph-color' + i + ");} ";
+}
+
 const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <link rel="stylesheet" type="text/css" href="./main.css">
-<style>:root{${rootVars}} html,body{height:100%;}</style>
+<style>:root{${rootVars}} html,body{height:100%;} ${colorParams}</style>
 </head>
-<body style="--git-graph-color0:#0085d9;">
+<body style="${colorVars}">
   <div id="controls">
-    <span id="repoControl"><span class="unselectable">Repo: </span><div id="repoSelect" class="dropdown"></div></span>
-    <span id="branchControl"><span class="unselectable">Branch: </span><div id="branchSelect" class="dropdown"></div></span>
-    <label id="showRemoteBranchesControl"><input type="checkbox" id="showRemoteBranchesCheckbox" value="1" checked>Show Remote Branches</label>
+    <div id="controlsLeft">
+      <div id="repoTitle">
+        <span id="repoTitleName"></span>
+        <span id="repoTitleBranch"></span>
+      </div>
+      <div id="branchFilterChip">
+        <span id="branchFilterIcon"></span>
+        <span id="branchFilterText"></span>
+        <div id="branchFilterClear" title="Show All"></div>
+      </div>
+    </div>
     <div id="findBtn" class="iconBtn" title="Find"></div>
     <div id="terminalBtn" class="iconBtn" title="Terminal"></div>
     <div id="blinkHeadBtn" class="iconBtn" title="Locate HEAD"></div>
     <div id="fetchBtn" class="iconBtn" title="Fetch"></div>
     <div id="refreshBtn" class="iconBtn" title="Refresh"></div>
   </div>
+  <div id="conflictBanner"></div>
   <div id="content"><div id="commitGraph"></div><div id="commitTable"></div></div>
   <div id="footer"></div>
   <div id="findWidget"><input id="findInput" type="text"><span id="findCount"></span><div id="findPrev" class="findBtn"></div><div id="findNext" class="findBtn"></div><div id="findOpenCdv" class="findBtn">&#9776;</div><div id="findClose" class="findBtn"></div></div>
@@ -226,8 +245,16 @@ const html = `<!DOCTYPE html>
   <script>
     const receive = (msg) => window.dispatchEvent(new MessageEvent("message", { data: msg }));
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
-    receive({ command: "loadBranches", branches: ["main", "feature/long-branch-name"], head: "main", hard: true, isRepo: true });
+    receive({ command: "loadBranches", branches: ["main", "feature/long-branch-name"], head: "main", hard: true, isRepo: true, filter: [], dimmedBranches: [] });
     receive({ command: "loadCommits", commits: ${JSON.stringify(SAMPLE_COMMITS)}, head: "aaaaaaa1", moreCommitsAvailable: false, hard: true });
+    // Guard against silently-dropped seed messages (issue #14): the whole point
+    // of this harness is to render commit rows, so an empty table is a failure.
+    if (document.querySelectorAll("tr.commit").length === 0) {
+      console.error(
+        "webview-harness: no tr.commit rows rendered after seeding — " +
+        "the seeded messages are probably out of sync with ResponseMessage in src/types.ts"
+      );
+    }
   </script>
 </body>
 </html>`;
