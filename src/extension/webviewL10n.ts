@@ -24,6 +24,7 @@ export function getWebviewLocalizedStrings() {
     loading: l10n.t("ui.loading"),
     loadMore: l10n.t("ui.loadMore"),
     showAll: l10n.t("ui.showAll"),
+    switchRepo: l10n.t("ui.switchRepo"),
     branchFilterTooltip: l10n.t("ui.branchFilterTooltip"),
     filterPlaceholder: l10n.t("ui.filterPlaceholder"),
     noResultsFound: l10n.t("ui.noResultsFound"),

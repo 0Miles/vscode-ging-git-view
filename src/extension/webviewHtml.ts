@@ -96,6 +96,7 @@ export function buildWebviewHtml(opts: {
       <div id="controlsLeft">
         <div id="repoTitle">
           <span id="repoTitleName"></span>
+          <span id="repoTitleChevron"></span>
           <span id="repoTitleBranch"></span>
         </div>
         <div id="branchFilterChip">
