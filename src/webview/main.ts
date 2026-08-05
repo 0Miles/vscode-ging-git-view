@@ -219,13 +219,27 @@ class GitGraphView {
       const chevron = document.getElementById("repoTitleChevron");
       if (chevron) chevron.innerHTML = svgIcons.chevronDown;
       repoTitle.addEventListener("click", (e) => {
-        // Opened by a plain click, unlike the contextmenu-driven menus — stop
-        // the click before it reaches the document listener that would dismiss
-        // the menu it just opened.
+        // The dropdown opens from a plain click — stop it before it reaches
+        // the document listener below, which would close it again.
         e.stopPropagation();
-        this.showRepoDropdown(<MouseEvent>e);
+        this.toggleRepoDropdown();
+      });
+      repoTitle.addEventListener("keydown", (e) => {
+        const key = (<KeyboardEvent>e).key;
+        if (key === "Enter" || key === " " || key === "ArrowDown") {
+          e.preventDefault();
+          this.toggleRepoDropdown();
+        } else if (key === "Escape") {
+          this.closeRepoDropdown(true);
+        }
       });
     }
+    const repoList = document.getElementById("repoDropdownList");
+    if (repoList) {
+      repoList.addEventListener("click", (e) => e.stopPropagation());
+      repoList.addEventListener("keydown", (e) => this.repoDropdownKeydown(<KeyboardEvent>e));
+    }
+    document.addEventListener("click", () => this.closeRepoDropdown());
     const filterIcon = document.getElementById("branchFilterIcon");
     if (filterIcon) filterIcon.innerHTML = svgIcons.filter;
     const filterClear = document.getElementById("branchFilterClear");
@@ -371,9 +385,9 @@ class GitGraphView {
   }
 
   /** Refresh the toolbar's title block: the repo's display name (custom name,
-   *  else its folder name) over the checked-out branch. With several repos
-   *  known the block doubles as the repo dropdown's trigger, so it also gains
-   *  the affordances for that — the chevron, the cursor and the tooltip (#16). */
+   *  else its folder name), with the checked-out branch beside it. With several
+   *  repos known the block becomes the repo dropdown's select-style trigger
+   *  (#16); with one repo it stays a plain label. */
   private updateRepoTitle() {
     const titleElem = document.getElementById("repoTitle");
     const nameElem = document.getElementById("repoTitleName");
@@ -382,6 +396,23 @@ class GitGraphView {
     const multipleRepos = Object.keys(this.gitRepos).length > 1;
     titleElem.classList.toggle("multipleRepos", multipleRepos);
     titleElem.title = multipleRepos ? l10n.switchRepo : "";
+    if (multipleRepos) {
+      titleElem.setAttribute("role", "button");
+      titleElem.setAttribute("aria-haspopup", "listbox");
+      // Keyboard-reachable whenever it acts as a control, so the dropdown can
+      // be opened without a mouse and closing can hand focus back to it.
+      titleElem.tabIndex = 0;
+      if (titleElem.getAttribute("aria-expanded") === null) {
+        titleElem.setAttribute("aria-expanded", "false");
+      }
+    } else {
+      titleElem.removeAttribute("role");
+      titleElem.removeAttribute("aria-haspopup");
+      titleElem.removeAttribute("aria-expanded");
+      titleElem.removeAttribute("tabindex");
+      // A repo may have vanished while the list was open (loadRepos).
+      this.closeRepoDropdown();
+    }
     const repo: string | undefined = this.currentRepo;
     if (repo === undefined) {
       nameElem.textContent = "";
@@ -395,23 +426,91 @@ class GitGraphView {
     branchElem.title = branch;
   }
 
-  /** Open the repo dropdown: a menu of every known repository from which the
-   *  user can switch the graph. Only offered when several repos are known —
-   *  with one repo the title is a plain label and the click does nothing. */
-  private showRepoDropdown(e: MouseEvent) {
+  /* The repo dropdown (#16): a select-style listbox of every known repository
+   * from which the user switches the graph. Only offered when several repos
+   * are known — with one repo the title is a plain label and clicks no-op. */
+
+  private toggleRepoDropdown() {
+    const list = document.getElementById("repoDropdownList");
+    if (list === null) return;
+    if (list.classList.contains("active")) {
+      this.closeRepoDropdown(true);
+    } else {
+      this.openRepoDropdown();
+    }
+  }
+
+  private openRepoDropdown() {
     const repoPaths = Object.keys(this.gitRepos);
     if (repoPaths.length < 2) return;
-    const sourceElem = document.getElementById("repoTitle");
-    if (sourceElem === null) return;
-    showContextMenu(
-      e,
-      repoPaths.map((repo) => ({
-        title: escapeHtml(this.repoDisplayName(repo)),
-        checked: repo === this.currentRepo,
-        onClick: () => this.setRepo(repo)
-      })),
-      sourceElem
-    );
+    const list = document.getElementById("repoDropdownList");
+    const trigger = document.getElementById("repoTitle");
+    if (list === null || trigger === null) return;
+    list.innerHTML = "";
+    for (const repo of repoPaths) {
+      const current = repo === this.currentRepo;
+      const item = document.createElement("li");
+      item.className = "repoDropdownItem" + (current ? " current" : "");
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", String(current));
+      item.tabIndex = -1;
+      // The item shows only the display name; the full path rides along as a
+      // tooltip so same-named folders stay tellable apart.
+      item.title = repo;
+      item.textContent = this.repoDisplayName(repo);
+      item.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this.closeRepoDropdown(true);
+        this.setRepo(repo);
+      });
+      list.appendChild(item);
+    }
+    list.classList.add("active");
+    trigger.setAttribute("aria-expanded", "true");
+    // Nothing is focused within the list yet: matching native selects, the
+    // first arrow key is what moves onto an item.
+    list.focus({ preventScroll: true });
+  }
+
+  private closeRepoDropdown(returnFocus: boolean = false) {
+    const list = document.getElementById("repoDropdownList");
+    const trigger = document.getElementById("repoTitle");
+    if (list === null || !list.classList.contains("active")) return;
+    const hadFocus = list.contains(document.activeElement) || document.activeElement === trigger;
+    list.classList.remove("active");
+    list.innerHTML = "";
+    if (trigger !== null) {
+      trigger.setAttribute("aria-expanded", "false");
+      // The trigger keeps its tabindex (updateRepoTitle owns it), so focusing
+      // it here sticks — dropping the attribute after focus() would blur it.
+      if (returnFocus && hadFocus) trigger.focus({ preventScroll: true });
+    }
+  }
+
+  private repoDropdownKeydown(e: KeyboardEvent) {
+    const list = document.getElementById("repoDropdownList");
+    if (list === null || !list.classList.contains("active")) return;
+    const items = Array.from(list.querySelectorAll<HTMLElement>(".repoDropdownItem"));
+    if (items.length === 0) return;
+    const focused = items.indexOf(<HTMLElement>document.activeElement);
+    let next: number | null = null;
+    // No wrap-around: like a native select, the ends are hard stops.
+    if (e.key === "ArrowDown") next = focused < 0 ? 0 : Math.min(focused + 1, items.length - 1);
+    else if (e.key === "ArrowUp") next = focused < 0 ? items.length - 1 : Math.max(focused - 1, 0);
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = items.length - 1;
+    else if (e.key === "Escape" || e.key === "Tab") {
+      // Tab dismisses rather than walking out of the popup — the same rule the
+      // context menu follows.
+      this.closeRepoDropdown(true);
+    } else if ((e.key === "Enter" || e.key === " ") && focused > -1) {
+      items[focused].click();
+    } else {
+      return;
+    }
+    if (next !== null) items[next].focus({ preventScroll: true });
+    e.preventDefault();
+    e.stopPropagation();
   }
 
   /** Apply a "Show Remote Branches" change driven by the Branches side-view's
