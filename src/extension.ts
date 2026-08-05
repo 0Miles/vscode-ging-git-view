@@ -22,7 +22,7 @@ import { formatGitError } from "./backend/utils/gitError";
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
 import { CATALOGUE_REF_ACTIONS, isBatchAction } from "./backend/utils/refActionCatalogue";
 import { repoContainingPath, resolveToKnownRepo } from "./backend/utils/repoMatch";
-import { config } from "./config";
+import { config, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
@@ -233,6 +233,19 @@ export function activate(context: vscode.ExtensionContext) {
     scmRepoTracker.onDidChangeRepos(syncFocusedRepoContext)
   );
   syncFocusedRepoContext();
+
+  // The graph offers its repo dropdown only while the Source Control view is in multi-select mode.
+  // Which repos are ticked there is not readable by extensions (it lives in workbench storage), but
+  // the mode itself is an ordinary setting, so follow that.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration(SCM_SELECTION_MODE_SETTING)) return;
+      currentBridge?.post({
+        command: "setScmMultiRepoSelection",
+        enabled: config.scmMultiRepoSelection()
+      });
+    })
+  );
 
   // Map raw repo paths (e.g. from the SC selection) to the repos repoManager knows, resolving
   // symlinks and dropping any it hasn't discovered.

@@ -46,6 +46,7 @@ const viewState: GG.GitGraphViewState = {
   onLoadScrollToHead: false,
   referenceInputSpaceSubstitution: "None",
   repos: { [REPO]: { columnWidths: null } },
+  scmMultiRepoSelection: true,
   showCurrentBranchByDefault: false,
   uncommittedChangesAtHead: false,
   showSpecificBranches: [],

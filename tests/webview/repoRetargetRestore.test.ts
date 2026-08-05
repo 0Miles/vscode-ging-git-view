@@ -57,6 +57,7 @@ function buildViewState(lastActiveRepo: string): GG.GitGraphViewState {
     onLoadScrollToHead: false,
     referenceInputSpaceSubstitution: "None",
     repos: { [REPO_A]: { columnWidths: null }, [REPO_B]: { columnWidths: null } },
+    scmMultiRepoSelection: true,
     showCurrentBranchByDefault: false,
     uncommittedChangesAtHead: false,
     showSpecificBranches: [],

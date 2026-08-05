@@ -69,6 +69,7 @@ export function buildWebviewHtml(opts: {
     onLoadScrollToHead: config.onLoadScrollToHead(),
     referenceInputSpaceSubstitution: config.referenceInputSpaceSubstitution(),
     repos: repoManager.getRepos(),
+    scmMultiRepoSelection: config.scmMultiRepoSelection(),
     showCurrentBranchByDefault: config.showCurrentBranchByDefault(),
     uncommittedChangesAtHead: config.uncommittedChangesAtHead(),
     showSpecificBranches: config.showSpecificBranches(),

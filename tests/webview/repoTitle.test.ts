@@ -51,6 +51,7 @@ function buildViewState(repos: GG.GitRepoSet, lastActiveRepo: string): GG.GitGra
     onLoadScrollToHead: false,
     referenceInputSpaceSubstitution: "None",
     repos,
+    scmMultiRepoSelection: true,
     showCurrentBranchByDefault: false,
     uncommittedChangesAtHead: false,
     showSpecificBranches: [],
