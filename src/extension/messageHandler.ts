@@ -155,17 +155,21 @@ export function registerMessageHandlers(
       : [(error: unknown) => ActionResponseExtra<T>]
   ) {
     const [classifyError] = classify as [((error: unknown) => object) | undefined];
-    bridge.onMessage(command, async (msg) => {
-      let status: string | null = null;
-      let error: unknown = null;
-      try {
-        await handler(msg);
-      } catch (e: unknown) {
-        error = e;
-        status = formatGitError(e);
-      }
-      bridge.post({ command, status, ...classifyError?.(error) } as ResponseMessage);
-    });
+    bridge.onMessage(
+      command,
+      async (msg) => {
+        let status: string | null = null;
+        let error: unknown = null;
+        try {
+          await handler(msg);
+        } catch (e: unknown) {
+          error = e;
+          status = formatGitError(e);
+        }
+        bridge.post({ command, status, ...classifyError?.(error) } as ResponseMessage);
+      },
+      { mutatesRepo: true }
+    );
   }
 
   /** The batch counterpart of `registerAction`. It cannot reuse that wrapper:
@@ -176,10 +180,14 @@ export function registerMessageHandlers(
     command: T,
     handler: (msg: Extract<RequestMessage, { command: T }>) => Promise<BatchRefResult[]>
   ) {
-    bridge.onMessage(command, async (msg) => {
-      const results = await handler(msg);
-      bridge.post({ command, results } as ResponseMessage);
-    });
+    bridge.onMessage(
+      command,
+      async (msg) => {
+        const results = await handler(msg);
+        bridge.post({ command, results } as ResponseMessage);
+      },
+      { mutatesRepo: true }
+    );
   }
 
   // --- Action handlers ---
@@ -337,45 +345,55 @@ export function registerMessageHandlers(
     });
   });
 
-  bridge.onMessage("createArchive", async (msg) => {
-    let success = true;
-    try {
-      const safeRef = msg.ref.replace(/[^a-zA-Z0-9-_.]/g, "-");
-      const uri = await vscode.window.showSaveDialog({
-        saveLabel: l10n.t("action.createArchive"),
-        filters: { Archives: ["zip", "tar"] },
-        defaultUri: vscode.Uri.file(`${msg.repo}/${safeRef}.zip`)
-      });
-      // No uri means the user cancelled — not an error.
-      if (uri !== undefined) {
-        await createArchive(gitClient.getInstance(), { ref: msg.ref, outputPath: uri.fsPath });
-      }
-    } catch {
-      success = false;
-    }
-    bridge.post({ command: "createArchive", success });
-  });
-
-  bridge.onMessage("exportPatch", async (msg) => {
-    let success = true;
-    try {
-      const uri = await vscode.window.showSaveDialog({
-        saveLabel: l10n.t("action.exportPatch"),
-        filters: { Patches: ["patch"] },
-        defaultUri: vscode.Uri.file(`${msg.repo}/${abbrevCommit(msg.commitHash)}.patch`)
-      });
-      // No uri means the user cancelled — not an error.
-      if (uri !== undefined) {
-        await exportPatch(gitClient.getInstance(), {
-          commitHash: msg.commitHash,
-          outputPath: uri.fsPath
+  // Writes the archive file — often into the watched working tree.
+  bridge.onMessage(
+    "createArchive",
+    async (msg) => {
+      let success = true;
+      try {
+        const safeRef = msg.ref.replace(/[^a-zA-Z0-9-_.]/g, "-");
+        const uri = await vscode.window.showSaveDialog({
+          saveLabel: l10n.t("action.createArchive"),
+          filters: { Archives: ["zip", "tar"] },
+          defaultUri: vscode.Uri.file(`${msg.repo}/${safeRef}.zip`)
         });
+        // No uri means the user cancelled — not an error.
+        if (uri !== undefined) {
+          await createArchive(gitClient.getInstance(), { ref: msg.ref, outputPath: uri.fsPath });
+        }
+      } catch {
+        success = false;
       }
-    } catch {
-      success = false;
-    }
-    bridge.post({ command: "exportPatch", success });
-  });
+      bridge.post({ command: "createArchive", success });
+    },
+    { mutatesRepo: true }
+  );
+
+  // Writes the patch file — often into the watched working tree.
+  bridge.onMessage(
+    "exportPatch",
+    async (msg) => {
+      let success = true;
+      try {
+        const uri = await vscode.window.showSaveDialog({
+          saveLabel: l10n.t("action.exportPatch"),
+          filters: { Patches: ["patch"] },
+          defaultUri: vscode.Uri.file(`${msg.repo}/${abbrevCommit(msg.commitHash)}.patch`)
+        });
+        // No uri means the user cancelled — not an error.
+        if (uri !== undefined) {
+          await exportPatch(gitClient.getInstance(), {
+            commitHash: msg.commitHash,
+            outputPath: uri.fsPath
+          });
+        }
+      } catch {
+        success = false;
+      }
+      bridge.post({ command: "exportPatch", success });
+    },
+    { mutatesRepo: true }
+  );
 
   bridge.onMessage("tagDetails", async (msg) => {
     bridge.post({
@@ -483,18 +501,23 @@ export function registerMessageHandlers(
     });
   });
 
-  bridge.onMessage("fetch", async () => {
-    let status: string | null = null;
-    try {
-      await fetchFromRemotes(gitClient.getInstance(), {
-        prune: config.fetchAndPrune(),
-        pruneTags: config.fetchAndPruneTags()
-      });
-    } catch (e: unknown) {
-      status = formatGitError(e);
-    }
-    bridge.post({ command: "fetch", status });
-  });
+  // Updates remote refs (and prunes) in .git.
+  bridge.onMessage(
+    "fetch",
+    async () => {
+      let status: string | null = null;
+      try {
+        await fetchFromRemotes(gitClient.getInstance(), {
+          prune: config.fetchAndPrune(),
+          pruneTags: config.fetchAndPruneTags()
+        });
+      } catch (e: unknown) {
+        status = formatGitError(e);
+      }
+      bridge.post({ command: "fetch", status });
+    },
+    { mutatesRepo: true }
+  );
 
   bridge.onMessage("openTerminal", (msg) => {
     const name = msg.repo.split("/").findLast((s) => s !== "") ?? msg.repo;
