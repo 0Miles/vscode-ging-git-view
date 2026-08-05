@@ -10,7 +10,11 @@ describe("isWatchedRepoPath", () => {
       ".git/CHERRY_PICK_HEAD",
       ".git/REBASE_HEAD",
       ".git/rebase-merge/done",
-      ".git/rebase-apply/0001"
+      ".git/rebase-apply/0001",
+      // When a rebase finishes, VS Code's watcher may report only the deletion
+      // of the directory itself — that event must clear the banner too.
+      ".git/rebase-merge",
+      ".git/rebase-apply"
     ]) {
       expect(isWatchedRepoPath(p)).toBe(true);
     }
