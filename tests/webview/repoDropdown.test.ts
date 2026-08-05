@@ -266,6 +266,19 @@ describe("toolbar repo dropdown in single-select mode", () => {
     ]);
   });
 
+  it("scrolls the focused item into view — the list scrolls past its max-height", () => {
+    // jsdom stubs no scrollIntoView, so stand one up and watch the calls.
+    const seen: HTMLElement[] = [];
+    for (const item of items()) {
+      item.scrollIntoView = function () {
+        seen.push(this as HTMLElement);
+      };
+    }
+    keydown("ArrowDown");
+    keydown("End");
+    expect(seen).toEqual([items()[0], items()[2]]);
+  });
+
   it("takes the dropdown away again — closing an open list — on switching back", () => {
     // The list is open from the previous test; leaving multi-select invalidates it.
     expect(isOpen()).toBe(true);

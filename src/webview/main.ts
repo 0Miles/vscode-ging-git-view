@@ -550,7 +550,14 @@ class GitGraphView {
     } else {
       return;
     }
-    if (next !== null) items[next].focus({ preventScroll: true });
+    if (next !== null) {
+      const target = items[next];
+      target.focus({ preventScroll: true });
+      // The list scrolls once it outgrows its max-height, so walk the viewport
+      // along with the focus — otherwise arrowing past the fold moves focus to
+      // an item nobody can see. (jsdom has no scrollIntoView.)
+      if (typeof target.scrollIntoView === "function") target.scrollIntoView({ block: "nearest" });
+    }
     e.preventDefault();
     e.stopPropagation();
   }
