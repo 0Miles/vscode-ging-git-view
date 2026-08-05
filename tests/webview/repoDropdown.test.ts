@@ -104,6 +104,22 @@ describe("toolbar repo dropdown in multi-select mode", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
     expect(trigger().tabIndex).toBe(0);
     expect(trigger().title).not.toBe("");
+    // The trigger owns the tooltip: a nested one on the name would win over it
+    // across most of the control and hide what the click does.
+    expect(document.getElementById("repoTitleName")!.hasAttribute("title")).toBe(false);
+  });
+
+  it("lets a click through to the document so an open context menu still closes", () => {
+    const menu = document.getElementById("contextMenu")!;
+    menu.className = "active";
+    // A click on the trigger opens the dropdown, and retires the context menu
+    // rather than stacking the two popups.
+    clickTrigger();
+    expect(menu.classList.contains("active")).toBe(false);
+    expect(isOpen()).toBe(true);
+    // A right-click anywhere is about to raise a menu, so the list stands down.
+    document.body.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    expect(isOpen()).toBe(false);
   });
 
   it("opens a listbox of the workspace's repos, the current one selected", () => {
@@ -223,9 +239,19 @@ describe("toolbar repo dropdown in single-select mode", () => {
     expect(trigger().hasAttribute("aria-haspopup")).toBe(false);
     expect(trigger().hasAttribute("tabindex")).toBe(false);
     expect(trigger().title).toBe("");
-    // It still names the repo on screen.
+    // It still names the repo on screen, with its path as the tooltip.
     expect(titleText()).toBe("repo-a");
+    expect(document.getElementById("repoTitleName")!.title).toBe(REPO_A);
     clickTrigger();
+    expect(isOpen()).toBe(false);
+  });
+
+  it("as a plain label, does not swallow clicks bound for the document", () => {
+    const menu = document.getElementById("contextMenu")!;
+    menu.className = "active";
+    clickTrigger();
+    // Inert block: the click carries on and dismisses the context menu.
+    expect(menu.classList.contains("active")).toBe(false);
     expect(isOpen()).toBe(false);
   });
 

@@ -223,12 +223,16 @@ class GitGraphView {
       const chevron = document.getElementById("repoTitleChevron");
       if (chevron) chevron.innerHTML = svgIcons.chevronDown;
       repoTitle.addEventListener("click", (e) => {
-        // The dropdown opens from a plain click — stop it before it reaches
-        // the document listener below, which would close it again.
+        // Only swallow the click when it actually opens the dropdown: it would
+        // otherwise reach the document listener below and close what it just
+        // opened. As a plain label the block is inert, and the click must carry
+        // on to the document — that is what dismisses an open context menu.
+        if (!this.repoDropdownOnOffer()) return;
         e.stopPropagation();
         this.toggleRepoDropdown();
       });
       repoTitle.addEventListener("keydown", (e) => {
+        if (!this.repoDropdownOnOffer()) return;
         const key = (<KeyboardEvent>e).key;
         if (key === "Enter" || key === " " || key === "ArrowDown") {
           e.preventDefault();
@@ -244,6 +248,9 @@ class GitGraphView {
       repoList.addEventListener("keydown", (e) => this.repoDropdownKeydown(<KeyboardEvent>e));
     }
     document.addEventListener("click", () => this.closeRepoDropdown());
+    // A right-click anywhere is about to raise a context menu; the two popups
+    // must not share the screen.
+    document.addEventListener("contextmenu", () => this.closeRepoDropdown());
     const filterIcon = document.getElementById("branchFilterIcon");
     if (filterIcon) filterIcon.innerHTML = svgIcons.filter;
     const filterClear = document.getElementById("branchFilterClear");
@@ -405,6 +412,12 @@ class GitGraphView {
     return this.scmMultiRepoSelection ? Object.keys(this.gitRepos) : [];
   }
 
+  /** Whether the title block is currently a dropdown trigger rather than a
+   *  plain label — one repo to choose from is a label, not a choice. */
+  private repoDropdownOnOffer(): boolean {
+    return this.repoDropdownRepos().length > 1;
+  }
+
   /** Refresh the toolbar's title block: the repo's display name (custom name,
    *  else its folder name), with the checked-out branch beside it. Where the
    *  dropdown is on offer the block becomes its select-style trigger (#16);
@@ -414,7 +427,7 @@ class GitGraphView {
     const nameElem = document.getElementById("repoTitleName");
     const branchElem = document.getElementById("repoTitleBranch");
     if (titleElem === null || nameElem === null || branchElem === null) return;
-    const multipleRepos = this.repoDropdownRepos().length > 1;
+    const multipleRepos = this.repoDropdownOnOffer();
     titleElem.classList.toggle("multipleRepos", multipleRepos);
     titleElem.title = multipleRepos ? l10n.switchRepo : "";
     if (multipleRepos) {
@@ -442,7 +455,11 @@ class GitGraphView {
     }
     const branch = this.gitBranchHead ?? "";
     nameElem.textContent = this.repoDisplayName(repo);
-    nameElem.title = repo;
+    // As a trigger the block owns the tooltip: a nested one here would win over
+    // it across most of the control, hiding what the click does. The full path
+    // is still a tooltip on each item of the open list.
+    if (multipleRepos) nameElem.removeAttribute("title");
+    else nameElem.title = repo;
     branchElem.textContent = branch;
     branchElem.title = branch;
   }
@@ -468,6 +485,9 @@ class GitGraphView {
     const list = document.getElementById("repoDropdownList");
     const trigger = document.getElementById("repoTitle");
     if (list === null || trigger === null) return;
+    // The click that opens this never reaches the document listener that would
+    // dismiss a context menu, so retire one here rather than stacking popups.
+    hideContextMenu();
     list.innerHTML = "";
     for (const repo of repoPaths) {
       const current = repo === this.currentRepo;
