@@ -28,11 +28,15 @@ export function webviewBridgeFactory(webview: vscode.Webview, repoFileWatcher: R
     onMessage: <T extends RequestMessage["command"]>(
       command: T,
       handler: (msg: Extract<RequestMessage, { command: T }>) => void | Promise<void>,
-      options?: { mutatesRepo: boolean }
+      // Required on purpose: a silently-defaulted `false` is exactly how a
+      // mutating handler would sneak past unmuted (or a query handler muted),
+      // re-creating the echo-refresh / swallowed-event bugs the flag exists to
+      // prevent. Every registration must state which side it is on.
+      options: { mutatesRepo: boolean }
     ) => {
       handlers.set(command, {
         handler: handler as (msg: RequestMessage) => void | Promise<void>,
-        mutatesRepo: options?.mutatesRepo ?? false
+        mutatesRepo: options.mutatesRepo
       });
     }
   };

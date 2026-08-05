@@ -25,7 +25,7 @@ describe("webviewBridge watcher muting", () => {
   it("does not mute the watcher for query messages (issue #26)", async () => {
     const { bridge, watcher, receive } = makeHarness();
     const handler = vi.fn();
-    bridge.onMessage("operationState", handler);
+    bridge.onMessage("operationState", handler, { mutatesRepo: false });
     // While a CLI `git rebase` runs, the webview keeps sending queries; muting
     // (and the post-unmute quiet period) for those would swallow the fs events
     // that signal the rebase finished, leaving the conflict banner stuck.

@@ -255,95 +255,111 @@ export function registerMessageHandlers(
 
   // --- Query handlers ---
 
-  bridge.onMessage("loadCommits", async (msg) => {
-    bridge.post({
-      command: "loadCommits",
-      ...(await loadCommits(gitClient.getInstance(), {
-        branchNames: msg.branchNames,
-        maxCommits: msg.maxCommits,
-        showRemoteBranches: msg.showRemoteBranches,
-        hard: msg.hard,
-        dateType: config.dateType(),
-        showUncommittedChanges: config.showUncommittedChanges(),
-        // A per-repo override (from the column-header menu) wins over the setting.
-        commitOrder: msg.commitOrder ?? config.commitOrder(),
-        onlyFollowFirstParent: config.onlyFollowFirstParent(),
-        showUntrackedFiles: config.showUntrackedFiles(),
-        showCommitsOnlyReferencedByTags: config.showCommitsOnlyReferencedByTags(),
-        showRemoteHeads: config.showRemoteHeads(),
-        includeCommitsMentionedByReflogs: config.includeCommitsMentionedByReflogs(),
-        showSignatureStatus: config.showSignatureStatus(),
-        showStashes: config.showStashes(),
-        useMailmap: config.useMailmap(),
-        hiddenRemotes: msg.hiddenRemotes ?? []
-      }))
-    });
-  });
+  bridge.onMessage(
+    "loadCommits",
+    async (msg) => {
+      bridge.post({
+        command: "loadCommits",
+        ...(await loadCommits(gitClient.getInstance(), {
+          branchNames: msg.branchNames,
+          maxCommits: msg.maxCommits,
+          showRemoteBranches: msg.showRemoteBranches,
+          hard: msg.hard,
+          dateType: config.dateType(),
+          showUncommittedChanges: config.showUncommittedChanges(),
+          // A per-repo override (from the column-header menu) wins over the setting.
+          commitOrder: msg.commitOrder ?? config.commitOrder(),
+          onlyFollowFirstParent: config.onlyFollowFirstParent(),
+          showUntrackedFiles: config.showUntrackedFiles(),
+          showCommitsOnlyReferencedByTags: config.showCommitsOnlyReferencedByTags(),
+          showRemoteHeads: config.showRemoteHeads(),
+          includeCommitsMentionedByReflogs: config.includeCommitsMentionedByReflogs(),
+          showSignatureStatus: config.showSignatureStatus(),
+          showStashes: config.showStashes(),
+          useMailmap: config.useMailmap(),
+          hiddenRemotes: msg.hiddenRemotes ?? []
+        }))
+      });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("loadBranches", async (msg) => {
-    const { mergedBranches, defaultBranch, ...result } = await loadBranches(
-      gitClient.getInstance(),
-      {
-        showRemoteBranches: msg.showRemoteBranches,
-        hard: msg.hard,
-        currentRepo: currentRepo!,
-        gitPath: config.gitPath(),
-        // The graph dims the ref chips of merged branches. Dates are not
-        // requested — inactivity is a side-view concept only.
-        includeMerged: true
-      }
-    );
-    // Resolve the filter to apply: an existing side-view selection (pruned to
-    // the branches that still exist), else the configured default. Seed it back
-    // silently — the value travels to the graph in this same response, so firing
-    // the store event would only cause a redundant reload.
-    const filter = resolveBranchFilter(
-      branchFilterStore.has(currentRepo!) ? branchFilterStore.get(currentRepo!) : undefined,
-      result.branches,
-      result.head,
-      {
-        showSpecificBranches: config.showSpecificBranches(),
-        showCurrentBranchByDefault: config.showCurrentBranchByDefault()
-      }
-    );
-    branchFilterStore.set(currentRepo!, filter, { silent: true });
-    // Only the hidable half reaches the graph. Applying the exemptions here —
-    // against the same head/selection/patterns the side-view uses — is what
-    // stops the two surfaces answering differently for a branch like `develop`,
-    // which is merged but never hidden.
-    const merged = classifyMerged({
-      branches: result.branches,
-      merged: mergedBranches ?? [],
-      defaultBranch: defaultBranch ?? null,
-      exemptions: {
-        head: result.head,
-        selected: filter,
-        patterns: config.inactiveBranchAlwaysShow()
-      }
-    });
-    bridge.post({
-      command: "loadBranches",
-      ...result,
-      filter,
-      dimmedBranches: [...merged.hidable]
-    });
-  });
+  bridge.onMessage(
+    "loadBranches",
+    async (msg) => {
+      const { mergedBranches, defaultBranch, ...result } = await loadBranches(
+        gitClient.getInstance(),
+        {
+          showRemoteBranches: msg.showRemoteBranches,
+          hard: msg.hard,
+          currentRepo: currentRepo!,
+          gitPath: config.gitPath(),
+          // The graph dims the ref chips of merged branches. Dates are not
+          // requested — inactivity is a side-view concept only.
+          includeMerged: true
+        }
+      );
+      // Resolve the filter to apply: an existing side-view selection (pruned to
+      // the branches that still exist), else the configured default. Seed it back
+      // silently — the value travels to the graph in this same response, so firing
+      // the store event would only cause a redundant reload.
+      const filter = resolveBranchFilter(
+        branchFilterStore.has(currentRepo!) ? branchFilterStore.get(currentRepo!) : undefined,
+        result.branches,
+        result.head,
+        {
+          showSpecificBranches: config.showSpecificBranches(),
+          showCurrentBranchByDefault: config.showCurrentBranchByDefault()
+        }
+      );
+      branchFilterStore.set(currentRepo!, filter, { silent: true });
+      // Only the hidable half reaches the graph. Applying the exemptions here —
+      // against the same head/selection/patterns the side-view uses — is what
+      // stops the two surfaces answering differently for a branch like `develop`,
+      // which is merged but never hidden.
+      const merged = classifyMerged({
+        branches: result.branches,
+        merged: mergedBranches ?? [],
+        defaultBranch: defaultBranch ?? null,
+        exemptions: {
+          head: result.head,
+          selected: filter,
+          patterns: config.inactiveBranchAlwaysShow()
+        }
+      });
+      bridge.post({
+        command: "loadBranches",
+        ...result,
+        filter,
+        dimmedBranches: [...merged.hidable]
+      });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("loadRemotes", async () => {
-    bridge.post({
-      command: "loadRemotes",
-      ...(await loadRemotes(gitClient.getInstance()))
-    });
-  });
+  bridge.onMessage(
+    "loadRemotes",
+    async () => {
+      bridge.post({
+        command: "loadRemotes",
+        ...(await loadRemotes(gitClient.getInstance()))
+      });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("operationState", async () => {
-    // Like loadBranches/loadCommits, this reads the gitClient's current repo
-    // (switched by the selectRepo message), so msg.repo is unused here.
-    bridge.post({
-      command: "operationState",
-      ...(await operationState(gitClient.getInstance()))
-    });
-  });
+  bridge.onMessage(
+    "operationState",
+    async () => {
+      // Like loadBranches/loadCommits, this reads the gitClient's current repo
+      // (switched by the selectRepo message), so msg.repo is unused here.
+      bridge.post({
+        command: "operationState",
+        ...(await operationState(gitClient.getInstance()))
+      });
+    },
+    { mutatesRepo: false }
+  );
 
   // Writes the archive file — often into the watched working tree.
   bridge.onMessage(
@@ -395,111 +411,159 @@ export function registerMessageHandlers(
     { mutatesRepo: true }
   );
 
-  bridge.onMessage("tagDetails", async (msg) => {
-    bridge.post({
-      command: "tagDetails",
-      ...(await tagDetails(gitClient.getInstance(), { tagName: msg.tagName }))
-    });
-  });
+  bridge.onMessage(
+    "tagDetails",
+    async (msg) => {
+      bridge.post({
+        command: "tagDetails",
+        ...(await tagDetails(gitClient.getInstance(), { tagName: msg.tagName }))
+      });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("commitDetails", async (msg) => {
-    bridge.post({
-      command: "commitDetails",
-      ...(await commitDetails(gitClient.getInstance(), {
-        commitHash: msg.commitHash,
-        useMailmap: config.useMailmap(),
-        isStash: msg.isStash
-      }))
-    });
-  });
+  bridge.onMessage(
+    "commitDetails",
+    async (msg) => {
+      bridge.post({
+        command: "commitDetails",
+        ...(await commitDetails(gitClient.getInstance(), {
+          commitHash: msg.commitHash,
+          useMailmap: config.useMailmap(),
+          isStash: msg.isStash
+        }))
+      });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("compareCommits", async (msg) => {
-    bridge.post({
-      command: "compareCommits",
-      fromHash: msg.fromHash,
-      toHash: msg.toHash,
-      ...(await compareCommits(gitClient.getInstance(), {
+  bridge.onMessage(
+    "compareCommits",
+    async (msg) => {
+      bridge.post({
+        command: "compareCommits",
         fromHash: msg.fromHash,
-        toHash: msg.toHash
-      }))
-    });
-  });
+        toHash: msg.toHash,
+        ...(await compareCommits(gitClient.getInstance(), {
+          fromHash: msg.fromHash,
+          toHash: msg.toHash
+        }))
+      });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("branchRedundancy", async (msg) => {
-    bridge.post({
-      command: "branchRedundancy",
-      branch: msg.branch,
-      token: msg.token,
-      result: await checkBranchRedundancy(gitClient.getInstance(), {
+  bridge.onMessage(
+    "branchRedundancy",
+    async (msg) => {
+      bridge.post({
+        command: "branchRedundancy",
         branch: msg.branch,
-        useMailmap: config.useMailmap(),
-        dateType: config.dateType()
-      })
-    });
-  });
+        token: msg.token,
+        result: await checkBranchRedundancy(gitClient.getInstance(), {
+          branch: msg.branch,
+          useMailmap: config.useMailmap(),
+          dateType: config.dateType()
+        })
+      });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("redundancyCommitDetails", async (msg) => {
-    bridge.post({
-      command: "redundancyCommitDetails",
-      commitHash: msg.commitHash,
-      ...(await commitDetails(gitClient.getInstance(), {
+  bridge.onMessage(
+    "redundancyCommitDetails",
+    async (msg) => {
+      bridge.post({
+        command: "redundancyCommitDetails",
         commitHash: msg.commitHash,
-        useMailmap: config.useMailmap()
-      }))
-    });
-  });
+        ...(await commitDetails(gitClient.getInstance(), {
+          commitHash: msg.commitHash,
+          useMailmap: config.useMailmap()
+        }))
+      });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("predictConflicts", async (msg) => {
-    bridge.post({
-      command: "predictConflicts",
-      token: msg.token,
-      ...(await predictConflicts(gitClient.getInstance(), {
-        ours: msg.ours,
-        theirs: msg.theirs
-      }))
-    });
-  });
+  bridge.onMessage(
+    "predictConflicts",
+    async (msg) => {
+      bridge.post({
+        command: "predictConflicts",
+        token: msg.token,
+        ...(await predictConflicts(gitClient.getInstance(), {
+          ours: msg.ours,
+          theirs: msg.theirs
+        }))
+      });
+    },
+    { mutatesRepo: false }
+  );
 
   // --- Infrastructure handlers ---
 
-  bridge.onMessage("selectRepo", (msg) => {
-    if (msg.repo === currentRepo) return;
-    currentRepo = msg.repo;
-    gitClient.setRepo(msg.repo);
-    extensionState.setLastActiveRepo(msg.repo);
-    repoFileWatcher.start(msg.repo);
-    onSelectRepo(msg.repo);
-  });
+  bridge.onMessage(
+    "selectRepo",
+    (msg) => {
+      if (msg.repo === currentRepo) return;
+      currentRepo = msg.repo;
+      gitClient.setRepo(msg.repo);
+      extensionState.setLastActiveRepo(msg.repo);
+      repoFileWatcher.start(msg.repo);
+      onSelectRepo(msg.repo);
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("loadRepos", async (msg) => {
-    if (!msg.check || !(await repoManager.checkReposExist())) {
+  bridge.onMessage(
+    "loadRepos",
+    async (msg) => {
+      if (!msg.check || !(await repoManager.checkReposExist())) {
+        bridge.post({
+          command: "loadRepos",
+          repos: repoManager.getRepos(),
+          lastActiveRepo: extensionState.getLastActiveRepo()
+        });
+      }
+    },
+    { mutatesRepo: false }
+  );
+
+  bridge.onMessage(
+    "fetchAvatar",
+    (msg) => {
+      avatarManager.fetchAvatarImage(msg.email, msg.repo, msg.commits);
+    },
+    { mutatesRepo: false }
+  );
+
+  bridge.onMessage(
+    "saveRepoState",
+    (msg) => {
+      repoManager.setRepoState(msg.repo, msg.state);
+    },
+    { mutatesRepo: false }
+  );
+
+  bridge.onMessage(
+    "saveDialogMemory",
+    (msg) => {
+      extensionState.saveDialogMemory(msg.dialogKey, msg.values);
+    },
+    { mutatesRepo: false }
+  );
+
+  bridge.onMessage(
+    "copyToClipboard",
+    async (msg) => {
       bridge.post({
-        command: "loadRepos",
-        repos: repoManager.getRepos(),
-        lastActiveRepo: extensionState.getLastActiveRepo()
+        command: "copyToClipboard",
+        type: msg.type,
+        success: await copyToClipboard(msg.data)
       });
-    }
-  });
-
-  bridge.onMessage("fetchAvatar", (msg) => {
-    avatarManager.fetchAvatarImage(msg.email, msg.repo, msg.commits);
-  });
-
-  bridge.onMessage("saveRepoState", (msg) => {
-    repoManager.setRepoState(msg.repo, msg.state);
-  });
-
-  bridge.onMessage("saveDialogMemory", (msg) => {
-    extensionState.saveDialogMemory(msg.dialogKey, msg.values);
-  });
-
-  bridge.onMessage("copyToClipboard", async (msg) => {
-    bridge.post({
-      command: "copyToClipboard",
-      type: msg.type,
-      success: await copyToClipboard(msg.data)
-    });
-  });
+    },
+    { mutatesRepo: false }
+  );
 
   // Updates remote refs (and prunes) in .git.
   bridge.onMessage(
@@ -519,49 +583,73 @@ export function registerMessageHandlers(
     { mutatesRepo: true }
   );
 
-  bridge.onMessage("openTerminal", (msg) => {
-    const name = msg.repo.split("/").findLast((s) => s !== "") ?? msg.repo;
-    const terminal = vscode.window.createTerminal({ cwd: msg.repo, name: `GING: ${name}` });
-    terminal.show();
-  });
+  bridge.onMessage(
+    "openTerminal",
+    (msg) => {
+      const name = msg.repo.split("/").findLast((s) => s !== "") ?? msg.repo;
+      const terminal = vscode.window.createTerminal({ cwd: msg.repo, name: `GING: ${name}` });
+      terminal.show();
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("openExternalUrl", (msg) => {
-    vscode.env.openExternal(vscode.Uri.parse(msg.url));
-  });
+  bridge.onMessage(
+    "openExternalUrl",
+    (msg) => {
+      vscode.env.openExternal(vscode.Uri.parse(msg.url));
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("createPullRequest", async (msg) => {
-    // Build the provider's pre-filled PR-create URL from the remote and open it
-    // externally; tell the user when the remote's host isn't supported.
-    const remoteUrl = await getRemoteUrl(gitClient.getInstance(), msg.remote);
-    const url = pullRequestCreateUrl(remoteUrl === "" ? null : remoteUrl, msg.branchName);
-    if (url !== null) {
-      void vscode.env.openExternal(vscode.Uri.parse(url));
-    } else {
-      void vscode.window.showErrorMessage(l10n.t("pullRequest.unsupported"));
-    }
-  });
+  bridge.onMessage(
+    "createPullRequest",
+    async (msg) => {
+      // Build the provider's pre-filled PR-create URL from the remote and open it
+      // externally; tell the user when the remote's host isn't supported.
+      const remoteUrl = await getRemoteUrl(gitClient.getInstance(), msg.remote);
+      const url = pullRequestCreateUrl(remoteUrl === "" ? null : remoteUrl, msg.branchName);
+      if (url !== null) {
+        void vscode.env.openExternal(vscode.Uri.parse(url));
+      } else {
+        void vscode.window.showErrorMessage(l10n.t("pullRequest.unsupported"));
+      }
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("openScmView", () => {
-    void vscode.commands.executeCommand("workbench.view.scm");
-  });
+  bridge.onMessage(
+    "openScmView",
+    () => {
+      void vscode.commands.executeCommand("workbench.view.scm");
+    },
+    { mutatesRepo: false }
+  );
 
   // The graph's filter chip clears the filter through the very command the
   // Branches side-view's title button runs. Writing `branchFilterStore` here
   // instead would only do half the job — the tree's visual selection would stay
   // highlighted while the graph showed everything.
-  bridge.onMessage("clearBranchFilter", () => {
-    void vscode.commands.executeCommand("ging-git-view.branches.showAll");
-  });
+  bridge.onMessage(
+    "clearBranchFilter",
+    () => {
+      void vscode.commands.executeCommand("ging-git-view.branches.showAll");
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("openMergeEditor", (msg) => {
-    const uri = vscode.Uri.joinPath(vscode.Uri.file(msg.repo), msg.filePath);
-    // The built-in git extension's 3-way merge editor; fall back to a plain
-    // open if it (or the command) isn't available.
-    void Promise.resolve(vscode.commands.executeCommand("git.openMergeEditor", uri)).then(
-      undefined,
-      () => vscode.commands.executeCommand("vscode.open", uri)
-    );
-  });
+  bridge.onMessage(
+    "openMergeEditor",
+    (msg) => {
+      const uri = vscode.Uri.joinPath(vscode.Uri.file(msg.repo), msg.filePath);
+      // The built-in git extension's 3-way merge editor; fall back to a plain
+      // open if it (or the command) isn't available.
+      void Promise.resolve(vscode.commands.executeCommand("git.openMergeEditor", uri)).then(
+        undefined,
+        () => vscode.commands.executeCommand("vscode.open", uri)
+      );
+    },
+    { mutatesRepo: false }
+  );
 
   // Resolve a file's current working-tree path: if it no longer exists at
   // `filePath` and was renamed since `commitHash`, follow the rename.
@@ -575,71 +663,91 @@ export function registerMessageHandlers(
     return renamed ?? filePath;
   }
 
-  bridge.onMessage("openFile", async (msg) => {
-    let success = true;
-    try {
-      const filePath = await resolveWorkingFilePath(msg.repo, msg.filePath, msg.commitHash);
-      const uri = vscode.Uri.file(`${msg.repo}/${filePath}`);
-      await vscode.commands.executeCommand("vscode.open", uri, { preview: true });
-    } catch {
-      success = false;
-    }
-    bridge.post({ command: "openFile", success });
-  });
+  bridge.onMessage(
+    "openFile",
+    async (msg) => {
+      let success = true;
+      try {
+        const filePath = await resolveWorkingFilePath(msg.repo, msg.filePath, msg.commitHash);
+        const uri = vscode.Uri.file(`${msg.repo}/${filePath}`);
+        await vscode.commands.executeCommand("vscode.open", uri, { preview: true });
+      } catch {
+        success = false;
+      }
+      bridge.post({ command: "openFile", success });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("viewDiffWithWorking", async (msg) => {
-    let success = true;
-    try {
-      const workingFilePath = await resolveWorkingFilePath(msg.repo, msg.filePath, msg.commitHash);
-      const components = workingFilePath.split("/");
-      const title =
-        components[components.length - 1] +
-        " (" +
-        abbrevCommit(msg.commitHash) +
-        l10n.t("diff.workingTreeSep") +
-        ")";
-      await vscode.commands.executeCommand(
-        "vscode.diff",
-        encodeDiffDocUri(msg.repo, msg.filePath, msg.commitHash),
-        vscode.Uri.file(`${msg.repo}/${workingFilePath}`),
-        title,
-        { preview: true }
-      );
-    } catch {
-      success = false;
-    }
-    bridge.post({ command: "viewDiffWithWorking", success });
-  });
+  bridge.onMessage(
+    "viewDiffWithWorking",
+    async (msg) => {
+      let success = true;
+      try {
+        const workingFilePath = await resolveWorkingFilePath(
+          msg.repo,
+          msg.filePath,
+          msg.commitHash
+        );
+        const components = workingFilePath.split("/");
+        const title =
+          components[components.length - 1] +
+          " (" +
+          abbrevCommit(msg.commitHash) +
+          l10n.t("diff.workingTreeSep") +
+          ")";
+        await vscode.commands.executeCommand(
+          "vscode.diff",
+          encodeDiffDocUri(msg.repo, msg.filePath, msg.commitHash),
+          vscode.Uri.file(`${msg.repo}/${workingFilePath}`),
+          title,
+          { preview: true }
+        );
+      } catch {
+        success = false;
+      }
+      bridge.post({ command: "viewDiffWithWorking", success });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("viewFileAtRevision", async (msg) => {
-    let success = true;
-    try {
-      // Open the file's content as of the given commit (read-only) via the diff
-      // document provider, which resolves to `git show <commit>:<path>`.
-      const uri = encodeDiffDocUri(msg.repo, msg.filePath, msg.commitHash);
-      await vscode.commands.executeCommand("vscode.open", uri, { preview: true });
-    } catch {
-      success = false;
-    }
-    bridge.post({ command: "viewFileAtRevision", success });
-  });
+  bridge.onMessage(
+    "viewFileAtRevision",
+    async (msg) => {
+      let success = true;
+      try {
+        // Open the file's content as of the given commit (read-only) via the diff
+        // document provider, which resolves to `git show <commit>:<path>`.
+        const uri = encodeDiffDocUri(msg.repo, msg.filePath, msg.commitHash);
+        await vscode.commands.executeCommand("vscode.open", uri, { preview: true });
+      } catch {
+        success = false;
+      }
+      bridge.post({ command: "viewFileAtRevision", success });
+    },
+    { mutatesRepo: false }
+  );
 
-  bridge.onMessage("viewDiff", async (msg) => {
-    // EditorGroup values are vscode.ViewColumn enum keys (Active, Beside, One..Nine).
-    const viewColumn = vscode.ViewColumn[config.openNewTabEditorGroup()];
-    bridge.post({
-      command: "viewDiff",
-      success: await viewDiff(
-        msg.repo,
-        msg.commitHash,
-        msg.oldFilePath,
-        msg.newFilePath,
-        msg.type,
-        viewColumn,
-        msg.fromHash
-      )
-    });
-  });
+  bridge.onMessage(
+    "viewDiff",
+    async (msg) => {
+      // EditorGroup values are vscode.ViewColumn enum keys (Active, Beside, One..Nine).
+      const viewColumn = vscode.ViewColumn[config.openNewTabEditorGroup()];
+      bridge.post({
+        command: "viewDiff",
+        success: await viewDiff(
+          msg.repo,
+          msg.commitHash,
+          msg.oldFilePath,
+          msg.newFilePath,
+          msg.type,
+          viewColumn,
+          msg.fromHash
+        )
+      });
+    },
+    { mutatesRepo: false }
+  );
 
   return {
     onPanelShown: () => {
