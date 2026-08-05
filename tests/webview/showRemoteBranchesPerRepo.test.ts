@@ -49,6 +49,7 @@ const viewState: GG.GitGraphViewState = {
   referenceInputSpaceSubstitution: "None",
   // Global setting is false, but the repo carries a per-repo override of true.
   repos: { [REPO]: { columnWidths: null, showRemoteBranches: true } },
+  scmMultiRepoSelection: true,
   showCurrentBranchByDefault: false,
 
   uncommittedChangesAtHead: false,

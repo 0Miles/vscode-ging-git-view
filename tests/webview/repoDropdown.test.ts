@@ -3,18 +3,22 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
 import type * as GG from "@/types";
 
-import { createVscodeMock, setupHtml } from "./setup";
+import { createVscodeMock, receive, setupHtml } from "./setup";
 
-// The toolbar's repo dropdown (#16): with several repos known, the title block
-// becomes a select-style dropdown — clicking it opens a listbox of every repo
-// from which the user switches the graph, with full keyboard support. With one
-// repo it stays a plain label.
+// The toolbar's repo dropdown (#16). It lists the workspace's repos, and is
+// offered only while VSCode's Source Control view is in multi-select mode
+// (`scm.repositories.selectionMode`) and there is more than one repo. In
+// single-select mode, or with a lone repo, the title stays a plain label.
 
 const REPO_A = "/workspace/repo-a";
 const REPO_B = "/workspace/repo-b";
 const REPO_C = "/workspace/repo-c";
 
-function buildViewState(repos: GG.GitRepoSet, lastActiveRepo: string): GG.GitGraphViewState {
+function buildViewState(
+  repos: GG.GitRepoSet,
+  lastActiveRepo: string,
+  scmMultiRepoSelection: boolean
+): GG.GitGraphViewState {
   return {
     autoCenterCommitDetailsView: false,
     commitDetailsViewLocation: "Inline",
@@ -53,6 +57,7 @@ function buildViewState(repos: GG.GitRepoSet, lastActiveRepo: string): GG.GitGra
     onLoadScrollToHead: false,
     referenceInputSpaceSubstitution: "None",
     repos,
+    scmMultiRepoSelection,
     showCurrentBranchByDefault: false,
     uncommittedChangesAtHead: false,
     showSpecificBranches: [],
@@ -61,11 +66,18 @@ function buildViewState(repos: GG.GitRepoSet, lastActiveRepo: string): GG.GitGra
   };
 }
 
+const TWO_REPOS: GG.GitRepoSet = {
+  [REPO_A]: { columnWidths: null },
+  [REPO_B]: { columnWidths: null }
+};
+const THREE_REPOS: GG.GitRepoSet = { ...TWO_REPOS, [REPO_C]: { columnWidths: null } };
+
 const trigger = () => document.getElementById("repoTitle")!;
 const titleText = () => document.getElementById("repoTitleName")!.textContent;
 const list = () => document.getElementById("repoDropdownList")!;
 const items = () => Array.from(list().querySelectorAll<HTMLElement>(".repoDropdownItem"));
 const isOpen = () => list().classList.contains("active");
+const isDropdown = () => trigger().classList.contains("multipleRepos");
 
 function clickTrigger() {
   trigger().dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -75,20 +87,18 @@ function keydown(key: string) {
   list().dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
 }
 
-describe("toolbar repo dropdown with multiple repos", () => {
+describe("toolbar repo dropdown in multi-select mode", () => {
   let mock: ReturnType<typeof createVscodeMock>;
 
   beforeAll(async () => {
     vi.resetModules();
     mock = createVscodeMock();
-    setupHtml(
-      buildViewState({ [REPO_A]: { columnWidths: null }, [REPO_B]: { columnWidths: null } }, REPO_A)
-    );
+    setupHtml(buildViewState(TWO_REPOS, REPO_A, true));
     await import("@/webview/main");
   });
 
   it("dresses the title block as a select-style trigger", () => {
-    expect(trigger().classList.contains("multipleRepos")).toBe(true);
+    expect(isDropdown()).toBe(true);
     expect(document.getElementById("repoTitleChevron")!.querySelector("svg")).not.toBeNull();
     expect(trigger().getAttribute("aria-haspopup")).toBe("listbox");
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
@@ -96,7 +106,7 @@ describe("toolbar repo dropdown with multiple repos", () => {
     expect(trigger().title).not.toBe("");
   });
 
-  it("opens a listbox of every repo on click, current one selected", () => {
+  it("opens a listbox of the workspace's repos, the current one selected", () => {
     clickTrigger();
     expect(isOpen()).toBe(true);
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
@@ -199,6 +209,48 @@ describe("toolbar repo dropdown with multiple repos", () => {
   });
 });
 
+describe("toolbar repo dropdown in single-select mode", () => {
+  beforeAll(async () => {
+    vi.resetModules();
+    createVscodeMock();
+    // Three repos in the workspace, but Source Control is set to one at a time.
+    setupHtml(buildViewState(THREE_REPOS, REPO_A, false));
+    await import("@/webview/main");
+  });
+
+  it("stays a plain label however many repos the workspace has", () => {
+    expect(isDropdown()).toBe(false);
+    expect(trigger().hasAttribute("aria-haspopup")).toBe(false);
+    expect(trigger().hasAttribute("tabindex")).toBe(false);
+    expect(trigger().title).toBe("");
+    // It still names the repo on screen.
+    expect(titleText()).toBe("repo-a");
+    clickTrigger();
+    expect(isOpen()).toBe(false);
+  });
+
+  it("becomes a dropdown when Source Control switches to multi-select", () => {
+    receive({ command: "setScmMultiRepoSelection", enabled: true });
+    expect(isDropdown()).toBe(true);
+    clickTrigger();
+    expect(items().map((li) => (li.textContent ?? "").trim())).toEqual([
+      "repo-a",
+      "repo-b",
+      "repo-c"
+    ]);
+  });
+
+  it("takes the dropdown away again — closing an open list — on switching back", () => {
+    // The list is open from the previous test; leaving multi-select invalidates it.
+    expect(isOpen()).toBe(true);
+    receive({ command: "setScmMultiRepoSelection", enabled: false });
+    expect(isOpen()).toBe(false);
+    expect(isDropdown()).toBe(false);
+    clickTrigger();
+    expect(isOpen()).toBe(false);
+  });
+});
+
 describe("toolbar repo dropdown with custom repo names", () => {
   beforeAll(async () => {
     vi.resetModules();
@@ -209,7 +261,8 @@ describe("toolbar repo dropdown with custom repo names", () => {
           [REPO_A]: { columnWidths: null, customName: "<b>Main & Co</b>" },
           [REPO_C]: { columnWidths: null }
         },
-        REPO_A
+        REPO_A,
+        true
       )
     );
     await import("@/webview/main");
@@ -228,12 +281,13 @@ describe("toolbar repo title with a single repo", () => {
   beforeAll(async () => {
     vi.resetModules();
     createVscodeMock();
-    setupHtml(buildViewState({ [REPO_A]: { columnWidths: null } }, REPO_A));
+    // Multi-select mode, but nothing to switch between.
+    setupHtml(buildViewState({ [REPO_A]: { columnWidths: null } }, REPO_A, true));
     await import("@/webview/main");
   });
 
   it("stays a plain label: no dropdown affordances, and a click opens nothing", () => {
-    expect(trigger().classList.contains("multipleRepos")).toBe(false);
+    expect(isDropdown()).toBe(false);
     expect(trigger().hasAttribute("aria-haspopup")).toBe(false);
     expect(trigger().hasAttribute("tabindex")).toBe(false);
     expect(trigger().title).toBe("");

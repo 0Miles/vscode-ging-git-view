@@ -101,6 +101,9 @@ type BatchActionKind = BatchActionRequest["command"];
 
 class GitGraphView {
   private gitRepos: GG.GitRepoSet;
+  // Whether the Source Control view is in multi-select mode. Only then does the
+  // graph offer a repo dropdown — see `repoDropdownRepos`.
+  private scmMultiRepoSelection = true;
   private gitBranches: string[] = [];
   private gitBranchHead: string | null = null;
   private remotes: string[] = [];
@@ -167,6 +170,7 @@ class GitGraphView {
     prevState: WebViewState | null
   ) {
     this.gitRepos = repos;
+    this.scmMultiRepoSelection = viewState.scmMultiRepoSelection !== false;
     this.config = config;
     this.columnVisibility = viewState.defaultColumnVisibility;
     this.showRemoteBranches = config.showRemoteBranches;
@@ -383,16 +387,33 @@ class GitGraphView {
     return this.gitRepos[repo]?.customName || repo.substring(repo.lastIndexOf("/") + 1);
   }
 
+  /** Apply a change to VSCode's Source Control repo-selection mode: leaving
+   *  multi-select takes the dropdown away, so an open list is stale. */
+  public setScmMultiRepoSelection(enabled: boolean) {
+    if (this.scmMultiRepoSelection === enabled) return;
+    this.scmMultiRepoSelection = enabled;
+    this.closeRepoDropdown();
+    this.updateRepoTitle();
+  }
+
+  /** The repos the dropdown offers. Empty unless the Source Control view is in
+   *  multi-select mode: in single-select mode that view is itself the repo
+   *  switcher, and the graph's title is just a label for what it shows. Which
+   *  repos are ticked there is not knowable — only the mode is. */
+  private repoDropdownRepos(): string[] {
+    return this.scmMultiRepoSelection ? Object.keys(this.gitRepos) : [];
+  }
+
   /** Refresh the toolbar's title block: the repo's display name (custom name,
-   *  else its folder name), with the checked-out branch beside it. With several
-   *  repos known the block becomes the repo dropdown's select-style trigger
-   *  (#16); with one repo it stays a plain label. */
+   *  else its folder name), with the checked-out branch beside it. Where the
+   *  dropdown is on offer the block becomes its select-style trigger (#16);
+   *  otherwise it stays a plain label naming the repo on screen. */
   private updateRepoTitle() {
     const titleElem = document.getElementById("repoTitle");
     const nameElem = document.getElementById("repoTitleName");
     const branchElem = document.getElementById("repoTitleBranch");
     if (titleElem === null || nameElem === null || branchElem === null) return;
-    const multipleRepos = Object.keys(this.gitRepos).length > 1;
+    const multipleRepos = this.repoDropdownRepos().length > 1;
     titleElem.classList.toggle("multipleRepos", multipleRepos);
     titleElem.title = multipleRepos ? l10n.switchRepo : "";
     if (multipleRepos) {
@@ -425,9 +446,10 @@ class GitGraphView {
     branchElem.title = branch;
   }
 
-  /* The repo dropdown (#16): a select-style listbox of every known repository
-   * from which the user switches the graph. Only offered when several repos
-   * are known — with one repo the title is a plain label and clicks no-op. */
+  /* The repo dropdown (#16): a select-style listbox of the workspace's repos,
+   * from which the user switches the graph. Offered only when the Source
+   * Control view is in multi-select mode and there is more than one repo —
+   * otherwise the title is a plain label and clicks no-op. */
 
   private toggleRepoDropdown() {
     const list = document.getElementById("repoDropdownList");
@@ -440,7 +462,7 @@ class GitGraphView {
   }
 
   private openRepoDropdown() {
-    const repoPaths = Object.keys(this.gitRepos);
+    const repoPaths = this.repoDropdownRepos();
     if (repoPaths.length < 2) return;
     const list = document.getElementById("repoDropdownList");
     const trigger = document.getElementById("repoTitle");
@@ -4515,6 +4537,9 @@ window.addEventListener("message", (event) => {
       break;
     case "setRepo":
       gitGraph.setRepo(msg.repo);
+      break;
+    case "setScmMultiRepoSelection":
+      gitGraph.setScmMultiRepoSelection(msg.enabled);
       break;
     case "runRefAction":
       gitGraph.runRefAction(msg);

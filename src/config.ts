@@ -39,6 +39,12 @@ function getConfig<T>(key: string, defaultValue: T): T {
   return vscode.workspace.getConfiguration("ging-git-view").get(key, defaultValue);
 }
 
+/** VSCode's own setting for whether the Source Control Repositories view lets
+ *  several repos be selected at once ("選取多個存放庫" in its `...` menu). Which
+ *  repos are actually ticked is kept in workbench storage and is not readable by
+ *  extensions — only this mode is. */
+export const SCM_SELECTION_MODE_SETTING = "scm.repositories.selectionMode";
+
 /** Read and normalise a `keyboardShortcut.*` setting (see normalizeKeybinding). */
 function getKeybinding(section: string, defaultKey: string): string | null {
   return normalizeKeybinding(getConfig<string>(section, ""), defaultKey);
@@ -153,6 +159,12 @@ export const config = {
   onLoadScrollToHead: (): boolean => getConfig("onOpen.scrollToHead", false),
   openToTheRepoOfActiveEditor: (): boolean => getConfig("followActiveEditorRepo", false),
   followSourceControlSelection: (): boolean => getConfig("followSourceControlSelection", true),
+  /** True while the Source Control Repositories view is in multi-select mode —
+   *  the state under which the graph offers its repo dropdown (#16). */
+  scmMultiRepoSelection: (): boolean =>
+    vscode.workspace
+      .getConfiguration("scm")
+      .get<string>("repositories.selectionMode", "multiple") !== "single",
   onlyFollowFirstParent: (): boolean => getConfig("history.firstParentOnly", false),
   openNewTabEditorGroup: (): EditorGroup => getConfig("diffEditorGroup", "Active"),
   referenceInputSpaceSubstitution: (): RefSpaceSubstitution =>

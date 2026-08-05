@@ -154,6 +154,9 @@ export type GitGraphViewState = {
   onLoadScrollToHead: boolean;
   referenceInputSpaceSubstitution: RefSpaceSubstitution;
   repos: GitRepoSet;
+  /** Whether the Source Control view allows several repos to be selected — the
+   *  state that gates the repo dropdown. See `ResponseSetScmMultiRepoSelection`. */
+  scmMultiRepoSelection: boolean;
   showCurrentBranchByDefault: boolean;
   uncommittedChangesAtHead: boolean;
   showSpecificBranches: string[];
@@ -358,6 +361,15 @@ export type ResponseSetRepo = {
   repo: string;
 };
 
+/** Push VSCode's `scm.repositories.selectionMode` into the graph: the repo
+ *  dropdown is offered only while the Source Control view is in multi-select
+ *  mode. In single-select mode that view is itself the repo switcher, so the
+ *  graph's title stays a plain label. */
+export type ResponseSetScmMultiRepoSelection = {
+  command: "setScmMultiRepoSelection";
+  enabled: boolean;
+};
+
 /** Push a new branch filter into the graph (driven by the Branches side-view).
  *  An empty array means "show all branches". */
 export type ResponseSetBranchFilter = {
@@ -481,6 +493,7 @@ export type ResponseMessage =
   | ResponseExportPatch
   | ResponseRefresh
   | ResponseSetRepo
+  | ResponseSetScmMultiRepoSelection
   | ResponseSetBranchFilter
   | ResponseSetShowRemoteBranches
   | ResponseRunRefAction
