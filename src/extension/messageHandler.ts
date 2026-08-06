@@ -37,6 +37,7 @@ import { addTag, deleteTag, pushTag } from "@/backend/actions/tag";
 import { cleanUntrackedFiles, resetUncommittedChanges } from "@/backend/actions/workingTree";
 import { GitClient } from "@/backend/gitClient";
 import { checkBranchRedundancy } from "@/backend/queries/branchRedundancy";
+import { loadBranchSearchIndex } from "@/backend/queries/branchSearch";
 import { commitDetails } from "@/backend/queries/commitDetails";
 import { compareCommits } from "@/backend/queries/compareCommits";
 import { loadBranches } from "@/backend/queries/loadBranches";
@@ -46,7 +47,12 @@ import { operationState } from "@/backend/queries/operationState";
 import { predictConflicts } from "@/backend/queries/predictConflicts";
 import { getNewPathOfRenamedFile } from "@/backend/queries/renamedFilePath";
 import { tagDetails } from "@/backend/queries/tagDetails";
-import type { ActionResponseExtra, BatchActionRequest, BatchRefResult } from "@/backend/types";
+import type {
+  ActionResponseExtra,
+  BatchActionRequest,
+  BatchRefResult,
+  BranchSearchEntry
+} from "@/backend/types";
 import { GitFileChangeType } from "@/backend/types";
 import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 import { pullRequestCreateUrl } from "@/backend/utils/pullRequest";
@@ -254,6 +260,34 @@ export function registerMessageHandlers(
   registerAction("markResolved", (msg) => markResolved(gitClient.getInstance(), msg));
 
   // --- Query handlers ---
+
+  bridge.onMessage(
+    "branchSearch",
+    async (msg) => {
+      let branches: BranchSearchEntry[] = [];
+      let status: string | null = null;
+      try {
+        ({ branches } = await loadBranchSearchIndex(gitClient.getInstance(), {
+          branchNames: msg.branchNames,
+          showRemoteBranches: msg.showRemoteBranches,
+          commitOrder: msg.commitOrder ?? config.commitOrder(),
+          onlyFollowFirstParent: config.onlyFollowFirstParent(),
+          showCommitsOnlyReferencedByTags: config.showCommitsOnlyReferencedByTags(),
+          includeCommitsMentionedByReflogs: config.includeCommitsMentionedByReflogs(),
+          hiddenRemotes: msg.hiddenRemotes ?? []
+        }));
+      } catch (error: unknown) {
+        status = formatGitError(error);
+      }
+      bridge.post({
+        command: "branchSearch",
+        branches,
+        token: msg.token,
+        status
+      });
+    },
+    { mutatesRepo: false }
+  );
 
   bridge.onMessage(
     "loadCommits",

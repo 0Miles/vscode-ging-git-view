@@ -9,13 +9,8 @@ import type {
   QueryResult
 } from "@/backend/types";
 
+import { gitLogScopeArgs, gitLogTraversalArgs } from "./gitLogScope";
 import { loadStashes } from "./loadStashes";
-
-const commitOrderFlag: Record<CommitOrdering, string> = {
-  date: "--date-order",
-  "author-date": "--author-date-order",
-  topo: "--topo-order"
-};
 
 const eolRegex = /\r\n|\r|\n/g;
 const gitLogSeparator = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
@@ -114,45 +109,17 @@ async function getLog(
     "log",
     `--max-count=${maxCommits}`,
     `--format=${format}`,
-    commitOrderFlag[commitOrder]
+    ...gitLogTraversalArgs(commitOrder, onlyFollowFirstParent)
   ];
-  if (onlyFollowFirstParent) args.push("--first-parent");
-  // The branch filter (from the Branches side-view) may select several refs. A
-  // selection that is empty or contains the "" sentinel means "all branches";
-  // otherwise entries are specific branch names and/or `glob:<pattern>` markers,
-  // combined into a single `git log` invocation.
-  const globs = branches.filter((b) => b.startsWith("glob:")).map((b) => b.slice(5));
-  const named = branches.filter((b) => b !== "" && !b.startsWith("glob:"));
-  const showAll = branches.length === 0 || branches.indexOf("") > -1;
-  if (!showAll) {
-    for (const glob of globs) {
-      args.push("--branches=" + glob);
-      if (showRemoteBranches) {
-        // `--exclude` applies to the next ref-listing option.
-        for (const r of hiddenRemotes) args.push("--exclude=" + r + "/*");
-        args.push("--remotes=" + glob);
-      }
-    }
-    // Trailing "--" disambiguates refs from paths when a file shares a branch's
-    // name (otherwise `git log <name>` is ambiguous and errors).
-    if (named.length > 0) args.push(...named, "--");
-  } else {
-    args.push("--branches");
-    // Including --tags brings in commits reachable only from a tag (not on any
-    // branch); omit it to hide such commits.
-    if (showCommitsOnlyReferencedByTags) args.push("--tags");
-    if (showRemoteBranches) {
-      // Exclude hidden remotes' branches; --exclude applies to --remotes.
-      for (const r of hiddenRemotes) args.push("--exclude=" + r + "/*");
-      args.push("--remotes");
-    }
-    // Include commits reachable only from the reflog (e.g. orphaned by a reset
-    // or rebase) so they remain recoverable from the graph.
-    if (includeCommitsMentionedByReflogs) args.push("--reflog");
-    // Include HEAD so its commit still appears when it's detached (not on any
-    // branch), e.g. during a rebase or after checking out a commit.
-    args.push("HEAD");
-  }
+  args.push(
+    ...gitLogScopeArgs({
+      branchNames: branches,
+      showRemoteBranches,
+      hiddenRemotes,
+      includeTagOnlyCommits: showCommitsOnlyReferencedByTags,
+      includeReflogCommits: includeCommitsMentionedByReflogs
+    })
+  );
   try {
     const stdout = await git.raw(args);
     const lines = stdout.split(eolRegex);

@@ -23,6 +23,17 @@ export type GitCommitNode = {
   signatureStatus?: string;
 };
 
+/** A branch head placed in the unbounded commit graph for Find navigation. */
+export type BranchSearchEntry = {
+  /** Canonical ref used as branch identity across refreshes. */
+  ref: string;
+  /** Display ref (`main`, `origin/main`). */
+  name: string;
+  hash: string;
+  /** Zero-based row in the graph, excluding the working-tree row. */
+  depth: number;
+};
+
 export type GitLogEntry = {
   hash: string;
   parentHashes: string[];

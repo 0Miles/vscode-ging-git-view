@@ -2,6 +2,7 @@ import type {
   BatchActionRequest,
   BatchDeleteResult,
   BatchRefResult,
+  BranchSearchEntry,
   BranchRedundancy,
   CommitOrdering,
   GitCommandStatus,
@@ -19,6 +20,7 @@ import { REF_ACTION_CATALOGUE } from "@/backend/utils/refActionCatalogue";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
 import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
+import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } from "./find";
 import { Graph } from "./graph";
 import { formatDate, pad2 } from "./utils/date";
 import { addListenerToClass, blinkHeadRow, insertAfter } from "./utils/dom";
@@ -35,7 +37,6 @@ import {
 import {
   arraysEqual,
   branchFilterLabel,
-  commitMatchesQuery,
   commitNodeTooltip,
   commitsReachableFrom,
   dropCommitPossible,
@@ -110,10 +111,15 @@ class GitGraphView {
   private remotes: string[] = [];
   private pushDefault: string | null = null;
   private findActive = false;
-  private findMatches: string[] = []; // hashes of matching commits, in graph order
+  private findMatches: FindMatch[] = [];
   private findCurrent = -1;
   // When on, navigating find matches also opens each one's details view.
   private findOpenCommitDetails = false;
+  private branchSearchToken = 0;
+  private branchSearchIndex: BranchSearchEntry[] = [];
+  private findDirection: -1 | 1 = 1;
+  private pendingFindTargetHash: string | null = null;
+  private pendingFindNavigation: { hash: string; branchRefs: string[] } | null = null;
   private commits: GitCommitNode[] = [];
   private commitHead: string | null = null;
   private commitLookup: { [hash: string]: number } = {};
@@ -340,6 +346,7 @@ class GitGraphView {
     if (repo === this.currentRepo) return;
     this.currentRepo = repo;
     this.maxCommits = this.config.initialLoadCommits;
+    this.invalidateBranchSearchIndex();
     this.clearExpandedCommit();
     this.setCurrentBranches(null);
     this.applyShowRemoteBranchesForRepo();
@@ -570,6 +577,8 @@ class GitGraphView {
     if (typeof this.gitRepos[this.currentRepo] !== "undefined") {
       this.gitRepos[this.currentRepo].showRemoteBranches = value;
     }
+    this.maxCommits = this.config.initialLoadCommits;
+    this.invalidateBranchSearchIndex();
     this.saveState();
     this.refresh(true);
   }
@@ -614,6 +623,7 @@ class GitGraphView {
     if (typeof this.gitRepos[repo] === "undefined") return;
     this.currentRepo = repo;
     this.maxCommits = this.config.initialLoadCommits;
+    this.invalidateBranchSearchIndex();
     this.clearExpandedCommit();
     this.setCurrentBranches(null);
     this.applyShowRemoteBranchesForRepo();
@@ -651,6 +661,7 @@ class GitGraphView {
    *  open details, show the loading state, and request the new commit set. */
   private reloadForBranchChange() {
     this.maxCommits = this.config.initialLoadCommits;
+    this.invalidateBranchSearchIndex();
     this.clearExpandedCommit();
     this.saveState();
     // Keep the current graph on screen and show the busy indicator while the new
@@ -741,6 +752,7 @@ class GitGraphView {
         this.saveState();
         this.renderUncommitedChanges();
       }
+      if (this.findActive) this.requestBranchSearchIndex();
       this.triggerLoadCommitsCallback(false);
       return;
     }
@@ -789,6 +801,12 @@ class GitGraphView {
         this.saveState();
       }
       this.render();
+
+      if (this.findActive) {
+        this.refreshFind(this.pendingFindTargetHash);
+        this.pendingFindTargetHash = null;
+        this.requestBranchSearchIndex();
+      }
 
       // Restore the pre-refresh scroll offset now the table has its full height
       // back; this takes precedence over the one-time scroll-to-head.
@@ -1397,6 +1415,7 @@ class GitGraphView {
           state: this.gitRepos[this.currentRepo!]
         });
         this.maxCommits = this.config.initialLoadCommits;
+        this.invalidateBranchSearchIndex();
         this.requestLoadCommits(true, () => {});
       };
       const orderItem = (order: CommitOrdering | null, label: string) => ({
@@ -3315,6 +3334,24 @@ class GitGraphView {
       input.select();
       this.runFind(input.value);
     }
+    this.requestBranchSearchIndex();
+  }
+  private requestBranchSearchIndex() {
+    if (this.currentRepo === null) return;
+    sendMessage({
+      command: "branchSearch",
+      repo: this.currentRepo,
+      branchNames: this.currentBranches !== null ? this.currentBranches : [""],
+      showRemoteBranches: this.showRemoteBranches,
+      commitOrder: this.gitRepos[this.currentRepo]?.commitOrdering ?? undefined,
+      hiddenRemotes: this.gitRepos[this.currentRepo]?.hiddenRemotes ?? [],
+      token: ++this.branchSearchToken
+    });
+  }
+  private invalidateBranchSearchIndex() {
+    this.branchSearchToken++;
+    this.branchSearchIndex = [];
+    this.pendingFindNavigation = null;
   }
   public hideFind() {
     this.findActive = false;
@@ -3323,34 +3360,126 @@ class GitGraphView {
     (<HTMLElement | null>document.getElementById("findInput"))?.blur();
     this.findMatches = [];
     this.findCurrent = -1;
+    this.pendingFindNavigation = null;
     this.clearFindHighlights();
   }
   private runFind(query: string) {
-    this.findMatches =
-      query === ""
-        ? []
-        : this.commits
-            .filter((c) => c.hash !== "*" && commitMatchesQuery(c, query))
-            .map((c) => c.hash);
+    this.pendingFindTargetHash = null;
+    this.pendingFindNavigation = null;
+    this.findMatches = buildFindMatches(query, this.commits, this.branchSearchIndex);
     this.findCurrent = this.findMatches.length > 0 ? 0 : -1;
     this.applyFindHighlights(true);
+  }
+  private refreshFind(preferredHash: string | null = null) {
+    const input = <HTMLInputElement | null>document.getElementById("findInput");
+    const previousIndex = this.findCurrent;
+    const currentHash =
+      preferredHash ??
+      (this.findCurrent >= 0 ? (this.findMatches[this.findCurrent]?.hash ?? null) : null);
+    const currentDepth =
+      currentHash === null
+        ? undefined
+        : this.findMatches.find((match) => match.hash === currentHash)?.depth;
+    this.findMatches = buildFindMatches(input?.value ?? "", this.commits, this.branchSearchIndex);
+    this.findCurrent = resolveFindCurrent(
+      this.findMatches,
+      currentHash,
+      previousIndex,
+      this.findDirection,
+      currentDepth
+    );
+    this.applyFindHighlights(true);
+  }
+  public loadBranchSearchIndex(
+    branches: BranchSearchEntry[],
+    token: number,
+    status: string | null
+  ) {
+    if (token !== this.branchSearchToken) return;
+    if (status !== null) {
+      showErrorDialog(l10n.unableToSearchBranches, status, null);
+      return;
+    }
+    const pendingNavigation = this.pendingFindNavigation;
+    this.branchSearchIndex = branches;
+    if (!this.findActive) return;
+    this.refreshFind(pendingNavigation?.hash ?? this.pendingFindTargetHash);
+    if (pendingNavigation === null) return;
+
+    this.pendingFindNavigation = null;
+    const branchRefs = new Set(pendingNavigation.branchRefs);
+    const movedIndex = this.findMatches.findIndex((match) =>
+      match.branches.some((branch) => branchRefs.has(branch.ref))
+    );
+    if (movedIndex === -1) return;
+    this.findCurrent = movedIndex;
+    const match = this.findMatches[movedIndex];
+    if (match.loaded) this.applyFindHighlights(true);
+    else this.loadFindMatch(match);
   }
   private findStep(delta: number) {
     if (this.findMatches.length === 0) return;
     const n = this.findMatches.length;
     this.findCurrent = (this.findCurrent + delta + n) % n;
+    this.findDirection = delta < 0 ? -1 : 1;
+    const match = this.findMatches[this.findCurrent];
+    if (match.branches.length > 0) {
+      this.pendingFindNavigation = {
+        hash: match.hash,
+        branchRefs: match.branches.map((branch) => branch.ref)
+      };
+      this.requestBranchSearchIndex();
+      return;
+    }
+    if (!match.loaded) {
+      this.loadFindMatch(match);
+      return;
+    }
     this.applyFindHighlights(true);
+  }
+  private loadFindMatch(match: FindMatch) {
+    if (this.loadCommitsCallback !== null) return;
+    const plan = planFindLoad(this.maxCommits, match);
+    if (plan === null) return;
+    const load = () => {
+      this.pendingFindTargetHash = match.hash;
+      this.maxCommits = plan.maxCommits;
+      this.hideCommitDetails();
+      this.saveState();
+      this.setRefreshing(true);
+      this.requestLoadCommits(true, () => this.setRefreshing(false));
+    };
+    if (plan.confirm) {
+      showConfirmationDialog(
+        l10n.dialogFindLoadMoreConfirm.replace("{0}", String(plan.additionalCommits)),
+        load,
+        null
+      );
+    } else {
+      load();
+    }
   }
   private clearFindHighlights() {
     const rows = document.querySelectorAll(".commit.findMatch, .commit.findMatchCurrent");
     rows.forEach((el) => el.classList.remove("findMatch", "findMatchCurrent"));
+    document
+      .querySelectorAll(".gitRef.findBranchMatch")
+      .forEach((el) => el.classList.remove("findBranchMatch"));
   }
   /** Re-apply find styling to the current DOM. Pass scroll=true to bring the
    *  current match into view (e.g. on a new search or step, not on re-render). */
   private applyFindHighlights(scroll: boolean) {
     this.clearFindHighlights();
-    for (const hash of this.findMatches) {
-      document.querySelector('tr.commit[data-hash="' + hash + '"]')?.classList.add("findMatch");
+    for (const match of this.findMatches) {
+      const row = document.querySelector<HTMLElement>('tr.commit[data-hash="' + match.hash + '"]');
+      row?.classList.add("findMatch");
+      if (row !== null) {
+        row.querySelectorAll<HTMLElement>(".gitRef").forEach((ref) => {
+          if (match.branches.some((branch) => branch.name === (ref.dataset.name ?? ""))) {
+            ref.classList.add("findBranchMatch");
+          }
+        });
+      }
     }
     const countElem = document.getElementById("findCount");
     if (countElem !== null) {
@@ -3363,7 +3492,7 @@ class GitGraphView {
     }
     if (this.findCurrent >= 0) {
       const currentRow = document.querySelector<HTMLElement>(
-        'tr.commit[data-hash="' + this.findMatches[this.findCurrent] + '"]'
+        'tr.commit[data-hash="' + this.findMatches[this.findCurrent].hash + '"]'
       );
       if (currentRow !== null) {
         currentRow.classList.add("findMatchCurrent");
@@ -3376,7 +3505,7 @@ class GitGraphView {
           scroll &&
           this.findOpenCommitDetails &&
           (this.expandedCommit === null ||
-            this.expandedCommit.hash !== this.findMatches[this.findCurrent])
+            this.expandedCommit.hash !== this.findMatches[this.findCurrent].hash)
         ) {
           this.loadCommitDetails(currentRow);
         }
@@ -4501,6 +4630,9 @@ window.addEventListener("message", (event) => {
       break;
     case "loadRemotes":
       gitGraph.loadRemotes(msg.remotes, msg.pushDefault);
+      break;
+    case "branchSearch":
+      gitGraph.loadBranchSearchIndex(msg.branches, msg.token, msg.status);
       break;
     case "tagDetails":
       if (msg.details === null) {

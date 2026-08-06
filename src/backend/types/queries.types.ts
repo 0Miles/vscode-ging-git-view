@@ -1,4 +1,5 @@
 import type {
+  BranchSearchEntry,
   BranchRedundancy,
   CommitOrdering,
   GitCommitDetails,
@@ -72,6 +73,17 @@ type QueryPayloads = {
   loadRemotes: {
     request: Record<never, never>;
     response: { remotes: string[]; pushDefault: string | null };
+  };
+  branchSearch: {
+    request: {
+      repo: string;
+      branchNames: string[];
+      showRemoteBranches: boolean;
+      commitOrder?: CommitOrdering;
+      hiddenRemotes?: string[];
+      token: number;
+    };
+    response: { branches: BranchSearchEntry[]; token: number; status: string | null };
   };
   tagDetails: {
     request: { repo: string; tagName: string };

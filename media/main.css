@@ -598,6 +598,17 @@ svg.fileIcon {
 .gitRef.active {
   border-color: var(--git-graph-color);
 }
+/* A ref name that caused the row to match Find. Keep this separate from the
+   row highlight so the reader can see why the commit matched. */
+.gitRef.findBranchMatch {
+  background-color: color-mix(
+    in srgb,
+    var(--vscode-editor-findMatchBackground, rgb(234, 92, 0)) 35%,
+    var(--vscode-editor-background)
+  );
+  box-shadow: inset 0 0 0 1px
+    var(--vscode-editor-findMatchBorder, var(--vscode-editor-findMatchHighlightBorder, transparent));
+}
 /* A branch the side-view's "hide merged" toggle would remove — merged into the
    default branch and not exempt, so never the checked-out branch. Dimmed via
    colour rather than `opacity`, which would make the chip translucent and let
