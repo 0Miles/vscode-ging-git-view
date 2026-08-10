@@ -1159,7 +1159,7 @@
         },
         "ging-git-view.fetch.prune": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "%config.fetchAndPrune%"
         },
         "ging-git-view.fetch.pruneTags": {

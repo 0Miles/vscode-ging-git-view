@@ -32,6 +32,13 @@ suite("config settings", () => {
     assert.ok(Array.isArray(config.graphColours()) && config.graphColours().length > 0);
   });
 
+  // A fresh install prunes on fetch, so a branch the host deleted on merge stops
+  // being drawn on the graph (#34). Pruning tags stays opt-in (ADR-0012).
+  test("fetch prunes deleted remote-tracking refs by default, but not tags", () => {
+    assert.strictEqual(config.fetchAndPrune(), true);
+    assert.strictEqual(config.fetchAndPruneTags(), false);
+  });
+
   test("accessors read the grouped keys registered in package.json", async () => {
     await cfg().update("show.remoteBranches", false, G);
     assert.strictEqual(config.showRemoteBranches(), false);

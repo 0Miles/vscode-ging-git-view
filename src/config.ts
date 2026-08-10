@@ -116,7 +116,11 @@ export const config = {
   autoFetchEnabled: (): boolean => getConfig("autoFetch.enabled", false),
   // Clamped to the supported 1–60 minute range at the call site.
   autoFetchIntervalMinutes: (): number => getConfig("autoFetch.intervalMinutes", 10),
-  fetchAndPrune: (): boolean => getConfig("fetch.prune", false),
+  // On by default: hosts routinely delete the source branch when a PR merges, and
+  // without `--prune` its remote-tracking ref survives every later fetch and goes
+  // on being drawn on the graph (#34). Tags are deliberately not pruned with it —
+  // see `fetch.pruneTags` and ADR-0012.
+  fetchAndPrune: (): boolean => getConfig("fetch.prune", true),
   fetchAndPruneTags: (): boolean => getConfig("fetch.pruneTags", false),
   fetchAvatars: (): boolean => getConfig("history.fetchAvatars", false),
   // Optional GitLab personal access token (read_user scope) used to look up
