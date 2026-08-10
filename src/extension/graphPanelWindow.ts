@@ -38,13 +38,13 @@ export function findGraphTabs<T extends TabLike>(
 
 /**
  * Whether GING may put a graph panel in this window without being asked —
- * following the Source Control selection, or reviving one VSCode restored.
+ * following the focused repository, or reviving one VSCode restored (ADR-0011).
  *
- * Only a window with a workspace open qualifies. An empty window still sees
- * repos (the built-in git extension picks them up from open files and parent
- * folders), so without this gate the graph pops up in a window the user never
- * opened a project in. Explicit commands are unaffected: asking for the graph
- * in an empty window still opens it.
+ * Only a window with a workspace open qualifies. An empty window still has
+ * known repositories (the built-in git extension picks them up from open files
+ * and parent folders), so without this gate the graph pops up in a window the
+ * user never opened a project in. Explicit commands are unaffected: asking for
+ * the graph in an empty window still opens it.
  */
 export function mayOpenGraphUnprompted(workspaceFolders: readonly unknown[] | undefined): boolean {
   return workspaceFolders !== undefined && workspaceFolders.length > 0;

@@ -2,6 +2,8 @@ import * as assert from "node:assert";
 
 import * as vscode from "vscode";
 
+import { isGraphWebviewTab } from "@/extension/graphPanelWindow";
+
 /** Poll until `predicate` holds, or give up — the caller asserts either way. */
 async function waitUntil(predicate: () => boolean, timeoutMs = 2000) {
   const deadline = Date.now() + timeoutMs;
@@ -29,14 +31,11 @@ suite("GitGraphPanel", () => {
     return vscode.window.tabGroups.all.flatMap((g) => g.tabs).some((t) => t.label === "GING");
   }
 
-  /** Every tab in the window holding a `ging-git-view` webview, whoever made it. */
+  /** Every tab in the window holding a graph webview, whoever made it. Asks the
+   *  same predicate the extension reconciles with, against the real VSCode tab
+   *  shape the unit tests can only imitate. */
   function graphTabs() {
-    return vscode.window.tabGroups.all
-      .flatMap((g) => g.tabs)
-      .filter(
-        (t) =>
-          t.input instanceof vscode.TabInputWebview && t.input.viewType.endsWith("ging-git-view")
-      );
+    return vscode.window.tabGroups.all.flatMap((g) => g.tabs).filter(isGraphWebviewTab);
   }
 
   async function openPanel() {

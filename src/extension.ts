@@ -263,11 +263,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Restored panels carry the roots they were created with, which point into
   // the previous install directory once the extension updates — so every panel,
-  // fresh or restored, is handed the current ones.
-  const graphResourceRoots = () => [
-    buildExtensionUri(context.extensionPath, "media"),
-    buildExtensionUri(context.extensionPath, "out")
-  ];
+  // fresh or restored, is handed these again rather than trusting what it woke
+  // up with.
+  const graphWebviewOptions = (): vscode.WebviewOptions => ({
+    enableScripts: true,
+    localResourceRoots: [
+      buildExtensionUri(context.extensionPath, "media"),
+      buildExtensionUri(context.extensionPath, "out")
+    ]
+  });
 
   // Turn a raw webview panel into *the* graph panel: one bridge, one set of
   // message handlers, one file watcher, all torn down together when it closes.
@@ -365,11 +369,7 @@ export function activate(context: vscode.ExtensionContext) {
         GRAPH_VIEW_TYPE,
         l10n.t("outputChannel.text"),
         strayTabs[0]?.group.viewColumn ?? column ?? vscode.ViewColumn.One,
-        {
-          enableScripts: true,
-          retainContextWhenHidden: config.retainContextWhenHidden(),
-          localResourceRoots: graphResourceRoots()
-        }
+        { ...graphWebviewOptions(), retainContextWhenHidden: config.retainContextWhenHidden() }
       );
       adoptPanel(panel);
       // Keep the focus on the panel just opened, not on whatever sat behind a
@@ -405,15 +405,24 @@ export function activate(context: vscode.ExtensionContext) {
           panel.dispose();
           return Promise.resolve();
         }
-        panel.webview.options = {
-          enableScripts: true,
-          localResourceRoots: graphResourceRoots()
-        };
+        // Only `WebviewOptions` can be reasserted here; `retainContextWhenHidden`
+        // is fixed at creation, so a restored panel keeps the value it was
+        // serialized with until the tab is closed and opened again.
+        panel.webview.options = graphWebviewOptions();
         adoptPanel(panel);
         return Promise.resolve();
       }
     })
   );
+
+  // Clear out the pile this bug already left behind: a window that restarted a
+  // few times before the serializer existed comes back with several restored
+  // graph tabs. Keep the first — it is the one the serializer will adopt — and
+  // close the rest, which are inert either way.
+  const restoredGraphTabs = findGraphTabs(vscode.window.tabGroups.all);
+  if (restoredGraphTabs.length > 1) {
+    void vscode.window.tabGroups.close(restoredGraphTabs.slice(1), true);
+  }
 
   // The same "skipped, because X" lines the batch confirmation dialog shows,
   // for the case where nothing is left to confirm and there is no dialog.

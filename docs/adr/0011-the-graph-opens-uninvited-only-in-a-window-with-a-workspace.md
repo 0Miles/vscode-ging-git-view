@@ -16,6 +16,8 @@ GING 只在 `vscode.workspace.workspaceFolders` 非空的視窗裡**自行**開�
 
 **在 tracker 端加一段啟動沉澱窗。** [scmRepoTracker.ts](../../src/extension/scmRepoTracker.ts) 只靜默吸收綁定當下就已存在的選取,而冷啟動時那通常是空的 —— 內建 git 還沒探測完。之後的「第一個存放庫取得焦點」與「還原上一輪的焦點」都是正常的變更事件,照樣 fire。用計時器把開頭幾百毫秒吃掉能擋住,但那是拿某一台機器的探測耗時當常數,已在 tracker 的註解裡明確拒絕過一次,這裡不重開。
 
+> [ADR-0001](0001-refocusing-the-graph-uses-an-explicit-row-button.md) 的「後果」寫 tracker 刻意不為啟動時的初始選取 fire `onDidChangeSelection`,兩者不衝突但容易誤讀:靜默的只有**綁定那一刻已經在位**的選取。冷啟動時那通常什麼都不是,所以啟動過程照樣有事件流出來 —— ADR-0001 為 focused repository context key 補掛 `onDidChangeRepos` 的理由仍然成立,本 ADR 擋的是那些事件裡「自行開啟圖形」的那一段。
+
 **只擋 tracker,不擋還原路徑。** 還原一個使用者自己開過的面板,說它是「自動」有點苛。但兩條路徑在使用者眼裡是同一件事(圖形沒被叫就出現了),而分頁還原是跨工作階段的 —— 空視窗裡開過一次,之後每次重開都會再冒出來,正是這個 issue 抱怨的形狀。兩條走同一條規則。
 
 ## 後果
