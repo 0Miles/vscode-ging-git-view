@@ -44,7 +44,7 @@
   "config.gitLabToken": "GitLab [個人存取權杖](https://docs.gitlab.com/user/profile/personal_access_tokens/)（需 `read_user` 範圍），用於查詢 GitLab 存放庫上 committer 的頭像。留空則 GitLab 存放庫改用 Gravatar。僅在啟用 `#ging-git-view.history.fetchAvatars#` 時使用。",
   "config.autoFetchEnabled": "在背景定期從所有 remote fetch 並重新整理圖表。預設值：false",
   "config.autoFetchIntervalMinutes": "auto-fetch 執行的間隔（分鐘，1–60）。預設值：10",
-  "config.fetchAndPrune": "從 remote fetch 時 prune 已刪除的 remote 追蹤參考（git fetch --prune）。預設值：false",
+  "config.fetchAndPrune": "從 remote fetch 時 prune 已刪除的 remote 追蹤參考（git fetch --prune）。預設值：true",
   "config.fetchAndPruneTags": "fetch 並 prune 時，一併 prune remote 已不存在的本機 tag（git fetch --prune --prune-tags）。預設值：false",
   "config.fileTree.compactFolders": "在 commit 詳情檢視中精簡檔案樹：將僅包含單一子資料夾的資料夾 merge 為一列。預設值：true",
   "config.fileView.type": "Commit 詳情檢視中變更檔案的顯示方式：\"File Tree\"（巢狀資料夾）或 \"File List\"（按路徑排序的平面清單）。預設值：File Tree",

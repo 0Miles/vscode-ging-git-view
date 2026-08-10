@@ -44,7 +44,7 @@
   "config.gitLabToken": "GitLab [个人访问令牌](https://docs.gitlab.com/user/profile/personal_access_tokens/)（需 `read_user` 范围），用于查询 GitLab 仓库上 committer 的头像。留空则 GitLab 仓库改用 Gravatar。仅在启用 `#ging-git-view.history.fetchAvatars#` 时使用。",
   "config.autoFetchEnabled": "在背景定期从所有 remote fetch 并刷新图表。默认值：false",
   "config.autoFetchIntervalMinutes": "auto-fetch 执行的间隔（分钟，1–60）。默认值：10",
-  "config.fetchAndPrune": "从 remote fetch 时 prune 已删除的 remote 跟踪引用（git fetch --prune）。默认值：false",
+  "config.fetchAndPrune": "从 remote fetch 时 prune 已删除的 remote 跟踪引用（git fetch --prune）。默认值：true",
   "config.fetchAndPruneTags": "fetch 并 prune 时，一并 prune remote 已不存在的本地 tag（git fetch --prune --prune-tags）。默认值：false",
   "config.fileTree.compactFolders": "在 commit 详情视图中精简文件树：将仅包含单一子文件夹的文件夹 merge 为一行。默认值：true",
   "config.fileView.type": "Commit 详情视图中变更文件的显示方式：\"File Tree\"（嵌套文件夹）或 \"File List\"（按路径排序的平面列表）。默认值：File Tree",

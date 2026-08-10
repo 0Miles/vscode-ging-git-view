@@ -261,6 +261,8 @@
   "userDetails.unableToSet": "無法設定 Git 使用者資訊",
   "fetch.noRemotes": "此存放庫未設定任何 remote。",
   "fetch.pickRemote": "選擇要 fetch 的 remote",
+  "fetch.pruneTagsDisabled": "Fetch 現在預設會 prune 已刪除的 remote 追蹤分支。你的「prune tags」設定在 prune 關閉時是沒有作用的,現在會開始刪除本機 tag —— GING 已先幫你關掉它,以免有東西不見。若你確實想要一併 prune tag,再自行開啟。",
+  "fetch.openSettings": "開啟設定",
   "remotes.add": "$(add) 新增 remote",
   "remotes.pickPrompt": "選擇一個 remote，或新增 remote",
   "remotes.namePrompt": "Remote 名稱（例如 origin）",

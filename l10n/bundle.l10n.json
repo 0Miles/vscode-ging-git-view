@@ -261,6 +261,8 @@
   "userDetails.unableToSet": "Unable to set Git user details",
   "fetch.noRemotes": "This repository has no configured remotes.",
   "fetch.pickRemote": "Select a remote to fetch",
+  "fetch.pruneTagsDisabled": "Fetch now prunes deleted remote-tracking branches by default. Your \"prune tags\" setting had no effect while pruning was off, and would have started deleting local tags — GING has turned it off so nothing is lost. Turn it back on if you do want tags pruned.",
+  "fetch.openSettings": "Open Settings",
   "remotes.add": "$(add) Add a remote",
   "remotes.pickPrompt": "Select a remote, or add one",
   "remotes.namePrompt": "Remote name (e.g. origin)",

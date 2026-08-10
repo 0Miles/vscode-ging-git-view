@@ -36,6 +36,7 @@ import {
 } from "./extension/graphPanelWindow";
 import { createLogger } from "./extension/logger";
 import { registerMessageHandlers } from "./extension/messageHandler";
+import { type ConfigScope, runPruneTagsMigration } from "./extension/pruneTagsMigration";
 import {
   createRemotesView,
   remoteActionTarget,
@@ -60,6 +61,31 @@ export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel(l10n.t("outputChannel.text"));
   const logger = createLogger(outputChannel);
   const extensionState = new ExtensionState(context);
+  // One-off, before anything can fetch: `fetch.prune` now defaults on, which
+  // would arm a `fetch.pruneTags` that had been inert and start deleting local
+  // tags for a user who changed nothing. Turn it back off for them (ADR-0012).
+  const pruneTagsTargets: Record<ConfigScope, vscode.ConfigurationTarget> = {
+    global: vscode.ConfigurationTarget.Global,
+    workspace: vscode.ConfigurationTarget.Workspace,
+    workspaceFolder: vscode.ConfigurationTarget.WorkspaceFolder
+  };
+  void runPruneTagsMigration({
+    inspect: (key) => vscode.workspace.getConfiguration("ging-git-view").inspect(key),
+    disablePruneTags: (scope) =>
+      vscode.workspace
+        .getConfiguration("ging-git-view")
+        .update("fetch.pruneTags", false, pruneTagsTargets[scope]),
+    hasRun: () => extensionState.isPruneTagsMigrationDone(),
+    markRun: () => extensionState.setPruneTagsMigrationDone(),
+    notify: () =>
+      void vscode.window
+        .showInformationMessage(l10n.t("fetch.pruneTagsDisabled"), l10n.t("fetch.openSettings"))
+        .then((choice) => {
+          if (choice !== undefined) {
+            void vscode.commands.executeCommand("ging-git-view.openExtensionSettings");
+          }
+        })
+  });
   const avatarManager = new AvatarManager(config.gitPath, extensionState);
   const statusBarItem = new StatusBarItem(context, config);
   // Prompt for remote credentials when git asks: the askpass env is
