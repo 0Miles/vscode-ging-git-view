@@ -27,5 +27,10 @@ status: accepted
 ## 後果
 
 - **既有使用者是靜默的行為變更。** 沒設過 `fetch.prune` 的人升級後,下一次 fetch 就會開始刪 stale 的 remote-tracking ref,而且沒有任何提示。這是刻意的。
-- **`pruneTags` 從惰性變成有效。** `--prune-tags` 的閘門是 `input.prune && input.pruneTags`([fetch.ts](../../src/backend/actions/fetch.ts)),所以在 `prune` 還是 false 的年代,單獨把 `fetch.pruneTags` 設成 true 是**沒有作用**的。這次翻轉之後,那批使用者的 fetch 會開始真的刪本地 tag —— 他們自己什麼都沒改。人數應該極少(該設定的說明本來就寫明它需要搭配 prune),但這是這次變更唯一具破壞性的路徑,記在這裡。
+- **`pruneTags` 會從惰性變成有效,所以有一次性的補救。** `--prune-tags` 的閘門是 `input.prune && input.pruneTags`([fetch.ts](../../src/backend/actions/fetch.ts)),而那是 git 自己的規則:實測 `git fetch --prune-tags` 不帶 `--prune` 時退出碼 0、無警告、本地 tag 原封不動。所以在 `prune` 還是 false 的年代,單獨把 `fetch.pruneTags` 設成 true 是**沒有作用**的,而且完全沒有回饋 —— 使用者很可能以為它一直在運作。
+
+  這次翻轉會打開那道閘門,他們自己什麼都沒改,下一次 fetch 就開始刪本地 tag,而刪掉的 tag 沒有「下次 fetch 就長回來」。因此 [pruneTagsMigration.ts](../../src/extension/pruneTagsMigration.ts) 在翻轉後的第一次啟動,把這批人的 `fetch.pruneTags` 寫回 false 並告知一次。判準是「`fetch.prune` 沒有任何明確值」—— 自己設過 prune 的人(不論 true 或 false)是在 pruneTags 就在旁邊的情況下做的決定,不動他們。
+
+  它即使沒清到任何東西也會標記自己跑過,否則使用者日後**刻意**開啟 pruneTags 時會被第二輪靜默關掉。這段是過渡碼:等到不再有人跨過這次翻轉升級,整個模組連同旗標都可以刪掉。
+
 - **`prune: true, pruneTags: false` 現在是幾乎每一次 fetch 的組合。** [fetch.test.ts](../../tests/backend/actions/fetch/fetch.test.ts) 因此明確釘住這個組合會掃掉分支、留下 tag;`--prune-tags` 若哪天脫離閘門,那個測試會紅。

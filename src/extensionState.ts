@@ -10,6 +10,7 @@ const AVATAR_CACHE = "avatarCache";
 const LAST_ACTIVE_REPO = "lastActiveRepo";
 const REPO_STATES = "repoStates";
 const DIALOG_MEMORY = "dialogMemory";
+const PRUNE_TAGS_MIGRATION = "pruneTagsMigrationDone";
 
 export class ExtensionState {
   private globalState: Memento;
@@ -63,6 +64,15 @@ export class ExtensionState {
       store[dialogKey] = values;
     }
     this.globalState.update(DIALOG_MEMORY, store);
+  }
+
+  /* Whether the one-off fetch.pruneTags rescue has already run (ADR-0012).
+     Global: it edits user settings, which are not per-workspace. */
+  public isPruneTagsMigrationDone() {
+    return this.globalState.get<boolean>(PRUNE_TAGS_MIGRATION, false);
+  }
+  public setPruneTagsMigrationDone() {
+    this.globalState.update(PRUNE_TAGS_MIGRATION, true);
   }
 
   /* Avatars */
