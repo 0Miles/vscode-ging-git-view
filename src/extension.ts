@@ -29,6 +29,11 @@ import { createBranchActionDelegate } from "./extension/branchActionDelegate";
 import { createBranchDataService } from "./extension/branchDataService";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
 import { createBranchFilterStore } from "./extension/branchFilterStore";
+import {
+  findGraphTabs,
+  GRAPH_VIEW_TYPE,
+  mayOpenGraphUnprompted
+} from "./extension/graphPanelWindow";
 import { createLogger } from "./extension/logger";
 import { registerMessageHandlers } from "./extension/messageHandler";
 import {
@@ -256,6 +261,65 @@ export function activate(context: vscode.ExtensionContext) {
       .filter((p) => repoManager.getRepos()[p] !== undefined);
   };
 
+  // Restored panels carry the roots they were created with, which point into
+  // the previous install directory once the extension updates — so every panel,
+  // fresh or restored, is handed the current ones.
+  const graphResourceRoots = () => [
+    buildExtensionUri(context.extensionPath, "media"),
+    buildExtensionUri(context.extensionPath, "out")
+  ];
+
+  // Turn a raw webview panel into *the* graph panel: one bridge, one set of
+  // message handlers, one file watcher, all torn down together when it closes.
+  // Two panels reach here — one this extension just created, one VSCode
+  // restored after a host restart — and they must be wired identically, or the
+  // restored one comes back inert and the next open piles a second tab on top.
+  const adoptPanel = (panel: vscode.WebviewPanel) => {
+    let bridge!: WebviewBridge;
+    const repoFileWatcher = new RepoFileWatcher(() => {
+      if (panel.visible) {
+        bridge.post({ command: "refresh" });
+        branchesView.refresh();
+        remotesView.refresh();
+      }
+    });
+    bridge = webviewBridgeFactory(panel.webview, repoFileWatcher);
+    currentBridge = bridge;
+    avatarManager.registerBridge(bridge.post.bind(bridge));
+    const messageHandlers = registerMessageHandlers(bridge, {
+      config,
+      gitClient,
+      repoManager,
+      extensionState,
+      avatarManager,
+      repoFileWatcher,
+      branchFilterStore,
+      onSelectRepo: (repo) => {
+        branchesView.setActiveRepo(repo);
+        remotesView.setActiveRepo(repo);
+        // The webview is alive and (re)loading this repo: deliver any waiting
+        // side-view action now (the webview holds it until the load lands).
+        branchActionDelegate.flushPendingRefAction(repo);
+      }
+    });
+    currentPanel = createWebviewPanel({
+      panel,
+      bridge,
+      config,
+      repoFileWatcher,
+      extensionPath: context.extensionPath,
+      extensionState,
+      avatarManager,
+      repoManager,
+      onDispose: () => {
+        currentPanel = undefined;
+        currentBridge = undefined;
+        messageHandlers.dispose();
+      },
+      onPanelShown: messageHandlers.onPanelShown
+    });
+  };
+
   // Open (or reveal) the Graph panel, optionally switching it to a specific repo.
   // `targetRepoPath` is the repo to focus: supplied by the plugin sidebar's repo
   // row and by the native SCM view's title icon (its SourceControl rootUri).
@@ -292,62 +356,25 @@ export function activate(context: vscode.ExtensionContext) {
     if (currentPanel) {
       currentPanel.reveal(column);
     } else {
+      // No panel of ours, yet the window may still show graph tabs VSCode
+      // restored and has not offered to the serializer (it defers that until a
+      // tab first becomes visible). Take their place rather than adding to
+      // them: open where the first one sat, then close the lot.
+      const strayTabs = findGraphTabs(vscode.window.tabGroups.all);
       const panel = vscode.window.createWebviewPanel(
-        "ging-git-view",
+        GRAPH_VIEW_TYPE,
         l10n.t("outputChannel.text"),
-        column ?? vscode.ViewColumn.One,
+        strayTabs[0]?.group.viewColumn ?? column ?? vscode.ViewColumn.One,
         {
           enableScripts: true,
           retainContextWhenHidden: config.retainContextWhenHidden(),
-          localResourceRoots: [
-            buildExtensionUri(context.extensionPath, "media"),
-            buildExtensionUri(context.extensionPath, "out")
-          ]
+          localResourceRoots: graphResourceRoots()
         }
       );
-      let bridge!: WebviewBridge;
-      const repoFileWatcher = new RepoFileWatcher(() => {
-        if (panel.visible) {
-          bridge.post({ command: "refresh" });
-          branchesView.refresh();
-          remotesView.refresh();
-        }
-      });
-      bridge = webviewBridgeFactory(panel.webview, repoFileWatcher);
-      currentBridge = bridge;
-      avatarManager.registerBridge(bridge.post.bind(bridge));
-      const messageHandlers = registerMessageHandlers(bridge, {
-        config,
-        gitClient,
-        repoManager,
-        extensionState,
-        avatarManager,
-        repoFileWatcher,
-        branchFilterStore,
-        onSelectRepo: (repo) => {
-          branchesView.setActiveRepo(repo);
-          remotesView.setActiveRepo(repo);
-          // The webview is alive and (re)loading this repo: deliver any waiting
-          // side-view action now (the webview holds it until the load lands).
-          branchActionDelegate.flushPendingRefAction(repo);
-        }
-      });
-      currentPanel = createWebviewPanel({
-        panel,
-        bridge,
-        config,
-        repoFileWatcher,
-        extensionPath: context.extensionPath,
-        extensionState,
-        avatarManager,
-        repoManager,
-        onDispose: () => {
-          currentPanel = undefined;
-          currentBridge = undefined;
-          messageHandlers.dispose();
-        },
-        onPanelShown: messageHandlers.onPanelShown
-      });
+      adoptPanel(panel);
+      // Keep the focus on the panel just opened, not on whatever sat behind a
+      // closing tab.
+      if (strayTabs.length > 0) void vscode.window.tabGroups.close(strayTabs, true);
     }
 
     // For an explicit target on an already-open panel, `loadRepos` alone won't
@@ -363,6 +390,30 @@ export function activate(context: vscode.ExtensionContext) {
       currentBridge.post({ command: "setRepo", repo: repoToOpen });
     }
   };
+
+  // VSCode persists the graph tab across an extension-host restart and hands it
+  // back here when it next becomes visible. Without this the restored tab is
+  // one nobody owns: `currentPanel` starts every activation as `undefined`, so
+  // the next open added a second tab beside it, one more on every restart.
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer(GRAPH_VIEW_TYPE, {
+      deserializeWebviewPanel: (panel) => {
+        // A window with no folder open is not one GING puts a graph in on its
+        // own; and a panel already adopted is the one that stays. Either way the
+        // restored tab goes, rather than lingering as a second graph.
+        if (currentPanel || !mayOpenGraphUnprompted(vscode.workspace.workspaceFolders)) {
+          panel.dispose();
+          return Promise.resolve();
+        }
+        panel.webview.options = {
+          enableScripts: true,
+          localResourceRoots: graphResourceRoots()
+        };
+        adoptPanel(panel);
+        return Promise.resolve();
+      }
+    })
+  );
 
   // The same "skipped, because X" lines the batch confirmation dialog shows,
   // for the case where nothing is left to confirm and there is no dialog.
@@ -416,8 +467,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Follow the repo focused in the native Source Control view (`Repository.ui.selected`, which the
   // git API drives from the single focused repo). Open the graph on it, or switch an already-open
-  // graph to it in place, revealing the graph panel so it gains focus. The initial selection is
-  // captured silently by the tracker, so this only fires on a deliberate selection change.
+  // graph to it in place, revealing the graph panel so it gains focus. Only the selection already
+  // in place when the tracker binds is silent; on a cold start that is usually nothing, so this
+  // does fire during startup — see the note on `createScmRepoTracker`.
   context.subscriptions.push(
     scmRepoTracker.onDidChangeSelection((selectedPaths) => {
       if (!config.followSourceControlSelection()) return;
@@ -426,7 +478,11 @@ export function activate(context: vscode.ExtensionContext) {
       branchesView.setActiveRepo(selected[0]);
       remotesView.setActiveRepo(selected[0]);
       if (!currentPanel) {
-        void openGraphView(selected[0]);
+        // Following may open the graph, and an empty window is no place to open
+        // one uninvited — the built-in git extension finds repos there too.
+        if (mayOpenGraphUnprompted(vscode.workspace.workspaceFolders)) {
+          void openGraphView(selected[0]);
+        }
         return;
       }
       // Persist first: a hidden panel drops the posts below (no live webview without
