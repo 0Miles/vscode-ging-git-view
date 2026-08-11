@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import type { BranchDataService } from "./branchDataService";
+import type { RepoGitClients } from "./repoGitClients";
 
 /** One configured remote of the active repo. */
 type RemoteInfo = {
@@ -37,7 +37,7 @@ class RemotesProvider implements vscode.TreeDataProvider<RemoteItem> {
   // Guards against an in-flight fetch being overwritten by a slower earlier one.
   private fetchId = 0;
 
-  constructor(private readonly dataService: BranchDataService) {}
+  constructor(private readonly gitClients: RepoGitClients) {}
 
   getRepo(): string | null {
     return this.repo;
@@ -69,7 +69,7 @@ class RemotesProvider implements vscode.TreeDataProvider<RemoteItem> {
       return;
     }
     try {
-      const raw = await this.dataService.getGitInstance(repo).getRemotes(true);
+      const raw = await this.gitClients.gitClientFor(repo).getRemotes(true);
       if (id !== this.fetchId) return; // superseded by a newer fetch
       this.remotes = raw.map((r) => ({
         name: r.name,
@@ -121,8 +121,8 @@ export type RemotesView = ReturnType<typeof createRemotesView>;
  * registered as commands in extension.ts; the view follows whichever repo is
  * active, exactly like the Branches view.
  */
-export function createRemotesView(dataService: BranchDataService) {
-  const provider = new RemotesProvider(dataService);
+export function createRemotesView(gitClients: RepoGitClients) {
+  const provider = new RemotesProvider(gitClients);
   const treeView = vscode.window.createTreeView<RemoteItem>("ging-git-view.remotes", {
     treeDataProvider: provider
   });

@@ -5,11 +5,9 @@ import * as l10n from "@/l10n";
 import type { BatchAction, BatchSkipped } from "@/types";
 
 import { resolveActionTargets } from "./branchActionTargets";
-import { classifyInactive, relativeAge } from "./branchActivity";
-import { BranchDataService } from "./branchDataService";
-import { type BranchExemptions } from "./branchExempt";
+import { relativeAge } from "./branchActivity";
+import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
-import { classifyMerged } from "./branchMerged";
 import { type BranchTreeLeaf, type BranchTreeNode, buildGroupedBranchRoots } from "./branchTree";
 
 /** Scheme of the opaque per-branch URIs carrying a leaf's decoration flags, so
@@ -107,15 +105,18 @@ class BranchItem extends vscode.TreeItem {
   }
 }
 
-/** Shared dependencies of the side-view: data, the filter store (selection
- *  drives the graph; the current selection also exempts branches from inactive
- *  hiding), and the per-repo/config state resolvers — re-read on every reload
- *  so the title toggles and setting edits take effect immediately. */
+/** Shared dependencies of the side-view: the classification facts (shared with
+ *  the graph, so the two can't disagree — ADR-0013) and the two hide toggles,
+ *  re-read on every reload so title-bar toggles take effect immediately. */
 type BranchesProviderDeps = {
-  dataService: BranchDataService;
+  branchFacts: BranchFacts;
+  /** Where the tree's selection is written. Reading it back for the exemptions
+   *  is `BranchFacts`' job, not this view's — that split is what closed the
+   *  window where the two surfaces saw different filters. */
   filterStore: BranchFilterStore;
   /** The "show remote branches" state for a repo (per-repo override or the
-   *  global default). */
+   *  global default). Only the title toggle's icon state is read here — which
+   *  refs the read covers is `BranchFacts`' business. */
   resolveShowRemote: (repo: string) => boolean;
   /** The "show inactive branches" state for a repo (per-repo override or the
    *  global default). */
@@ -124,10 +125,6 @@ type BranchesProviderDeps = {
    *  global default). Independent of the inactive toggle — a branch hidden by
    *  either rule is gone regardless of the other (ADR-0004). */
   resolveShowMerged: (repo: string) => boolean;
-  /** The inactivity threshold in days (`<= 0` disables the feature). */
-  resolveInactiveThresholdDays: () => number;
-  /** "Always show" name/glob patterns that exempt a branch from being hidden. */
-  resolveExemptPatterns: () => string[];
 };
 
 class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
@@ -166,11 +163,14 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
     void this.reload();
   }
 
-  refresh(): void {
-    void this.reload();
+  /** Rebuild the tree. `hard` forces a real git read rather than one served
+   *  from the shared read's coalescing window — for the user's own Refresh, not
+   *  for the reloads that follow a toggle or a setting change. */
+  refresh(opts?: { hard?: boolean }): void {
+    void this.reload(opts?.hard === true);
   }
 
-  private async reload(): Promise<void> {
+  private async reload(hard = false): Promise<void> {
     const id = ++this.fetchId;
     const repo = this.repo;
     const showInactive = repo !== null && this.deps.resolveShowInactive(repo);
@@ -198,48 +198,35 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
       return;
     }
     try {
-      const { branches, head, isRepo, branchDates, mergedBranches, defaultBranch } =
-        await this.deps.dataService.listBranches(repo, this.deps.resolveShowRemote(repo));
+      // One shared read: the graph's `loadBranches` consumes the same facts, so
+      // neither surface can reach a different verdict about a branch.
+      const facts = await this.deps.branchFacts.facts(repo, { hard });
       if (id !== this.fetchId) return; // superseded by a newer fetch
-      this.defaultBranch = defaultBranch;
-      if (!isRepo) {
+      this.defaultBranch = facts.defaultBranch;
+      if (!facts.isRepo) {
         this.roots = [];
       } else {
         // Both rules yield a fact set and the hidable subset it implies. The
         // facts drive the markings (age label, merged badge) and apply even to
         // exempt branches; only the hidable sets are dimmed and dropped.
-        // Reading the selection here is what lets toggling to "hide" keep a
-        // branch that was selected while it was still visible.
-        const exemptions: BranchExemptions = {
-          head,
-          selected: this.deps.filterStore.get(repo),
-          patterns: this.deps.resolveExemptPatterns()
-        };
-        const inactive = classifyInactive({
-          branches,
-          dates: branchDates,
-          nowSec: Math.floor(Date.now() / 1000),
-          thresholdDays: this.deps.resolveInactiveThresholdDays(),
-          exemptions
-        });
-        const merged = classifyMerged({
-          branches,
-          merged: mergedBranches,
-          defaultBranch,
-          exemptions
-        });
+        //
         // Hiding is a union across the two toggles: a branch removed by either
         // rule is gone whatever the other says. Dimming covers the whole hidable
         // union, so the grey on a surviving branch always means "some toggle
-        // would remove this".
+        // would remove this". The toggles stay here rather than in BranchFacts:
+        // they decide presentation, and the graph hides nothing at all.
         const hidden = new Set<string>();
-        if (!showInactive) for (const branch of inactive.hidable) hidden.add(branch);
-        if (!showMerged) for (const branch of merged.hidable) hidden.add(branch);
-        const hidable = new Set([...inactive.hidable, ...merged.hidable]);
+        if (!showInactive) for (const branch of facts.inactive.hidable) hidden.add(branch);
+        if (!showMerged) for (const branch of facts.merged.hidable) hidden.add(branch);
         this.roots = buildGroupedBranchRoots(
-          hidden.size === 0 ? branches : branches.filter((b) => !hidden.has(b)),
-          head,
-          { merged: merged.matched, inactive: inactive.matched, hidable, dates: branchDates }
+          hidden.size === 0 ? facts.branches : facts.branches.filter((b) => !hidden.has(b)),
+          facts.head,
+          {
+            merged: facts.merged.matched,
+            inactive: facts.inactive.matched,
+            hidable: facts.hidable,
+            dates: facts.dates
+          }
         );
       }
     } catch {
@@ -581,7 +568,7 @@ export function createBranchesView(deps: BranchesProviderDeps) {
       provider.setRepo(repo);
     },
     getActiveRepo: (): string | null => provider.getRepo(),
-    refresh: (): void => provider.refresh(),
+    refresh: (opts?: { hard?: boolean }): void => provider.refresh(opts),
     clearSelection: (): void => provider.clearSelection(),
     collapseFolders: (): void => provider.collapseFolders(),
     searchBranch,

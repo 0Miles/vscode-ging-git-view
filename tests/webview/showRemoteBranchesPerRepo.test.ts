@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
 import type * as GG from "@/types";
 
-import { createVscodeMock, setupHtml } from "./setup";
+import { createVscodeMock, receive, setupHtml } from "./setup";
 
 const REPO = "/workspace/my-repo";
 
@@ -65,13 +65,33 @@ describe("showRemoteBranches per-repo override", () => {
     sentMessages = createVscodeMock().sentMessages;
     setupHtml(viewState);
     await import("@/webview/main");
+    // Complete the startup handshake: until the initial load lands, the webview
+    // holds off any further branch request, and the toggle would look inert for
+    // reasons that have nothing to do with what is under test.
+    receive({
+      command: "loadBranches",
+      branches: ["main"],
+      head: "main",
+      hard: true,
+      isRepo: true,
+      filter: []
+    });
   });
 
-  it("requests branches with remotes from the per-repo override, ignoring the global setting", () => {
-    const msg = sentMessages.find((m) => m.command === "loadBranches") as
-      | Extract<GG.RequestMessage, { command: "loadBranches" }>
-      | undefined;
-    expect(msg).toBeDefined();
-    expect(msg!.showRemoteBranches).toBe(true); // per-repo override wins over global false
+  // The value no longer travels in the request — the host resolves it. What
+  // still has to track the per-repo override is the webview's memo of the value
+  // in force: get that wrong and the side-view's toggle either reloads for
+  // nothing or, worse, is swallowed as a no-op.
+  it("treats the per-repo override as the value in force, not the global setting", () => {
+    const before = sentMessages.length;
+    receive({ command: "setShowRemoteBranches", value: true });
+    // The override already says true, so this announcement changes nothing.
+    expect(sentMessages.length).toBe(before);
+  });
+
+  it("reloads when told to drop remotes, against that override", () => {
+    const before = sentMessages.length;
+    receive({ command: "setShowRemoteBranches", value: false });
+    expect(sentMessages.slice(before).some((m) => m.command === "loadBranches")).toBe(true);
   });
 });

@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 
 import { gitClientFactory } from "@/backend/gitClient";
 import { config } from "@/config";
+import { createBranchFacts, createGitSnapshotReader } from "@/extension/branchFacts";
 import { registerMessageHandlers } from "@/extension/messageHandler";
 import type { WebviewBridge } from "@/extension/webviewBridge";
 import type { RequestMessage, ResponseMessage } from "@/types";
@@ -15,6 +16,50 @@ import type { RequestMessage, ResponseMessage } from "@/types";
 // webview's selectRepo -> loadBranches handshake. Expectations are derived
 // from git itself: CI checkouts only have the branch being built, never main.
 const noop = () => {};
+
+const resolveShowRemote = () => true;
+
+/** The real handler dependencies, wired the way extension.ts wires them: a real
+ *  git client, real config, and a real BranchFacts over both — so the flow this
+ *  suite exercises is the production one, not a stub of it. */
+function makeDeps() {
+  // Inject an askpass-style env like the real extension. simple-git
+  // (>=3.36) rejects GIT_ASKPASS in an explicitly-passed env unless we opt in
+  // and merge it correctly — a regression that silently emptied every repo.
+  const gitEnv = { GIT_ASKPASS: "/some/askpass.sh", ELECTRON_RUN_AS_NODE: "1" };
+  const gitClient = gitClientFactory("", config.gitPath(), undefined, gitEnv);
+  return {
+    config,
+    gitClient,
+    repoManager: { getRepos: () => ({}), setRepoState: noop } as never,
+    extensionState: { setLastActiveRepo: noop, getLastActiveRepo: () => null } as never,
+    avatarManager: { fetchAvatarImage: noop } as never,
+    repoFileWatcher: { start: noop, mute: noop, unmute: noop } as never,
+    branchFilterStore: {
+      has: () => false,
+      get: () => [],
+      set: () => false,
+      onDidChangeFilter: () => ({ dispose: noop }),
+      dispose: noop
+    } as never,
+    branchFacts: createBranchFacts({
+      readSnapshot: createGitSnapshotReader({
+        gitClientFor: (repo: string) =>
+          gitClientFactory(repo, config.gitPath(), undefined, gitEnv).getInstance(),
+        gitPath: config.gitPath
+      }),
+      filterStore: { has: () => false, get: () => [], set: () => false },
+      resolveShowRemote,
+      resolveExemptPatterns: config.inactiveBranchAlwaysShow,
+      resolveInactiveThresholdDays: config.inactiveBranchThresholdDays,
+      resolveShowSpecificBranches: config.showSpecificBranches,
+      resolveShowCurrentBranchByDefault: config.showCurrentBranchByDefault,
+      nowMs: () => Date.now()
+    }),
+    resolveShowRemote,
+    onSelectRepo: noop
+  };
+}
 
 suite("branch loading flow (integration)", () => {
   test("selectRepo then loadBranches posts the repo's branches", async () => {
@@ -31,33 +76,12 @@ suite("branch loading flow (integration)", () => {
     // Inject an askpass-style env like the real extension. simple-git
     // (>=3.36) rejects GIT_ASKPASS in an explicitly-passed env unless we opt in
     // and merge it correctly — a regression that silently emptied every repo.
-    const gitClient = gitClientFactory("", config.gitPath(), undefined, {
-      GIT_ASKPASS: "/some/askpass.sh",
-      ELECTRON_RUN_AS_NODE: "1"
-    });
-    const deps = {
-      config,
-      gitClient,
-      repoManager: { getRepos: () => ({}), setRepoState: noop } as never,
-      extensionState: { setLastActiveRepo: noop, getLastActiveRepo: () => null } as never,
-      avatarManager: { fetchAvatarImage: noop } as never,
-      repoFileWatcher: { start: noop, mute: noop, unmute: noop } as never,
-      branchFilterStore: {
-        has: () => false,
-        get: () => [],
-        set: () => false,
-        onDidChangeFilter: () => ({ dispose: noop }),
-        dispose: noop
-      } as never,
-      onSelectRepo: noop
-    };
-    registerMessageHandlers(bridge, deps);
+    registerMessageHandlers(bridge, makeDeps());
 
     // Mimic the webview's startup handshake.
     await handlers.get("selectRepo")!({ command: "selectRepo", repo: repoPath } as RequestMessage);
     await handlers.get("loadBranches")!({
       command: "loadBranches",
-      showRemoteBranches: true,
       hard: true
     } as RequestMessage);
 
@@ -96,27 +120,7 @@ suite("branch loading flow (integration)", () => {
         handlers.set(cmd, h)
     } as unknown as WebviewBridge;
 
-    const gitClient = gitClientFactory("", config.gitPath(), undefined, {
-      GIT_ASKPASS: "/some/askpass.sh",
-      ELECTRON_RUN_AS_NODE: "1"
-    });
-    const deps = {
-      config,
-      gitClient,
-      repoManager: { getRepos: () => ({}), setRepoState: noop } as never,
-      extensionState: { setLastActiveRepo: noop, getLastActiveRepo: () => null } as never,
-      avatarManager: { fetchAvatarImage: noop } as never,
-      repoFileWatcher: { start: noop, mute: noop, unmute: noop } as never,
-      branchFilterStore: {
-        has: () => false,
-        get: () => [],
-        set: () => false,
-        onDidChangeFilter: () => ({ dispose: noop }),
-        dispose: noop
-      } as never,
-      onSelectRepo: noop
-    };
-    registerMessageHandlers(bridge, deps);
+    registerMessageHandlers(bridge, makeDeps());
 
     await handlers.get("selectRepo")!({ command: "selectRepo", repo: repoPath } as RequestMessage);
     await handlers.get("commitDetails")!({

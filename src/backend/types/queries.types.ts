@@ -50,15 +50,15 @@ type QueryPayloads = {
     response: { commitHash: string; commitDetails: GitCommitDetails | null };
   };
   loadBranches: {
-    request: { showRemoteBranches: boolean; hard: boolean };
+    /** No `showRemoteBranches`: the host resolves it per repo. The webview's
+     *  copy is a one-way echo of that state and could only ever be staler,
+     *  which is one of the two surfaces' disagreements ADR-0013 removes. */
+    request: { hard: boolean };
     response: {
       branches: string[];
       head: string | null;
       hard: boolean;
       isRepo: boolean;
-      /** ref → last commit time (unix seconds); present only when the host
-       *  requested dates (the side-view does, the graph panel doesn't). */
-      branchDates?: Record<string, number>;
       /** Refs the graph should render dimmed, in branch-list format: merged
        *  into the default branch and not exempt — i.e. exactly the branches the
        *  side-view's "hide merged" toggle would remove. The exemptions are
@@ -78,7 +78,6 @@ type QueryPayloads = {
     request: {
       repo: string;
       branchNames: string[];
-      showRemoteBranches: boolean;
       commitOrder?: CommitOrdering;
       hiddenRemotes?: string[];
       token: number;
@@ -96,7 +95,6 @@ type QueryPayloads = {
        *  branches; entries may be branch names or `glob:<pattern>` markers. */
       branchNames: string[];
       maxCommits: number;
-      showRemoteBranches: boolean;
       hard: boolean;
       commitOrder?: CommitOrdering;
       /** Remote names whose branches are hidden. */

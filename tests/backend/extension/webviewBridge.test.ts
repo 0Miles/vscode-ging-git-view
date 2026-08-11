@@ -17,8 +17,13 @@ function makeHarness() {
     postMessage: vi.fn()
   };
   const watcher = { mute: vi.fn(), unmute: vi.fn() };
-  const bridge = webviewBridgeFactory(webview as never, watcher as unknown as RepoFileWatcher);
-  return { bridge, watcher, receive: (msg: RequestMessage) => receive(msg) };
+  const onRepoMutated = vi.fn();
+  const bridge = webviewBridgeFactory(
+    webview as never,
+    watcher as unknown as RepoFileWatcher,
+    onRepoMutated
+  );
+  return { bridge, watcher, onRepoMutated, receive: (msg: RequestMessage) => receive(msg) };
 }
 
 describe("webviewBridge watcher muting", () => {
@@ -49,5 +54,39 @@ describe("webviewBridge watcher muting", () => {
     );
     await receive({ command: "mergeBranch" } as RequestMessage);
     expect(order).toEqual(["mute", "handler", "unmute"]);
+  });
+});
+
+describe("webviewBridge cache invalidation", () => {
+  it("reports a mutation so cached repo reads can be dropped", async () => {
+    // The file watcher cannot carry this: it is muted across exactly these
+    // handlers and discards their own fs events (ADR-0013).
+    const { bridge, onRepoMutated, receive } = makeHarness();
+    bridge.onMessage("deleteBranch", async () => {}, { mutatesRepo: true });
+    await receive({ command: "deleteBranch" } as RequestMessage);
+    expect(onRepoMutated).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report a mutation for query messages", async () => {
+    const { bridge, onRepoMutated, receive } = makeHarness();
+    bridge.onMessage("operationState", async () => {}, { mutatesRepo: false });
+    await receive({ command: "operationState" } as RequestMessage);
+    expect(onRepoMutated).not.toHaveBeenCalled();
+  });
+
+  it("still reports (and unmutes) when the handler throws", async () => {
+    // A git operation can fail half-way — the refs it did change are changed,
+    // and a permanently muted watcher would be the second casualty.
+    const { bridge, watcher, onRepoMutated, receive } = makeHarness();
+    bridge.onMessage(
+      "deleteBranch",
+      async () => {
+        throw new Error("boom");
+      },
+      { mutatesRepo: true }
+    );
+    await expect(receive({ command: "deleteBranch" } as RequestMessage)).rejects.toThrow("boom");
+    expect(watcher.unmute).toHaveBeenCalledTimes(1);
+    expect(onRepoMutated).toHaveBeenCalledTimes(1);
   });
 });

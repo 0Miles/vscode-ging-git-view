@@ -94,7 +94,7 @@ export type BranchTreeMeta = {
 };
 
 export function buildBranchTree(
-  branches: string[],
+  branches: readonly string[],
   head: string | null,
   meta?: BranchTreeMeta
 ): BranchTreeNode[] {
@@ -152,7 +152,7 @@ export function buildBranchTree(
  * since a lone "Local" heading would be noise.
  */
 export function buildGroupedBranchRoots(
-  branches: string[],
+  branches: readonly string[],
   head: string | null,
   meta?: BranchTreeMeta
 ): BranchTreeNode[] {

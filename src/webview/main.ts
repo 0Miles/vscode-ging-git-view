@@ -880,11 +880,9 @@ class GitGraphView {
     this.loadBranchesCallback = loadedCallback;
     sendMessage({ command: "selectRepo", repo: this.currentRepo });
     sendMessage({ command: "loadRemotes" });
-    sendMessage({
-      command: "loadBranches",
-      showRemoteBranches: this.showRemoteBranches,
-      hard: hard
-    });
+    // No showRemoteBranches: the host resolves the repo's own state, which is
+    // what this copy echoes anyway (ADR-0013).
+    sendMessage({ command: "loadBranches", hard: hard });
   }
   public loadRemotes(remotes: string[], pushDefault: string | null) {
     const changed = !arraysEqual(this.remotes, remotes, (a, b) => a === b);
@@ -985,7 +983,6 @@ class GitGraphView {
       repo: this.currentRepo!,
       branchNames: this.currentBranches !== null ? this.currentBranches : [""],
       maxCommits: this.maxCommits,
-      showRemoteBranches: this.showRemoteBranches,
       hard: hard,
       commitOrder: this.gitRepos[this.currentRepo!]?.commitOrdering ?? undefined,
       hiddenRemotes: this.gitRepos[this.currentRepo!]?.hiddenRemotes ?? undefined
@@ -3342,7 +3339,6 @@ class GitGraphView {
       command: "branchSearch",
       repo: this.currentRepo,
       branchNames: this.currentBranches !== null ? this.currentBranches : [""],
-      showRemoteBranches: this.showRemoteBranches,
       commitOrder: this.gitRepos[this.currentRepo]?.commitOrdering ?? undefined,
       hiddenRemotes: this.gitRepos[this.currentRepo]?.hiddenRemotes ?? [],
       token: ++this.branchSearchToken

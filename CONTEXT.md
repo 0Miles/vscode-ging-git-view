@@ -45,7 +45,7 @@ _Avoid_: absorbed branch, landed branch, 已落地分支, squash-merged branch
 _Avoid_: stale branch, old branch, 廢棄分支
 
 **Hidable branch**:
-是 merged branch 或 inactive branch,且不在豁免名單上 —— 豁免的是 checked-out 的那個、目前被分支篩選選取的、以及符合「總是顯示」樣式的。它是唯一決定畫面呈現的集合:淡化的是它,按下隱藏會消失的也是它。merged 與 inactive 這兩個事實則各自獨立地驅動標記(badge 與年齡標籤),即使該分支被豁免也照標。
+是 merged branch 或 inactive branch,且不在豁免名單上 —— 豁免的是 checked-out 的那個、目前被分支篩選選取的、以及符合「總是顯示」樣式的。它是唯一決定畫面呈現的集合:淡化的是它,按下隱藏會消失的也是它。merged 與 inactive 這兩個事實則各自獨立地驅動標記(badge 與年齡標籤),即使該分支被豁免也照標。分支側檢視表達完整的 hidable;圖形只表達其中 merged 的那一半 —— inactive 是側檢視的降噪概念,圖形不隱藏任何東西,也不淡化長期沒動的分支。豁免規則兩面共用,所以同一個分支不會一面淡、一面不淡。
 _Avoid_: dimmed branch, hidden branch
 
 **Branch filter**:

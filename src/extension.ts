@@ -26,8 +26,8 @@ import { config, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
-import { createBranchDataService } from "./extension/branchDataService";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
+import { createBranchFacts, createGitSnapshotReader } from "./extension/branchFacts";
 import { createBranchFilterStore } from "./extension/branchFilterStore";
 import {
   findGraphTabs,
@@ -42,6 +42,7 @@ import {
   remoteActionTarget,
   type RemoteActionTarget
 } from "./extension/remotesView";
+import { createRepoGitClients } from "./extension/repoGitClients";
 import { createRepoManager } from "./extension/repoManager";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
 import { showStatistics } from "./extension/statisticsPanel";
@@ -108,12 +109,16 @@ export function activate(context: vscode.ExtensionContext) {
   // Branches side-view: a native TreeView (in the Source Control container) that
   // replaces the in-graph branch dropdown. Its selection drives a per-repo
   // filter — the single source of truth shared with the graph panel; its data
-  // comes from a service decoupled from the panel's `gitClient` so it can read
+  // comes from clients decoupled from the panel's `gitClient` so it can read
   // and operate on the active repo without racing the panel.
   const branchFilterStore = createBranchFilterStore();
-  const branchDataService = createBranchDataService({
+  const repoGitClients = createRepoGitClients({
     gitPath: config.gitPath,
-    gitEnv: askpassManager.getEnv()
+    gitEnv: askpassManager.getEnv(),
+    // Reads made outside the graph panel used to be invisible in the Output
+    // Channel; now that the panel's branch load comes through here too, they
+    // all have to be logged or the graph's would disappear from it.
+    onCommand: logger.logCmd
   });
   // "Show remote branches" is a per-repo setting (persisted in repoManager);
   // fall back to the global default. The side-view's toggle is now the sole
@@ -130,14 +135,28 @@ export function activate(context: vscode.ExtensionContext) {
   // exemptions (head / selected / always-show).
   const resolveShowMerged = (repo: string): boolean =>
     repoManager.getRepos()[repo]?.showMergedBranches ?? config.showMergedBranchesByDefault();
+  // The single holder of every branch classification fact (ADR-0013): the
+  // side-view builds its tree from it and the graph's loadBranches response
+  // carries the merged half of its hidable set, so the two cannot disagree.
+  const branchFacts = createBranchFacts({
+    readSnapshot: createGitSnapshotReader({
+      gitClientFor: repoGitClients.gitClientFor,
+      gitPath: config.gitPath
+    }),
+    filterStore: branchFilterStore,
+    resolveShowRemote,
+    resolveExemptPatterns: config.inactiveBranchAlwaysShow,
+    resolveInactiveThresholdDays: config.inactiveBranchThresholdDays,
+    resolveShowSpecificBranches: config.showSpecificBranches,
+    resolveShowCurrentBranchByDefault: config.showCurrentBranchByDefault,
+    nowMs: () => Date.now()
+  });
   const branchesView = createBranchesView({
-    dataService: branchDataService,
+    branchFacts,
     filterStore: branchFilterStore,
     resolveShowRemote,
     resolveShowInactive,
-    resolveShowMerged,
-    resolveInactiveThresholdDays: config.inactiveBranchThresholdDays,
-    resolveExemptPatterns: config.inactiveBranchAlwaysShow
+    resolveShowMerged
   });
   branchesView.setActiveRepo(extensionState.getLastActiveRepo());
   context.subscriptions.push(branchesView, branchFilterStore);
@@ -145,7 +164,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Remotes side-view: a flat list of the active repo's remotes, sharing the
   // Branches view's data service and repo-following behaviour. Mutations are
   // registered as commands below.
-  const remotesView = createRemotesView(branchDataService);
+  const remotesView = createRemotesView(repoGitClients);
   remotesView.setActiveRepo(extensionState.getLastActiveRepo());
   context.subscriptions.push(remotesView);
 
@@ -307,13 +326,23 @@ export function activate(context: vscode.ExtensionContext) {
   const adoptPanel = (panel: vscode.WebviewPanel) => {
     let bridge!: WebviewBridge;
     const repoFileWatcher = new RepoFileWatcher(() => {
+      // Changes made outside the extension (a CLI checkout, another tool): the
+      // backstop behind the mutation-path invalidation above.
+      branchFacts.invalidate();
       if (panel.visible) {
         bridge.post({ command: "refresh" });
         branchesView.refresh();
         remotesView.refresh();
       }
     });
-    bridge = webviewBridgeFactory(panel.webview, repoFileWatcher);
+    bridge = webviewBridgeFactory(panel.webview, repoFileWatcher, () => {
+      // Every branch mutation lands here, including the side-view's (ADR-0010).
+      // Dropping the cached read is only half of it: nothing else redraws the
+      // Branches view afterwards, and the file watcher stays deaf for 1500ms
+      // precisely because these operations fired the events it would react to.
+      branchFacts.invalidate();
+      branchesView.refresh();
+    });
     currentBridge = bridge;
     avatarManager.registerBridge(bridge.post.bind(bridge));
     const messageHandlers = registerMessageHandlers(bridge, {
@@ -324,6 +353,8 @@ export function activate(context: vscode.ExtensionContext) {
       avatarManager,
       repoFileWatcher,
       branchFilterStore,
+      branchFacts,
+      resolveShowRemote,
       onSelectRepo: (repo) => {
         branchesView.setActiveRepo(repo);
         remotesView.setActiveRepo(repo);
@@ -480,9 +511,21 @@ export function activate(context: vscode.ExtensionContext) {
       )
   });
 
+  /** Refresh everything that may show remote state: both side-views (remote
+   *  renames/removals change remote-tracking refs) and an open graph. These
+   *  actions run against `repoGitClients` rather than through the webview
+   *  bridge, so they miss the mutation hook that would otherwise drop the
+   *  cached read — and a refresh inside the coalescing window would then be
+   *  served a snapshot still listing the remote-tracking branches just removed. */
+  const refreshAfterRemoteChange = (): void => {
+    branchFacts.invalidate();
+    remotesView.refresh();
+    branchesView.refresh();
+    currentBridge?.post({ command: "refresh" });
+  };
+
   // Run a Remotes side-view action against its repo's git instance, then
-  // refresh everything that may show remote state: both side-views (remote
-  // renames/removals change remote-tracking refs) and an open graph.
+  // refresh every surface that may be showing what it changed.
   const runRemoteAction = async (
     item: unknown,
     errorKey: string,
@@ -491,10 +534,8 @@ export function activate(context: vscode.ExtensionContext) {
     const target = remoteActionTarget(item);
     if (target === null) return;
     try {
-      await action(branchDataService.getGitInstance(target.repo), target);
-      remotesView.refresh();
-      branchesView.refresh();
-      currentBridge?.post({ command: "refresh" });
+      await action(repoGitClients.gitClientFor(target.repo), target);
+      refreshAfterRemoteChange();
     } catch (e: unknown) {
       void vscode.window.showErrorMessage(l10n.t(errorKey) + ": " + formatGitError(e));
     }
@@ -600,7 +641,10 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("ging-git-view.branches.collapseAll", () =>
       branchesView.collapseFolders()
     ),
-    vscode.commands.registerCommand("ging-git-view.branches.refresh", () => branchesView.refresh()),
+    vscode.commands.registerCommand("ging-git-view.branches.refresh", () =>
+      // Explicitly asked for by the user, so it bypasses the coalescing window.
+      branchesView.refresh({ hard: true })
+    ),
     vscode.commands.registerCommand("ging-git-view.branches.showAll", () => {
       const repo = branchesView.getActiveRepo();
       if (repo === null) return;
@@ -664,10 +708,8 @@ export function activate(context: vscode.ExtensionContext) {
       )?.trim();
       if (!url) return;
       try {
-        await addRemote(branchDataService.getGitInstance(repo), { name, url });
-        remotesView.refresh();
-        branchesView.refresh();
-        currentBridge?.post({ command: "refresh" });
+        await addRemote(repoGitClients.gitClientFor(repo), { name, url });
+        refreshAfterRemoteChange();
       } catch (e: unknown) {
         void vscode.window.showErrorMessage(
           l10n.t("error.unableToManageRemote") + ": " + formatGitError(e)
@@ -800,9 +842,7 @@ export function activate(context: vscode.ExtensionContext) {
             await removeRemote(git, { name: choice });
           }
         }
-        remotesView.refresh();
-        branchesView.refresh();
-        currentBridge?.post({ command: "refresh" });
+        refreshAfterRemoteChange();
       } catch (e: unknown) {
         void vscode.window.showErrorMessage(
           l10n.t("error.unableToManageRemote") + ": " + (e instanceof Error ? e.message : String(e))

@@ -40,7 +40,6 @@ import { checkBranchRedundancy } from "@/backend/queries/branchRedundancy";
 import { loadBranchSearchIndex } from "@/backend/queries/branchSearch";
 import { commitDetails } from "@/backend/queries/commitDetails";
 import { compareCommits } from "@/backend/queries/compareCommits";
-import { loadBranches } from "@/backend/queries/loadBranches";
 import { loadCommits } from "@/backend/queries/loadCommits";
 import { loadRemotes } from "@/backend/queries/loadRemotes";
 import { operationState } from "@/backend/queries/operationState";
@@ -65,9 +64,8 @@ import * as l10n from "@/l10n";
 import { RepoFileWatcher } from "@/repoFileWatcher";
 import { RequestMessage, ResponseMessage } from "@/types";
 
-import { resolveBranchFilter } from "./branchFilter";
+import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
-import { classifyMerged } from "./branchMerged";
 import { RepoManager } from "./repoManager";
 import { WebviewBridge } from "./webviewBridge";
 
@@ -122,6 +120,12 @@ export function registerMessageHandlers(
     avatarManager: AvatarManager;
     repoFileWatcher: RepoFileWatcher;
     branchFilterStore: BranchFilterStore;
+    /** The shared classification facts, consumed by `loadBranches` and by the
+     *  Branches side-view alike. */
+    branchFacts: BranchFacts;
+    /** The repo's "show remote branches" state. The webview no longer sends its
+     *  own copy: it was a one-way echo of this and could only be staler. */
+    resolveShowRemote: (repo: string) => boolean;
     /** Called when the webview switches repo, so the Branches side-view can
      *  follow the same repo. */
     onSelectRepo: (repo: string) => void;
@@ -135,6 +139,8 @@ export function registerMessageHandlers(
     avatarManager,
     repoFileWatcher,
     branchFilterStore,
+    branchFacts,
+    resolveShowRemote,
     onSelectRepo
   } = deps;
 
@@ -269,7 +275,7 @@ export function registerMessageHandlers(
       try {
         ({ branches } = await loadBranchSearchIndex(gitClient.getInstance(), {
           branchNames: msg.branchNames,
-          showRemoteBranches: msg.showRemoteBranches,
+          showRemoteBranches: resolveShowRemote(currentRepo!),
           commitOrder: msg.commitOrder ?? config.commitOrder(),
           onlyFollowFirstParent: config.onlyFollowFirstParent(),
           showCommitsOnlyReferencedByTags: config.showCommitsOnlyReferencedByTags(),
@@ -297,7 +303,7 @@ export function registerMessageHandlers(
         ...(await loadCommits(gitClient.getInstance(), {
           branchNames: msg.branchNames,
           maxCommits: msg.maxCommits,
-          showRemoteBranches: msg.showRemoteBranches,
+          showRemoteBranches: resolveShowRemote(currentRepo!),
           hard: msg.hard,
           dateType: config.dateType(),
           showUncommittedChanges: config.showUncommittedChanges(),
@@ -321,51 +327,22 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "loadBranches",
     async (msg) => {
-      const { mergedBranches, defaultBranch, ...result } = await loadBranches(
-        gitClient.getInstance(),
-        {
-          showRemoteBranches: msg.showRemoteBranches,
-          hard: msg.hard,
-          currentRepo: currentRepo!,
-          gitPath: config.gitPath(),
-          // The graph dims the ref chips of merged branches. Dates are not
-          // requested — inactivity is a side-view concept only.
-          includeMerged: true
-        }
-      );
-      // Resolve the filter to apply: an existing side-view selection (pruned to
-      // the branches that still exist), else the configured default. Seed it back
-      // silently — the value travels to the graph in this same response, so firing
-      // the store event would only cause a redundant reload.
-      const filter = resolveBranchFilter(
-        branchFilterStore.has(currentRepo!) ? branchFilterStore.get(currentRepo!) : undefined,
-        result.branches,
-        result.head,
-        {
-          showSpecificBranches: config.showSpecificBranches(),
-          showCurrentBranchByDefault: config.showCurrentBranchByDefault()
-        }
-      );
-      branchFilterStore.set(currentRepo!, filter, { silent: true });
-      // Only the hidable half reaches the graph. Applying the exemptions here —
-      // against the same head/selection/patterns the side-view uses — is what
-      // stops the two surfaces answering differently for a branch like `develop`,
-      // which is merged but never hidden.
-      const merged = classifyMerged({
-        branches: result.branches,
-        merged: mergedBranches ?? [],
-        defaultBranch: defaultBranch ?? null,
-        exemptions: {
-          head: result.head,
-          selected: filter,
-          patterns: config.inactiveBranchAlwaysShow()
-        }
-      });
+      // The side-view reads the very same facts, so the two surfaces cannot
+      // reach different verdicts — the filter resolution and seeding, the
+      // exemptions and the merged classification all live in one place now
+      // (ADR-0013). `hard` is the user asking for a real read, so it bypasses
+      // the coalescing window.
+      const facts = await branchFacts.facts(currentRepo!, { hard: msg.hard });
       bridge.post({
         command: "loadBranches",
-        ...result,
-        filter,
-        dimmedBranches: [...merged.hidable]
+        branches: [...facts.branches],
+        head: facts.head,
+        hard: msg.hard,
+        isRepo: facts.isRepo,
+        filter: facts.filter,
+        // Only the merged half of `hidable` reaches the graph: inactivity is a
+        // side-view noise-reduction concept, and the graph hides nothing.
+        dimmedBranches: [...facts.merged.hidable]
       });
     },
     { mutatesRepo: false }
