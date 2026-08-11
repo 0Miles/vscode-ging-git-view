@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.2](https://github.com/0Miles/vscode-ging-git-view/compare/v0.3.1...v0.3.2) (2026-08-11)
+
+
+### Bug Fixes
+
+* **fetch:** prune deleted remote-tracking branches by default ([#34](https://github.com/0Miles/vscode-ging-git-view/issues/34)) ([c892d8c](https://github.com/0Miles/vscode-ging-git-view/commit/c892d8c8f7f31754d724eae43e1c868ec10c97fd))
+* **graph:** stop the graph panel multiplying across host restarts ([#32](https://github.com/0Miles/vscode-ging-git-view/issues/32)) ([860a047](https://github.com/0Miles/vscode-ging-git-view/commit/860a0476500ce0fefe7a88c70d379251104c117b))
+* **graph:** sweep graph tabs the accumulation bug already left behind ([87cf7be](https://github.com/0Miles/vscode-ging-git-view/commit/87cf7be3aae1cbcb3e52b5023b5ebbba7c18216d))
+
 ## [0.3.1](https://github.com/0Miles/vscode-ging-git-view/compare/v0.3.0...v0.3.1) (2026-08-05)
 
 
