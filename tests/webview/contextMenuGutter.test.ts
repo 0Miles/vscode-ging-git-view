@@ -253,8 +253,11 @@ describe("context menu gutter, activation and keyboard navigation", () => {
       press("ArrowDown");
       press("Tab");
       expect(document.activeElement).toBe(row);
-      // The row is only in the tab order while its menu is open.
-      expect(row.hasAttribute("tabindex")).toBe(false);
+      // Closing the menu leaves the row focusable — that is how it was reached
+      // in the first place — and the table still holds a single tab stop, so
+      // Tab steps over the graph rather than through every commit in it.
+      expect(row.hasAttribute("tabindex")).toBe(true);
+      expect(document.querySelectorAll('#commitTable [tabindex="0"]')).toHaveLength(1);
     });
 
     it("leaves focus alone when the menu is dismissed by clicking elsewhere", () => {

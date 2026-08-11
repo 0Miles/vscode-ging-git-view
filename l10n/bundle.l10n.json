@@ -18,6 +18,7 @@
   "ui.date": "Date",
   "ui.author": "Author",
   "ui.commit": "Commit",
+  "ui.commitGraph": "Commit graph",
   "ui.commitOrder.default": "Order: Default (setting)",
   "ui.commitOrder.date": "Order: Date",
   "ui.commitOrder.authorDate": "Order: Author Date",

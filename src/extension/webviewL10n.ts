@@ -34,6 +34,8 @@ export function getWebviewLocalizedStrings() {
     date: l10n.t("ui.date"),
     author: l10n.t("ui.author"),
     commit: l10n.t("ui.commit"),
+    // Accessible name for the commit table, which is a `role="grid"`.
+    commitGraph: l10n.t("ui.commitGraph"),
     commitOrderDefault: l10n.t("ui.commitOrder.default"),
     commitOrderDate: l10n.t("ui.commitOrder.date"),
     commitOrderAuthorDate: l10n.t("ui.commitOrder.authorDate"),

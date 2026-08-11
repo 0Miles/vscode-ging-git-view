@@ -1591,3 +1591,21 @@ body.vscode-high-contrast #commitTable tr.commit.findMatch,
 body.vscode-high-contrast #commitTable tr.commit.findMatchCurrent {
   outline-style: dotted;
 }
+
+/* Keyboard focus. Commit rows, ref chips, column headers and Commit Details
+   View file rows carry a roving tabindex (see main.ts) so that the menu each of
+   them owns can be raised without a mouse; the ring is what tells the user which
+   one a Shift+F10 would act on. Only :focus-visible — a click already says where
+   it landed, and rows are focused on mousedown.
+
+   Last in the file on purpose: these tie on specificity with the find-match
+   outlines above, and a focused row must show its focus, not its match. */
+#commitTable tr.commit:focus-visible,
+#commitTable tr.unsavedChanges:focus-visible,
+#commitTable tr#tableColHeaders:focus-visible,
+#commitTable .tableColHeader:focus-visible,
+#commitTable .gitRef:focus-visible,
+#commitDetails .gitFile:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: -1px;
+}
