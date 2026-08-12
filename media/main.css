@@ -1594,18 +1594,32 @@ body.vscode-high-contrast #commitTable tr.commit.findMatchCurrent {
 
 /* Keyboard focus. Commit rows, ref chips, column headers and Commit Details
    View file rows carry a roving tabindex (see main.ts) so that the menu each of
-   them owns can be raised without a mouse; the ring is what tells the user which
-   one a Shift+F10 would act on. Only :focus-visible — a click already says where
-   it landed, and rows are focused on mousedown.
+   them owns can be raised without a mouse; this is what tells the user which one
+   a Shift+F10 would act on. Only :focus-visible — a click already says where it
+   landed, and rows are focused on mousedown.
+
+   Two layers, because one isn't enough across a table this wide: a fill that
+   carries at a glance, and a ring that reads on the row already wearing the
+   selection colour (where a fill would say nothing) and under High Contrast
+   themes (where a translucent fill may not render at all).
 
    Last in the file on purpose: these tie on specificity with the find-match
    outlines above, and a focused row must show its focus, not its match. */
+#commitTable tr.commit:focus-visible:not(.commitDetailsOpen) td,
+#commitTable tr.unsavedChanges:focus-visible td,
+#commitTable #tableColHeaders:focus-visible th,
+#commitDetails .gitFile:focus-visible {
+  /* The hover colour rather than list.focusBackground: focus lands on rows the
+     user has not selected, and it must never out-shout --ging-selected-
+     background on the row whose details are actually open. */
+  background-color: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15));
+}
 #commitTable tr.commit:focus-visible,
 #commitTable tr.unsavedChanges:focus-visible,
-#commitTable tr#tableColHeaders:focus-visible,
+#commitTable #tableColHeaders:focus-visible,
 #commitTable .tableColHeader:focus-visible,
 #commitTable .gitRef:focus-visible,
 #commitDetails .gitFile:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline: 2px solid var(--vscode-list-focusOutline, var(--vscode-focusBorder, #007fd4));
   outline-offset: -1px;
 }
