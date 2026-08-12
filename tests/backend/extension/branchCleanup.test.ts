@@ -154,6 +154,24 @@ describe("resolveCleanupCandidates", () => {
     expect(result.scannable).toEqual(["remotes/origin/wip", "wip"]);
   });
 
+  it("never proposes or scans a remote's HEAD symref", () => {
+    // `git branch -a` lists `remotes/origin/HEAD` alongside real branches, but it
+    // is a symbolic pointer at the remote's default branch, not a branch. Left in
+    // `scannable`, a deep check merges the default branch with itself, calls the
+    // result redundant, and offers to `push --delete HEAD`.
+    const result = resolveCleanupCandidates({
+      branches: ["main", "remotes/origin/HEAD", "remotes/origin/main", "remotes/origin/done"],
+      head: "main",
+      defaultBranch: "remotes/origin/main",
+      dates: {},
+      merged: classified(["remotes/origin/done"]),
+      inactive: nothing,
+      patterns: []
+    });
+    expect(result.candidates.map((c) => c.ref)).toEqual(["remotes/origin/done"]);
+    expect(result.scannable).not.toContain("remotes/origin/HEAD");
+  });
+
   it("falls back to inactive alone when no default branch resolved", () => {
     // Default branch is the sole basis for merged and redundant alike, so both
     // are unanswerable. The dialog reports that rather than silently showing a

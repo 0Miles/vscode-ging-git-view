@@ -18,7 +18,7 @@
  * like the classifiers it consumes.
  */
 
-import { REMOTE_PREFIX } from "@/backend/utils/branchRef";
+import { REMOTE_PREFIX, splitRemoteRef } from "@/backend/utils/branchRef";
 import type { CleanupCandidate, CleanupCandidateFacts } from "@/types";
 
 import { type BranchClassification, defaultBranchAliases, isAlwaysShown } from "./branchExempt";
@@ -65,6 +65,14 @@ function isCleanupExempt(ref: string, input: CleanupCandidatesInput): boolean {
   if (input.defaultBranch !== null && defaultBranchAliases(input.defaultBranch).has(ref)) {
     return true; // the basis every verdict was measured against
   }
+  // `git branch -a` lists `remotes/<remote>/HEAD` next to the real branches, but
+  // it is a symbolic pointer at the remote's default branch. It has to be ruled
+  // out here rather than left to the fact sets: a deep check would merge the
+  // default branch with itself, find nothing to contribute, and put a
+  // pre-ticked `origin/HEAD` on the list. The same reasoning drops it from
+  // `branchKeyFromRefname` and from the graph's own redundancy menu item.
+  const split = splitRemoteRef(ref);
+  if (split !== null && split.name === "HEAD") return true;
   return isAlwaysShown(ref, input.patterns);
 }
 
