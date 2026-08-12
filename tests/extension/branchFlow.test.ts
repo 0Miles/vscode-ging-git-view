@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 
 import { gitClientFactory } from "@/backend/gitClient";
 import { config } from "@/config";
+import { createBranchCleanup } from "@/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@/extension/branchFacts";
 import { registerMessageHandlers } from "@/extension/messageHandler";
 import type { WebviewBridge } from "@/extension/webviewBridge";
@@ -28,6 +29,18 @@ function makeDeps() {
   // and merge it correctly — a regression that silently emptied every repo.
   const gitEnv = { GIT_ASKPASS: "/some/askpass.sh", ELECTRON_RUN_AS_NODE: "1" };
   const gitClient = gitClientFactory("", config.gitPath(), undefined, gitEnv);
+  const gitClientFor = (repo: string) =>
+    gitClientFactory(repo, config.gitPath(), undefined, gitEnv).getInstance();
+  const branchFacts = createBranchFacts({
+    readSnapshot: createGitSnapshotReader({ gitClientFor, gitPath: config.gitPath }),
+    filterStore: { has: () => false, get: () => [], set: () => false },
+    resolveShowRemote,
+    resolveExemptPatterns: config.inactiveBranchAlwaysShow,
+    resolveInactiveThresholdDays: config.inactiveBranchThresholdDays,
+    resolveShowSpecificBranches: config.showSpecificBranches,
+    resolveShowCurrentBranchByDefault: config.showCurrentBranchByDefault,
+    nowMs: () => Date.now()
+  });
   return {
     config,
     gitClient,
@@ -42,19 +55,13 @@ function makeDeps() {
       onDidChangeFilter: () => ({ dispose: noop }),
       dispose: noop
     } as never,
-    branchFacts: createBranchFacts({
-      readSnapshot: createGitSnapshotReader({
-        gitClientFor: (repo: string) =>
-          gitClientFactory(repo, config.gitPath(), undefined, gitEnv).getInstance(),
-        gitPath: config.gitPath
-      }),
-      filterStore: { has: () => false, get: () => [], set: () => false },
+    branchFacts,
+    branchCleanup: createBranchCleanup({
+      branchFacts,
+      gitClientFor,
       resolveShowRemote,
       resolveExemptPatterns: config.inactiveBranchAlwaysShow,
-      resolveInactiveThresholdDays: config.inactiveBranchThresholdDays,
-      resolveShowSpecificBranches: config.showSpecificBranches,
-      resolveShowCurrentBranchByDefault: config.showCurrentBranchByDefault,
-      nowMs: () => Date.now()
+      dateType: config.dateType
     }),
     resolveShowRemote,
     onSelectRepo: noop

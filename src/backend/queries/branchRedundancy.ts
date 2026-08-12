@@ -46,8 +46,12 @@ function toSeconds(raw: string | null | undefined): number {
  *
  * A missing reflog is not an error: git exits 0 with empty output, so the
  * emptiness is what selects the fallback.
+ *
+ * Exported for the cleanup dialog, which dates its basis the same way — a
+ * second implementation would let the two dialogs disagree about how current the
+ * same ref is.
  */
-async function basisDate(git: SimpleGit, ref: string, dateType: DateType): Promise<number> {
+export async function basisDate(git: SimpleGit, ref: string, dateType: DateType): Promise<number> {
   const reflog = await tryRaw(git, ["log", "-g", "-1", "--format=%gd", "--date=unix", ref]);
   // `%gd` reads `<ref>@{<unix>}`. Ref names may not contain `@{`, so anchoring
   // on the last one can't be fooled by the ref itself.

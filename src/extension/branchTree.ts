@@ -33,6 +33,11 @@ export type BranchTreeLeaf = {
    *  merged or inactive and not exempt. The view renders these dimmed, so the
    *  grey exactly predicts what pressing "hide" does (ADR-0003). */
   isHidable: boolean;
+  /** True when the cleanup dialog would propose this branch. Not the same set as
+   *  `isHidable` — the exemptions differ by the branch filter — so a leaf can
+   *  carry this without being dimmed. It gates the cleanup menu item only; the
+   *  row's appearance is unaffected (ADR-0014). */
+  isCleanupCandidate: boolean;
   /** Last commit time (unix seconds) when known, for the age label. */
   lastActivitySec?: number;
 };
@@ -89,6 +94,9 @@ export type BranchTreeMeta = {
   /** Refs a hide toggle would remove (rendered dimmed): the union of the two
    *  above, minus the exempt branches. */
   hidable: ReadonlySet<string>;
+  /** Refs the cleanup dialog would propose. Affects no rendering — only which
+   *  leaves offer the cleanup menu item. */
+  cleanupCandidates?: ReadonlySet<string>;
   /** ref → last commit time (unix seconds), for the age label. */
   dates: Readonly<Record<string, number>>;
 };
@@ -121,6 +129,7 @@ export function buildBranchTree(
       isMerged: meta?.merged?.has(branch) ?? false,
       isInactive: meta?.inactive?.has(branch) ?? false,
       isHidable: meta?.hidable?.has(branch) ?? false,
+      isCleanupCandidate: meta?.cleanupCandidates?.has(branch) ?? false,
       lastActivitySec: meta?.dates?.[branch]
     });
   }

@@ -118,6 +118,7 @@
   "command.branches.search": "搜索 branch",
   "command.branches.showAll": "显示所有 branch",
   "command.branches.refresh": "刷新",
+  "command.branches.cleanup": "清理 branch…",
   "command.branches.showRemoteBranches": "显示远程 branch",
   "command.branches.hideRemoteBranches": "隐藏远程 branch",
   "command.branches.showInactive": "显示不活跃 branch",

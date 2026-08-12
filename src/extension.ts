@@ -26,6 +26,7 @@ import { config, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
+import { createBranchCleanup } from "./extension/branchCleanupService";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
 import { createBranchFacts, createGitSnapshotReader } from "./extension/branchFacts";
 import { createBranchFilterStore } from "./extension/branchFilterStore";
@@ -151,12 +152,27 @@ export function activate(context: vscode.ExtensionContext) {
     resolveShowCurrentBranchByDefault: config.showCurrentBranchByDefault,
     nowMs: () => Date.now()
   });
+  // The cleanup dialog's payload builder. Sits beside `branchFacts` for the
+  // same reason the side-view does — the candidate rules read those facts, and
+  // building the payload host-side is what lets an empty candidate set be
+  // reported without summoning the graph panel (ADR-0014).
+  const branchCleanup = createBranchCleanup({
+    branchFacts,
+    gitClientFor: repoGitClients.gitClientFor,
+    resolveShowRemote,
+    resolveExemptPatterns: config.inactiveBranchAlwaysShow,
+    dateType: config.dateType
+  });
   const branchesView = createBranchesView({
     branchFacts,
     filterStore: branchFilterStore,
     resolveShowRemote,
     resolveShowInactive,
-    resolveShowMerged
+    resolveShowMerged,
+    // The pure resolver, not `branchCleanup`: the view only needs to know which
+    // leaves are candidates (to offer the menu item on them), and the service
+    // would spawn git for the basis date on every reload.
+    resolveExemptPatterns: config.inactiveBranchAlwaysShow
   });
   branchesView.setActiveRepo(extensionState.getLastActiveRepo());
   context.subscriptions.push(branchesView, branchFilterStore);
@@ -354,6 +370,7 @@ export function activate(context: vscode.ExtensionContext) {
       repoFileWatcher,
       branchFilterStore,
       branchFacts,
+      branchCleanup,
       resolveShowRemote,
       onSelectRepo: (repo) => {
         branchesView.setActiveRepo(repo);
@@ -511,6 +528,34 @@ export function activate(context: vscode.ExtensionContext) {
       )
   });
 
+  /**
+   * Build the cleanup candidates and open the dialog on them.
+   *
+   * The empty case is answered here, natively, and that is the whole reason the
+   * payload is built host-side (ADR-0014): summoning the graph panel to the
+   * foreground just to say "nothing to clean up" would be a worse answer than a
+   * one-line notification.
+   */
+  const openBranchCleanup = async (): Promise<void> => {
+    const repo = branchesView.getActiveRepo();
+    if (repo === null) return;
+    let payload;
+    try {
+      // The user asked for this answer now, so bypass the coalescing window.
+      payload = (await branchCleanup.build(repo, { hard: true })).payload;
+    } catch (e: unknown) {
+      void vscode.window.showErrorMessage(
+        l10n.t("branchView.cleanup.failed") + ": " + formatGitError(e)
+      );
+      return;
+    }
+    if (payload.candidates.length === 0) {
+      void vscode.window.showInformationMessage(l10n.t("branchView.cleanup.none"));
+      return;
+    }
+    await branchActionDelegate.openCleanup(repo, payload);
+  };
+
   /** Refresh everything that may show remote state: both side-views (remote
    *  renames/removals change remote-tracking refs) and an open graph. These
    *  actions run against `repoGitClients` rather than through the webview
@@ -665,6 +710,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("ging-git-view.branches.hideInactive", toggleInactiveBranches),
     vscode.commands.registerCommand("ging-git-view.branches.showMerged", toggleMergedBranches),
     vscode.commands.registerCommand("ging-git-view.branches.hideMerged", toggleMergedBranches),
+    // Open the cleanup dialog. Reachable from the side-view title menu, the
+    // command palette, and the context menu of any branch that is itself a
+    // candidate — every route lands here, and none of them cares which branch
+    // was right-clicked: the dialog proposes the whole set (ADR-0014).
+    vscode.commands.registerCommand("ging-git-view.branches.cleanup", () => openBranchCleanup()),
     // Side-view branch actions, generated from the shared action catalogue
     // (ADR-0010) — an entry there is what makes a command exist, so the two
     // can never drift apart. The command IDs follow the one convention:

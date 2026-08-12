@@ -62,6 +62,22 @@ export function isAlwaysShown(branch: string, patterns: readonly string[]): bool
   return patterns.some((p) => candidates.some((c) => branchGlobMatches(c, p)));
 }
 
+/**
+ * The refs that denote the default branch itself: the resolved ref, plus — when
+ * it is remote-tracking — the local branch of the same name.
+ *
+ * Shared by the two rules that measure against the default branch: merged
+ * classification must not report it as merged into itself, and the cleanup
+ * dialog must not propose deleting the basis every verdict was measured
+ * against. One holder so the two can't disagree about what counts as it.
+ */
+export function defaultBranchAliases(defaultBranch: string): Set<string> {
+  const aliases = new Set([defaultBranch]);
+  const split = splitRemoteRef(defaultBranch);
+  if (split !== null) aliases.add(split.name);
+  return aliases;
+}
+
 /** Whether the branch is exempt from hiding for any of the three reasons. */
 export function isExempt(branch: string, exemptions: BranchExemptions): boolean {
   if (branch === exemptions.head) return true;
