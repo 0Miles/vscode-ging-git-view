@@ -176,7 +176,10 @@ function renderGitFileRow(
     '<li class="gitFile ' +
     gitFile.type +
     (gitFile.additions !== null && gitFile.deletions !== null ? " gitDiffPossible" : "") +
-    '" data-oldfilepath="' +
+    // Focusable, but never a tab stop of its own: the file list hands its single
+    // tabindex="0" to one row at a time, so Tab steps over the list rather than
+    // through every file in it.
+    '" tabindex="-1" data-oldfilepath="' +
     encodeURIComponent(gitFile.oldFilePath) +
     '" data-newfilepath="' +
     encodeURIComponent(gitFile.newFilePath) +

@@ -58,7 +58,55 @@ import {
   unescapeHtml
 } from "./utils/html";
 import { svgIcons } from "./utils/icons";
+import { RovingTabStop, stepWithinGroup } from "./utils/rovingFocus";
 import { getVSCodeStyle, sendMessage, vscode } from "./utils/vscode";
+
+/** Everything in the graph that keyboard focus can land on. Each is also a
+ *  context-menu source, which is the point: a menu that only `contextmenu` can
+ *  raise needs a focusable element to be raised from. */
+const GRAPH_FOCUSABLE = "tr.commit, tr.unsavedChanges, #tableColHeaders, .tableColHeader, .gitRef";
+
+/** Everything that can raise a context menu, and so everything Shift+F10 and
+ *  the Context Menu key have to work on. The header *row* is absent: its menu
+ *  belongs to the individual column headers, which Left/Right reach. */
+const MENU_SOURCES =
+  "tr.commit, tr.unsavedChanges, .tableColHeader, .gitRef, .gitFile, .commitBodyLink";
+
+/** What Enter and Space activate. Commit-message links are absent: they are real
+ *  `<a href>`s, and the browser already knows Enter follows a link while Space
+ *  scrolls the page. */
+const ACTIVATABLE = GRAPH_FOCUSABLE + ", .gitFile";
+
+/** The commit table's column-header row. A row for navigation — Up from the
+ *  first commit reaches it, which is what makes the column and commit-ordering
+ *  menu keyboard-reachable — but not a place to enter the grid at. */
+function isHeaderRow(row: HTMLElement): boolean {
+  return row.id === "tableColHeaders";
+}
+
+/** The focusable elements of a commit table row, in visual order: the ref chips
+ *  of a commit row, the column headers of the header row. Left/Right walk
+ *  these — the row itself is what Up/Down move between. */
+function rowWidgets(row: HTMLElement): HTMLElement[] {
+  // A hidden column's header still exists in the markup but `display: none`
+  // takes it out of the focus order, so walking onto it would strand focus.
+  return Array.from(row.querySelectorAll<HTMLElement>(".gitRef, .tableColHeader")).filter(
+    (widget) => !widget.classList.contains("hidden")
+  );
+}
+
+/** The keyboard's way of asking for a context menu (Shift+F10, or the Context
+ *  Menu key). Dispatched on the focused element so it bubbles to the same
+ *  handlers a right-click reaches, and so the innermost source wins — a ref
+ *  chip rather than the commit row behind it — exactly as it does for the
+ *  pointer. */
+const MENU_KEY_EVENT = "ging.contextMenuKey";
+
+/** Wire a context-menu handler to both ways of raising one. */
+function addContextMenuListener(className: string, listener: EventListener) {
+  addListenerToClass(className, "contextmenu", listener);
+  addListenerToClass(className, MENU_KEY_EVENT, listener);
+}
 
 /** Split a remote ref "<remote>/<branch>" on its first slash. Null for the
  *  symbolic "<remote>/HEAD" ref and for names without a slash — the callers
@@ -166,6 +214,13 @@ class GitGraphView {
   private tableElem: HTMLElement;
   private footerElem: HTMLElement;
   private scrollShadowElem: HTMLElement;
+
+  // The graph and the Commit Details View's file list are each one roving-
+  // tabindex group, so Tab crosses each in a single press and the arrow keys
+  // move within them. Two groups, not one: they are separate widgets, and
+  // arrowing through files must not walk out into the commits behind them.
+  private graphTabStop = new RovingTabStop();
+  private cdvFileTabStop = new RovingTabStop();
 
   private loadBranchesCallback: ((changes: boolean, isRepo: boolean) => void) | null = null;
   private loadCommitsCallback: ((changes: boolean) => void) | null = null;
@@ -1107,7 +1162,12 @@ class GitGraphView {
     const hiddenDate = this.columnVisibility.date ? "" : " hidden";
     const hiddenAuthor = this.columnVisibility.author ? "" : " hidden";
     const hiddenCommit = this.columnVisibility.commit ? "" : " hidden";
-    let html = `<tr id="tableColHeaders"><th id="tableHeaderGraphCol" class="tableColHeader"></th><th class="tableColHeader">${l10n.description}</th><th class="tableColHeader${hiddenDate}" data-col="date">${l10n.date}</th><th class="tableColHeader${hiddenAuthor}" data-col="author">${l10n.author}</th><th class="tableColHeader${hiddenCommit}" data-col="commit">${l10n.commit}</th></tr>`,
+    // The header row and its cells are part of the grid: Up from the first
+    // commit lands here, which is what makes the column/ordering menu reachable
+    // without a mouse. Each `th` carries its own tabindex so Left/Right can walk
+    // to the one whose menu the user wants.
+    const colHeader = 'role="columnheader" tabindex="-1"';
+    let html = `<tr id="tableColHeaders" role="row" tabindex="-1"><th id="tableHeaderGraphCol" class="tableColHeader" ${colHeader}></th><th class="tableColHeader" ${colHeader}>${l10n.description}</th><th class="tableColHeader${hiddenDate}" ${colHeader} data-col="date">${l10n.date}</th><th class="tableColHeader${hiddenAuthor}" ${colHeader} data-col="author">${l10n.author}</th><th class="tableColHeader${hiddenCommit}" ${colHeader} data-col="commit">${l10n.commit}</th></tr>`,
       i,
       currentHash = this.commits.length > 0 && this.commits[0].hash === "*" ? "*" : this.commitHead;
     // Only mute by ancestry when HEAD is actually within the loaded commits;
@@ -1140,7 +1200,9 @@ class GitGraphView {
       type +
       (active ? " active" : "") +
       (dimmed ? " dimmedRef" : "") +
-      '" data-name="' +
+      // Focusable so its menu — the only place a branch/tag/stash's actions
+      // live — can be raised from the keyboard. Left/Right reach it from the row.
+      '" tabindex="-1" data-name="' +
       dataName +
       '">' +
       (type === "tag" ? svgIcons.tag : type === "stash" ? svgIcons.stash : svgIcons.branch) +
@@ -1269,13 +1331,14 @@ class GitGraphView {
       const aligned = this.config.branchLabelsAlignedToGraph;
       const graphCell =
         aligned && refBranches !== ""
-          ? '<td><span style="margin-left:' +
+          ? '<td role="gridcell"><span style="margin-left:' +
             (widthsAtVertices[i] - 4) +
             'px"' +
             refBranches.substring(5) +
             "</td>"
-          : "<td></td>";
-      const descCell = "<td>" + headDot + (aligned ? "" : refBranches) + descCore + "</td>";
+          : '<td role="gridcell"></td>';
+      const descCell =
+        '<td role="gridcell">' + headDot + (aligned ? "" : refBranches) + descCore + "</td>";
       html +=
         "<tr " +
         (this.commits[i].hash !== "*"
@@ -1286,27 +1349,30 @@ class GitGraphView {
             '"' +
             (tooltip !== "" ? ' title="' + escapeHtml(tooltip) + '"' : "")
           : 'class="unsavedChanges"') +
-        ' data-id="' +
+        // Focusable, but never a tab stop of its own: the table hands its single
+        // tabindex="0" to one row at a time (see `graphTabStop`), so Tab steps
+        // over the graph rather than through every commit in it.
+        ' role="row" tabindex="-1" data-id="' +
         i +
         '" data-color="' +
         this.graph.getVertexColour(i) +
         '">' +
         graphCell +
         descCell +
-        '<td class="' +
+        '<td role="gridcell" class="' +
         (hiddenDate ? "hidden" : "") +
         '" title="' +
         date.title +
         '">' +
         date.value +
-        '</td><td class="' +
+        '</td><td role="gridcell" class="' +
         (hiddenAuthor ? "hidden" : "") +
         '" title="' +
         escapeHtml(this.commits[i].author + " <" + this.commits[i].email + ">") +
         '">' +
         this.avatarHtml(this.commits[i].email) +
         escapeHtml(this.commits[i].author) +
-        '</td><td class="' +
+        '</td><td role="gridcell" class="' +
         (hiddenCommit ? "hidden" : "") +
         '" title="' +
         escapeHtml(this.commits[i].hash) +
@@ -1314,7 +1380,10 @@ class GitGraphView {
         abbrevCommit(this.commits[i].hash) +
         "</td></tr>";
     }
-    this.tableElem.innerHTML = "<table>" + html + "</table>";
+    // `role="grid"` rather than the implicit `table`: the rows are interactive
+    // and keyboard-navigable, which is the distinction between the two roles.
+    this.tableElem.innerHTML =
+      '<table role="grid" aria-label="' + escapeHtml(l10n.commitGraph) + '">' + html + "</table>";
     // Re-apply find highlighting to the freshly-rendered rows (without scrolling).
     if (this.findActive) this.applyFindHighlights(false);
     this.footerElem.innerHTML = this.moreCommitsAvailable
@@ -1385,8 +1454,11 @@ class GitGraphView {
         }
       }
     }
+    // After the expanded commit has been re-bound to its new row, so the tab
+    // stop can land back on it rather than on the top of the graph.
+    this.restoreGraphTabStop();
 
-    addListenerToClass("tableColHeader", "contextmenu", (e: Event) => {
+    addContextMenuListener("tableColHeader", (e: Event) => {
       const headerElem = <HTMLElement>(<Element>e.target).closest(".tableColHeader")!;
       // Only the Date/Author/Commit headers carry a data-col and can be toggled.
       if (headerElem.dataset.col === undefined) return;
@@ -1435,7 +1507,7 @@ class GitGraphView {
         headerElem
       );
     });
-    addListenerToClass("commit", "contextmenu", (e: Event) => {
+    addContextMenuListener("commit", (e: Event) => {
       e.stopPropagation();
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".commit")!;
       let hash = sourceElem.dataset.hash!;
@@ -1916,7 +1988,7 @@ class GitGraphView {
         this.loadCommitDetails(sourceElem);
       }
     });
-    addListenerToClass("unsavedChanges", "contextmenu", (e: Event) => {
+    addContextMenuListener("unsavedChanges", (e: Event) => {
       e.stopPropagation();
       const sourceElem = <HTMLElement>(<Element>e.target).closest(".unsavedChanges")!;
       const ucv = viewState.contextMenuActionsVisibility.uncommittedChanges; // #198
@@ -1957,7 +2029,7 @@ class GitGraphView {
         sourceElem
       );
     });
-    addListenerToClass("gitRef", "contextmenu", (e: Event) => {
+    addContextMenuListener("gitRef", (e: Event) => {
       e.stopPropagation();
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitRef")!;
       let refName = unescapeHtml(sourceElem.dataset.name!),
@@ -2290,13 +2362,13 @@ class GitGraphView {
   private renderUncommitedChanges() {
     let date = getCommitDate(this.commits[0].date);
     document.getElementsByClassName("unsavedChanges")[0].innerHTML =
-      "<td></td><td><b>" +
+      '<td role="gridcell"></td><td role="gridcell"><b>' +
       escapeHtml(this.commits[0].message) +
-      '</b></td><td title="' +
+      '</b></td><td role="gridcell" title="' +
       date.title +
       '">' +
       date.value +
-      '</td><td title="* <>">*</td><td title="*">*</td>';
+      '</td><td role="gridcell" title="* <>">*</td><td role="gridcell" title="*">*</td>';
   }
   private renderShowLoading() {
     hideDialogAndContextMenu();
@@ -3317,10 +3389,6 @@ class GitGraphView {
     this.loadCommitDetails(this.expandedCommit.srcElem);
   }
 
-  /** Open the Commit Details View for the commit `delta` rows away from the one
-   *  currently expanded (e.g. -1 for the row above, +1 below). Returns true only
-   *  when navigation actually occurred, so the caller consumes the key press
-   *  exactly then (and lets it scroll the page otherwise). */
   /* Find Widget */
   public showFind() {
     this.findActive = true;
@@ -3537,18 +3605,143 @@ class GitGraphView {
     }
     blinkHeadRow(hash);
   }
-  public commitDetailsNavigate(delta: number): boolean {
-    if (this.expandedCommit === null || this.expandedCommit.srcElem === null) return false;
-    const newId = this.expandedCommit.id + delta;
-    if (newId >= 0 && newId < this.commits.length) {
-      const elem = document.querySelector('.commit[data-id="' + newId + '"]');
-      if (elem !== null) {
-        this.loadCommitDetails(<HTMLElement>elem);
-        return true;
-      }
-    }
-    return false;
+
+  /* Keyboard Navigation */
+
+  /** Every row keyboard focus can land on, in visual order: the column-header
+   *  row, then one per commit / uncommitted-changes row. Rebuilt from the DOM on
+   *  each call because `renderTable` replaces the lot. */
+  private graphRows(): HTMLElement[] {
+    return Array.from(
+      this.tableElem.querySelectorAll<HTMLElement>("#tableColHeaders, tr.commit, tr.unsavedChanges")
+    );
   }
+
+  /** The row holding focus — directly, or through a ref chip nested in it —
+   *  falling back to the expanded commit's row. That fallback is what keeps
+   *  Up/Down stepping through the Commit Details View from wherever focus
+   *  happens to be, which is what they did before rows could be focused. */
+  private focusedRowIndex(rows: HTMLElement[]): number {
+    const active = document.activeElement;
+    const focused = rows.findIndex((row) => row === active || row.contains(active));
+    if (focused !== -1) return focused;
+    const anchored = this.expandedCommit?.srcElem ?? null;
+    return anchored === null ? -1 : rows.indexOf(anchored);
+  }
+
+  /** Move focus `delta` rows through the graph (negative = up). */
+  public moveRowFocus(delta: number) {
+    const rows = this.graphRows();
+    if (rows.length === 0) return;
+    const from = this.focusedRowIndex(rows);
+    if (from === -1) {
+      // Nothing to step from, so enter the grid at the end the key is coming
+      // from — never the column-header row, which is somewhere to arrive at
+      // rather than to start from.
+      const first = rows.find((row) => !isHeaderRow(row)) ?? rows[0];
+      this.focusGraphRow(delta > 0 ? first : rows[rows.length - 1]);
+      return;
+    }
+    this.focusGraphRow(rows[stepWithinGroup(rows.length, from, delta)]);
+  }
+
+  /** Focus `row` and, while the Commit Details View is open, swap the panel to
+   *  the commit it lands on. Selection follows focus: arrowing through the graph
+   *  was already how the details view was navigated, and leaving the panel on a
+   *  commit the user has focused away from would have the two disagree. */
+  private focusGraphRow(row: HTMLElement) {
+    this.graphTabStop.focus(row);
+    if (
+      this.expandedCommit !== null &&
+      row.classList.contains("commit") &&
+      row.dataset.hash !== this.expandedCommit.hash
+    ) {
+      this.loadCommitDetails(row);
+    }
+  }
+
+  /** Move focus between the widgets inside the focused row — a commit row's ref
+   *  chips, the header row's columns — or back out to the row itself. This is
+   *  how a grid exposes what a row holds: Up/Down pick the row, Left/Right walk
+   *  its contents. False when there is nothing to walk, leaving the key to do
+   *  whatever it otherwise would. */
+  public moveWidgetFocus(delta: number): boolean {
+    const rows = this.graphRows();
+    const active = document.activeElement;
+    const row = rows.find((candidate) => candidate === active || candidate.contains(active));
+    if (row === undefined) return false;
+    const widgets = rowWidgets(row);
+    if (widgets.length === 0) return false;
+    // From the row itself, Right enters at the first widget and Left at the
+    // last; stepping off either end hands focus back to the row.
+    const at = widgets.indexOf(<HTMLElement>active);
+    const next = at === -1 ? (delta > 0 ? 0 : widgets.length - 1) : at + delta;
+    this.graphTabStop.focus(next < 0 || next >= widgets.length ? row : widgets[next]);
+    return true;
+  }
+
+  /** The Commit Details View's file rows, in visual order. Files inside a
+   *  collapsed folder are left out — `display: none` takes them out of the focus
+   *  order, so stepping onto one would strand focus. */
+  private cdvFileRows(): HTMLElement[] {
+    const panel = document.getElementById("commitDetails");
+    if (panel === null) return [];
+    return Array.from(panel.querySelectorAll<HTMLElement>(".gitFile")).filter(
+      (file) => file.closest(".hidden") === null
+    );
+  }
+
+  /** Move focus `delta` file rows through the Commit Details View. False when
+   *  focus isn't in the file list, so the caller falls back to the graph's rows
+   *  — the file list is its own widget, and arrowing through it must not walk
+   *  out into the commits behind it. */
+  public moveCdvFileFocus(delta: number): boolean {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) return false;
+    const file = active.closest<HTMLElement>(".gitFile");
+    if (file === null) return false;
+    const files = this.cdvFileRows();
+    const from = files.indexOf(file);
+    if (from === -1) return false;
+    this.cdvFileTabStop.focus(files[stepWithinGroup(files.length, from, delta)]);
+    return true;
+  }
+
+  /** Put the graph's tab stop back after a re-render: on the expanded commit
+   *  when there is one — the row the user last acted on — otherwise on the first
+   *  commit. Without it the table would carry no `tabindex="0"` at all and Tab
+   *  would skip the graph entirely. */
+  private restoreGraphTabStop() {
+    const rows = this.graphRows();
+    const anchored = this.expandedCommit?.srcElem ?? null;
+    const target =
+      anchored !== null && rows.includes(anchored)
+        ? anchored
+        : (rows.find((row) => !isHeaderRow(row)) ?? rows[0]);
+    if (target !== undefined) this.graphTabStop.set(target);
+  }
+
+  /** Give the Commit Details View's file list a tab stop, so Tab can reach it
+   *  at all. Re-run whenever the visible set changes — a fresh render leaves
+   *  every row at `-1`, and collapsing a folder can bury the row that held it. */
+  private restoreCdvFileTabStop() {
+    const held = this.cdvFileTabStop.current;
+    if (held !== null && held.closest(".hidden") === null) return;
+    const first = this.cdvFileRows()[0];
+    if (first !== undefined) this.cdvFileTabStop.set(first);
+  }
+
+  /** Keep each group's tab stop wherever it last held focus, however focus got
+   *  there — a click, Tab, or the arrow keys — so Tab returns to where the user
+   *  left off rather than to the top of the graph. */
+  public syncTabStop(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return;
+    if (target.matches(".gitFile")) this.cdvFileTabStop.set(target);
+    else if (target.closest("#commitTable") !== null && target.matches(GRAPH_FOCUSABLE)) {
+      this.graphTabStop.set(target);
+    }
+  }
+
   /** Navigate the expanded Commit Details View along the graph: to the first
    *  parent ("parent") or to a child commit that lists it as a parent
    *  ("child"). Returns false (no-op) when there's no such commit loaded. */
@@ -3882,7 +4075,7 @@ class GitGraphView {
         this.loadCommitDetails(row);
       }
     });
-    addListenerToClass("commitBodyLink", "contextmenu", (e: Event) => {
+    addContextMenuListener("commitBodyLink", (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".commitBodyLink")!;
@@ -3909,6 +4102,7 @@ class GitGraphView {
    *  each render of the panel and again whenever the file section is re-rendered
    *  by the tree/list layout toggle (the old rows are replaced wholesale). */
   private attachCdvFileListeners() {
+    this.restoreCdvFileTabStop();
     addListenerToClass("gitFolder", "click", (e) => {
       let sourceElem = <HTMLElement>(<Element>e.target!).closest(".gitFolder");
       let parent = sourceElem.parentElement!;
@@ -3923,6 +4117,8 @@ class GitGraphView {
         decodeURIComponent(sourceElem.dataset.folderpath!),
         isOpen
       );
+      // Collapsing a folder can bury the row holding the list's tab stop.
+      this.restoreCdvFileTabStop();
       this.saveState();
     });
     addListenerToClass("gitFile", "click", (e) => {
@@ -3956,7 +4152,7 @@ class GitGraphView {
         data: decodeURIComponent(sourceElem.dataset.filepath!)
       });
     });
-    addListenerToClass("gitFile", "contextmenu", (e: Event) => {
+    addContextMenuListener("gitFile", (e: Event) => {
       e.stopPropagation();
       if (this.expandedCommit === null) return;
       const sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFile")!;
@@ -4164,7 +4360,12 @@ class GitGraphView {
 }
 
 let contextMenu = document.getElementById("contextMenu")!,
-  contextMenuSource: HTMLElement | null = null;
+  contextMenuSource: HTMLElement | null = null,
+  // Whether the open menu's source was made focusable for the occasion, so that
+  // closing removes only what opening added. The graph's own sources carry a
+  // tabindex permanently now; a commit-message link is an <a href> and needs
+  // none. What's left is anything else that grows a menu later.
+  contextMenuSourceBorrowedFocus = false;
 let dialog = document.getElementById("dialog")!,
   dialogBacking = document.getElementById("dialogBacking")!,
   dialogMenuSource: HTMLElement | null = null;
@@ -4803,7 +5004,17 @@ function abbrevCommit(commitHash: string) {
 }
 
 /* Context Menu */
-function showContextMenu(e: MouseEvent, rawItems: ContextMenuElement[], sourceElem: HTMLElement) {
+
+/** Where a menu opens from. A right-click supplies a pointer position; the
+ *  keyboard (`MENU_KEY_EVENT`) supplies none, so the menu hangs off the bottom-
+ *  left corner of the element it was raised on, the way a native menu does. */
+function menuAnchorPoint(e: Event, sourceElem: HTMLElement): { pageX: number; pageY: number } {
+  if (e instanceof MouseEvent) return { pageX: e.pageX, pageY: e.pageY };
+  const bounds = sourceElem.getBoundingClientRect();
+  return { pageX: bounds.left + window.pageXOffset, pageY: bounds.bottom + window.pageYOffset };
+}
+
+function showContextMenu(e: Event, rawItems: ContextMenuElement[], sourceElem: HTMLElement) {
   // Drop items hidden via contextMenuActionsVisibility, then collapse any
   // dividers left leading, trailing, or doubled-up by the removals.
   const items = rawItems
@@ -4812,7 +5023,7 @@ function showContextMenu(e: MouseEvent, rawItems: ContextMenuElement[], sourceEl
     .filter((it, idx, arr) => !(it === null && idx === arr.length - 1));
   let html = "",
     i: number,
-    event = <MouseEvent>e;
+    anchor = menuAnchorPoint(e, sourceElem);
   for (i = 0; i < items.length; i++) {
     const item = items[i];
     if (item === null) {
@@ -4843,16 +5054,16 @@ function showContextMenu(e: MouseEvent, rawItems: ContextMenuElement[], sourceEl
   contextMenu.className = "active";
   contextMenu.innerHTML = html;
   let bounds = contextMenu.getBoundingClientRect();
-  // Prefer opening down/right of the cursor, flipping up/left when that side
+  // Prefer opening down/right of the anchor, flipping up/left when that side
   // would overflow the viewport.
   let left =
-    event.pageX - window.pageXOffset + bounds.width < window.innerWidth
-      ? event.pageX - 2
-      : event.pageX - bounds.width + 2;
+    anchor.pageX - window.pageXOffset + bounds.width < window.innerWidth
+      ? anchor.pageX - 2
+      : anchor.pageX - bounds.width + 2;
   let top =
-    event.pageY - window.pageYOffset + bounds.height < window.innerHeight
-      ? event.pageY - 2
-      : event.pageY - bounds.height + 2;
+    anchor.pageY - window.pageYOffset + bounds.height < window.innerHeight
+      ? anchor.pageY - 2
+      : anchor.pageY - bounds.height + 2;
   // Clamp into the visible viewport: when the flipped side also lacks room (a
   // menu taller/wider than the space to that edge), the raw position spills past
   // the top/left edge and clips the leading items. Pin it inside instead, so a
@@ -4882,10 +5093,12 @@ function showContextMenu(e: MouseEvent, rawItems: ContextMenuElement[], sourceEl
 
   contextMenuSource = sourceElem;
   contextMenuSource.classList.add("contextMenuActive");
-  // Focusable only while its menu is open, so closing can hand focus back
-  // instead of dropping it on the body. The commit table itself stays outside
-  // the tab order — see docs/adr/0007.
-  contextMenuSource.tabIndex = -1;
+  // A source that isn't focusable on its own is lent a tabindex for the life of
+  // the menu, so closing can hand focus back rather than dropping it on the
+  // body. The graph's sources need no loan — they are permanently focusable.
+  contextMenuSourceBorrowedFocus =
+    !contextMenuSource.hasAttribute("tabindex") && contextMenuSource.tabIndex < 0;
+  if (contextMenuSourceBorrowedFocus) contextMenuSource.tabIndex = -1;
   // Nothing is focused within the menu yet: matching native menus, the first
   // arrow key is what moves onto an item.
   contextMenu.focus({ preventScroll: true });
@@ -4954,7 +5167,8 @@ function hideContextMenu() {
     if (returnFocus && contextMenuSource.isConnected) {
       contextMenuSource.focus({ preventScroll: true });
     }
-    contextMenuSource.removeAttribute("tabindex");
+    if (contextMenuSourceBorrowedFocus) contextMenuSource.removeAttribute("tabindex");
+    contextMenuSourceBorrowedFocus = false;
     contextMenuSource = null;
   }
 }
@@ -5311,13 +5525,21 @@ function hideDialogAndContextMenu() {
 }
 
 /* Global Listeners */
+// However focus arrives — a click, Tab, or the arrow keys — the group it landed
+// in points its tab stop at it, so Tab comes back to where the user left off.
+document.addEventListener("focusin", (e) => gitGraph.syncTabStop(e.target));
 document.addEventListener("keyup", (e) => {
   if (e.key === "Escape") {
     hideDialogAndContextMenu();
   }
 });
-// Pixels scrolled per Up/Down key press when no Commit Details View is open.
-const ARROW_SCROLL_STEP = 48;
+// Rows of overlap kept when Page Up/Down jumps a screenful, so the user has
+// something to re-orient against on the far side of the jump. Up/Down no longer
+// scroll at all — they move focus between rows (see docs/adr/0014).
+const PAGE_SCROLL_OVERLAP = 48;
+function pageScrollStep() {
+  return Math.max(window.innerHeight - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
+}
 document.addEventListener("keydown", (e) => {
   if (dialog.classList.contains("active")) {
     // Enter submits the dialog's primary (left) action, but not while an IME
@@ -5340,6 +5562,10 @@ document.addEventListener("keydown", (e) => {
   // field such as the Find input or a dropdown filter.
   const active = document.activeElement;
   if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+  // The repo dropdown is a popup and owns the keyboard while it is open, the
+  // same way the context menu above does — its own listener handles the keys it
+  // wants, and nothing here may move focus out from under the rest.
+  if (document.getElementById("repoDropdownList")?.classList.contains("active") === true) return;
   // Configurable CTRL/CMD shortcuts; each is null when set to UNASSIGNED.
   const kb = viewState.keybindings;
   const key = e.key.toLowerCase();
@@ -5360,18 +5586,31 @@ document.addEventListener("keydown", (e) => {
     if (gitGraph.commitDetailsNavigateGraph("child", e.shiftKey)) e.preventDefault();
   } else if ((e.ctrlKey || e.metaKey) && e.key === "ArrowDown") {
     if (gitGraph.commitDetailsNavigateGraph("parent", e.shiftKey)) e.preventDefault();
-  } else if (e.key === "ArrowUp") {
-    // With a commit expanded, navigate commits; otherwise scroll the view.
-    if (gitGraph.commitDetailsNavigate(-1)) e.preventDefault();
-    else {
-      window.scrollBy(0, -ARROW_SCROLL_STEP);
+  } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    // Up/Down move focus between rows, as they do in any list — inside the
+    // Commit Details View's file list when focus is there, otherwise through
+    // the graph's own rows. Scrolling is Page Up/Down's job now.
+    e.preventDefault();
+    const delta = e.key === "ArrowUp" ? -1 : 1;
+    if (!gitGraph.moveCdvFileFocus(delta)) gitGraph.moveRowFocus(delta);
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    if (gitGraph.moveWidgetFocus(e.key === "ArrowLeft" ? -1 : 1)) e.preventDefault();
+  } else if (e.key === "PageUp" || e.key === "PageDown") {
+    e.preventDefault();
+    window.scrollBy(0, e.key === "PageUp" ? -pageScrollStep() : pageScrollStep());
+  } else if (e.key === "Enter" || e.key === " ") {
+    // Activate the focused row the way a click would. The ref chips and column
+    // headers have no click action of their own — their actions live in the
+    // menu — but routing every member through the same call keeps the rule to
+    // one sentence, and stops Space scrolling the page out from under them.
+    if (active instanceof HTMLElement && active.matches(ACTIVATABLE)) {
       e.preventDefault();
+      active.click();
     }
-  } else if (e.key === "ArrowDown") {
-    if (gitGraph.commitDetailsNavigate(1)) e.preventDefault();
-    else {
-      window.scrollBy(0, ARROW_SCROLL_STEP);
+  } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+    if (active instanceof HTMLElement && active.matches(MENU_SOURCES)) {
       e.preventDefault();
+      active.dispatchEvent(new Event(MENU_KEY_EVENT, { bubbles: true }));
     }
   }
 });

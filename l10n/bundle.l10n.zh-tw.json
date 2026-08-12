@@ -18,6 +18,7 @@
   "ui.date": "日期",
   "ui.author": "Author",
   "ui.commit": "Commit",
+  "ui.commitGraph": "Commit 圖形",
   "ui.commitOrder.default": "排序：預設（設定）",
   "ui.commitOrder.date": "排序：日期",
   "ui.commitOrder.authorDate": "排序： author 日期",
