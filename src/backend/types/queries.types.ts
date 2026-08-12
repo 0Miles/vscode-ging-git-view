@@ -65,6 +65,13 @@ type QueryPayloads = {
        *  applied on the host so the two surfaces can't disagree (ADR-0003). The
        *  graph dims these; it never hides them. */
       dimmedBranches?: string[];
+      /** Refs the cleanup dialog would propose, in branch-list format. A
+       *  different set from `dimmedBranches` — the exemptions differ by the
+       *  branch filter, and this one includes inactive branches, which the graph
+       *  otherwise knows nothing about. It changes no rendering whatsoever: its
+       *  only job is to decide which refs offer the cleanup menu item
+       *  (ADR-0014). */
+      cleanupCandidates?: string[];
       /** The branch filter resolved by the host (the side-view's per-repo
        *  selection, or the configured default). Empty = show all. */
       filter: string[];

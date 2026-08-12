@@ -1341,6 +1341,111 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
   color: var(--vscode-descriptionForeground);
   font-style: italic;
 }
+/* Branch cleanup dialog: a tickable candidate list. Shares the redundancy
+   dialog's left-aligned, definite-width shell — for the same reason, a table of
+   nowrap cells with nothing to size it against. */
+#dialog.active:has(.cleanupResult) {
+  text-align: left;
+  width: min(680px, 90vw);
+  max-width: none;
+}
+#dialog .cleanupSummary {
+  display: block;
+}
+/* The caveats about what the list can't tell you. Deliberately plain and
+   above the list: they qualify every row below them. */
+#dialog .cleanupNotice {
+  margin-top: 6px;
+  font-size: 0.9em;
+  line-height: 1.45;
+  color: var(--vscode-descriptionForeground);
+}
+#dialog .cleanupList {
+  margin-top: 12px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+#dialog .cleanupList table {
+  width: 100%;
+  border-spacing: 0;
+}
+#dialog .cleanupList td {
+  padding: 3px 4px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+/* The name column absorbs the leftover width so the facts and age columns stay
+   hard against the right edge. */
+#dialog .cleanupRow td:nth-child(1) {
+  width: 100%;
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#dialog .cleanupRow label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  overflow: hidden;
+}
+#dialog .cleanupRow label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#dialog .cleanupRow input {
+  flex: none;
+  margin: 0;
+}
+#dialog .cleanupGroup td {
+  color: var(--vscode-descriptionForeground);
+  font-weight: bold;
+  padding: 10px 4px 2px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+#dialog .cleanupGroup:first-child td {
+  padding-top: 0;
+}
+/* The heading doubles as the group's select-all, so its checkbox lines up with
+   the row checkboxes underneath it rather than sitting inside the label text. */
+#dialog .cleanupGroup label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+#dialog .cleanupGroup input {
+  flex: none;
+  margin: 0;
+}
+/* One chip per fact that put the row on the list. Never merged into a single
+   label: the three differ in how much they promise (CONTEXT.md). */
+#dialog .cleanupFact {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 9px;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.35));
+}
+#dialog .cleanupAge {
+  padding-left: 10px;
+  text-align: right;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+/* The two things that change the answer rather than act on it, kept apart from
+   the dialog's own buttons so they don't read as ways to confirm. */
+#dialog .cleanupTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+#dialog .cleanupTools .roundedBtn {
+  margin: 0;
+}
 #dialogBacking.active {
   display: block;
   position: fixed;

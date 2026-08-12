@@ -11,11 +11,10 @@
  * allowed anywhere near it.
  */
 
-import { splitRemoteRef } from "@/backend/utils/branchRef";
-
 import {
   type BranchClassification,
   type BranchExemptions,
+  defaultBranchAliases,
   emptyClassification,
   withExemptions
 } from "./branchExempt";
@@ -29,17 +28,6 @@ export type ClassifyMergedInput = {
   defaultBranch: string | null;
   exemptions: BranchExemptions;
 };
-
-/** The refs that denote the default branch itself and must never be reported as
- *  merged: the resolved ref, plus — when it is remote-tracking — the local
- *  branch of the same name. Reporting the default branch as already merged into
- *  the default branch is a tautology, not information. */
-function defaultBranchAliases(defaultBranch: string): Set<string> {
-  const aliases = new Set([defaultBranch]);
-  const split = splitRemoteRef(defaultBranch);
-  if (split !== null) aliases.add(split.name);
-  return aliases;
-}
 
 /**
  * The branches already merged into the default branch, paired with the subset
@@ -57,6 +45,8 @@ export function classifyMerged(input: ClassifyMergedInput): BranchClassification
   // two are read separately, and only refs the view actually lists can be
   // marked.
   for (const branch of branches) {
+    // Reporting the default branch as already merged into the default branch is
+    // a tautology, not information.
     if (aliases.has(branch)) continue;
     if (reported.has(branch)) matched.add(branch);
   }

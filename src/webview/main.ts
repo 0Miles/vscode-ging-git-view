@@ -19,6 +19,7 @@ import { displayRef, REMOTE_PREFIX } from "@/backend/utils/branchRef";
 import { REF_ACTION_CATALOGUE } from "@/backend/utils/refActionCatalogue";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
+import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "./branchCleanup";
 import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
 import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } from "./find";
 import { Graph } from "./graph";
@@ -183,6 +184,12 @@ class GitGraphView {
   // the same set normalised to the names the graph's chips carry (`origin/main`).
   private dimmedBranches: string[] = [];
   private dimmedRefs = new Set<string>();
+  // Refs the cleanup dialog would propose, normalised to the chips' names. Not
+  // the same set as `dimmedRefs` — the exemptions differ by the branch filter —
+  // and it affects nothing that is drawn: it gates one context-menu item, which
+  // is how the graph comes to know about inactive branches without expressing
+  // them anywhere (ADR-0014).
+  private cleanupCandidateRefs = new Set<string>();
   private currentRepo!: string;
   // The last branch-deletion request, so a failed non-force delete can offer a
   // one-click force delete.
@@ -190,7 +197,11 @@ class GitGraphView {
   // A branch action delegated by the Branches side-view, held until this view
   // shows the right repo with its data loaded. lastRefActionSeq dedupes the
   // host's two delivery paths (direct post + post-reload flush).
-  private pendingRefAction: GG.ResponseRunRefAction | GG.ResponseRunRefBatchAction | null = null;
+  private pendingRefAction:
+    | GG.ResponseRunRefAction
+    | GG.ResponseRunRefBatchAction
+    | GG.ResponseShowBranchCleanup
+    | null = null;
   private lastRefActionSeq = 0;
   // The one batch run in flight (at most): rounds, retry offer and summary all
   // live behind its interface — the adapters below only execute its commands.
@@ -732,12 +743,18 @@ class GitGraphView {
     hard: boolean,
     isRepo: boolean,
     filter: string[],
-    dimmedBranches: string[] = []
+    dimmedBranches: string[] = [],
+    cleanupCandidates: string[] = []
   ) {
     if (!isRepo) {
       this.triggerLoadBranchesCallback(false, isRepo);
       return;
     }
+    // Not part of the change comparison below, and not saved with the view
+    // state: it decides nothing that is drawn, only whether a context-menu item
+    // is offered, so a stale set has nothing to flash and self-corrects on the
+    // next load.
+    this.cleanupCandidateRefs = new Set(cleanupCandidates.map(displayRef));
     const dimmedUnchanged = arraysEqual(this.dimmedBranches, dimmedBranches, (a, b) => a === b);
     const branchesUnchanged =
       arraysEqual(this.gitBranches, branchOptions, (a, b) => a === b) &&
@@ -2309,6 +2326,16 @@ class GitGraphView {
             onClick: () => requestBranchRedundancy(this.currentRepo!, refName)
           });
         }
+        // Offered only when this branch is itself a cleanup candidate — the same
+        // rule the side-view's menu uses (ADR-0014). The dialog it opens ignores
+        // which branch was clicked; the row is the affordance, not the target.
+        if (this.cleanupCandidateRefs.has(refName)) {
+          menu.push({
+            title: l10n.cleanupMenuItem,
+            icon: "trash",
+            onClick: () => requestBranchCleanup(this.currentRepo!)
+          });
+        }
         // Create a pull request from this branch on its remote.
         if (this.remotes.length > 0) {
           menu.push({
@@ -2660,6 +2687,15 @@ class GitGraphView {
     this.pendingRefAction = msg;
     this.tryRunPendingRefAction();
   }
+  /** Entry point for the cleanup dialog the host built. Rides the same queue and
+   *  seq counter as the two above: a panel still loading would otherwise drop
+   *  the message, and the host delivers over two paths to cover that
+   *  (ADR-0014). */
+  public showBranchCleanup(msg: GG.ResponseShowBranchCleanup) {
+    if (msg.seq <= this.lastRefActionSeq) return; // duplicate delivery
+    this.pendingRefAction = msg;
+    this.tryRunPendingRefAction();
+  }
   /** Run the pending delegated action once this view shows its repo with no
    *  load in flight (a fresh panel / repo switch reloads branches+commits; the
    *  remotes for that repo arrive before them, as requests are handled in
@@ -2671,7 +2707,9 @@ class GitGraphView {
     this.pendingRefAction = null;
     this.lastRefActionSeq = pending.seq;
     if (pending.command === "runRefBatchAction") this.dispatchRefBatchAction(pending);
-    else this.dispatchRefAction(pending);
+    else if (pending.command === "showBranchCleanup") {
+      openCleanupDialog(pending.repo, pending.payload);
+    } else this.dispatchRefAction(pending);
   }
   /** One handler per delegated action, keyed by the catalogue-derived union —
    *  a new catalogue entry fails compilation here until it is handled, so a
@@ -2886,6 +2924,30 @@ class GitGraphView {
         }),
       null
     );
+  }
+  /** The cleanup dialog's own confirmation is the only one (ADR-0014), so it
+   *  starts the run directly — but through the same `BatchRun` and the same
+   *  `deleteBranches` request as the side-view's batch delete, force round and
+   *  summary included. Only the question in front of it differs. */
+  public startCleanupDelete(
+    repo: string,
+    refs: string[],
+    params: { forceDelete: boolean; deleteOnRemotes: boolean }
+  ) {
+    // The dialog carries the repo its candidates were computed for, and the
+    // delete must go to that one. `currentRepo` can move underneath an open
+    // dialog — the host posts `setRepo` when the native Source Control view's
+    // focused repo changes, and that does not close dialogs — which would send
+    // this repo's branch names to another repo.
+    if (repo !== this.currentRepo) return;
+    this.startBatchRun("deleteBranches", refs, {
+      retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
+      params
+    });
+  }
+  /** Read by the cleanup dialog for its one delete option's default. */
+  public dialogDeleteBranchForceDelete(): boolean {
+    return this.config.dialogDeleteBranchForceDelete;
   }
   private pushBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     // No remember key: a force mode remembered from a single push must not
@@ -4479,6 +4541,370 @@ function showBranchRedundancy(branch: string, result: BranchRedundancy, token: n
   });
 }
 
+/* Branch cleanup (the candidate dialog) */
+/**
+ * The open cleanup dialog's state.
+ *
+ * `shown` is separate from `checked` on purpose: a deep check or a fetch replaces
+ * the whole list, and telling "the user left this unticked" apart from "the user
+ * has never seen this" is the only way to honour both (see `mergeCheckedRefs`).
+ */
+let cleanupState: {
+  repo: string;
+  payload: GG.BranchCleanupPayload;
+  shown: Set<string>;
+  checked: Set<string>;
+  /** A one-off line above the list: a stopped scan, a failed fetch. */
+  notice: string | null;
+  /** Correlates async answers with this dialog; a late one for a dialog since
+   *  closed or reopened must not fill it in. */
+  token: number;
+} | null = null;
+let cleanupSeq = 0;
+/** The request behind a not-yet-open dialog: the graph's own menu asks the host
+ *  for a payload, and only that answer may open one. */
+let cleanupOpenToken = 0;
+/** The repo that request was made for. */
+let cleanupOpenRepo: string | null = null;
+
+/** Ask the host for a payload and open the dialog on it. The graph's context
+ *  menu route (the side-view command has the payload already). */
+function requestBranchCleanup(repo: string) {
+  cleanupOpenRepo = repo;
+  cleanupOpenToken = ++cleanupSeq;
+  showActionRunningDialog(l10n.cleanupChecking);
+  sendMessage({ command: "branchCleanupOpen", repo, fetch: false, token: cleanupOpenToken });
+}
+
+/**
+ * A payload arriving from `branchCleanupOpen`, for either of its two callers.
+ *
+ * The open dialog's own "fetch and recompute" carries that dialog's token, so it
+ * updates in place. Anything else is a fresh open, and only counts while the
+ * "working" dialog it replaced is still up — a late answer must not reopen a
+ * dialog the user has already dismissed.
+ */
+function handleBranchCleanupOpen(msg: GG.ResponseBranchCleanupOpen) {
+  const notice = msg.fetchFailed ? l10n.cleanupFetchFailed : null;
+  if (cleanupState !== null && msg.token === cleanupState.token) {
+    updateBranchCleanup(msg.payload, notice, msg.token);
+    return;
+  }
+  if (
+    msg.token !== cleanupOpenToken ||
+    cleanupOpenRepo === null ||
+    document.getElementById("actionRunning") === null
+  ) {
+    return;
+  }
+  if (msg.payload.candidates.length === 0) {
+    showDialog(l10n.cleanupNone, null, l10n.dialogDismiss, null, null);
+    return;
+  }
+  openCleanupDialog(cleanupOpenRepo, msg.payload);
+  if (notice !== null) updateBranchCleanup(msg.payload, notice, cleanupState!.token);
+}
+
+/** Open the dialog on a payload the extension host built (ADR-0014). */
+function openCleanupDialog(repo: string, payload: GG.BranchCleanupPayload) {
+  cleanupState = {
+    repo,
+    payload,
+    shown: new Set(payload.candidates.map((c) => c.ref)),
+    checked: new Set(defaultCheckedRefs(payload.candidates)),
+    notice: null,
+    token: ++cleanupSeq
+  };
+  renderBranchCleanup();
+}
+
+/** Replace the list in an open dialog, carrying the user's ticks across. */
+function updateBranchCleanup(
+  payload: GG.BranchCleanupPayload,
+  notice: string | null,
+  token: number
+) {
+  if (cleanupState === null || token !== cleanupState.token) return;
+  const checked = mergeCheckedRefs({
+    candidates: payload.candidates,
+    shown: cleanupState.shown,
+    checked: cleanupState.checked
+  });
+  cleanupState.payload = payload;
+  cleanupState.checked = new Set(checked);
+  for (const c of payload.candidates) cleanupState.shown.add(c.ref);
+  cleanupState.notice = notice;
+  renderBranchCleanup();
+}
+
+/** The facts that put a row on the list, as words. Never collapsed into one
+ *  label: merged carries git's guarantee, redundant does not, and inactive says
+ *  nothing about whether deleting loses work (CONTEXT.md). */
+function cleanupRowFacts(candidate: GG.CleanupCandidate): string {
+  const words: string[] = [];
+  if (candidate.facts.merged) words.push(l10n.cleanupFactMerged);
+  if (candidate.facts.redundant) words.push(l10n.cleanupFactRedundant);
+  if (candidate.facts.inactive) words.push(l10n.cleanupFactInactive);
+  return words.map((w) => '<span class="cleanupFact">' + escapeHtml(w) + "</span>").join("");
+}
+
+function cleanupRow(candidate: GG.CleanupCandidate, checked: boolean): string {
+  const date =
+    candidate.lastActivitySec === undefined ? null : getCommitDate(candidate.lastActivitySec);
+  return (
+    '<tr class="cleanupRow"><td><label><input type="checkbox" data-ref="' +
+    escapeHtml(candidate.ref) +
+    '"' +
+    (checked ? " checked" : "") +
+    "/><span>" +
+    escapeHtml(displayRef(candidate.ref)) +
+    "</span></label></td><td>" +
+    cleanupRowFacts(candidate) +
+    '</td><td class="cleanupAge"' +
+    (date === null ? ">" : ' title="' + escapeHtml(date.title) + '">' + escapeHtml(date.value)) +
+    "</td></tr>"
+  );
+}
+
+/**
+ * The list, grouped and ordered exactly as the host put the rows in — the
+ * side-view's tree order.
+ *
+ * Unlike the tree, a heading is rendered whenever its group is non-empty, not
+ * only when both kinds are present. The tree omits a lone "Local" because it
+ * would be pure noise, but here the heading carries the group's select-all, and
+ * a group with no way to select all of it is the worse outcome.
+ */
+function cleanupList(state: NonNullable<typeof cleanupState>): string {
+  const heading = (label: string, isRemote: boolean) =>
+    '<tr class="cleanupGroup"><td colspan="3"><label><input type="checkbox"' +
+    ' class="cleanupGroupToggle" data-remote="' +
+    String(isRemote) +
+    '" title="' +
+    escapeHtml(l10n.cleanupSelectAll) +
+    '"/><span>' +
+    escapeHtml(label) +
+    "</span></label></td></tr>";
+  const group = (label: string, isRemote: boolean) => {
+    const rows = state.payload.candidates.filter((c) => c.isRemote === isRemote);
+    return rows.length === 0
+      ? ""
+      : heading(label, isRemote) +
+          rows.map((c) => cleanupRow(c, state.checked.has(c.ref))).join("");
+  };
+  return (
+    '<div class="cleanupList"><table>' +
+    group(l10n.cleanupGroupRemote, true) +
+    group(l10n.cleanupGroupLocal, false) +
+    "</table></div>"
+  );
+}
+
+/** Point each group header at its rows' current state. Set from script because
+ *  `indeterminate` has no markup form. */
+function syncCleanupGroupToggles(state: NonNullable<typeof cleanupState>) {
+  document.querySelectorAll<HTMLInputElement>("#dialog .cleanupGroupToggle").forEach((box) => {
+    const toggle = groupToggleState(
+      state.payload.candidates,
+      state.checked,
+      box.dataset.remote === "true"
+    );
+    box.checked = toggle === "all";
+    box.indeterminate = toggle === "some";
+  });
+}
+
+/** The standing caveats about what this list can and cannot tell you. Each is
+ *  stated rather than left as a silent gap in the answer (ADR-0015). Rebuilt on
+ *  its own (into `#cleanupNotices`) when a tick changes, because re-rendering the
+ *  whole dialog mid-click would steal focus. */
+function cleanupNotices(state: NonNullable<typeof cleanupState>): string {
+  const lines: string[] = [];
+  if (state.notice !== null) lines.push(state.notice);
+  if (state.payload.defaultBranch === null) lines.push(l10n.cleanupNoDefaultBranch);
+  if (state.payload.remotesHidden) lines.push(l10n.cleanupRemotesHidden);
+  // Said whenever a ticked local row lacks the one fact that guarantees git will
+  // allow the delete. `merged` is that fact and nothing else is: `redundant`
+  // makes no such promise, and an idle branch that was never merged will be
+  // refused just as surely — so the test is the absence of `merged`, not the
+  // presence of anything. Remote rows are excluded because `push --delete` has
+  // no such refusal to warn about (ADR-0015).
+  if (
+    state.payload.candidates.some((c) => state.checked.has(c.ref) && !c.isRemote && !c.facts.merged)
+  ) {
+    lines.push(l10n.cleanupForceNote);
+  }
+  return lines.map((line) => '<div class="cleanupNotice">' + escapeHtml(line) + "</div>").join("");
+}
+
+/** How current the basis is. Same wording and same source as the single-branch
+ *  check, so the two never date the same ref differently. */
+function cleanupBasis(state: NonNullable<typeof cleanupState>): string {
+  if (state.payload.defaultBranch === null || state.payload.defaultBranchDate === 0) return "";
+  const date = getCommitDate(state.payload.defaultBranchDate);
+  return (
+    '<div class="redundancyBasis" title="' +
+    escapeHtml(date.title) +
+    '">' +
+    fillTemplate(
+      l10n.redundancyBasisDate,
+      escapeHtml(displayRef(state.payload.defaultBranch)),
+      escapeHtml(date.value)
+    ) +
+    "</div>"
+  );
+}
+
+function renderBranchCleanup() {
+  const state = cleanupState;
+  if (state === null) return;
+  // Force delete is the only option here. "Also delete on remotes" belongs to
+  // the side-view's batch delete, where the selection is local branches and the
+  // remote is otherwise unreachable; in this dialog every remote candidate is a
+  // row of its own, so the checkbox would be a second, invisible way to delete
+  // the same refs.
+  const inputs: DialogInput[] = [
+    {
+      type: "checkbox",
+      name: l10n.dialogDeleteForceDelete,
+      value: gitGraph.dialogDeleteBranchForceDelete()
+    }
+  ];
+  const scanButton =
+    state.payload.scannable > 0
+      ? '<div id="cleanupDeepCheck" class="roundedBtn" title="' +
+        escapeHtml(l10n.cleanupDeepCheckHint) +
+        '">' +
+        escapeHtml(fillTemplate(l10n.cleanupDeepCheck, String(state.payload.scannable))) +
+        "</div>"
+      : "";
+  const body =
+    '<div class="cleanupResult"><span class="cleanupSummary">' +
+    escapeHtml(fillTemplate(l10n.cleanupIntro, String(state.payload.candidates.length))) +
+    '</span><div id="cleanupNotices">' +
+    cleanupNotices(state) +
+    "</div>" +
+    cleanupList(state) +
+    cleanupBasis(state) +
+    '<div class="cleanupTools">' +
+    scanButton +
+    '<div id="cleanupRefetch" class="roundedBtn">' +
+    escapeHtml(l10n.cleanupRefetch) +
+    "</div></div></div>";
+
+  // The dialog is the confirmation: there is no second one behind it. The row
+  // ticks, the two delete options and the batch run all hang off this one
+  // action (ADR-0014).
+  showFormDialog(
+    body,
+    inputs,
+    l10n.deleteBranches,
+    (values) => {
+      const refs = [...state.checked];
+      if (refs.length === 0) {
+        showErrorDialog(l10n.cleanupNothingChecked, null, null);
+        return;
+      }
+      cleanupState = null;
+      gitGraph.startCleanupDelete(state.repo, refs, {
+        forceDelete: values[0] === "checked",
+        // Never implied here — a remote is only deleted by ticking its own row.
+        deleteOnRemotes: false
+      });
+    },
+    null
+  );
+  bindBranchCleanupHandlers(state);
+}
+
+/** Wire the parts `showFormDialog` knows nothing about: the per-row ticks and
+ *  the two tools. Re-bound on every render, since each replaces the markup. */
+function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
+  // The force note appears and disappears with the ticks it describes, and the
+  // group headers track their rows. Both are refreshed in place rather than by
+  // re-rendering the dialog, which would steal focus mid-click.
+  const afterTickChange = (live: NonNullable<typeof cleanupState>) => {
+    const notices = document.getElementById("cleanupNotices");
+    if (notices !== null) notices.innerHTML = cleanupNotices(live);
+    syncCleanupGroupToggles(live);
+  };
+  document.querySelectorAll<HTMLInputElement>("#dialog .cleanupRow input").forEach((box) => {
+    box.addEventListener("change", () => {
+      if (cleanupState === null) return;
+      const ref = box.dataset.ref!;
+      if (box.checked) cleanupState.checked.add(ref);
+      else cleanupState.checked.delete(ref);
+      afterTickChange(cleanupState);
+    });
+  });
+  document.querySelectorAll<HTMLInputElement>("#dialog .cleanupGroupToggle").forEach((box) => {
+    box.addEventListener("change", () => {
+      if (cleanupState === null) return;
+      const isRemote = box.dataset.remote === "true";
+      // A partly-ticked header is indeterminate; clicking it ticks the whole
+      // group rather than clearing it, which is the direction that matches what
+      // the user just reached for.
+      const next = box.checked;
+      for (const candidate of cleanupState.payload.candidates) {
+        if (candidate.isRemote !== isRemote) continue;
+        if (next) cleanupState.checked.add(candidate.ref);
+        else cleanupState.checked.delete(candidate.ref);
+      }
+      document.querySelectorAll<HTMLInputElement>("#dialog .cleanupRow input").forEach((row) => {
+        if (row.dataset.ref!.startsWith(REMOTE_PREFIX) === isRemote) row.checked = next;
+      });
+      afterTickChange(cleanupState);
+    });
+  });
+  syncCleanupGroupToggles(state);
+  document.getElementById("cleanupDeepCheck")?.addEventListener("click", () => {
+    if (cleanupState === null) return;
+    startBranchCleanupScan(cleanupState.repo, cleanupState.token);
+  });
+  document.getElementById("cleanupRefetch")?.addEventListener("click", () => {
+    if (cleanupState === null) return;
+    // Dismissing the progress dialog abandons the dialog with it. The fetch
+    // itself cannot be recalled, but the answer must not reopen a dialog the
+    // user has closed — unlike the scan's Stop, which exists precisely to come
+    // back with what it found.
+    showActionRunningDialogDismissable(l10n.cleanupRefetch, () => {
+      cleanupState = null;
+    });
+    sendMessage({
+      command: "branchCleanupOpen",
+      repo: cleanupState.repo,
+      fetch: true,
+      token: cleanupState.token
+    });
+  });
+}
+
+/** Run the deep check, showing progress and offering to stop. The dialog is
+ *  replaced by a progress one so the list can't be edited against verdicts that
+ *  are still arriving. */
+function startBranchCleanupScan(repo: string, token: number) {
+  showDialog(
+    '<span id="actionRunning">' +
+      svgIcons.loading +
+      escapeHtml(fillTemplate(l10n.cleanupScanning, "0", "?")) +
+      "</span>",
+    null,
+    l10n.cleanupScanStop,
+    null,
+    null,
+    () => sendMessage({ command: "branchCleanupScanCancel" })
+  );
+  sendMessage({ command: "branchCleanupScan", repo, token });
+}
+
+function updateBranchCleanupScanProgress(done: number, total: number, token: number) {
+  if (cleanupState === null || token !== cleanupState.token) return;
+  const running = document.getElementById("actionRunning");
+  if (running === null) return;
+  running.innerHTML =
+    svgIcons.loading + escapeHtml(fillTemplate(l10n.cleanupScanning, String(done), String(total)));
+}
+
 /** Substitute `{0}`, `{1}`, … in an l10n template. Function replacements
  *  throughout: the values are branch names and commit text, which may contain
  *  `$&` or `$'` — a string replacement would expand those, and `escapeHtml`
@@ -4813,7 +5239,8 @@ window.addEventListener("message", (event) => {
         msg.hard,
         msg.isRepo,
         msg.filter,
-        msg.dimmedBranches ?? []
+        msg.dimmedBranches ?? [],
+        msg.cleanupCandidates ?? []
       );
       break;
     case "setBranchFilter":
@@ -4864,6 +5291,18 @@ window.addEventListener("message", (event) => {
       break;
     case "runRefBatchAction":
       gitGraph.runRefBatchAction(msg);
+      break;
+    case "showBranchCleanup":
+      gitGraph.showBranchCleanup(msg);
+      break;
+    case "branchCleanupOpen":
+      handleBranchCleanupOpen(msg);
+      break;
+    case "branchCleanupScanProgress":
+      updateBranchCleanupScanProgress(msg.done, msg.total, msg.token);
+      break;
+    case "branchCleanupScan":
+      updateBranchCleanup(msg.payload, msg.cancelled ? l10n.cleanupScanCancelled : null, msg.token);
       break;
     case "deleteBranches":
       gitGraph.handleBatchActionResponse("deleteBranches", msg.results);
@@ -5473,6 +5912,18 @@ function showActionRunningDialog(command: string) {
     l10n.dialogDismiss,
     null,
     null
+  );
+}
+/** {@link showActionRunningDialog} plus a hook for dismissal, for the waits that
+ *  own state a late answer would otherwise resurrect. */
+function showActionRunningDialogDismissable(command: string, onDismiss: () => void) {
+  showDialog(
+    '<span id="actionRunning">' + svgIcons.loading + command + " ...</span>",
+    null,
+    l10n.dialogDismiss,
+    null,
+    null,
+    onDismiss
   );
 }
 function showDialog(

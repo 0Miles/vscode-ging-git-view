@@ -6,6 +6,7 @@ import type { BatchAction, BatchSkipped } from "@/types";
 
 import { resolveActionTargets } from "./branchActionTargets";
 import { relativeAge } from "./branchActivity";
+import { resolveCleanupCandidates } from "./branchCleanup";
 import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
 import { type BranchTreeLeaf, type BranchTreeNode, buildGroupedBranchRoots } from "./branchTree";
@@ -67,11 +68,13 @@ class BranchItem extends vscode.TreeItem {
       // that no longer exist. Within a generation the id is stable, so a normal
       // refresh (after a git op) preserves the selection.
       this.id = "branch::" + selectionGen + "::" + repo + "::" + node.branch;
-      this.contextValue = node.isRemote
-        ? "branch-remote"
-        : node.isHead
-          ? "branch-current"
-          : "branch-local";
+      // The kind, plus a `-candidate` suffix when the cleanup dialog would
+      // propose this branch — the one thing the menus need per row that no
+      // global context key can express. Every `when` clause matching a branch
+      // leaf therefore accepts both spellings.
+      this.contextValue =
+        (node.isRemote ? "branch-remote" : node.isHead ? "branch-current" : "branch-local") +
+        (node.isCleanupCandidate ? "-candidate" : "");
       this.iconPath = new vscode.ThemeIcon(
         node.isHead ? "check" : node.isRemote ? "cloud" : "git-branch"
       );
@@ -125,6 +128,9 @@ type BranchesProviderDeps = {
    *  global default). Independent of the inactive toggle — a branch hidden by
    *  either rule is gone regardless of the other (ADR-0004). */
   resolveShowMerged: (repo: string) => boolean;
+  /** "Always show" name/glob patterns. Needed here only to mark which leaves the
+   *  cleanup dialog would propose, so the menu item can appear on those rows. */
+  resolveExemptPatterns: () => string[];
 };
 
 class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
@@ -218,6 +224,21 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
         const hidden = new Set<string>();
         if (!showInactive) for (const branch of facts.inactive.hidable) hidden.add(branch);
         if (!showMerged) for (const branch of facts.merged.hidable) hidden.add(branch);
+        // Candidacy is resolved from the same facts, but it is not `hidable`:
+        // the exemptions differ by the branch filter, so a leaf can be a
+        // candidate without being dimmed (ADR-0014). It changes nothing about
+        // how a row looks — only whether it offers the cleanup menu item.
+        const cleanupCandidates = new Set(
+          resolveCleanupCandidates({
+            branches: facts.branches,
+            head: facts.head,
+            defaultBranch: facts.defaultBranch,
+            dates: facts.dates,
+            merged: facts.merged,
+            inactive: facts.inactive,
+            patterns: this.deps.resolveExemptPatterns()
+          }).candidates.map((c) => c.ref)
+        );
         this.roots = buildGroupedBranchRoots(
           hidden.size === 0 ? facts.branches : facts.branches.filter((b) => !hidden.has(b)),
           facts.head,
@@ -225,6 +246,7 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
             merged: facts.merged.matched,
             inactive: facts.inactive.matched,
             hidable: facts.hidable,
+            cleanupCandidates,
             dates: facts.dates
           }
         );

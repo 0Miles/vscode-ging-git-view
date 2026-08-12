@@ -26,7 +26,7 @@ _Avoid_: discovered repo, tracked repo
 
 ### 分支的狀態
 
-Default branch 是基準;merged 與 inactive 是兩個彼此獨立的事實,一個分支可以兩者皆是、皆非、或只中其一;hidable 則由前兩者推導而來,是唯一決定畫面呈現的集合。Redundant 涵蓋 merged 涵蓋不到的那一半,但它不參與 hidable,也不改變畫面的預設呈現。以上都是算出來的事實;branch filter 則是使用者自己挑的,兩者一起決定圖形看得到什麼。
+Default branch 是基準;merged 與 inactive 是兩個彼此獨立的事實,一個分支可以兩者皆是、皆非、或只中其一;hidable 則由前兩者推導而來,是唯一決定淡化與隱藏的集合。Redundant 涵蓋 merged 涵蓋不到的那一半,但它不參與 hidable,也不改變畫面的預設呈現。Cleanup candidate 由三個事實一起推導,決定的卻是另一件事 —— 提議刪除誰;它與 hidable 的豁免規則只差一項,兩者不可互換。以上都是算出來的事實;branch filter 則是使用者自己挑的,兩者一起決定圖形看得到什麼。
 
 **Default branch**:
 存放庫的主線分支,由 GING 偵測得來,使用者無法指定。它是判定 merged branch 與 redundant branch 的唯一基準;偵測不到時,已合併相關的顯示與隱藏靜默停用,而隨選的查詢據實回報無從判定。
@@ -45,8 +45,12 @@ _Avoid_: absorbed branch, landed branch, 已落地分支, squash-merged branch
 _Avoid_: stale branch, old branch, 廢棄分支
 
 **Hidable branch**:
-是 merged branch 或 inactive branch,且不在豁免名單上 —— 豁免的是 checked-out 的那個、目前被分支篩選選取的、以及符合「總是顯示」樣式的。它是唯一決定畫面呈現的集合:淡化的是它,按下隱藏會消失的也是它。merged 與 inactive 這兩個事實則各自獨立地驅動標記(badge 與年齡標籤),即使該分支被豁免也照標。分支側檢視表達完整的 hidable;圖形只表達其中 merged 的那一半 —— inactive 是側檢視的降噪概念,圖形不隱藏任何東西,也不淡化長期沒動的分支。豁免規則兩面共用,所以同一個分支不會一面淡、一面不淡。
+是 merged branch 或 inactive branch,且不在豁免名單上 —— 豁免的是 checked-out 的那個、目前被分支篩選選取的、以及符合「總是顯示」樣式的。它是唯一決定淡化與隱藏的集合:淡化的是它,按下隱藏會消失的也是它。merged 與 inactive 這兩個事實則各自獨立地驅動標記(badge 與年齡標籤),即使該分支被豁免也照標。分支側檢視表達完整的 hidable;圖形只表達其中 merged 的那一半 —— inactive 是側檢視的降噪概念,圖形不隱藏任何東西,也不淡化長期沒動的分支。圖形仍**認得** inactive,但那份知識只決定清理入口出不出現在右鍵選單上,不影響任何渲染。豁免規則兩面共用,所以同一個分支不會一面淡、一面不淡。
 _Avoid_: dimmed branch, hidden branch
+
+**Cleanup candidate**:
+被提議刪除的分支 —— merged、redundant、inactive 三個事實至少中一個,且不在豁免名單上(checked-out 的那個、default branch 與其同名本地分支、符合「總是顯示」樣式的)。它與 hidable branch **只差在 branch filter**:hidable 豁免篩選中的分支,candidate 不豁免 —— 篩選裡裝的常常正是要刪的那幾條。它只是**提議**,不宣稱分支的任何性質:成員的安全強度天差地別,merged 有 `git branch -d` 的保證,redundant 沒有,inactive 對「刪掉會不會損失東西」完全沒有說任何話。redundant 成員只在使用者明確要求深度檢查後才出現,所以同一個 repo 的候選集合會在使用者眼前變長。
+_Avoid_: deletable branch, disposable branch, stale branch, 可刪除分支, 遺留分支
 
 **Branch filter**:
 圖形要顯示哪些分支的選集,每個存放庫一份,空集合表示顯示全部。它決定圖形讀得到哪些 commit,也是 hidable branch 的豁免來源之一。分支側檢視的選取會寫入它,但兩者**不對稱**:選取非空時必定等於 filter;filter 非空時選取卻可能是空的 —— 多選搜尋、設定帶來的開場篩選、以及切換存放庫後還原的選集,都沒有對應的樹選取。圖形工具列上的篩選標示讀的是 filter,不是選取。
@@ -73,7 +77,7 @@ _Avoid_: short name, ref label, 顯示名稱
 _Avoid_: 勾選, checked branches, 篩選器, selected refs
 
 **Action target**:
-某個動作實際會作用到的分支 —— branch selection 扣掉該動作在 git 語意上不可能成立的成員(刪除扣掉 checked-out 的那個;fast-forward 扣掉遠端分支與 checked-out 的那個)。扣掉了誰一律對使用者明講,不靜默略過。只有 git 執行後才知道的失敗(未完全合併、沒有 upstream)不在扣除範圍內,那些交給 git 報錯。
+某個動作實際會作用到的分支 —— **來源集合**扣掉該動作在 git 語意上不可能成立的成員(刪除扣掉 checked-out 的那個;fast-forward 扣掉遠端分支與 checked-out 的那個)。來源有二:**branch selection**,以及清理對話框裡被勾選的 **cleanup candidate**;後者的豁免已先排除 checked-out,所以那條路的扣除恆為空。扣掉了誰一律對使用者明講,不靜默略過。只有 git 執行後才知道的失敗(未完全合併、沒有 upstream)不在扣除範圍內,那些交給 git 報錯。
 _Avoid_: 選取的分支, selected branches, 有效選取
 
 **Batch action**:

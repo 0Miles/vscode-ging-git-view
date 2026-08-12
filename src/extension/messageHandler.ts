@@ -64,6 +64,8 @@ import * as l10n from "@/l10n";
 import { RepoFileWatcher } from "@/repoFileWatcher";
 import { RequestMessage, ResponseMessage } from "@/types";
 
+import { resolveCleanupCandidates } from "./branchCleanup";
+import { type BranchCleanup } from "./branchCleanupService";
 import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
 import { RepoManager } from "./repoManager";
@@ -123,6 +125,9 @@ export function registerMessageHandlers(
     /** The shared classification facts, consumed by `loadBranches` and by the
      *  Branches side-view alike. */
     branchFacts: BranchFacts;
+    /** Builds the cleanup dialog's payload. Shared with the side-view command,
+     *  which opens the same dialog from the other direction (ADR-0014). */
+    branchCleanup: BranchCleanup;
     /** The repo's "show remote branches" state. The webview no longer sends its
      *  own copy: it was a one-way echo of this and could only be staler. */
     resolveShowRemote: (repo: string) => boolean;
@@ -140,6 +145,7 @@ export function registerMessageHandlers(
     repoFileWatcher,
     branchFilterStore,
     branchFacts,
+    branchCleanup,
     resolveShowRemote,
     onSelectRepo
   } = deps;
@@ -342,7 +348,19 @@ export function registerMessageHandlers(
         filter: facts.filter,
         // Only the merged half of `hidable` reaches the graph: inactivity is a
         // side-view noise-reduction concept, and the graph hides nothing.
-        dimmedBranches: [...facts.merged.hidable]
+        dimmedBranches: [...facts.merged.hidable],
+        // The candidate set does carry inactive branches, but purely to gate one
+        // context-menu item — the graph still neither dims nor hides them
+        // (ADR-0014).
+        cleanupCandidates: resolveCleanupCandidates({
+          branches: facts.branches,
+          head: facts.head,
+          defaultBranch: facts.defaultBranch,
+          dates: facts.dates,
+          merged: facts.merged,
+          inactive: facts.inactive,
+          patterns: config.inactiveBranchAlwaysShow()
+        }).candidates.map((c) => c.ref)
       });
     },
     { mutatesRepo: false }
@@ -477,6 +495,63 @@ export function registerMessageHandlers(
           dateType: config.dateType()
         })
       });
+    },
+    { mutatesRepo: false }
+  );
+
+  // Bumped by every cancel, and read between a scan's branches so the dialog's
+  // Stop button lands without waiting for the whole scan. A generation rather
+  // than a boolean so a cancel that arrives with no scan running cannot go on to
+  // kill the next one.
+  let cleanupScanGeneration = 0;
+
+  bridge.onMessage(
+    "branchCleanupOpen",
+    async (msg) => {
+      let fetchFailed = false;
+      if (msg.fetch) {
+        try {
+          await fetchFromRemotes(gitClient.getInstance(), {
+            prune: config.fetchAndPrune(),
+            pruneTags: config.fetchAndPruneTags()
+          });
+        } catch {
+          // Report it and answer anyway: a pre-fetch list the user knows is
+          // pre-fetch beats an error dialog that leaves them with nothing.
+          fetchFailed = true;
+        }
+      }
+      // `hard` after a fetch because the refs just moved; also on a plain open,
+      // where the user asked for this answer now.
+      const built = await branchCleanup.build(msg.repo, { hard: true });
+      bridge.post({
+        command: "branchCleanupOpen",
+        token: msg.token,
+        payload: built.payload,
+        fetchFailed
+      });
+    },
+    { mutatesRepo: true }
+  );
+
+  bridge.onMessage(
+    "branchCleanupScan",
+    async (msg) => {
+      const startedAt = cleanupScanGeneration;
+      const { payload, cancelled } = await branchCleanup.scan(msg.repo, {
+        isCancelled: () => cleanupScanGeneration !== startedAt,
+        onProgress: (done, total) =>
+          bridge.post({ command: "branchCleanupScanProgress", token: msg.token, done, total })
+      });
+      bridge.post({ command: "branchCleanupScan", token: msg.token, payload, cancelled });
+    },
+    { mutatesRepo: false }
+  );
+
+  bridge.onMessage(
+    "branchCleanupScanCancel",
+    () => {
+      cleanupScanGeneration++;
     },
     { mutatesRepo: false }
   );

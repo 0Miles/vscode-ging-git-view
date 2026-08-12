@@ -432,6 +432,107 @@ export type ResponseRunRefBatchAction = {
   seq: number;
 };
 
+/** Which of the three facts put a branch on the cleanup list. Carried per row
+ *  because their strengths differ wildly — merged has git's `branch -d`
+ *  guarantee, redundant has none, and inactive says nothing at all about
+ *  whether deleting would lose work (CONTEXT.md, "Cleanup candidate"). */
+export type CleanupCandidateFacts = {
+  merged: boolean;
+  redundant: boolean;
+  inactive: boolean;
+};
+
+/** One row of the cleanup dialog. */
+export type CleanupCandidate = {
+  /** Canonical ref ("main", "remotes/origin/feature"); `displayRef` is applied
+   *  only when rendering. */
+  ref: string;
+  isRemote: boolean;
+  facts: CleanupCandidateFacts;
+  /** Last commit time (unix seconds) when known, for the row's age label. */
+  lastActivitySec?: number;
+};
+
+/** Everything the cleanup dialog renders. Produced by the host — the candidate
+ *  rules live beside the classification facts (ADR-0013/ADR-0014) — and re-sent
+ *  whole whenever a deep check or a fetch changes the answer, so the webview
+ *  never has to merge two versions of the list. */
+export type BranchCleanupPayload = {
+  candidates: CleanupCandidate[];
+  /** The basis merged and redundant were measured against. Null disables both,
+   *  which the dialog states rather than silently showing a short list. */
+  defaultBranch: string | null;
+  /** When the basis last moved locally (unix seconds), 0 when unreadable.
+   *  Nothing here fetches, so this is what tells the user how stale the answer
+   *  may be (ADR-0015). */
+  defaultBranchDate: number;
+  /** True when this repo currently hides remote branches, so no remote
+   *  candidate could be listed. Said out loud rather than left as a silent gap. */
+  remotesHidden: boolean;
+  /** How many branches a deep check would ask git about; 0 offers no scan. */
+  scannable: number;
+};
+
+/** Open the cleanup dialog on `payload`. Delivered through the same
+ *  wait-for-load path and `seq` counter as the delegated ref actions, so a
+ *  panel still loading cannot drop it (ADR-0014). */
+export type ResponseShowBranchCleanup = {
+  command: "showBranchCleanup";
+  repo: string;
+  payload: BranchCleanupPayload;
+  seq: number;
+};
+
+/** Ask the host to judge every scannable branch's redundancy. Which branches
+ *  those are is the host's call — it holds the facts that decide it. */
+export type RequestBranchCleanupScan = {
+  command: "branchCleanupScan";
+  repo: string;
+  token: number;
+};
+
+/** Stop the scan in flight. The verdicts already reached are still returned. */
+export type RequestBranchCleanupScanCancel = { command: "branchCleanupScanCancel" };
+
+export type ResponseBranchCleanupScanProgress = {
+  command: "branchCleanupScanProgress";
+  token: number;
+  done: number;
+  total: number;
+};
+
+export type ResponseBranchCleanupScan = {
+  command: "branchCleanupScan";
+  token: number;
+  payload: BranchCleanupPayload;
+  cancelled: boolean;
+};
+
+/**
+ * Compute the candidates for `repo` and send them back — the webview-initiated
+ * way into the dialog, used by the graph's own context menu and by the dialog's
+ * "fetch and recompute" button.
+ *
+ * With `fetch`, the host fetches first. That is the one network round trip the
+ * dialog makes, and only when asked: a fetch may need credentials, which is no
+ * way to answer "what could I clean up?" (ADR-0015).
+ */
+export type RequestBranchCleanupOpen = {
+  command: "branchCleanupOpen";
+  repo: string;
+  fetch: boolean;
+  token: number;
+};
+
+export type ResponseBranchCleanupOpen = {
+  command: "branchCleanupOpen";
+  token: number;
+  payload: BranchCleanupPayload;
+  /** True when a requested fetch failed; the payload is then the pre-fetch
+   *  answer, which the dialog says so about rather than passing off as fresh. */
+  fetchFailed: boolean;
+};
+
 export type RequestMessage =
   | ActionRequest
   | BatchActionRequest
@@ -454,7 +555,10 @@ export type RequestMessage =
   | RequestCreateArchive
   | RequestExportPatch
   | RequestSaveDialogMemory
-  | RequestCreatePullRequest;
+  | RequestCreatePullRequest
+  | RequestBranchCleanupScan
+  | RequestBranchCleanupScanCancel
+  | RequestBranchCleanupOpen;
 
 export type ResponseMessage =
   | ActionResponse
@@ -476,4 +580,8 @@ export type ResponseMessage =
   | ResponseSetBranchFilter
   | ResponseSetShowRemoteBranches
   | ResponseRunRefAction
-  | ResponseRunRefBatchAction;
+  | ResponseRunRefBatchAction
+  | ResponseShowBranchCleanup
+  | ResponseBranchCleanupScanProgress
+  | ResponseBranchCleanupScan
+  | ResponseBranchCleanupOpen;

@@ -17,11 +17,28 @@ import {
 import type {
   BatchAction,
   BatchSkipped,
+  BranchCleanupPayload,
   ResponseRunRefAction,
-  ResponseRunRefBatchAction
+  ResponseRunRefBatchAction,
+  ResponseShowBranchCleanup
 } from "@/types";
 
 import type { BranchActionTarget, BranchActionTargets } from "./branchesView";
+
+/**
+ * A message that must reach the graph webview once it is showing its repo with
+ * no load in flight.
+ *
+ * The cleanup dialog rides here with the ref actions rather than getting its own
+ * delivery path: the wait-for-load race, the two delivery routes and the `seq`
+ * dedupe are the same problem for all three, and a second copy of that logic is
+ * how one of them ends up subtly different. Sharing the counter also means a
+ * cleanup message can never be mistaken for a ref action's retry.
+ */
+export type DelegatedMessage =
+  | ResponseRunRefAction
+  | ResponseRunRefBatchAction
+  | ResponseShowBranchCleanup;
 
 export type BranchActionDelegateDeps = {
   /** The branch a single-selection command argument points at, or null when it
@@ -34,7 +51,7 @@ export type BranchActionDelegateDeps = {
    *  focused. */
   openGraphView: (repo: string) => Promise<void>;
   /** Post to the live webview, if any. */
-  post: (msg: ResponseRunRefAction | ResponseRunRefBatchAction) => void;
+  post: (msg: DelegatedMessage) => void;
   writeClipboard: (text: string) => void;
   /** Report a batch whose every selected branch was ruled out — naming them and
    *  the reason is the whole point; "nothing happened" reads like a bug. */
@@ -48,7 +65,7 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
   // the two delivery paths (direct post + selectRepo flush) by the message's
   // monotonic seq, shared between single and batch so one can never be
   // mistaken for the other's retry.
-  let pending: ResponseRunRefAction | ResponseRunRefBatchAction | null = null;
+  let pending: DelegatedMessage | null = null;
   let seq = 0;
 
   const flushPendingRefAction = (repo: string): void => {
@@ -61,7 +78,7 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     pending = null;
   };
 
-  const deliver = async (msg: ResponseRunRefAction | ResponseRunRefBatchAction): Promise<void> => {
+  const deliver = async (msg: DelegatedMessage): Promise<void> => {
     // Two delivery paths: the direct post covers an open panel already showing
     // the repo (same-repo setRepo doesn't reload, so no selectRepo would fire);
     // the selectRepo flush covers fresh panels and repo switches, whose
@@ -136,5 +153,12 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     });
   };
 
-  return { run, runBatch, flushPendingRefAction };
+  /** Open the cleanup dialog on an already-built payload. The candidate rules
+   *  and the empty-set check are the caller's (ADR-0014) — this only gets the
+   *  payload there. */
+  const openCleanup = async (repo: string, payload: BranchCleanupPayload): Promise<void> => {
+    await deliver({ command: "showBranchCleanup", repo, payload, seq: ++seq });
+  };
+
+  return { run, runBatch, openCleanup, flushPendingRefAction };
 }

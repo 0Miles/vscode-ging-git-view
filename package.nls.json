@@ -118,6 +118,7 @@
   "command.branches.search": "Search Branch",
   "command.branches.showAll": "Show All Branches",
   "command.branches.refresh": "Refresh",
+  "command.branches.cleanup": "Clean Up Branches…",
   "command.branches.showRemoteBranches": "Show Remote Branches",
   "command.branches.hideRemoteBranches": "Hide Remote Branches",
   "command.branches.showInactive": "Show Inactive Branches",

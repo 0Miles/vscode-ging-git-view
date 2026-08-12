@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createBranchActionDelegate,
-  type BranchActionDelegateDeps
+  type BranchActionDelegateDeps,
+  type DelegatedMessage
 } from "@/extension/branchActionDelegate";
 import type { BranchActionTarget, BranchActionTargets } from "@/extension/branchesView";
-import type { ResponseRunRefAction, ResponseRunRefBatchAction } from "@/types";
 
 const REPO = "/repo";
 
@@ -26,12 +26,12 @@ const remote = (branch: string): BranchActionTarget => ({
  *  through, so tests hand targets in directly; `resolveBatchTargets` returns
  *  whatever the test seeds. */
 function makeDelegate(batchTargets: BranchActionTargets | null = null) {
-  const posted: (ResponseRunRefAction | ResponseRunRefBatchAction)[] = [];
+  const posted: DelegatedMessage[] = [];
   const deps = {
     resolveTarget: (item: unknown) => (item as BranchActionTarget | null) ?? null,
     resolveBatchTargets: vi.fn(() => batchTargets),
     openGraphView: vi.fn(async () => {}),
-    post: vi.fn((msg: ResponseRunRefAction | ResponseRunRefBatchAction) => void posted.push(msg)),
+    post: vi.fn((msg: DelegatedMessage) => void posted.push(msg)),
     writeClipboard: vi.fn(),
     showNoTargets: vi.fn()
   } satisfies BranchActionDelegateDeps;
