@@ -377,6 +377,7 @@
   "dialog.cleanup.scanning": "Deep checking {0} of {1}…",
   "dialog.cleanup.scanStop": "Stop",
   "dialog.cleanup.scanCancelled": "Deep check stopped early; only the branches checked so far are marked.",
+  "dialog.cleanup.selectAll": "Select all in this group",
   "dialog.cleanup.refetch": "Fetch, then recompute",
   "dialog.cleanup.fetchFailed": "The fetch failed, so this list still reflects the state before it.",
   "dialog.cleanup.noDefaultBranch": "No default branch was detected, so neither merged nor unmerged-changes can be judged — only idle branches are listed.",

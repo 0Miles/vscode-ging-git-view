@@ -377,6 +377,7 @@
   "dialog.cleanup.scanning": "深度检查中 {0} / {1}…",
   "dialog.cleanup.scanStop": "停止",
   "dialog.cleanup.scanCancelled": "深度检查已提前停止,只有已检查过的 branch 被标记。",
+  "dialog.cleanup.selectAll": "全选这一组",
   "dialog.cleanup.refetch": "先 fetch 再重新计算",
   "dialog.cleanup.fetchFailed": "fetch 失败,这份清单仍是 fetch 之前的状态。",
   "dialog.cleanup.noDefaultBranch": "检测不到 default branch,因此无从判定已合并与未合并的更改 —— 只列出闲置的 branch。",

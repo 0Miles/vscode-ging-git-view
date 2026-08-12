@@ -25,6 +25,29 @@ export function defaultCheckedRefs(candidates: readonly CleanupCandidate[]): str
   return candidates.filter((c) => c.facts.merged || c.facts.redundant).map((c) => c.ref);
 }
 
+/** How a group's select-all header should read. */
+export type GroupToggleState = "all" | "some" | "none";
+
+/**
+ * The state of the Remote / Local header checkbox for one group.
+ *
+ * Tri-state on purpose: `some` is what lets the header render indeterminate
+ * instead of claiming something untrue about the rows under it. An empty group
+ * is `none` rather than `all` — `[].every()` is true, which would put a ticked
+ * header over nothing.
+ */
+export function groupToggleState(
+  candidates: readonly CleanupCandidate[],
+  checked: ReadonlySet<string>,
+  isRemote: boolean
+): GroupToggleState {
+  const group = candidates.filter((c) => c.isRemote === isRemote);
+  if (group.length === 0) return "none";
+  const ticked = group.filter((c) => checked.has(c.ref)).length;
+  if (ticked === 0) return "none";
+  return ticked === group.length ? "all" : "some";
+}
+
 /**
  * The checked set after the list is replaced — which a deep check or a fetch
  * does, whole (ADR-0014).

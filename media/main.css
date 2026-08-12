@@ -1406,6 +1406,18 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
 #dialog .cleanupGroup:first-child td {
   padding-top: 0;
 }
+/* The heading doubles as the group's select-all, so its checkbox lines up with
+   the row checkboxes underneath it rather than sitting inside the label text. */
+#dialog .cleanupGroup label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+#dialog .cleanupGroup input {
+  flex: none;
+  margin: 0;
+}
 /* One chip per fact that put the row on the list. Never merged into a single
    label: the three differ in how much they promise (CONTEXT.md). */
 #dialog .cleanupFact {

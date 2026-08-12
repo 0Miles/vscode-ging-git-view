@@ -19,7 +19,7 @@ import { displayRef, REMOTE_PREFIX } from "@/backend/utils/branchRef";
 import { REF_ACTION_CATALOGUE } from "@/backend/utils/refActionCatalogue";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
-import { defaultCheckedRefs, mergeCheckedRefs } from "./branchCleanup";
+import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "./branchCleanup";
 import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
 import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } from "./find";
 import { Graph } from "./graph";
@@ -2873,13 +2873,9 @@ class GitGraphView {
       params
     });
   }
-  /** Read by the cleanup dialog, which builds the same two delete options as the
-   *  batch confirmation and so needs the same two facts. */
+  /** Read by the cleanup dialog for its one delete option's default. */
   public dialogDeleteBranchForceDelete(): boolean {
     return this.config.dialogDeleteBranchForceDelete;
-  }
-  public hasRemotes(): boolean {
-    return this.remotes.length > 0;
   }
   private pushBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     // No remember key: a force mode remembered from a single push must not
@@ -4469,24 +4465,52 @@ function cleanupRow(candidate: GG.CleanupCandidate, checked: boolean): string {
   );
 }
 
-/** The list, grouped exactly as the side-view groups its tree — the order the
- *  host already put the rows in. The headings only appear when both kinds are
- *  present, matching the tree's own rule. */
+/**
+ * The list, grouped and ordered exactly as the host put the rows in — the
+ * side-view's tree order.
+ *
+ * Unlike the tree, a heading is rendered whenever its group is non-empty, not
+ * only when both kinds are present. The tree omits a lone "Local" because it
+ * would be pure noise, but here the heading carries the group's select-all, and
+ * a group with no way to select all of it is the worse outcome.
+ */
 function cleanupList(state: NonNullable<typeof cleanupState>): string {
-  const remote = state.payload.candidates.filter((c) => c.isRemote);
-  const local = state.payload.candidates.filter((c) => !c.isRemote);
-  const heading = (label: string) =>
-    '<tr class="cleanupGroup"><td colspan="3">' + escapeHtml(label) + "</td></tr>";
-  const rows = (group: readonly GG.CleanupCandidate[]) =>
-    group.map((c) => cleanupRow(c, state.checked.has(c.ref))).join("");
-  const grouped =
-    remote.length > 0 && local.length > 0
-      ? heading(l10n.cleanupGroupRemote) +
-        rows(remote) +
-        heading(l10n.cleanupGroupLocal) +
-        rows(local)
-      : rows(state.payload.candidates);
-  return '<div class="cleanupList"><table>' + grouped + "</table></div>";
+  const heading = (label: string, isRemote: boolean) =>
+    '<tr class="cleanupGroup"><td colspan="3"><label><input type="checkbox"' +
+    ' class="cleanupGroupToggle" data-remote="' +
+    String(isRemote) +
+    '" title="' +
+    escapeHtml(l10n.cleanupSelectAll) +
+    '"/><span>' +
+    escapeHtml(label) +
+    "</span></label></td></tr>";
+  const group = (label: string, isRemote: boolean) => {
+    const rows = state.payload.candidates.filter((c) => c.isRemote === isRemote);
+    return rows.length === 0
+      ? ""
+      : heading(label, isRemote) +
+          rows.map((c) => cleanupRow(c, state.checked.has(c.ref))).join("");
+  };
+  return (
+    '<div class="cleanupList"><table>' +
+    group(l10n.cleanupGroupRemote, true) +
+    group(l10n.cleanupGroupLocal, false) +
+    "</table></div>"
+  );
+}
+
+/** Point each group header at its rows' current state. Set from script because
+ *  `indeterminate` has no markup form. */
+function syncCleanupGroupToggles(state: NonNullable<typeof cleanupState>) {
+  document.querySelectorAll<HTMLInputElement>("#dialog .cleanupGroupToggle").forEach((box) => {
+    const toggle = groupToggleState(
+      state.payload.candidates,
+      state.checked,
+      box.dataset.remote === "true"
+    );
+    box.checked = toggle === "all";
+    box.indeterminate = toggle === "some";
+  });
 }
 
 /** The standing caveats about what this list can and cannot tell you. Each is
@@ -4533,15 +4557,18 @@ function cleanupBasis(state: NonNullable<typeof cleanupState>): string {
 function renderBranchCleanup() {
   const state = cleanupState;
   if (state === null) return;
-  const forceInput: DialogInput = {
-    type: "checkbox",
-    name: l10n.dialogDeleteForceDelete,
-    value: gitGraph.dialogDeleteBranchForceDelete()
-  };
-  const inputs: DialogInput[] = [forceInput];
-  if (gitGraph.hasRemotes()) {
-    inputs.push({ type: "checkbox", name: l10n.dialogDeleteOnRemotes, value: false });
-  }
+  // Force delete is the only option here. "Also delete on remotes" belongs to
+  // the side-view's batch delete, where the selection is local branches and the
+  // remote is otherwise unreachable; in this dialog every remote candidate is a
+  // row of its own, so the checkbox would be a second, invisible way to delete
+  // the same refs.
+  const inputs: DialogInput[] = [
+    {
+      type: "checkbox",
+      name: l10n.dialogDeleteForceDelete,
+      value: gitGraph.dialogDeleteBranchForceDelete()
+    }
+  ];
   const scanButton =
     state.payload.scannable > 0
       ? '<div id="cleanupDeepCheck" class="roundedBtn" title="' +
@@ -4580,30 +4607,55 @@ function renderBranchCleanup() {
       cleanupState = null;
       gitGraph.startCleanupDelete(state.repo, refs, {
         forceDelete: values[0] === "checked",
-        deleteOnRemotes: inputs.length > 1 && values[1] === "checked"
+        // Never implied here — a remote is only deleted by ticking its own row.
+        deleteOnRemotes: false
       });
     },
     null
   );
-  bindBranchCleanupHandlers();
+  bindBranchCleanupHandlers(state);
 }
 
 /** Wire the parts `showFormDialog` knows nothing about: the per-row ticks and
  *  the two tools. Re-bound on every render, since each replaces the markup. */
-function bindBranchCleanupHandlers() {
+function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
+  // The force note appears and disappears with the ticks it describes, and the
+  // group headers track their rows. Both are refreshed in place rather than by
+  // re-rendering the dialog, which would steal focus mid-click.
+  const afterTickChange = (live: NonNullable<typeof cleanupState>) => {
+    const notices = document.getElementById("cleanupNotices");
+    if (notices !== null) notices.innerHTML = cleanupNotices(live);
+    syncCleanupGroupToggles(live);
+  };
   document.querySelectorAll<HTMLInputElement>("#dialog .cleanupRow input").forEach((box) => {
     box.addEventListener("change", () => {
       if (cleanupState === null) return;
       const ref = box.dataset.ref!;
       if (box.checked) cleanupState.checked.add(ref);
       else cleanupState.checked.delete(ref);
-      // The force note appears and disappears with the ticks it describes, so
-      // the notices have to be rebuilt — but re-rendering the whole dialog would
-      // steal focus mid-click, so only that block is replaced.
-      const notices = document.getElementById("cleanupNotices");
-      if (notices !== null) notices.innerHTML = cleanupNotices(cleanupState);
+      afterTickChange(cleanupState);
     });
   });
+  document.querySelectorAll<HTMLInputElement>("#dialog .cleanupGroupToggle").forEach((box) => {
+    box.addEventListener("change", () => {
+      if (cleanupState === null) return;
+      const isRemote = box.dataset.remote === "true";
+      // A partly-ticked header is indeterminate; clicking it ticks the whole
+      // group rather than clearing it, which is the direction that matches what
+      // the user just reached for.
+      const next = box.checked;
+      for (const candidate of cleanupState.payload.candidates) {
+        if (candidate.isRemote !== isRemote) continue;
+        if (next) cleanupState.checked.add(candidate.ref);
+        else cleanupState.checked.delete(candidate.ref);
+      }
+      document.querySelectorAll<HTMLInputElement>("#dialog .cleanupRow input").forEach((row) => {
+        if (row.dataset.ref!.startsWith(REMOTE_PREFIX) === isRemote) row.checked = next;
+      });
+      afterTickChange(cleanupState);
+    });
+  });
+  syncCleanupGroupToggles(state);
   document.getElementById("cleanupDeepCheck")?.addEventListener("click", () => {
     if (cleanupState === null) return;
     startBranchCleanupScan(cleanupState.repo, cleanupState.token);

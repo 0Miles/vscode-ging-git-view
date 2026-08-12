@@ -83,6 +83,12 @@ function notices(): string {
   return document.getElementById("cleanupNotices")!.textContent ?? "";
 }
 
+function groupToggle(isRemote: boolean): HTMLInputElement {
+  return document.querySelector<HTMLInputElement>(
+    `#dialog .cleanupGroupToggle[data-remote="${isRemote}"]`
+  )!;
+}
+
 describe("the branch cleanup dialog delivered by the host", () => {
   let mock: ReturnType<typeof createVscodeMock>;
 
@@ -170,6 +176,60 @@ describe("the branch cleanup dialog delivered by the host", () => {
       .find((b) => b.dataset.ref === "old")!
       .click();
     expect(notices()).toContain("force");
+    dismissDialog();
+  });
+
+  it("offers one delete option only — never an implied remote delete", () => {
+    // A remote is deleted by ticking its own row, so "also delete on remotes"
+    // would be a second, invisible route to the same refs.
+    receive({
+      command: "showBranchCleanup",
+      repo: REPO,
+      seq: 3,
+      payload: payload([
+        candidate("remotes/origin/squashed", { redundant: true }),
+        candidate("merged", { merged: true })
+      ])
+    });
+    expect(document.getElementById("dialogInput0")).not.toBeNull();
+    expect(document.getElementById("dialogInput1")).toBeNull();
+    dismissDialog();
+  });
+
+  it("selects and clears a whole group from its heading", () => {
+    receive({
+      command: "showBranchCleanup",
+      repo: REPO,
+      seq: 4,
+      payload: payload([
+        candidate("remotes/origin/squashed", { redundant: true }),
+        candidate("remotes/origin/idle", { inactive: true }),
+        candidate("merged", { merged: true })
+      ])
+    });
+
+    // Two of the three remote rows' states differ, so the heading is neither.
+    expect(groupToggle(true).checked).toBe(false);
+    expect(groupToggle(true).indeterminate).toBe(true);
+    // The local group is fully ticked by the default rule.
+    expect(groupToggle(false).checked).toBe(true);
+    expect(groupToggle(false).indeterminate).toBe(false);
+
+    // Clicking an indeterminate heading ticks the group, and leaves the other
+    // group alone.
+    groupToggle(true).click();
+    const ticked = () =>
+      rowBoxes()
+        .filter((b) => b.checked)
+        .map((b) => b.dataset.ref);
+    expect(ticked()).toEqual(["remotes/origin/squashed", "remotes/origin/idle", "merged"]);
+    expect(groupToggle(true).indeterminate).toBe(false);
+
+    // And clearing it takes only its own rows away.
+    groupToggle(true).click();
+    expect(ticked()).toEqual(["merged"]);
+    expect(groupToggle(true).checked).toBe(false);
+    expect(groupToggle(false).checked).toBe(true);
     dismissDialog();
   });
 

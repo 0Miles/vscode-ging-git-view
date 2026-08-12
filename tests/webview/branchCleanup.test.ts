@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CleanupCandidate } from "@/types";
-import { defaultCheckedRefs, mergeCheckedRefs } from "@/webview/branchCleanup";
+import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "@/webview/branchCleanup";
 
 /** A candidate row carrying exactly the facts named. */
 function row(ref: string, facts: Partial<CleanupCandidate["facts"]>): CleanupCandidate {
@@ -42,6 +42,35 @@ describe("defaultCheckedRefs", () => {
       row("remotes/origin/idle", { inactive: true })
     ]);
     expect(checked).toEqual(["remotes/origin/merged"]);
+  });
+});
+
+describe("groupToggleState", () => {
+  const rows = [
+    row("remotes/origin/a", { merged: true }),
+    row("remotes/origin/b", { inactive: true }),
+    row("local-a", { merged: true })
+  ];
+
+  it("reports a group whose every row is ticked", () => {
+    const state = groupToggleState(rows, new Set(["remotes/origin/a", "remotes/origin/b"]), true);
+    expect(state).toBe("all");
+  });
+
+  it("reports a group with no row ticked", () => {
+    expect(groupToggleState(rows, new Set(["local-a"]), true)).toBe("none");
+  });
+
+  it("reports a partly ticked group, so the header can show it", () => {
+    // The header is a tri-state: "some" is what makes it indeterminate rather
+    // than lying in either direction about the rows below it.
+    expect(groupToggleState(rows, new Set(["remotes/origin/a"]), true)).toBe("some");
+  });
+
+  it("treats an empty group as none, not as all", () => {
+    // `[].every(...)` is true, so the obvious implementation would render a
+    // ticked header over no rows.
+    expect(groupToggleState([], new Set(), false)).toBe("none");
   });
 });
 

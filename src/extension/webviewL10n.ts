@@ -229,6 +229,7 @@ export function getWebviewLocalizedStrings() {
     cleanupScanning: l10n.t("dialog.cleanup.scanning"),
     cleanupScanStop: l10n.t("dialog.cleanup.scanStop"),
     cleanupScanCancelled: l10n.t("dialog.cleanup.scanCancelled"),
+    cleanupSelectAll: l10n.t("dialog.cleanup.selectAll"),
     cleanupRefetch: l10n.t("dialog.cleanup.refetch"),
     cleanupFetchFailed: l10n.t("dialog.cleanup.fetchFailed"),
     cleanupNoDefaultBranch: l10n.t("dialog.cleanup.noDefaultBranch"),
