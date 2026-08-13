@@ -71,6 +71,7 @@ import { BranchFilterStore } from "./branchFilterStore";
 import { type Logger } from "./logger";
 import { RepoManager } from "./repoManager";
 import { WebviewBridge } from "./webviewBridge";
+import { createWebviewErrorSink } from "./webviewErrorSink";
 
 function viewDiff(
   repo: string,
@@ -843,22 +844,17 @@ export function registerMessageHandlers(
   // The webview's failures have nowhere else to go: it has no Output Channel of
   // its own, and its console is behind "Developer: Open Webview Developer
   // Tools", which no bug report ever comes from (ADR-0016).
-  bridge.onMessage(
-    "reportError",
-    (msg) => {
-      logger.logWebviewError(msg.report);
-      // Only a failure while applying a message leaves an operation visibly
-      // half-done, so it is the only one worth interrupting the user for. The
-      // catch-alls name nothing the user could act on; the log is enough.
-      if (msg.report.origin !== "message") return;
-      void vscode.window
-        .showErrorMessage(l10n.t("error.webviewFailed"), l10n.t("error.showLog"))
-        .then((choice) => {
-          if (choice !== undefined) logger.reveal();
-        });
-    },
-    { mutatesRepo: false }
-  );
+  const reportWebviewError = createWebviewErrorSink({
+    log: logger.logError,
+    notify: async () => {
+      const choice = await vscode.window.showErrorMessage(
+        l10n.t("error.webviewFailed"),
+        l10n.t("error.showLog")
+      );
+      if (choice !== undefined) logger.reveal();
+    }
+  });
+  bridge.onMessage("reportError", (msg) => reportWebviewError(msg.report), { mutatesRepo: false });
 
   return {
     onPanelShown: () => {

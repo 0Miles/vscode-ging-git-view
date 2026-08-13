@@ -387,6 +387,6 @@
   "dialog.cleanup.nothingChecked": "请至少勾选一个要删除的 branch。",
   "branchView.cleanup.none": "这个存储库没有值得提议清理的 branch。",
   "branchView.cleanup.failed": "无法判断有哪些 branch 可以清理",
-  "error.webviewFailed": "GING 发生意外错误,刚才那个操作没有完成。详细内容记在 GING 输出通道。",
+  "error.webviewFailed": "GING 发生意外错误,有操作没有完成。详细内容记在 GING 输出通道。",
   "error.showLog": "显示日志"
 }

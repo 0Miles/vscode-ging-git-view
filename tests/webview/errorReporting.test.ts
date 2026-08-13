@@ -103,12 +103,14 @@ describe("failures the webview cannot handle (issue #39)", () => {
     expect(consoleError).toHaveBeenCalled();
   });
 
-  it("reports an identical failure once, however often it repeats", () => {
+  it("reports every occurrence, leaving what to do about repeats to the host", () => {
+    // Both surfaces the host owns treat repetition differently (ADR-0016), and
+    // neither rule can be applied from here without pre-empting the other.
     mock.clearMessages();
     receive(brokenResponse);
     receive(brokenResponse);
 
-    expect(reports(mock)).toHaveLength(0);
+    expect(reports(mock)).toHaveLength(2);
   });
 
   it("reports what escapes into a timer or an event handler", () => {

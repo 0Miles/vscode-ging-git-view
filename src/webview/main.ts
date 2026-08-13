@@ -64,9 +64,10 @@ import { RovingTabStop, stepWithinGroup } from "./utils/rovingFocus";
 import { getVSCodeStyle, sendMessage, vscode } from "./utils/vscode";
 
 /** Where every failure this view cannot handle goes: to the host, and from
- *  there into the GING Output Channel (ADR-0016). Created and armed before any
- *  other statement in this module runs, so a failure while the view is still
- *  being built is reported too. */
+ *  there into the GING Output Channel (ADR-0016). Armed as this module's first
+ *  statement, so the failures thrown while the view is being built below are
+ *  reported too — though not one thrown while an imported module above is
+ *  evaluating, which is earlier than anything here can reach. */
 const errorReporter = createErrorReporter((report) =>
   sendMessage({ command: "reportError", report })
 );

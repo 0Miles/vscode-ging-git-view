@@ -1,4 +1,4 @@
-import type { WebviewErrorReport } from "@/types";
+import type { ResponseMessage, WebviewErrorReport } from "@/types";
 
 /** A thrown value in the shape the log needs. Only an `Error` carries a stack;
  *  everything else (a thrown string, a promise rejected with a plain object)
@@ -15,27 +15,19 @@ export type ErrorReporter = ReturnType<typeof createErrorReporter>;
 
 /**
  * The webview's one route out of silence: every failure it cannot handle is
- * described and sent to the host, which writes it to the GING Output Channel
- * (ADR-0016).
+ * described and sent to the host, which decides what to do with it (ADR-0016).
  *
- * Nothing here decides whether the user is told — that is the host's call, made
- * from `origin`. This side only guarantees the failure is described in full and
- * said out loud exactly once.
+ * Nothing here decides whether the failure is logged, repeated or shown to the
+ * user — those rules live with the surfaces they govern, on the host. This side
+ * describes what happened, in full, every time it happens.
  */
 export function createErrorReporter(send: (report: WebviewErrorReport) => void) {
-  // Reported failures, keyed by everything the report carries. A failure inside
-  // a render loop or a mousemove handler repeats as fast as the event does, and
-  // a channel whose main content is git commands cannot absorb that. The first
-  // occurrence carries the whole stack, which is what a bug report needs; the
-  // identical ones after it are dropped.
-  const reported = new Set<string>();
-
-  function report(origin: WebviewErrorReport["origin"], command: string | null, thrown: unknown) {
-    const { message, stack } = describeThrown(thrown);
-    const key = [origin, command ?? "", message, stack ?? ""].join("\n");
-    if (reported.has(key)) return;
-    reported.add(key);
-    send({ origin, command, message, stack });
+  function report(
+    origin: WebviewErrorReport["origin"],
+    command: ResponseMessage["command"] | null,
+    thrown: unknown
+  ) {
+    send({ origin, command, ...describeThrown(thrown) });
   }
 
   return {
@@ -47,7 +39,7 @@ export function createErrorReporter(send: (report: WebviewErrorReport) => void) 
      * Deliberately does not rethrow: `watchGlobals` would then report the same
      * failure a second time, without the command name this one has.
      */
-    whileHandling(command: string, apply: () => void) {
+    whileHandling(command: ResponseMessage["command"], apply: () => void) {
       try {
         apply();
       } catch (error: unknown) {

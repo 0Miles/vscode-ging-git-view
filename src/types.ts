@@ -547,7 +547,7 @@ export type WebviewErrorReport = {
   origin: "message" | "uncaught" | "unhandledRejection";
   /** The response message being applied when it threw. Null for the two
    *  catch-alls: by the time they fire there is no operation left to name. */
-  command: string | null;
+  command: ResponseMessage["command"] | null;
   message: string;
   /** The stack as the webview saw it; null when what was thrown carried none
    *  (anything thrown that is not an Error). */
