@@ -9,6 +9,7 @@ import { relativeAge } from "./branchActivity";
 import { resolveCleanupCandidates } from "./branchCleanup";
 import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
+import { createBranchSelectionReconciler } from "./branchSelectionReconciler";
 import { type BranchTreeLeaf, type BranchTreeNode, buildGroupedBranchRoots } from "./branchTree";
 
 /** Scheme of the opaque per-branch URIs carrying a leaf's decoration flags, so
@@ -458,35 +459,35 @@ export function createBranchesView(deps: BranchesProviderDeps) {
         : undefined
   });
 
-  // Debounce so a rapid multi-select (Ctrl/Cmd-click several branches) coalesces
-  // into a single graph reload rather than one per click.
+  // Which selection events write the filter — and which are TreeView artefacts
+  // (the empty selection a repo-switch rebuild emits, the one the search path's
+  // re-keying emits) that must not clobber it — is the reconciler's call,
+  // unit-tested in isolation. This handler only pipes events in and interprets
+  // the decisions; the one piece of machinery it owns is the debounce timer the
+  // decisions ask for.
+  const reconciler = createBranchSelectionReconciler();
   let debounce: ReturnType<typeof setTimeout> | undefined;
-  // The repo whose selection we last observed: lets us tell a genuine user
-  // "deselect all" (→ show all) apart from the empty selection VSCode emits when
-  // the tree is rebuilt for a different repo (whose items have different ids).
-  let lastSelectionRepo: string | null = null;
-  // Armed by the multi-pick search path before it clears the tree's visual
-  // selection: the resulting empty-selection event must not clobber the filter
-  // it just wrote with "show all".
-  let suppressEmptySelectionOnce = false;
+  const cancelDebounce = (): void => {
+    if (debounce !== undefined) {
+      clearTimeout(debounce);
+      debounce = undefined;
+    }
+  };
   const selectionSub = treeView.onDidChangeSelection((e) => {
-    const repo = provider.getRepo();
-    if (repo === null) return;
-    const branches = selectedBranchRefs([...e.selection]);
-    if (branches.length === 0 && suppressEmptySelectionOnce) {
-      suppressEmptySelectionOnce = false;
-      lastSelectionRepo = repo;
-      return;
-    }
-    // Ignore the empty-selection event that follows a repo switch; honouring it
-    // would clobber the new repo's filter with "show all".
-    if (branches.length === 0 && repo !== lastSelectionRepo) {
-      lastSelectionRepo = repo;
-      return;
-    }
-    lastSelectionRepo = repo;
-    if (debounce !== undefined) clearTimeout(debounce);
-    debounce = setTimeout(() => deps.filterStore.set(repo, branches), 200);
+    const decision = reconciler.onSelection(
+      provider.getRepo(),
+      selectedBranchRefs([...e.selection])
+    );
+    if (decision.kind !== "schedule") return;
+    // Restarting the timer on every scheduled event is what coalesces a rapid
+    // multi-select (Ctrl/Cmd-click several branches) into a single graph reload
+    // rather than one per click.
+    cancelDebounce();
+    debounce = setTimeout(() => {
+      debounce = undefined;
+      const write = reconciler.onDebounceElapsed();
+      if (write !== null) deps.filterStore.set(write.repo, write.branches);
+    }, decision.delayMs);
   });
 
   /** QuickPick over the branches currently in the tree, with one checkbox per
@@ -543,14 +544,13 @@ export function createBranchesView(deps: BranchesProviderDeps) {
       }
     }
     // Zero (= show all) or several branches: write the filter directly and
-    // clear the visual selection, swallowing the empty-selection event it emits
-    // so it can't overwrite the filter just written.
-    if (debounce !== undefined) {
-      clearTimeout(debounce);
-      debounce = undefined;
-    }
-    deps.filterStore.set(repo, refs);
-    if (treeView.selection.length > 0) suppressEmptySelectionOnce = true;
+    // clear the visual selection. The reconciler swallows the empty-selection
+    // event the clearing emits, so it can't overwrite the filter just written.
+    cancelDebounce();
+    const write = reconciler.onDirectWrite(repo, refs, {
+      clearsVisualSelection: treeView.selection.length > 0
+    });
+    deps.filterStore.set(write.repo, write.branches);
     provider.clearSelection();
     if (refs.length > 0) {
       const first = provider.findLeafItem(refs[0]);
@@ -583,10 +583,8 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     actionTargetsForSelection,
     setActiveRepo: (repo: string | null): void => {
       // Drop any pending write from the previous repo before switching.
-      if (debounce !== undefined) {
-        clearTimeout(debounce);
-        debounce = undefined;
-      }
+      cancelDebounce();
+      reconciler.onRepoSwitch();
       provider.setRepo(repo);
     },
     getActiveRepo: (): string | null => provider.getRepo(),
@@ -595,7 +593,7 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     collapseFolders: (): void => provider.collapseFolders(),
     searchBranch,
     dispose: (): void => {
-      if (debounce !== undefined) clearTimeout(debounce);
+      cancelDebounce();
       selectionSub.dispose();
       decorationSub.dispose();
       treeView.dispose();
