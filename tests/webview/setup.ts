@@ -1,5 +1,6 @@
 import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
+import { buildWebviewMarkup } from "@/extension/webviewMarkup";
 import type * as GG from "@/types";
 
 /** The repository path the shared viewState fixture is loaded with. Suites
@@ -96,47 +97,15 @@ export function createVscodeMock(initialState: WebViewState | null = null) {
 }
 
 export function setupHtml(viewState: GG.GitGraphViewState) {
-  document.body.innerHTML = `
-    <div id="controls">
-      <div id="controlsLeft">
-        <div id="repoDropdown">
-          <div id="repoTitle">
-            <span id="repoTitleName"></span>
-            <span id="repoTitleChevron"></span>
-          </div>
-          <ul id="repoDropdownList" role="listbox" tabindex="-1"></ul>
-        </div>
-        <span id="repoTitleBranch"></span>
-        <div id="branchFilterChip">
-          <span id="branchFilterIcon"></span>
-          <span id="branchFilterText"></span>
-          <div id="branchFilterClear" title="Show All"></div>
-        </div>
-      </div>
-      <div id="refreshBtn" class="roundedBtn">Refresh</div>
-      <div id="blinkHeadBtn" class="roundedBtn">Locate HEAD</div>
-      <div id="findBtn" class="roundedBtn">Find</div>
-    </div>
-    <div id="content">
-      <div id="commitGraph"></div>
-      <div id="commitTable"></div>
-    </div>
-    <div id="footer"></div>
-    <div id="findWidget">
-      <input id="findInput" type="text">
-      <span id="findCount"></span>
-      <div id="findPrev" class="findBtn"></div>
-      <div id="findNext" class="findBtn"></div>
-      <div id="findClose" class="findBtn"></div>
-    </div>
-    <ul id="contextMenu" role="menu" tabindex="-1"></ul>
-    <div id="dialogBacking"></div>
-    <div id="dialog"></div>
-    <div id="scrollShadow"></div>
-  `;
+  const l10nStrings = getWebviewLocalizedStrings();
+
+  // The DOM under test is the extension's real markup — the same string
+  // buildWebviewHtml embeds into the webview — so the tests' DOM and the
+  // shipped DOM have one source and cannot silently diverge.
+  document.body.innerHTML = buildWebviewMarkup(l10nStrings);
 
   (global as unknown as { viewState: GG.GitGraphViewState }).viewState = viewState;
-  global["l10n"] = getWebviewLocalizedStrings();
+  global["l10n"] = l10nStrings;
 }
 
 export function receive(msg: GG.ResponseMessage) {
