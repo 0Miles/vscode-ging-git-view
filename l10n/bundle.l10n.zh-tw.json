@@ -386,5 +386,7 @@
   "dialog.cleanup.forceNote": "git 會拒絕刪除它不認為已合併的 branch;最後會統一問你一次要不要強制刪除。",
   "dialog.cleanup.nothingChecked": "請至少勾選一個要刪除的 branch。",
   "branchView.cleanup.none": "這個存放庫沒有值得提議清理的 branch。",
-  "branchView.cleanup.failed": "無法判斷有哪些 branch 可以清理"
+  "branchView.cleanup.failed": "無法判斷有哪些 branch 可以清理",
+  "error.webviewFailed": "GING 發生未預期的錯誤,剛才那個動作沒有完成。詳細內容記在 GING 輸出頻道。",
+  "error.showLog": "顯示記錄"
 }

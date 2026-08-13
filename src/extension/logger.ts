@@ -1,12 +1,32 @@
 import * as vscode from "vscode";
 
 import { formatGitCommandArgs } from "@/backend/utils/gitCommandLog";
+import type { WebviewErrorReport } from "@/types";
 
 function pad2(n: number): string {
   return (n < 10 ? "0" : "") + n;
 }
 function pad3(n: number): string {
   return (n < 10 ? "00" : n < 100 ? "0" : "") + n;
+}
+
+/** Where a webview failure happened, in the log's own words. */
+function webviewErrorLocation(report: WebviewErrorReport): string {
+  if (report.command !== null) return 'while handling "' + report.command + '"';
+  return report.origin === "uncaught" ? "uncaught" : "unhandled rejection";
+}
+
+function formatWebviewError(report: WebviewErrorReport): string {
+  // A V8 stack already opens with the message, so printing both would say it
+  // twice; anything else (a thrown string, an Error without a stack) has only
+  // the message to give.
+  const detail =
+    report.stack === null
+      ? report.message
+      : report.stack.startsWith(report.message)
+        ? report.stack
+        : report.message + "\n" + report.stack;
+  return "webview " + webviewErrorLocation(report) + ": " + detail;
 }
 
 /** Writes timestamped log lines (git commands and core extension events) to the
@@ -41,6 +61,17 @@ export function createLogger(channel: vscode.OutputChannel) {
     },
     logError(message: string) {
       log("ERROR: " + message);
+    },
+    /** Record a failure the webview could not handle. This channel is the only
+     *  place such a failure is written down (ADR-0016), so the stack goes in
+     *  whole — a bug report is assembled from what is here. */
+    logWebviewError(report: WebviewErrorReport) {
+      log("ERROR: " + formatWebviewError(report));
+    },
+    /** Bring the channel into view — what the "show log" action on the webview
+     *  failure notification does. */
+    reveal() {
+      channel.show();
     }
   };
 }

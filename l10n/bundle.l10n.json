@@ -386,5 +386,7 @@
   "dialog.cleanup.forceNote": "git refuses to delete a branch it does not consider merged; you will be asked once, at the end, whether to force those.",
   "dialog.cleanup.nothingChecked": "Check at least one branch to delete.",
   "branchView.cleanup.none": "No branch is worth proposing for cleanup in this repository.",
-  "branchView.cleanup.failed": "Unable to work out which branches could be cleaned up"
+  "branchView.cleanup.failed": "Unable to work out which branches could be cleaned up",
+  "error.webviewFailed": "GING hit an unexpected error, so what it was doing did not finish. The details are in the GING output channel.",
+  "error.showLog": "Show Log"
 }
