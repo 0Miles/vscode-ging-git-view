@@ -14,9 +14,7 @@ export const DEFAULT_REPO = "/workspace/my-repo";
  * a suite overrides only the fields its scenario actually turns on, so a new
  * GitGraphViewState field lands here once instead of in every test file.
  */
-export function makeViewState(
-  overrides: Partial<GG.GitGraphViewState> = {}
-): GG.GitGraphViewState {
+export function makeViewState(overrides: Partial<GG.GitGraphViewState> = {}): GG.GitGraphViewState {
   return {
     autoCenterCommitDetailsView: true,
     commitDetailsViewLocation: "Inline",
