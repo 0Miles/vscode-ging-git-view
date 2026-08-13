@@ -1,9 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
-import type * as GG from "@/types";
-
-import { createVscodeMock, receive, setupHtml } from "./setup";
+import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // The toolbar's left-hand title block: the repo's display name (custom name,
 // else folder name) over the checked-out branch, kept in sync across branch
@@ -11,54 +8,6 @@ import { createVscodeMock, receive, setupHtml } from "./setup";
 
 const REPO_A = "/workspace/repo-a";
 const REPO_B = "/workspace/repo-b";
-
-function buildViewState(repos: GG.GitRepoSet, lastActiveRepo: string): GG.GitGraphViewState {
-  return {
-    autoCenterCommitDetailsView: false,
-    commitDetailsViewLocation: "Inline",
-    referenceLabelAlignment: "Normal",
-    combineLocalAndRemoteBranchLabels: true,
-    dialogDeleteBranchForceDelete: false,
-    dialogCherryPickNoCommit: false,
-    dialogAddTagType: "annotated",
-    dialogCreateBranchCheckOut: false,
-    dialogMergeNoFastForward: true,
-    dialogMergeSquash: false,
-    dialogResetMode: "mixed",
-    dialogMemory: {},
-    customBranchGlobPatterns: [],
-    contextMenuActionsVisibility: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-    customEmojiShortcodeMappings: {},
-    dateFormat: "Date & Time",
-    dateCustomFormat: "DD MMM YYYY",
-    defaultColumnVisibility: { date: true, author: true, commit: true },
-    enhancedAccessibility: false,
-    fetchAvatars: false,
-    fileTreeCompactFolders: true,
-    fileViewType: "File Tree",
-    graphColours: ["#0085d9"],
-    graphStyle: "rounded",
-    initialLoadCommits: 300,
-    issueLinkingRegex: "",
-    issueLinkingUrl: "",
-    keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
-    lastActiveRepo,
-    loadMoreAutomatically: false,
-    loadMoreCommits: 75,
-    markdown: false,
-    muteCommitsNotAncestorsOfHead: false,
-    muteMergeCommits: false,
-    onLoadScrollToHead: false,
-    referenceInputSpaceSubstitution: "None",
-    repos,
-    scmMultiRepoSelection: true,
-    showCurrentBranchByDefault: false,
-    uncommittedChangesAtHead: false,
-    showSpecificBranches: [],
-    showRemoteBranches: true,
-    showTags: true
-  };
-}
 
 const titleText = () => document.getElementById("repoTitleName")!.textContent;
 const branchText = () => document.getElementById("repoTitleBranch")!.textContent;
@@ -68,7 +17,10 @@ describe("toolbar repo title", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(
-      buildViewState({ [REPO_A]: { columnWidths: null }, [REPO_B]: { columnWidths: null } }, REPO_A)
+      makeViewState({
+        repos: { [REPO_A]: { columnWidths: null }, [REPO_B]: { columnWidths: null } },
+        lastActiveRepo: REPO_A
+      })
     );
     await import("@/webview/main");
   });
@@ -111,7 +63,10 @@ describe("toolbar repo title with a custom repo name", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(
-      buildViewState({ [REPO_A]: { columnWidths: null, customName: "My Project" } }, REPO_A)
+      makeViewState({
+        repos: { [REPO_A]: { columnWidths: null, customName: "My Project" } },
+        lastActiveRepo: REPO_A
+      })
     );
     await import("@/webview/main");
   });

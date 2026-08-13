@@ -1,10 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
-import type * as GG from "@/types";
 
-import { createVscodeMock, setupHtml } from "./setup";
+import { createVscodeMock, makeViewState, setupHtml } from "./setup";
 
 // Regression test: following the Source Control view's repo switch while the
 // GING panel was hidden, the extension persists the new repo as
@@ -18,52 +16,13 @@ import { createVscodeMock, setupHtml } from "./setup";
 const REPO_A = "/workspace/repo-a";
 const REPO_B = "/workspace/repo-b";
 
-function buildViewState(lastActiveRepo: string): GG.GitGraphViewState {
-  return {
-    autoCenterCommitDetailsView: false,
-    commitDetailsViewLocation: "Inline",
-    referenceLabelAlignment: "Normal",
-    combineLocalAndRemoteBranchLabels: true,
-    dialogDeleteBranchForceDelete: false,
-    dialogCherryPickNoCommit: false,
-    dialogAddTagType: "annotated",
-    dialogCreateBranchCheckOut: false,
-    dialogMergeNoFastForward: true,
-    dialogMergeSquash: false,
-    dialogResetMode: "mixed",
-    dialogMemory: {},
-    customBranchGlobPatterns: [],
-    contextMenuActionsVisibility: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-    customEmojiShortcodeMappings: {},
-    dateFormat: "Date & Time",
-    dateCustomFormat: "DD MMM YYYY",
-    defaultColumnVisibility: { date: true, author: true, commit: true },
-    enhancedAccessibility: false,
-    fetchAvatars: false,
-    fileTreeCompactFolders: true,
-    fileViewType: "File Tree",
-    graphColours: ["#0085d9"],
-    graphStyle: "rounded",
-    initialLoadCommits: 300,
-    issueLinkingRegex: "",
-    issueLinkingUrl: "",
-    keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
-    lastActiveRepo,
-    loadMoreAutomatically: false,
-    loadMoreCommits: 75,
-    markdown: false,
-    muteCommitsNotAncestorsOfHead: false,
-    muteMergeCommits: false,
-    onLoadScrollToHead: false,
-    referenceInputSpaceSubstitution: "None",
+/** Both repos are known to the extension; the parameter is which one the
+ *  extension last persisted as active. */
+function buildViewState(lastActiveRepo: string) {
+  return makeViewState({
     repos: { [REPO_A]: { columnWidths: null }, [REPO_B]: { columnWidths: null } },
-    scmMultiRepoSelection: true,
-    showCurrentBranchByDefault: false,
-    uncommittedChangesAtHead: false,
-    showSpecificBranches: [],
-    showRemoteBranches: true,
-    showTags: true
-  };
+    lastActiveRepo
+  });
 }
 
 const commits: GitCommitNode[] = [
