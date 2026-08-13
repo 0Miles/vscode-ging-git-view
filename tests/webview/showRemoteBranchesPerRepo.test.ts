@@ -1,62 +1,16 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
 import type * as GG from "@/types";
 
-import { createVscodeMock, receive, setupHtml } from "./setup";
+import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
-const REPO = "/workspace/my-repo";
+const REPO = DEFAULT_REPO;
 
-const viewState: GG.GitGraphViewState = {
-  autoCenterCommitDetailsView: true,
-
-  commitDetailsViewLocation: "Inline",
-
-  referenceLabelAlignment: "Normal",
-
-  combineLocalAndRemoteBranchLabels: true,
-  dialogDeleteBranchForceDelete: false,
-  dialogCherryPickNoCommit: false,
-  dialogAddTagType: "annotated",
-  dialogCreateBranchCheckOut: false,
-  dialogMergeNoFastForward: true,
-  dialogMergeSquash: false,
-  dialogResetMode: "mixed",
-  dialogMemory: {},
-  customBranchGlobPatterns: [],
-  contextMenuActionsVisibility: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-  customEmojiShortcodeMappings: {},
-  dateFormat: "Date & Time",
-  dateCustomFormat: "DD MMM YYYY",
-  defaultColumnVisibility: { date: true, author: true, commit: true },
-  enhancedAccessibility: false,
-  fetchAvatars: false,
-  fileTreeCompactFolders: true,
-  fileViewType: "File Tree",
-  graphColours: ["#0085d9"],
-  graphStyle: "rounded",
-  initialLoadCommits: 300,
-  issueLinkingRegex: "",
-  issueLinkingUrl: "",
-  keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
-  lastActiveRepo: null,
-  loadMoreAutomatically: false,
-  loadMoreCommits: 75,
-  markdown: false,
-  muteCommitsNotAncestorsOfHead: false,
-  muteMergeCommits: true,
-  onLoadScrollToHead: false,
-  referenceInputSpaceSubstitution: "None",
+const viewState = makeViewState({
   // Global setting is false, but the repo carries a per-repo override of true.
   repos: { [REPO]: { columnWidths: null, showRemoteBranches: true } },
-  scmMultiRepoSelection: true,
-  showCurrentBranchByDefault: false,
-
-  uncommittedChangesAtHead: false,
-  showSpecificBranches: [],
-  showRemoteBranches: false,
-  showTags: true
-};
+  showRemoteBranches: false
+});
 
 describe("showRemoteBranches per-repo override", () => {
   let sentMessages: GG.RequestMessage[];

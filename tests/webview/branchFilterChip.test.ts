@@ -1,9 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
-import type * as GG from "@/types";
-
-import { createVscodeMock, receive, setupHtml } from "./setup";
+import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // The toolbar's branch-filter chip: the graph's only outward sign that it is
 // showing a subset of the branches, plus the one control that clears it. The
@@ -15,51 +12,10 @@ const REPO_A = "/workspace/repo-a";
 const REPO_B = "/workspace/repo-b";
 const BRANCHES = ["main", "wip", "remotes/origin/done"];
 
-const viewState: GG.GitGraphViewState = {
-  autoCenterCommitDetailsView: true,
-  commitDetailsViewLocation: "Inline",
-  referenceLabelAlignment: "Normal",
-  combineLocalAndRemoteBranchLabels: true,
-  dialogDeleteBranchForceDelete: false,
-  dialogCherryPickNoCommit: false,
-  dialogAddTagType: "annotated",
-  dialogCreateBranchCheckOut: false,
-  dialogMergeNoFastForward: true,
-  dialogMergeSquash: false,
-  dialogResetMode: "mixed",
-  dialogMemory: {},
-  customBranchGlobPatterns: [],
-  contextMenuActionsVisibility: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-  customEmojiShortcodeMappings: {},
-  dateFormat: "Date & Time",
-  dateCustomFormat: "DD MMM YYYY",
-  defaultColumnVisibility: { date: true, author: true, commit: true },
-  enhancedAccessibility: false,
-  fetchAvatars: false,
-  fileTreeCompactFolders: true,
-  fileViewType: "File Tree",
-  graphColours: ["#0085d9"],
-  graphStyle: "rounded",
-  initialLoadCommits: 300,
-  issueLinkingRegex: "",
-  issueLinkingUrl: "",
-  keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
+const viewState = makeViewState({
   lastActiveRepo: REPO_A,
-  loadMoreAutomatically: false,
-  loadMoreCommits: 75,
-  markdown: false,
-  muteCommitsNotAncestorsOfHead: false,
-  muteMergeCommits: false,
-  onLoadScrollToHead: false,
-  referenceInputSpaceSubstitution: "None",
-  repos: { [REPO_A]: { columnWidths: null }, [REPO_B]: { columnWidths: null } },
-  scmMultiRepoSelection: true,
-  showCurrentBranchByDefault: false,
-  uncommittedChangesAtHead: false,
-  showSpecificBranches: [],
-  showRemoteBranches: true,
-  showTags: true
-};
+  repos: { [REPO_A]: { columnWidths: null }, [REPO_B]: { columnWidths: null } }
+});
 
 const chip = () => document.getElementById("branchFilterChip")!;
 const chipText = () => document.getElementById("branchFilterText")!.textContent;

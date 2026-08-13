@@ -1,10 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
-import type * as GG from "@/types";
 
-import { createVscodeMock, receive, setupHtml } from "./setup";
+import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // Regression test: switching away from the GING tab and back restores the
 // webview from its saved state. The saved commits used to be rendered before
@@ -12,53 +10,9 @@ import { createVscodeMock, receive, setupHtml } from "./setup";
 // local branch was drawn as a second, separate label instead of being folded
 // into the local label ("main ⟨origin⟩" became "main" + "origin/main").
 
-const REPO = "/workspace/my-repo";
+const REPO = DEFAULT_REPO;
 
-const defaultViewState: GG.GitGraphViewState = {
-  autoCenterCommitDetailsView: true,
-  commitDetailsViewLocation: "Inline",
-  referenceLabelAlignment: "Normal",
-  combineLocalAndRemoteBranchLabels: true,
-  dialogDeleteBranchForceDelete: false,
-  dialogCherryPickNoCommit: false,
-  dialogAddTagType: "annotated",
-  dialogCreateBranchCheckOut: false,
-  dialogMergeNoFastForward: true,
-  dialogMergeSquash: false,
-  dialogResetMode: "mixed",
-  dialogMemory: {},
-  customBranchGlobPatterns: [],
-  contextMenuActionsVisibility: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-  customEmojiShortcodeMappings: {},
-  dateFormat: "Date & Time",
-  dateCustomFormat: "DD MMM YYYY",
-  defaultColumnVisibility: { date: true, author: true, commit: true },
-  enhancedAccessibility: false,
-  fetchAvatars: false,
-  fileTreeCompactFolders: true,
-  fileViewType: "File Tree",
-  graphColours: ["#0085d9"],
-  graphStyle: "rounded",
-  initialLoadCommits: 300,
-  issueLinkingRegex: "",
-  issueLinkingUrl: "",
-  keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
-  lastActiveRepo: REPO,
-  loadMoreAutomatically: false,
-  loadMoreCommits: 75,
-  markdown: false,
-  muteCommitsNotAncestorsOfHead: false,
-  muteMergeCommits: false,
-  onLoadScrollToHead: false,
-  referenceInputSpaceSubstitution: "None",
-  repos: { [REPO]: { columnWidths: null } },
-  scmMultiRepoSelection: true,
-  showCurrentBranchByDefault: false,
-  uncommittedChangesAtHead: false,
-  showSpecificBranches: [],
-  showRemoteBranches: true,
-  showTags: true
-};
+const defaultViewState = makeViewState({ lastActiveRepo: REPO });
 
 // "main" and "origin/main" point at the same commit (a fully pushed branch).
 const commits: GitCommitNode[] = [
