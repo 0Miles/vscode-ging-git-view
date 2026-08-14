@@ -21,6 +21,7 @@ import { REF_ACTION_CATALOGUE } from "@/backend/utils/refActionCatalogue";
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
 import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "./branchCleanup";
 import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
+import { createErrorReporter } from "./errorReporting";
 import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } from "./find";
 import { Graph } from "./graph";
 import { formatDate, pad2 } from "./utils/date";
@@ -61,6 +62,16 @@ import {
 import { svgIcons } from "./utils/icons";
 import { RovingTabStop, stepWithinGroup } from "./utils/rovingFocus";
 import { getVSCodeStyle, sendMessage, vscode } from "./utils/vscode";
+
+/** Where every failure this view cannot handle goes: to the host, and from
+ *  there into the GING Output Channel (ADR-0016). Armed as this module's first
+ *  statement, so the failures thrown while the view is being built below are
+ *  reported too — though not one thrown while an imported module above is
+ *  evaluating, which is earlier than anything here can reach. */
+const errorReporter = createErrorReporter((report) =>
+  sendMessage({ command: "reportError", report })
+);
+errorReporter.watchGlobals(window);
 
 /** Everything in the graph that keyboard focus can land on. Each is also a
  *  context-menu source, which is the point: a menu that only `contextmenu` can
@@ -5095,6 +5106,13 @@ function showRedundancyCommitDetails(commitHash: string, details: GitCommitDetai
 /* Command Processing */
 window.addEventListener("message", (event) => {
   const msg: GG.ResponseMessage = event.data;
+  // Applying a message is the only path that can name the operation it was
+  // half-way through, so it is the one that catches; the two global handlers
+  // armed above cover everything that runs outside this call stack (ADR-0016).
+  errorReporter.whileHandling(msg.command, () => applyResponseMessage(msg));
+});
+
+function applyResponseMessage(msg: GG.ResponseMessage) {
   switch (msg.command) {
     case "addTag":
       refreshGraphOrDisplayError(msg.status, l10n.unableToAddTag);
@@ -5359,7 +5377,7 @@ window.addEventListener("message", (event) => {
       if (msg.success === false) showErrorDialog(l10n.unableToViewDiff, null, null);
       break;
   }
-});
+}
 function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: string) {
   if (status === null) {
     gitGraph.refresh(true, true); // keep the user's scroll position after an action

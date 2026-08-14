@@ -64,6 +64,7 @@ function makeDeps() {
       dateType: config.dateType
     }),
     resolveShowRemote,
+    logger: { log: noop, logCmd: noop, logError: noop, logWebviewError: noop, reveal: noop },
     onSelectRepo: noop
   };
 }

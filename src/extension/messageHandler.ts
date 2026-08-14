@@ -68,8 +68,10 @@ import { resolveCleanupCandidates } from "./branchCleanup";
 import { type BranchCleanup } from "./branchCleanupService";
 import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
+import { type Logger } from "./logger";
 import { RepoManager } from "./repoManager";
 import { WebviewBridge } from "./webviewBridge";
+import { createWebviewErrorSink } from "./webviewErrorSink";
 
 function viewDiff(
   repo: string,
@@ -131,6 +133,9 @@ export function registerMessageHandlers(
     /** The repo's "show remote branches" state. The webview no longer sends its
      *  own copy: it was a one-way echo of this and could only be staler. */
     resolveShowRemote: (repo: string) => boolean;
+    /** The GING Output Channel, which is also where the webview's own failures
+     *  are written down (ADR-0016). */
+    logger: Logger;
     /** Called when the webview switches repo, so the Branches side-view can
      *  follow the same repo. */
     onSelectRepo: (repo: string) => void;
@@ -147,6 +152,7 @@ export function registerMessageHandlers(
     branchFacts,
     branchCleanup,
     resolveShowRemote,
+    logger,
     onSelectRepo
   } = deps;
 
@@ -834,6 +840,21 @@ export function registerMessageHandlers(
     },
     { mutatesRepo: false }
   );
+
+  // The webview's failures have nowhere else to go: it has no Output Channel of
+  // its own, and its console is behind "Developer: Open Webview Developer
+  // Tools", which no bug report ever comes from (ADR-0016).
+  const reportWebviewError = createWebviewErrorSink({
+    log: logger.logError,
+    notify: async () => {
+      const choice = await vscode.window.showErrorMessage(
+        l10n.t("error.webviewFailed"),
+        l10n.t("error.showLog")
+      );
+      if (choice !== undefined) logger.reveal();
+    }
+  });
+  bridge.onMessage("reportError", (msg) => reportWebviewError(msg.report), { mutatesRepo: false });
 
   return {
     onPanelShown: () => {

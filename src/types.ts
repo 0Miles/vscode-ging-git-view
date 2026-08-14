@@ -533,6 +533,32 @@ export type ResponseBranchCleanupOpen = {
   fetchFailed: boolean;
 };
 
+/**
+ * A failure the webview could not handle, on its way to the GING Output
+ * Channel. The webview has no channel of its own and its console sits behind
+ * "Developer: Open Webview Developer Tools" — a place no bug report ever comes
+ * from — so this message is the whole trail such a failure leaves (ADR-0016).
+ */
+export type WebviewErrorReport = {
+  /** Which boundary caught it. `message` is the one that names an operation
+   *  the user can be told did not complete; the other two are the catch-alls
+   *  for what runs outside that call stack (timers, promise chains, DOM event
+   *  handlers). */
+  origin: "message" | "uncaught" | "unhandledRejection";
+  /** The response message being applied when it threw. Null for the two
+   *  catch-alls: by the time they fire there is no operation left to name. */
+  command: ResponseMessage["command"] | null;
+  message: string;
+  /** The stack as the webview saw it; null when what was thrown carried none
+   *  (anything thrown that is not an Error). */
+  stack: string | null;
+};
+
+export type RequestReportError = {
+  command: "reportError";
+  report: WebviewErrorReport;
+};
+
 export type RequestMessage =
   | ActionRequest
   | BatchActionRequest
@@ -558,7 +584,8 @@ export type RequestMessage =
   | RequestCreatePullRequest
   | RequestBranchCleanupScan
   | RequestBranchCleanupScanCancel
-  | RequestBranchCleanupOpen;
+  | RequestBranchCleanupOpen
+  | RequestReportError;
 
 export type ResponseMessage =
   | ActionResponse

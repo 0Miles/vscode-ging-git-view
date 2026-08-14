@@ -372,6 +372,7 @@ export function activate(context: vscode.ExtensionContext) {
       branchFacts,
       branchCleanup,
       resolveShowRemote,
+      logger,
       onSelectRepo: (repo) => {
         branchesView.setActiveRepo(repo);
         remotesView.setActiveRepo(repo);

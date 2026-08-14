@@ -41,6 +41,11 @@ export function createLogger(channel: vscode.OutputChannel) {
     },
     logError(message: string) {
       log("ERROR: " + message);
+    },
+    /** Bring the channel into view — what the "show log" action on the webview
+     *  failure notification does (ADR-0016). */
+    reveal() {
+      channel.show();
     }
   };
 }
