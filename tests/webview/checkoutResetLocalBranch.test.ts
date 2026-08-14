@@ -1,58 +1,10 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
-import type * as GG from "@/types";
 
-import { createVscodeMock, receive, setupHtml } from "./setup";
+import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
-const REPO = "/workspace/my-repo";
-
-const viewState: GG.GitGraphViewState = {
-  autoCenterCommitDetailsView: true,
-  commitDetailsViewLocation: "Inline",
-  referenceLabelAlignment: "Normal",
-  combineLocalAndRemoteBranchLabels: false,
-  dialogDeleteBranchForceDelete: false,
-  dialogCherryPickNoCommit: false,
-  dialogAddTagType: "annotated",
-  dialogCreateBranchCheckOut: false,
-  dialogMergeNoFastForward: true,
-  dialogMergeSquash: false,
-  dialogResetMode: "mixed",
-  dialogMemory: {},
-  customBranchGlobPatterns: [],
-  contextMenuActionsVisibility: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-  customEmojiShortcodeMappings: {},
-  dateFormat: "Date & Time",
-  dateCustomFormat: "DD MMM YYYY",
-  defaultColumnVisibility: { date: true, author: true, commit: true },
-  enhancedAccessibility: false,
-  fetchAvatars: false,
-  fileTreeCompactFolders: true,
-  fileViewType: "File Tree",
-  graphColours: ["#0085d9"],
-  graphStyle: "rounded",
-  initialLoadCommits: 300,
-  issueLinkingRegex: "",
-  issueLinkingUrl: "",
-  keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
-  lastActiveRepo: null,
-  loadMoreAutomatically: false,
-  loadMoreCommits: 75,
-  markdown: false,
-  muteCommitsNotAncestorsOfHead: false,
-  muteMergeCommits: true,
-  onLoadScrollToHead: false,
-  referenceInputSpaceSubstitution: "None",
-  repos: { [REPO]: { columnWidths: null } },
-  scmMultiRepoSelection: true,
-  showCurrentBranchByDefault: false,
-  uncommittedChangesAtHead: false,
-  showSpecificBranches: [],
-  showRemoteBranches: true,
-  showTags: true
-};
+const viewState = makeViewState({ combineLocalAndRemoteBranchLabels: false });
 
 // A remote branch "origin/feature" that also has a divergent local branch "feature".
 const commits: GitCommitNode[] = [

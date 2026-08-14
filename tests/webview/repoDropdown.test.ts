@@ -1,9 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
 import type * as GG from "@/types";
 
-import { createVscodeMock, receive, setupHtml } from "./setup";
+import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // The toolbar's repo dropdown (#16). It lists the workspace's repos, and is
 // offered only while VSCode's Source Control view is in multi-select mode
@@ -13,58 +12,6 @@ import { createVscodeMock, receive, setupHtml } from "./setup";
 const REPO_A = "/workspace/repo-a";
 const REPO_B = "/workspace/repo-b";
 const REPO_C = "/workspace/repo-c";
-
-function buildViewState(
-  repos: GG.GitRepoSet,
-  lastActiveRepo: string,
-  scmMultiRepoSelection: boolean
-): GG.GitGraphViewState {
-  return {
-    autoCenterCommitDetailsView: false,
-    commitDetailsViewLocation: "Inline",
-    referenceLabelAlignment: "Normal",
-    combineLocalAndRemoteBranchLabels: true,
-    dialogDeleteBranchForceDelete: false,
-    dialogCherryPickNoCommit: false,
-    dialogAddTagType: "annotated",
-    dialogCreateBranchCheckOut: false,
-    dialogMergeNoFastForward: true,
-    dialogMergeSquash: false,
-    dialogResetMode: "mixed",
-    dialogMemory: {},
-    customBranchGlobPatterns: [],
-    contextMenuActionsVisibility: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-    customEmojiShortcodeMappings: {},
-    dateFormat: "Date & Time",
-    dateCustomFormat: "DD MMM YYYY",
-    defaultColumnVisibility: { date: true, author: true, commit: true },
-    enhancedAccessibility: false,
-    fetchAvatars: false,
-    fileTreeCompactFolders: true,
-    fileViewType: "File Tree",
-    graphColours: ["#0085d9"],
-    graphStyle: "rounded",
-    initialLoadCommits: 300,
-    issueLinkingRegex: "",
-    issueLinkingUrl: "",
-    keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
-    lastActiveRepo,
-    loadMoreAutomatically: false,
-    loadMoreCommits: 75,
-    markdown: false,
-    muteCommitsNotAncestorsOfHead: false,
-    muteMergeCommits: false,
-    onLoadScrollToHead: false,
-    referenceInputSpaceSubstitution: "None",
-    repos,
-    scmMultiRepoSelection,
-    showCurrentBranchByDefault: false,
-    uncommittedChangesAtHead: false,
-    showSpecificBranches: [],
-    showRemoteBranches: true,
-    showTags: true
-  };
-}
 
 const TWO_REPOS: GG.GitRepoSet = {
   [REPO_A]: { columnWidths: null },
@@ -93,7 +40,9 @@ describe("toolbar repo dropdown in multi-select mode", () => {
   beforeAll(async () => {
     vi.resetModules();
     mock = createVscodeMock();
-    setupHtml(buildViewState(TWO_REPOS, REPO_A, true));
+    setupHtml(
+      makeViewState({ repos: TWO_REPOS, lastActiveRepo: REPO_A, scmMultiRepoSelection: true })
+    );
     await import("@/webview/main");
   });
 
@@ -230,7 +179,9 @@ describe("toolbar repo dropdown in single-select mode", () => {
     vi.resetModules();
     createVscodeMock();
     // Three repos in the workspace, but Source Control is set to one at a time.
-    setupHtml(buildViewState(THREE_REPOS, REPO_A, false));
+    setupHtml(
+      makeViewState({ repos: THREE_REPOS, lastActiveRepo: REPO_A, scmMultiRepoSelection: false })
+    );
     await import("@/webview/main");
   });
 
@@ -295,14 +246,14 @@ describe("toolbar repo dropdown with custom repo names", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(
-      buildViewState(
-        {
+      makeViewState({
+        repos: {
           [REPO_A]: { columnWidths: null, customName: "<b>Main & Co</b>" },
           [REPO_C]: { columnWidths: null }
         },
-        REPO_A,
-        true
-      )
+        lastActiveRepo: REPO_A,
+        scmMultiRepoSelection: true
+      })
     );
     await import("@/webview/main");
   });
@@ -321,7 +272,13 @@ describe("toolbar repo title with a single repo", () => {
     vi.resetModules();
     createVscodeMock();
     // Multi-select mode, but nothing to switch between.
-    setupHtml(buildViewState({ [REPO_A]: { columnWidths: null } }, REPO_A, true));
+    setupHtml(
+      makeViewState({
+        repos: { [REPO_A]: { columnWidths: null } },
+        lastActiveRepo: REPO_A,
+        scmMultiRepoSelection: true
+      })
+    );
     await import("@/webview/main");
   });
 

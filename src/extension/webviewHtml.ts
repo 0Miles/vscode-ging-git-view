@@ -9,6 +9,7 @@ import { GitGraphViewState } from "@/types";
 
 import { RepoManager } from "./repoManager";
 import { getWebviewLocalizedStrings } from "./webviewL10n";
+import { buildWebviewMarkup } from "./webviewMarkup";
 
 /**
  * Safely escape JSON for embedding in HTML script tags.
@@ -93,46 +94,7 @@ export function buildWebviewHtml(opts: {
   let body: string;
   if (numRepos > 0) {
     body = `<body style="${colorVars}">
-		<div id="controls">
-      <div id="controlsLeft">
-        <div id="repoDropdown">
-          <div id="repoTitle">
-            <span id="repoTitleName"></span>
-            <span id="repoTitleChevron"></span>
-          </div>
-          <ul id="repoDropdownList" role="listbox" tabindex="-1"></ul>
-        </div>
-        <span id="repoTitleBranch"></span>
-        <div id="branchFilterChip">
-          <span id="branchFilterIcon"></span>
-          <span id="branchFilterText"></span>
-          <div id="branchFilterClear" title="${l10nStrings.showAll}"></div>
-        </div>
-      </div>
-      <div id="findBtn" class="iconBtn" title="${l10nStrings.find}"></div>
-      <div id="terminalBtn" class="iconBtn" title="${l10nStrings.openTerminal}"></div>
-      <div id="blinkHeadBtn" class="iconBtn" title="${l10nStrings.locateHead}"></div>
-      <div id="fetchBtn" class="iconBtn" title="${l10nStrings.fetch}"></div>
-      <div id="refreshBtn" class="iconBtn" title="${l10nStrings.refresh}"></div>
-		</div>
-		<div id="conflictBanner"></div>
-		<div id="content">
-			<div id="commitGraph"></div>
-			<div id="commitTable"></div>
-		</div>
-		<div id="footer"></div>
-		<div id="findWidget">
-			<input id="findInput" type="text" placeholder="${l10nStrings.findPlaceholder}">
-			<span id="findCount"></span>
-			<div id="findPrev" class="findBtn" title="${l10nStrings.findPrevious}">&#9650;</div>
-			<div id="findNext" class="findBtn" title="${l10nStrings.findNext}">&#9660;</div>
-			<div id="findOpenCdv" class="findBtn" title="${l10nStrings.findOpenCommitDetails}">&#9776;</div>
-			<div id="findClose" class="findBtn" title="${l10nStrings.findClose}">&#10005;</div>
-		</div>
-		<ul id="contextMenu" role="menu" tabindex="-1"></ul>
-		<div id="dialogBacking"></div>
-		<div id="dialog"></div>
-		<div id="scrollShadow"></div>
+		${buildWebviewMarkup(l10nStrings)}
 		<script nonce="${nonce}">var viewState = ${escapeJsonForHtml(viewState)};</script>
 		<script nonce="${nonce}">var l10n = ${escapeJsonForHtml(l10nStrings)};</script>
 		<script src="${compiledOutputUri("web.min.js")}"></script>
