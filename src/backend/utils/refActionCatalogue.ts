@@ -5,9 +5,31 @@
  * its handler table by it. The command registrations, the wire-type unions and
  * the batch skip rules are all derived from here — adding an action means
  * adding one entry (plus its package.json menu item and webview handler).
+ *
+ * Availability is declared here too: `cmvKey` names the visibility setting(s)
+ * that hide an action, and package.json's hand-written `branches.*`
+ * when-clauses must agree with the declarations —
+ * tests/backend/utils/branchMenuConsistency.test.ts reads the real
+ * package.json and goes red on any divergence.
  */
 
+import type { ContextMenuActionsVisibility } from "@/types";
+
 export type RefKinds = "local" | "remote" | "both";
+
+type BranchCmvSetting = keyof ContextMenuActionsVisibility["branch"];
+type RemoteBranchCmvSetting = keyof ContextMenuActionsVisibility["remoteBranch"];
+
+/** The `contextMenuActionsVisibility` setting(s) that hide a branch action,
+ *  one per category the action appears in: `branch` gates it on local
+ *  branches, `remoteBranch` on remote-tracking ones. At least one side is
+ *  always present — an action with a key on neither side declares
+ *  `cmvKey: null` instead. Which side applies to a given ref follows from
+ *  `refKinds` (CONTEXT.md, "Ref 的兩種形"): the `remotes/` prefix decides the
+ *  category, so a `refKinds: "both"` action typically declares both sides. */
+export type CmvKey =
+  | { branch: BranchCmvSetting; remoteBranch?: RemoteBranchCmvSetting }
+  | { branch?: BranchCmvSetting; remoteBranch: RemoteBranchCmvSetting };
 
 export type RefActionSpec = {
   /** Which branches the action applies to. On the wire, the `remotes/` prefix
@@ -29,6 +51,13 @@ export type RefActionSpec = {
    *  in-graph menu flow (dialogs included) runs; "host" runs in the extension
    *  host without disturbing the panel (ADR-0009 — it asks nothing). */
   runsIn: "graph" | "host";
+  /** Which `contextMenuActionsVisibility` setting(s) hide the action, per
+   *  branch category. `null` declares the action has no visibility setting
+   *  and is always shown — a recorded fact, not an omission (fastForward,
+   *  createPullRequest). package.json's `branches.*` when-clauses and the
+   *  webview's `visible:` gates express the same facts by hand; the
+   *  consistency test locks the manifest side against this field. */
+  cmvKey: CmvKey | null;
 };
 
 export const REF_ACTION_CATALOGUE = {
@@ -37,80 +66,130 @@ export const REF_ACTION_CATALOGUE = {
     headGuard: true,
     batch: false,
     needsRemotes: false,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: { branch: "checkout", remoteBranch: "checkout" }
   },
   rename: {
     refKinds: "local",
     headGuard: false,
     batch: false,
     needsRemotes: false,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: { branch: "rename" }
   },
   // `refKinds: "both"`: the single-selection menu only offers `delete` on local
   // branches (`deleteRemote` is the remote wording), but a batch delete accepts
   // remote-tracking refs — deleting one just takes the other git command — so
   // "delete" as an action applies to both kinds and the webview routes by the
-  // ref's prefix.
-  delete: { refKinds: "both", headGuard: true, batch: true, needsRemotes: false, runsIn: "graph" },
-  merge: { refKinds: "both", headGuard: true, batch: false, needsRemotes: false, runsIn: "graph" },
+  // ref's prefix. The `remoteBranch` side of the key is `deleteRemote`'s
+  // setting: it gates the batch delete's remote half, so `deleteSelected`
+  // shows while either half is still visible.
+  delete: {
+    refKinds: "both",
+    headGuard: true,
+    batch: true,
+    needsRemotes: false,
+    runsIn: "graph",
+    cmvKey: { branch: "delete", remoteBranch: "delete" }
+  },
+  merge: {
+    refKinds: "both",
+    headGuard: true,
+    batch: false,
+    needsRemotes: false,
+    runsIn: "graph",
+    cmvKey: { branch: "merge", remoteBranch: "merge" }
+  },
   rebase: {
     refKinds: "local",
     headGuard: true,
     batch: false,
     needsRemotes: false,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: { branch: "rebase" }
   },
+  // `cmvKey: null` — fast-forward has never had a visibility setting and stays
+  // always shown; the consistency test locks this declared fact. Growing a key
+  // later means filling this field in, not archaeology.
   fastForward: {
     refKinds: "local",
     headGuard: true,
     batch: true,
     needsRemotes: false,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: null
   },
-  push: { refKinds: "local", headGuard: false, batch: true, needsRemotes: true, runsIn: "graph" },
+  push: {
+    refKinds: "local",
+    headGuard: false,
+    batch: true,
+    needsRemotes: true,
+    runsIn: "graph",
+    cmvKey: { branch: "push" }
+  },
   createArchive: {
     refKinds: "local",
     headGuard: false,
     batch: false,
     needsRemotes: false,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: { branch: "createArchive" }
   },
+  // `cmvKey: null` — same declared fact as fastForward: no visibility setting
+  // exists, the action cannot be hidden.
   createPullRequest: {
     refKinds: "both",
     headGuard: false,
     batch: false,
     needsRemotes: true,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: null
   },
   pull: {
     refKinds: "remote",
     headGuard: false,
     batch: false,
     needsRemotes: false,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: { remoteBranch: "pull" }
   },
+  // The settings spelling is "fetch", not "fetchIntoLocal" — the cmv schema
+  // predates the catalogue's action names.
   fetchIntoLocal: {
     refKinds: "remote",
     headGuard: false,
     batch: false,
     needsRemotes: false,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: { remoteBranch: "fetch" }
   },
+  // Shares `remoteBranch.delete` with `delete`: one setting hides remote
+  // deletion everywhere, whether spelled `deleteRemote` (single selection) or
+  // reached through the batch delete.
   deleteRemote: {
     refKinds: "remote",
     headGuard: false,
     batch: false,
     needsRemotes: false,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: { remoteBranch: "delete" }
   },
   checkRedundancy: {
     refKinds: "both",
     headGuard: false,
     batch: false,
     needsRemotes: false,
-    runsIn: "graph"
+    runsIn: "graph",
+    cmvKey: { branch: "checkRedundancy", remoteBranch: "checkRedundancy" }
   },
-  copyName: { refKinds: "both", headGuard: false, batch: true, needsRemotes: false, runsIn: "host" }
+  copyName: {
+    refKinds: "both",
+    headGuard: false,
+    batch: true,
+    needsRemotes: false,
+    runsIn: "host",
+    cmvKey: { branch: "copyName", remoteBranch: "copyName" }
+  }
 } as const satisfies Record<string, RefActionSpec>;
 
 /** Every side-view branch action, `runsIn` regardless. */
