@@ -3,6 +3,17 @@ import { displayRef } from "@/backend/utils/branchRef";
 export const refInvalid = /^[-/].*|[\\" ><~^:?*[]|\.\.|\/\/|\/\.|@{|[./]$|\.lock$|^@$/g;
 export const ELLIPSIS = "&#8230;";
 
+/** Split a remote ref "<remote>/<branch>" on its first slash. Null for the
+ *  symbolic "<remote>/HEAD" ref and for names without a slash — the callers
+ *  offer no remote-branch operations on those. */
+export function splitRemoteRef(refName: string): { remote: string; branchOnRemote: string } | null {
+  const slashIndex = refName.indexOf("/");
+  if (slashIndex === -1) return null;
+  const branchOnRemote = refName.substring(slashIndex + 1);
+  if (branchOnRemote === "HEAD") return null;
+  return { remote: refName.substring(0, slashIndex), branchOnRemote };
+}
+
 /**
  * Text for the toolbar's branch-filter chip, or null when there is nothing to
  * show. Null means the filter is empty — the domain's "show all" — so the

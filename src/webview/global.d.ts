@@ -53,6 +53,12 @@ declare global {
   }
 
   interface ContextMenuItem {
+    /**
+     * Rendered into the menu's innerHTML WITHOUT escaping — that is how the
+     * ELLIPSIS entity ("&#8230;") comes out as "…". Every title must therefore
+     * be trusted text (l10n strings and known-safe fragments), never a ref
+     * name, commit message, or any other repository-controlled data.
+     */
     title: string;
     onClick: () => void;
     /** When false, the item is hidden (contextMenuActionsVisibility). */
