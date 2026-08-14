@@ -3,10 +3,18 @@ import { displayRef } from "@/backend/utils/branchRef";
 export const refInvalid = /^[-/].*|[\\" ><~^:?*[]|\.\.|\/\/|\/\.|@{|[./]$|\.lock$|^@$/g;
 export const ELLIPSIS = "&#8230;";
 
-/** Split a remote ref "<remote>/<branch>" on its first slash. Null for the
- *  symbolic "<remote>/HEAD" ref and for names without a slash — the callers
- *  offer no remote-branch operations on those. */
-export function splitRemoteRef(refName: string): { remote: string; branchOnRemote: string } | null {
+/** Split a DISPLAY-form remote ref ("origin/main", the spelling the graph's
+ *  ref chips carry) on its first slash. Null for the symbolic "<remote>/HEAD"
+ *  ref and for names without a slash — the callers offer no remote-branch
+ *  operations on those.
+ *
+ *  Not the same contract as branchRef.ts's `splitRemoteRef`: that one takes
+ *  the branch-list format ("remotes/origin/main"), returns `{remote, name}`,
+ *  and lets HEAD through. Feeding a branch-list ref here fails silently —
+ *  it would split out `remote: "remotes"`. */
+export function splitDisplayRemoteRef(
+  refName: string
+): { remote: string; branchOnRemote: string } | null {
   const slashIndex = refName.indexOf("/");
   if (slashIndex === -1) return null;
   const branchOnRemote = refName.substring(slashIndex + 1);

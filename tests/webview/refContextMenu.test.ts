@@ -48,11 +48,12 @@ const ACTION_NAMES = [
   "copyName"
 ] as const satisfies readonly (keyof RefMenuActions)[];
 
-function stubActions(): Record<keyof RefMenuActions, Mock<() => void>> {
-  return Object.fromEntries(ACTION_NAMES.map((name) => [name, vi.fn<() => void>()])) as Record<
-    keyof RefMenuActions,
-    Mock<() => void>
-  >;
+type StubbedActions = Record<keyof RefMenuActions, Mock<(...args: unknown[]) => void>>;
+
+function stubActions(): StubbedActions {
+  return Object.fromEntries(
+    ACTION_NAMES.map((name) => [name, vi.fn<(...args: unknown[]) => void>()])
+  ) as StubbedActions;
 }
 
 function ctxWith(overrides: Partial<RefMenuContext> = {}): RefMenuContext {
@@ -249,6 +250,7 @@ describe("menuFor: action wiring", () => {
     ] as const) {
       expect(a[name], name).toHaveBeenCalledTimes(1);
     }
+    expect(a.copyName).toHaveBeenCalledWith("Stash Name");
     expect(a.checkout).not.toHaveBeenCalled();
   });
 
@@ -270,6 +272,7 @@ describe("menuFor: action wiring", () => {
     ] as const) {
       expect(a[name], name).toHaveBeenCalledTimes(1);
     }
+    expect(a.copyName).toHaveBeenCalledWith("Branch Name");
     expect(a.delete).not.toHaveBeenCalled();
     expect(a.rename).not.toHaveBeenCalled();
   });

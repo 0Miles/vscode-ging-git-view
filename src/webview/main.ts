@@ -48,7 +48,7 @@ import {
   latestTagName,
   refInvalid,
   signatureCategory,
-  splitRemoteRef,
+  splitDisplayRemoteRef,
   substituteRefSpaces
 } from "./utils/git";
 import {
@@ -2193,18 +2193,7 @@ class GitGraphView {
         // Only reachable when menuFor put the item on the menu, which it does
         // solely for a non-null issueUrl.
         viewIssue: () => sendMessage({ command: "openExternalUrl", url: issueUrl! }),
-        copyName: () => {
-          sendMessage({
-            command: "copyToClipboard",
-            type:
-              target.kind === "stash"
-                ? "Stash Name"
-                : target.kind === "tag"
-                  ? "Tag Name"
-                  : "Branch Name",
-            data: refName
-          });
-        }
+        copyName: (type) => sendMessage({ command: "copyToClipboard", type, data: refName })
       };
       showContextMenu(
         e,
@@ -2425,7 +2414,7 @@ class GitGraphView {
     );
   }
   private pullRemoteBranchAction(refName: string) {
-    const parts = splitRemoteRef(refName);
+    const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
     showConfirmationDialog(
       l10n.dialogPullConfirm
@@ -2444,7 +2433,7 @@ class GitGraphView {
     );
   }
   private fetchIntoLocalBranchAction(refName: string, sourceElem: HTMLElement | null = null) {
-    const parts = splitRemoteRef(refName);
+    const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
     showFormDialog(
       l10n.dialogFetchIntoLocalBranchTitle.replace(
@@ -2481,7 +2470,7 @@ class GitGraphView {
     );
   }
   private deleteRemoteBranchAction(refName: string) {
-    const parts = splitRemoteRef(refName);
+    const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
     showConfirmationDialog(
       l10n.dialogDeleteRemoteBranchConfirm.replace(

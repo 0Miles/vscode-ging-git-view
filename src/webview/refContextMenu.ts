@@ -10,7 +10,7 @@
 
 import type { ContextMenuActionsVisibility } from "@/types";
 
-import { ELLIPSIS, splitRemoteRef } from "./utils/git";
+import { ELLIPSIS, splitDisplayRemoteRef } from "./utils/git";
 
 /**
  * What the menu was raised on, classified once at the DOM boundary. `kind`
@@ -18,6 +18,12 @@ import { ELLIPSIS, splitRemoteRef } from "./utils/git";
  * is the display ref, exactly as the chip's label spells it (CONTEXT.md,
  * "Ref 的兩種形") — so a remote branch is "origin/main", and the symbolic
  * "origin/HEAD" is recognised from the name itself.
+ *
+ * That guide bans display refs as inputs because the bare name loses the
+ * local/remote distinction. Exempt here: the chip's `dataset.name` is already
+ * display-form, and the `kind` discriminant carries the identity the
+ * `remotes/` prefix would have — a local branch literally named "origin/main"
+ * still arrives as `kind: "branch"`.
  */
 export type RefTarget =
   | { kind: "stash"; name: string }
@@ -56,8 +62,13 @@ export interface RefMenuActions {
   cleanupBranches(): void;
   createPullRequest(): void;
   viewIssue(): void;
-  copyName(): void;
+  /** Copy the ref's name; `type` is the wire label `copyNameSpec` chose for
+   *  the kind, handed straight to the `copyToClipboard` message. */
+  copyName(type: RefCopyType): void;
 }
+
+/** The `copyToClipboard` message's label for what was copied, per ref kind. */
+export type RefCopyType = "Stash Name" | "Tag Name" | "Branch Name";
 
 /** The view-state facts the content decisions read, besides the target. */
 export interface RefMenuContext {
@@ -195,9 +206,13 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
           }
         );
       }
-      pushBranchCommonTail(menu, target, ctx);
+      pushBranchCommonTail(menu, target, ctx, true);
       break;
-    case "remoteBranch":
+    case "remoteBranch": {
+      // Remote branch refs are "<remote>/<branch>". The symbolic
+      // "<remote>/HEAD" is not a branch: it gets neither the on-remote
+      // operations nor the common tail's redundancy check.
+      const isBranch = splitDisplayRemoteRef(target.name) !== null;
       menu.push(
         {
           title: l10n.checkoutBranch + ELLIPSIS,
@@ -212,9 +227,7 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
           onClick: actions.merge
         }
       );
-      // Remote branch refs are "<remote>/<branch>"; offer the on-remote
-      // operations (but not on the symbolic "<remote>/HEAD" ref).
-      if (splitRemoteRef(target.name) !== null) {
+      if (isBranch) {
         menu.push(
           {
             title: l10n.pullIntoCurrentBranch + ELLIPSIS,
@@ -236,45 +249,58 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
           }
         );
       }
-      pushBranchCommonTail(menu, target, ctx);
+      pushBranchCommonTail(menu, target, ctx, isBranch);
       break;
+    }
   }
   if (ctx.issueUrl !== null) {
     menu.push({ title: l10n.viewIssue, icon: "issue", onClick: ctx.actions.viewIssue });
   }
   const copy = copyNameSpec(target, cmv);
-  menu.push(null, { title: copy.title, visible: copy.visible, onClick: actions.copyName });
+  menu.push(null, {
+    title: copy.title,
+    visible: copy.visible,
+    onClick: () => actions.copyName(copy.type)
+  });
   return menu;
 }
 
-/** The trailing copy item's label and gate, per kind. */
+/** The trailing copy item's label, gate and wire label, per kind — the one
+ *  place that decides what "copy this ref's name" is called. */
 function copyNameSpec(
   target: RefTarget,
   cmv: ContextMenuActionsVisibility
-): { title: string; visible: boolean } {
+): { title: string; visible: boolean; type: RefCopyType } {
   switch (target.kind) {
     case "stash":
-      return { title: l10n.copyStashName, visible: cmv.stash.copyName };
+      return { title: l10n.copyStashName, visible: cmv.stash.copyName, type: "Stash Name" };
     case "tag":
-      return { title: l10n.copyTagName, visible: cmv.tag.copyName };
+      return { title: l10n.copyTagName, visible: cmv.tag.copyName, type: "Tag Name" };
     case "branch":
-      return { title: l10n.copyBranchName, visible: cmv.branch.copyName };
+      return { title: l10n.copyBranchName, visible: cmv.branch.copyName, type: "Branch Name" };
     case "remoteBranch":
-      return { title: l10n.copyBranchName, visible: cmv.remoteBranch.copyName };
+      return {
+        title: l10n.copyBranchName,
+        visible: cmv.remoteBranch.copyName,
+        type: "Branch Name"
+      };
   }
 }
 
-/** The items every branch menu ends with, local or remote. */
+/** The items every branch menu ends with, local or remote. `isBranch` is
+ *  false only for the symbolic "<remote>/HEAD" ref; a local target is always
+ *  a branch. */
 function pushBranchCommonTail(
   menu: ContextMenuElement[],
   target: Extract<RefTarget, { kind: "branch" | "remoteBranch" }>,
-  ctx: RefMenuContext
+  ctx: RefMenuContext,
+  isBranch: boolean
 ) {
   const isRemote = target.kind === "remoteBranch";
   // Offered on every branch — including the checked-out one and the default
   // branch itself — but not on the symbolic "<remote>/HEAD", which is not a
   // branch, matching the remote actions above.
-  if (!isRemote || splitRemoteRef(target.name) !== null) {
+  if (isBranch) {
     menu.push({
       title: l10n.checkRedundancy,
       visible: isRemote ? ctx.cmv.remoteBranch.checkRedundancy : ctx.cmv.branch.checkRedundancy,
