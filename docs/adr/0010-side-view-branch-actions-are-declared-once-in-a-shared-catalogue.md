@@ -4,7 +4,7 @@ status: accepted
 
 # 側檢視分支動作由共用 catalogue 單點宣告
 
-側檢視委派到圖形的分支動作,原本是一條沒有主人的 4-hop 管線:host 註冊端、host 委派端、wire 契約、webview dispatcher 各持有一部分規則,新增一個 action 要動 ≥5 個檔案,head guard 在 webview 被重抄了一份,dispatcher 對未列的 `(action, isRemote)` 組合靜默 no-op。我們決定把規則收進**一份兩邊共讀的 action catalogue**(`src/backend/utils/refActionCatalogue.ts`),每個 action 宣告五件事實:`refKinds`(收本地/遠端/皆可)、`headGuard`(不作用於 checked-out 分支)、`batch`(可否批次)、`needsRemotes`(需要至少一個 remote)、`runsIn`(在圖形或 host 執行)。host 與 webview 各留一層薄殼讀它;「deep module」指的是這份 catalogue 加上它定義的契約,不是某個單一物件 —— 管線橫跨兩個行程,單一物件本來就不可能。
+側檢視委派到圖形的分支動作,原本是一條沒有主人的 4-hop 管線:host 註冊端、host 委派端、wire 契約、webview dispatcher 各持有一部分規則,新增一個 action 要動 ≥5 個檔案,head guard 在 webview 被重抄了一份,dispatcher 對未列的 `(action, isRemote)` 組合靜默 no-op。我們決定把規則收進**一份兩邊共讀的 action catalogue**(`src/backend/utils/refActionCatalogue.ts`),每個 action 宣告六件事實:`refKinds`(收本地/遠端/皆可)、`headGuard`(不作用於 checked-out 分支)、`batch`(可否批次)、`needsRemotes`(需要至少一個 remote)、`runsIn`(在圖形或 host 執行)、`cmvKey`(哪些 `contextMenuActionsVisibility` 設定鍵可隱藏它;`null` = 無設定鍵、恆顯示)。host 與 webview 各留一層薄殼讀它;「deep module」指的是這份 catalogue 加上它定義的契約,不是某個單一物件 —— 管線橫跨兩個行程,單一物件本來就不可能。
 
 ## 為什麼未來的讀者會困惑
 

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
 import {
+  branchMenuContextKeys,
   CATALOGUE_REF_ACTIONS,
   REF_ACTION_CATALOGUE,
   type CatalogueRefAction,
@@ -238,6 +239,42 @@ describe("branches.* menu rows stay consistent with the action catalogue", () =>
       }
       if (key.remoteBranch) {
         expect(refKinds, `${action}: remoteBranch-side key needs remote reach`).not.toBe("local");
+      }
+    }
+  });
+
+  it("the context-key projection emits exactly the declared cmv keys — shared keys once, all visible under the defaults", () => {
+    // The runtime side of the same lock: extension.ts pipes this projection
+    // verbatim to setContext, so the key set here IS the side-view's
+    // `ging-git-view.cmv.*` surface. One key per declared settings key —
+    // delete and deleteRemote both declare `remoteBranch.delete`, which is
+    // one key, set once.
+    const declared = new Set<string>();
+    for (const action of CATALOGUE_REF_ACTIONS) {
+      const key = cmvKeyOf(action);
+      if (key === null) continue;
+      if (key.branch) declared.add(cmvContextKey("branch", key.branch));
+      if (key.remoteBranch) declared.add(cmvContextKey("remoteBranch", key.remoteBranch));
+    }
+    const projected = branchMenuContextKeys(DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY);
+    expect(Object.keys(projected).toSorted()).toEqual([...declared].toSorted());
+    for (const [key, visible] of Object.entries(projected)) {
+      expect(visible, `${key}: defaults are all-visible`).toBe(true);
+    }
+  });
+
+  it("the context-key projection passes each setting through to its own key: one flip hides exactly one key", () => {
+    // Wiring lock: were any key valued by the wrong setting, flipping that
+    // setting would hide a different key (or none) and the exact-match below
+    // would name the culprit. Covers every settings key, both categories.
+    for (const category of ["branch", "remoteBranch"] as const) {
+      for (const action of Object.keys(DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY[category])) {
+        const cmv = structuredClone(DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY);
+        (cmv[category] as Record<string, boolean>)[action] = false;
+        const hidden = Object.entries(branchMenuContextKeys(cmv))
+          .filter(([, visible]) => !visible)
+          .map(([key]) => key);
+        expect(hidden, `${category}.${action}`).toEqual([cmvContextKey(category, action)]);
       }
     }
   });

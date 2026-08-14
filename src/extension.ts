@@ -20,7 +20,11 @@ import { loadStatistics } from "./backend/queries/loadStatistics";
 import { displayRef } from "./backend/utils/branchRef";
 import { formatGitError } from "./backend/utils/gitError";
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
-import { CATALOGUE_REF_ACTIONS, isBatchAction } from "./backend/utils/refActionCatalogue";
+import {
+  branchMenuContextKeys,
+  CATALOGUE_REF_ACTIONS,
+  isBatchAction
+} from "./backend/utils/refActionCatalogue";
 import { repoContainingPath, resolveToKnownRepo } from "./backend/utils/repoMatch";
 import { config, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
@@ -185,27 +189,15 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(remotesView);
 
   // Mirror the graph's context-menu visibility settings onto when-clause
-  // context keys, so the side-view's branch menu shows the same items.
+  // context keys, so the side-view's branch menu shows the same items. The key
+  // set and each key's value are projected from the action catalogue's cmvKey
+  // declarations (ADR-0010) — this is only the pipe to setContext, so a new
+  // visibility key is picked up by declaring it, not by editing here.
   const syncBranchMenuVisibility = () => {
-    const cmv = config.contextMenuActionsVisibility();
-    const set = (key: string, value: boolean) =>
-      void vscode.commands.executeCommand("setContext", "ging-git-view.cmv." + key, value);
-    set("branch.checkout", cmv.branch.checkout);
-    set("branch.rename", cmv.branch.rename);
-    set("branch.push", cmv.branch.push);
-    set("branch.createArchive", cmv.branch.createArchive);
-    set("branch.delete", cmv.branch.delete);
-    set("branch.merge", cmv.branch.merge);
-    set("branch.rebase", cmv.branch.rebase);
-    set("branch.checkRedundancy", cmv.branch.checkRedundancy);
-    set("branch.copyName", cmv.branch.copyName);
-    set("remoteBranch.checkout", cmv.remoteBranch.checkout);
-    set("remoteBranch.merge", cmv.remoteBranch.merge);
-    set("remoteBranch.pull", cmv.remoteBranch.pull);
-    set("remoteBranch.fetch", cmv.remoteBranch.fetch);
-    set("remoteBranch.delete", cmv.remoteBranch.delete);
-    set("remoteBranch.checkRedundancy", cmv.remoteBranch.checkRedundancy);
-    set("remoteBranch.copyName", cmv.remoteBranch.copyName);
+    const keys = branchMenuContextKeys(config.contextMenuActionsVisibility());
+    for (const [key, value] of Object.entries(keys)) {
+      void vscode.commands.executeCommand("setContext", key, value);
+    }
   };
   syncBranchMenuVisibility();
 

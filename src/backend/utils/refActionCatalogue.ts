@@ -225,6 +225,32 @@ export const isHostAction = (action: CatalogueRefAction): action is HostRefActio
 export const isBatchAction = (action: CatalogueRefAction): action is BatchAction =>
   REF_ACTION_CATALOGUE[action].batch;
 
+/**
+ * The side-view's `ging-git-view.cmv.*` when-clause context keys, projected
+ * from the catalogue's `cmvKey` declarations: one key per declared settings
+ * key, valued by the given visibility snapshot. `delete` and `deleteRemote`
+ * both declare `remoteBranch.delete` — one settings key, so one context key,
+ * set once. extension.ts pipes each entry to `setContext` verbatim; declaring
+ * a new `cmvKey` here is all it takes for the side-view menu to follow it.
+ */
+export function branchMenuContextKeys(
+  cmv: Pick<ContextMenuActionsVisibility, "branch" | "remoteBranch">
+): Record<string, boolean> {
+  const keys: Record<string, boolean> = {};
+  for (const action of CATALOGUE_REF_ACTIONS) {
+    const cmvKey: CmvKey | null = REF_ACTION_CATALOGUE[action].cmvKey;
+    if (cmvKey === null) continue;
+    if (cmvKey.branch !== undefined) {
+      keys[`ging-git-view.cmv.branch.${cmvKey.branch}`] = cmv.branch[cmvKey.branch];
+    }
+    if (cmvKey.remoteBranch !== undefined) {
+      keys[`ging-git-view.cmv.remoteBranch.${cmvKey.remoteBranch}`] =
+        cmv.remoteBranch[cmvKey.remoteBranch];
+    }
+  }
+  return keys;
+}
+
 /** Why a batch action cannot apply to a branch, or null when it can. Derived
  *  from the catalogue rather than declared per action: `remote` is
  *  `refKinds: "local"` seen from a remote ref, `checkedOut` is the head guard
