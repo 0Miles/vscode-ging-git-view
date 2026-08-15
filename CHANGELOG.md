@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.3.2...v0.4.0) (2026-08-15)
+
+
+### Features
+
+* **branches:** 清理候選 branch 的對話框 ([#40](https://github.com/0Miles/vscode-ging-git-view/issues/40)) ([0422ec9](https://github.com/0Miles/vscode-ging-git-view/commit/0422ec9686ee1fbb0e753e34cd2646bd464ce0f1))
+* **graph:** reach every context menu from the keyboard ([#37](https://github.com/0Miles/vscode-ging-git-view/issues/37)) ([805b1a6](https://github.com/0Miles/vscode-ging-git-view/commit/805b1a68ca9b3fc85178a2699747d778db86d4d3))
+* **webview:** report webview failures to the Output Channel ([#41](https://github.com/0Miles/vscode-ging-git-view/issues/41)) ([b6e8b15](https://github.com/0Miles/vscode-ging-git-view/commit/b6e8b150503d9f266cd4e35f91cbab56988f6927))
+
 ## [0.3.2](https://github.com/0Miles/vscode-ging-git-view/compare/v0.3.1...v0.3.2) (2026-08-11)
 
 
