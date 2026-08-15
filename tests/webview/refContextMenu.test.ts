@@ -77,6 +77,10 @@ function shape(items: ContextMenuElement[]) {
 const localBranch = (name: string, isHead = false): RefTarget => ({ kind: "branch", name, isHead });
 const remoteBranch = (name: string): RefTarget => ({ kind: "remoteBranch", name });
 
+/** Every switch of one cmv category flipped off. */
+const allOff = <T extends Record<string, boolean>>(category: T) =>
+  Object.fromEntries(Object.keys(category).map((k) => [k, false])) as Partial<T>;
+
 beforeAll(() => {
   global["l10n"] = L;
 });
@@ -133,7 +137,8 @@ describe("menuFor: which items each kind of ref gets", () => {
       { title: L.deleteBranch + E, icon: "trash", visible: true },
       { title: L.merge + E, icon: "gitMerge", visible: true },
       { title: L.rebaseOnBranch + E, icon: "rebase", visible: true },
-      { title: L.fastForwardBranch, icon: "moveToEnd", visible: true },
+      // Keyless in the catalogue (`cmvKey: null`): no gate, like create PR.
+      { title: L.fastForwardBranch, icon: "moveToEnd", visible: undefined },
       { title: L.checkRedundancy, icon: undefined, visible: true },
       { title: L.createPullRequest + E, icon: "gitPullRequest", visible: undefined },
       "divider",
@@ -229,6 +234,42 @@ describe("menuFor: visibility gates", () => {
     });
     const localItems = shape(menuFor(localBranch("feature"), ctxWith({ cmv })));
     expect(localItems).toContainEqual({ title: L.checkRedundancy, icon: undefined, visible: true });
+  });
+
+  it("gates every branch item off the catalogue's cmvKey: with every switch off, only the keyless and non-catalogue rows stay", () => {
+    // Every branch/remoteBranch setting flipped off. What survives is exactly
+    // what the catalogue declares keyless (`cmvKey: null` — fast-forward,
+    // create PR) plus the rows outside the catalogue (cleanup, view issue).
+    // No branch item is hard-wired `visible: true`; a keyless one has no gate.
+    const cmv = mergeContextMenuActionsVisibility({
+      branch: allOff(DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY.branch),
+      remoteBranch: allOff(DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY.remoteBranch)
+    });
+    const ctx = ctxWith({ cmv, isCleanupCandidate: true, issueUrl: "https://example.com/i/1" });
+    const shown = (target: RefTarget) =>
+      shape(menuFor(target, ctx))
+        .filter((entry) => typeof entry === "object" && entry.visible !== false)
+        .map((entry) => (entry as { title: string }).title);
+
+    expect(shown(localBranch("feature"))).toEqual([
+      L.fastForwardBranch,
+      L.cleanupMenuItem,
+      L.createPullRequest + E,
+      L.viewIssue
+    ]);
+    expect(shown(remoteBranch("origin/feature"))).toEqual([
+      L.cleanupMenuItem,
+      L.createPullRequest + E,
+      L.viewIssue
+    ]);
+    // Every catalogue-keyed item is genuinely gated: none reads a hard-wired
+    // value, so nothing else survived.
+    for (const target of [localBranch("feature"), remoteBranch("origin/feature")]) {
+      const gated = shape(menuFor(target, ctx)).filter(
+        (entry) => typeof entry === "object" && entry.visible === true
+      );
+      expect(gated).toEqual([]);
+    }
   });
 });
 

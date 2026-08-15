@@ -8,6 +8,11 @@
  * behaviour behind {@link RefMenuActions}.
  */
 
+import {
+  refActionVisibility,
+  type BranchCmvCategory,
+  type CatalogueRefAction
+} from "@/backend/utils/refActionCatalogue";
 import type { ContextMenuActionsVisibility } from "@/types";
 
 import { ELLIPSIS, splitDisplayRemoteRef } from "./utils/git";
@@ -73,9 +78,11 @@ export type RefCopyType = "Stash Name" | "Tag Name" | "Branch Name";
 /** The view-state facts the content decisions read, besides the target. */
 export interface RefMenuContext {
   /** The per-action `contextMenuActionsVisibility` switches, already merged
-   *  over the defaults. Threaded onto each item's `visible:` gate unchanged —
-   *  the item is still built, `showContextMenu` drops it (#51 will re-source
-   *  these from the catalogue's `cmvKey`). */
+   *  over the defaults. Each item's `visible:` gate reads one switch — the
+   *  item is still built, `showContextMenu` drops it. Stash and tag items
+   *  name their switch directly; branch items look theirs up through the
+   *  catalogue's `cmvKey` (`refActionVisibility`), so the graph and the
+   *  side-view answer to the same declaration. */
   cmv: ContextMenuActionsVisibility;
   /** Whether the repo has any remotes — gates push branch/tag and create PR. */
   hasRemotes: boolean;
@@ -150,32 +157,33 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
         });
       }
       break;
-    case "branch":
+    case "branch": {
+      const visible = branchGate(target.kind, cmv);
       if (!target.isHead) {
         menu.push({
           title: l10n.checkoutBranch,
           icon: "arrowSwitch",
-          visible: cmv.branch.checkout,
+          visible: visible("checkout"),
           onClick: actions.checkout
         });
       }
       menu.push({
         title: l10n.renameBranch + ELLIPSIS,
         icon: "pencil",
-        visible: cmv.branch.rename,
+        visible: visible("rename"),
         onClick: actions.rename
       });
       if (ctx.hasRemotes) {
         menu.push({
           title: l10n.pushBranch + ELLIPSIS,
           icon: "repoPush",
-          visible: cmv.branch.push,
+          visible: visible("push"),
           onClick: actions.push
         });
       }
       menu.push({
         title: l10n.createArchive + ELLIPSIS,
-        visible: cmv.branch.createArchive,
+        visible: visible("createArchive"),
         onClick: actions.createArchive
       });
       if (!target.isHead) {
@@ -183,32 +191,34 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
           {
             title: l10n.deleteBranch + ELLIPSIS,
             icon: "trash",
-            visible: cmv.branch.delete,
+            visible: visible("delete"),
             onClick: actions.delete
           },
           {
             title: l10n.merge + ELLIPSIS,
             icon: "gitMerge",
-            visible: cmv.branch.merge,
+            visible: visible("merge"),
             onClick: actions.merge
           },
           {
             title: l10n.rebaseOnBranch + ELLIPSIS,
             icon: "rebase",
-            visible: cmv.branch.rebase,
+            visible: visible("rebase"),
             onClick: actions.rebase
           },
           {
             title: l10n.fastForwardBranch,
             icon: "moveToEnd",
-            visible: true,
+            visible: visible("fastForward"),
             onClick: actions.fastForward
           }
         );
       }
       pushBranchCommonTail(menu, target, ctx, true);
       break;
+    }
     case "remoteBranch": {
+      const visible = branchGate(target.kind, cmv);
       // Remote branch refs are "<remote>/<branch>". The symbolic
       // "<remote>/HEAD" is not a branch: it gets neither the on-remote
       // operations nor the common tail's redundancy check.
@@ -217,13 +227,13 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
         {
           title: l10n.checkoutBranch + ELLIPSIS,
           icon: "arrowSwitch",
-          visible: cmv.remoteBranch.checkout,
+          visible: visible("checkout"),
           onClick: actions.checkout
         },
         {
           title: l10n.merge + ELLIPSIS,
           icon: "gitMerge",
-          visible: cmv.remoteBranch.merge,
+          visible: visible("merge"),
           onClick: actions.merge
         }
       );
@@ -232,19 +242,19 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
           {
             title: l10n.pullIntoCurrentBranch + ELLIPSIS,
             icon: "repoPull",
-            visible: cmv.remoteBranch.pull,
+            visible: visible("pull"),
             onClick: actions.pull
           },
           {
             title: l10n.fetchIntoLocalBranch + ELLIPSIS,
             icon: "download",
-            visible: cmv.remoteBranch.fetch,
+            visible: visible("fetchIntoLocal"),
             onClick: actions.fetchIntoLocal
           },
           {
             title: l10n.deleteRemoteBranch + ELLIPSIS,
             icon: "trash",
-            visible: cmv.remoteBranch.delete,
+            visible: visible("deleteRemote"),
             onClick: actions.deleteRemote
           }
         );
@@ -265,23 +275,33 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
   return menu;
 }
 
+/**
+ * The `visible:` gate for a branch menu's catalogue-backed items, bound to
+ * the target's category. `RefTarget`'s branch kinds are spelled exactly as
+ * the `contextMenuActionsVisibility` categories (`branch` / `remoteBranch`),
+ * so the kind is the category — which side of an action's `cmvKey` a ref
+ * reads is decided by the catalogue, never spelled here.
+ */
+function branchGate(category: BranchCmvCategory, cmv: ContextMenuActionsVisibility) {
+  return (action: CatalogueRefAction) => refActionVisibility(action, category, cmv);
+}
+
 /** The trailing copy item's label, gate and wire label, per kind — the one
  *  place that decides what "copy this ref's name" is called. */
 function copyNameSpec(
   target: RefTarget,
   cmv: ContextMenuActionsVisibility
-): { title: string; visible: boolean; type: RefCopyType } {
+): { title: string; visible: boolean | undefined; type: RefCopyType } {
   switch (target.kind) {
     case "stash":
       return { title: l10n.copyStashName, visible: cmv.stash.copyName, type: "Stash Name" };
     case "tag":
       return { title: l10n.copyTagName, visible: cmv.tag.copyName, type: "Tag Name" };
     case "branch":
-      return { title: l10n.copyBranchName, visible: cmv.branch.copyName, type: "Branch Name" };
     case "remoteBranch":
       return {
         title: l10n.copyBranchName,
-        visible: cmv.remoteBranch.copyName,
+        visible: branchGate(target.kind, cmv)("copyName"),
         type: "Branch Name"
       };
   }
@@ -296,20 +316,21 @@ function pushBranchCommonTail(
   ctx: RefMenuContext,
   isBranch: boolean
 ) {
-  const isRemote = target.kind === "remoteBranch";
+  const visible = branchGate(target.kind, ctx.cmv);
   // Offered on every branch — including the checked-out one and the default
   // branch itself — but not on the symbolic "<remote>/HEAD", which is not a
   // branch, matching the remote actions above.
   if (isBranch) {
     menu.push({
       title: l10n.checkRedundancy,
-      visible: isRemote ? ctx.cmv.remoteBranch.checkRedundancy : ctx.cmv.branch.checkRedundancy,
+      visible: visible("checkRedundancy"),
       onClick: ctx.actions.checkRedundancy
     });
   }
   // Offered only when this branch is itself a cleanup candidate — the same
   // rule the side-view's menu uses (ADR-0014). The dialog it opens ignores
   // which branch was clicked; the row is the affordance, not the target.
+  // Not a catalogue action, so no cmv gate can exist for it.
   if (ctx.isCleanupCandidate) {
     menu.push({ title: l10n.cleanupMenuItem, icon: "trash", onClick: ctx.actions.cleanupBranches });
   }
@@ -318,6 +339,7 @@ function pushBranchCommonTail(
     menu.push({
       title: l10n.createPullRequest + ELLIPSIS,
       icon: "gitPullRequest",
+      visible: visible("createPullRequest"),
       onClick: ctx.actions.createPullRequest
     });
   }

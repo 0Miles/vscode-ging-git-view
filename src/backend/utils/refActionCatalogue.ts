@@ -7,8 +7,9 @@
  * adding one entry (plus its package.json menu item and webview handler).
  *
  * Availability is declared here too: `cmvKey` names the visibility setting(s)
- * that hide an action, and package.json's hand-written `branches.*`
- * when-clauses must agree with the declarations —
+ * that hide an action. The graph webview's ref menu reads its `visible:`
+ * gates straight off it (`refActionVisibility`), and package.json's
+ * hand-written `branches.*` when-clauses must agree with the declarations —
  * tests/backend/utils/branchMenuConsistency.test.ts reads the real
  * package.json and goes red on any divergence.
  */
@@ -54,9 +55,10 @@ export type RefActionSpec = {
   /** Which `contextMenuActionsVisibility` setting(s) hide the action, per
    *  branch category. `null` declares the action has no visibility setting
    *  and is always shown — a recorded fact, not an omission (fastForward,
-   *  createPullRequest). package.json's `branches.*` when-clauses and the
-   *  webview's `visible:` gates express the same facts by hand; the
-   *  consistency test locks the manifest side against this field. */
+   *  createPullRequest). Both menus follow this field: the side-view through
+   *  `branchMenuContextKeys` (its package.json when-clauses stay hand-written,
+   *  locked by the consistency test), the graph webview through
+   *  `refActionVisibility`. */
   cmvKey: CmvKey | null;
 };
 
@@ -249,6 +251,32 @@ export function branchMenuContextKeys(
     }
   }
   return keys;
+}
+
+/** The category a branch ref falls in for `contextMenuActionsVisibility`:
+ *  `branch` for local refs, `remoteBranch` for remote-tracking ones — the
+ *  `remotes/` prefix decides (CONTEXT.md, "Ref 的兩種形"). */
+export type BranchCmvCategory = "branch" | "remoteBranch";
+
+/**
+ * The graph webview's `visible:` gate for one catalogue action on a ref of
+ * `category`, read off the action's `cmvKey`: the value of the declared
+ * setting for that side, or `undefined` — no gate, always shown — when the
+ * action declares no setting there (`cmvKey: null`, or a key on the other
+ * side only). The webview never spells a settings key by hand for a branch
+ * item; declaring the key here is what makes both menus follow it.
+ */
+export function refActionVisibility(
+  action: CatalogueRefAction,
+  category: BranchCmvCategory,
+  cmv: Pick<ContextMenuActionsVisibility, BranchCmvCategory>
+): boolean | undefined {
+  const cmvKey: CmvKey | null = REF_ACTION_CATALOGUE[action].cmvKey;
+  if (cmvKey === null) return undefined;
+  if (category === "branch") {
+    return cmvKey.branch === undefined ? undefined : cmv.branch[cmvKey.branch];
+  }
+  return cmvKey.remoteBranch === undefined ? undefined : cmv.remoteBranch[cmvKey.remoteBranch];
 }
 
 /** Why a batch action cannot apply to a branch, or null when it can. Derived

@@ -7,6 +7,7 @@ import {
   branchMenuContextKeys,
   CATALOGUE_REF_ACTIONS,
   REF_ACTION_CATALOGUE,
+  refActionVisibility,
   type CatalogueRefAction,
   type CmvKey
 } from "@/backend/utils/refActionCatalogue";
@@ -275,6 +276,43 @@ describe("branches.* menu rows stay consistent with the action catalogue", () =>
           .filter(([, visible]) => !visible)
           .map(([key]) => key);
         expect(hidden, `${category}.${action}`).toEqual([cmvContextKey(category, action)]);
+      }
+    }
+  });
+
+  it("the per-item visibility lookup reads exactly the declared key per side: one flip hides only the actions declaring it, keyless sides never gate", () => {
+    // The graph webview's side of the same lock: menuFor asks this lookup for
+    // each branch/remoteBranch item's `visible:` gate, so the mapping from a
+    // settings key to the items it hides IS this function. Under the
+    // defaults every declared side reads true and every undeclared side has
+    // no gate at all (undefined — never a hard-wired true).
+    for (const action of CATALOGUE_REF_ACTIONS) {
+      const key = cmvKeyOf(action);
+      for (const category of ["branch", "remoteBranch"] as const) {
+        const expected = key?.[category] === undefined ? undefined : true;
+        expect(
+          refActionVisibility(action, category, DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY),
+          `${action} on ${category} under the defaults`
+        ).toBe(expected);
+      }
+    }
+    // Wiring lock, mirroring the context-key one: flipping one settings key
+    // hides exactly the actions that declare that key on that side.
+    for (const category of ["branch", "remoteBranch"] as const) {
+      for (const setting of Object.keys(DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY[category])) {
+        const cmv = structuredClone(DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY);
+        (cmv[category] as Record<string, boolean>)[setting] = false;
+        const hidden = CATALOGUE_REF_ACTIONS.filter(
+          (action) => refActionVisibility(action, category, cmv) === false
+        );
+        const declaring = CATALOGUE_REF_ACTIONS.filter(
+          (action) => cmvKeyOf(action)?.[category] === setting
+        );
+        expect(hidden.toSorted(), `${category}.${setting}`).toEqual(declaring.toSorted());
+        expect(
+          declaring.length,
+          `${category}.${setting} hides at least one action`
+        ).toBeGreaterThan(0);
       }
     }
   });
