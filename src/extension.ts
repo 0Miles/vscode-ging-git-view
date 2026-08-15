@@ -159,7 +159,7 @@ export function activate(context: vscode.ExtensionContext) {
   // The cleanup dialog's payload builder. Sits beside `branchFacts` for the
   // same reason the side-view does — the candidate rules read those facts, and
   // building the payload host-side is what lets an empty candidate set be
-  // reported without summoning the graph panel (ADR-0014).
+  // reported without summoning the graph panel (ADR-0017).
   const branchCleanup = createBranchCleanup({
     branchFacts,
     gitClientFor: repoGitClients.gitClientFor,
@@ -525,7 +525,7 @@ export function activate(context: vscode.ExtensionContext) {
    * Build the cleanup candidates and open the dialog on them.
    *
    * The empty case is answered here, natively, and that is the whole reason the
-   * payload is built host-side (ADR-0014): summoning the graph panel to the
+   * payload is built host-side (ADR-0017): summoning the graph panel to the
    * foreground just to say "nothing to clean up" would be a worse answer than a
    * one-line notification.
    */
@@ -706,7 +706,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Open the cleanup dialog. Reachable from the side-view title menu, the
     // command palette, and the context menu of any branch that is itself a
     // candidate — every route lands here, and none of them cares which branch
-    // was right-clicked: the dialog proposes the whole set (ADR-0014).
+    // was right-clicked: the dialog proposes the whole set (ADR-0017).
     vscode.commands.registerCommand("ging-git-view.branches.cleanup", () => openBranchCleanup()),
     // Side-view branch actions, generated from the shared action catalogue
     // (ADR-0010) — an entry there is what makes a command exist, so the two

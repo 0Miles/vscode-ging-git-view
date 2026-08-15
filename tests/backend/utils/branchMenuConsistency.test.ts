@@ -80,7 +80,7 @@ const VIEW_ITEM = {
   remote: "^branch-remote(-candidate)?$",
   /** Every branch kind — batch rows and the keyless dual-kind row. */
   any: "^branch-(local|current|remote)(-candidate)?$",
-  /** Cleanup-candidate rows only (ADR-0014). */
+  /** Cleanup-candidate rows only (ADR-0017). */
   candidate: "-candidate$"
 };
 
@@ -200,7 +200,7 @@ describe("branches.* menu rows stay consistent with the action catalogue", () =>
   it("cleanup is the sole non-catalogue row: candidate refs only, single-selection, no visibility key", () => {
     const { cleanup } = classifyRows();
     expect(cleanup).toHaveLength(1);
-    // Not a ref action: the row is the affordance, not the target (ADR-0014),
+    // Not a ref action: the row is the affordance, not the target (ADR-0017),
     // so it lives outside the catalogue and no cmv setting can hide it.
     expect(CATALOGUE_REF_ACTIONS).not.toContain("cleanup");
     expect(parseWhen(cleanup[0])).toEqual({

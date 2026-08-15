@@ -128,7 +128,7 @@ export function registerMessageHandlers(
      *  Branches side-view alike. */
     branchFacts: BranchFacts;
     /** Builds the cleanup dialog's payload. Shared with the side-view command,
-     *  which opens the same dialog from the other direction (ADR-0014). */
+     *  which opens the same dialog from the other direction (ADR-0017). */
     branchCleanup: BranchCleanup;
     /** The repo's "show remote branches" state. The webview no longer sends its
      *  own copy: it was a one-way echo of this and could only be staler. */
@@ -357,7 +357,7 @@ export function registerMessageHandlers(
         dimmedBranches: [...facts.merged.hidable],
         // The candidate set does carry inactive branches, but purely to gate one
         // context-menu item — the graph still neither dims nor hides them
-        // (ADR-0014).
+        // (ADR-0017).
         cleanupCandidates: resolveCleanupCandidates({
           branches: facts.branches,
           head: facts.head,

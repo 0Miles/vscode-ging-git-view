@@ -190,7 +190,7 @@ class GitGraphView {
   // the same set as `dimmedRefs` — the exemptions differ by the branch filter —
   // and it affects nothing that is drawn: it gates one context-menu item, which
   // is how the graph comes to know about inactive branches without expressing
-  // them anywhere (ADR-0014).
+  // them anywhere (ADR-0017).
   private cleanupCandidateRefs = new Set<string>();
   private currentRepo!: string;
   // The last branch-deletion request, so a failed non-force delete can offer a
@@ -2525,7 +2525,7 @@ class GitGraphView {
   /** Entry point for the cleanup dialog the host built. Rides the same queue and
    *  seq counter as the two above: a panel still loading would otherwise drop
    *  the message, and the host delivers over two paths to cover that
-   *  (ADR-0014). */
+   *  (ADR-0017). */
   public showBranchCleanup(msg: GG.ResponseShowBranchCleanup) {
     if (msg.seq <= this.lastRefActionSeq) return; // duplicate delivery
     this.pendingRefAction = msg;
@@ -2760,7 +2760,7 @@ class GitGraphView {
       null
     );
   }
-  /** The cleanup dialog's own confirmation is the only one (ADR-0014), so it
+  /** The cleanup dialog's own confirmation is the only one (ADR-0017), so it
    *  starts the run directly — but through the same `BatchRun` and the same
    *  `deleteBranches` request as the side-view's batch delete, force round and
    *  summary included. Only the question in front of it differs. */
@@ -4440,7 +4440,7 @@ function handleBranchCleanupOpen(msg: GG.ResponseBranchCleanupOpen) {
   if (notice !== null) updateBranchCleanup(msg.payload, notice, cleanupState!.token);
 }
 
-/** Open the dialog on a payload the extension host built (ADR-0014). */
+/** Open the dialog on a payload the extension host built (ADR-0017). */
 function openCleanupDialog(repo: string, payload: GG.BranchCleanupPayload) {
   cleanupState = {
     repo,
@@ -4629,7 +4629,7 @@ function renderBranchCleanup() {
 
   // The dialog is the confirmation: there is no second one behind it. The row
   // ticks, the two delete options and the batch run all hang off this one
-  // action (ADR-0014).
+  // action (ADR-0017).
   showFormDialog(
     body,
     inputs,

@@ -70,7 +70,7 @@ type QueryPayloads = {
        *  branch filter, and this one includes inactive branches, which the graph
        *  otherwise knows nothing about. It changes no rendering whatsoever: its
        *  only job is to decide which refs offer the cleanup menu item
-       *  (ADR-0014). */
+       *  (ADR-0017). */
       cleanupCandidates?: string[];
       /** The branch filter resolved by the host (the side-view's per-repo
        *  selection, or the configured default). Empty = show all. */
