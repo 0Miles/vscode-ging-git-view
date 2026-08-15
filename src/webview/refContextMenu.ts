@@ -214,7 +214,7 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
           }
         );
       }
-      pushBranchCommonTail(menu, target, ctx, true);
+      pushBranchCommonTail(menu, visible, ctx, true);
       break;
     }
     case "remoteBranch": {
@@ -259,7 +259,7 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
           }
         );
       }
-      pushBranchCommonTail(menu, target, ctx, isBranch);
+      pushBranchCommonTail(menu, visible, ctx, isBranch);
       break;
     }
   }
@@ -275,15 +275,21 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
   return menu;
 }
 
+/** The `visible:` gate of a branch menu's catalogue-backed items: the value
+ *  of the action's declared switch, or undefined (no gate) where it declares
+ *  none — see `refActionVisibility`. */
+type BranchGate = (action: CatalogueRefAction) => boolean | undefined;
+
 /**
- * The `visible:` gate for a branch menu's catalogue-backed items, bound to
- * the target's category. `RefTarget`'s branch kinds are spelled exactly as
- * the `contextMenuActionsVisibility` categories (`branch` / `remoteBranch`),
- * so the kind is the category — which side of an action's `cmvKey` a ref
- * reads is decided by the catalogue, never spelled here.
+ * Bind the gate to one branch category, so a menu asks `visible("merge")`
+ * per item. The caller supplies the category — `RefTarget`'s branch kinds are
+ * spelled exactly as the `contextMenuActionsVisibility` categories (`branch`
+ * / `remoteBranch`), so `target.kind` is it — and the catalogue supplies the
+ * rest: which settings key on that side gates the action (`cmvKey`), so no
+ * key name is ever spelled here.
  */
-function branchGate(category: BranchCmvCategory, cmv: ContextMenuActionsVisibility) {
-  return (action: CatalogueRefAction) => refActionVisibility(action, category, cmv);
+function branchGate(category: BranchCmvCategory, cmv: ContextMenuActionsVisibility): BranchGate {
+  return (action) => refActionVisibility(action, category, cmv);
 }
 
 /** The trailing copy item's label, gate and wire label, per kind — the one
@@ -301,22 +307,22 @@ function copyNameSpec(
     case "remoteBranch":
       return {
         title: l10n.copyBranchName,
-        visible: branchGate(target.kind, cmv)("copyName"),
+        visible: refActionVisibility("copyName", target.kind, cmv),
         type: "Branch Name"
       };
   }
 }
 
-/** The items every branch menu ends with, local or remote. `isBranch` is
- *  false only for the symbolic "<remote>/HEAD" ref; a local target is always
- *  a branch. */
+/** The items every branch menu ends with, local or remote. `visible` is the
+ *  caller's gate, already bound to the target's category; `isBranch` is false
+ *  only for the symbolic "<remote>/HEAD" ref; a local target is always a
+ *  branch. */
 function pushBranchCommonTail(
   menu: ContextMenuElement[],
-  target: Extract<RefTarget, { kind: "branch" | "remoteBranch" }>,
+  visible: BranchGate,
   ctx: RefMenuContext,
   isBranch: boolean
 ) {
-  const visible = branchGate(target.kind, ctx.cmv);
   // Offered on every branch — including the checked-out one and the default
   // branch itself — but not on the symbolic "<remote>/HEAD", which is not a
   // branch, matching the remote actions above.
