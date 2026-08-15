@@ -3,6 +3,25 @@ import { displayRef } from "@/backend/utils/branchRef";
 export const refInvalid = /^[-/].*|[\\" ><~^:?*[]|\.\.|\/\/|\/\.|@{|[./]$|\.lock$|^@$/g;
 export const ELLIPSIS = "&#8230;";
 
+/** Split a DISPLAY-form remote ref ("origin/main", the spelling the graph's
+ *  ref chips carry) on its first slash. Null for the symbolic "<remote>/HEAD"
+ *  ref and for names without a slash — the callers offer no remote-branch
+ *  operations on those.
+ *
+ *  Not the same contract as branchRef.ts's `splitRemoteRef`: that one takes
+ *  the branch-list format ("remotes/origin/main"), returns `{remote, name}`,
+ *  and lets HEAD through. Feeding a branch-list ref here fails silently —
+ *  it would split out `remote: "remotes"`. */
+export function splitDisplayRemoteRef(
+  refName: string
+): { remote: string; branchOnRemote: string } | null {
+  const slashIndex = refName.indexOf("/");
+  if (slashIndex === -1) return null;
+  const branchOnRemote = refName.substring(slashIndex + 1);
+  if (branchOnRemote === "HEAD") return null;
+  return { remote: refName.substring(0, slashIndex), branchOnRemote };
+}
+
 /**
  * Text for the toolbar's branch-filter chip, or null when there is nothing to
  * show. Null means the filter is empty — the domain's "show all" — so the

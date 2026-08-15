@@ -24,6 +24,7 @@ import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
 import { createErrorReporter } from "./errorReporting";
 import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } from "./find";
 import { Graph } from "./graph";
+import { menuFor, type RefMenuActions, type RefTarget } from "./refContextMenu";
 import { formatDate, pad2 } from "./utils/date";
 import { addListenerToClass, blinkHeadRow, insertAfter } from "./utils/dom";
 import { replaceEmojiShortcodes } from "./utils/emoji";
@@ -47,6 +48,7 @@ import {
   latestTagName,
   refInvalid,
   signatureCategory,
+  splitDisplayRemoteRef,
   substituteRefSpaces
 } from "./utils/git";
 import {
@@ -118,17 +120,6 @@ const MENU_KEY_EVENT = "ging.contextMenuKey";
 function addContextMenuListener(className: string, listener: EventListener) {
   addListenerToClass(className, "contextmenu", listener);
   addListenerToClass(className, MENU_KEY_EVENT, listener);
-}
-
-/** Split a remote ref "<remote>/<branch>" on its first slash. Null for the
- *  symbolic "<remote>/HEAD" ref and for names without a slash — the callers
- *  offer no remote-branch operations on those. */
-function splitRemoteRef(refName: string): { remote: string; branchOnRemote: string } | null {
-  const slashIndex = refName.indexOf("/");
-  if (slashIndex === -1) return null;
-  const branchOnRemote = refName.substring(slashIndex + 1);
-  if (branchOnRemote === "HEAD") return null;
-  return { remote: refName.substring(0, slashIndex), branchOnRemote };
 }
 
 /** ExpandedCommit in the JSON-safe form saved with vscode.setState: DOM
@@ -2059,329 +2050,162 @@ class GitGraphView {
     });
     addContextMenuListener("gitRef", (e: Event) => {
       e.stopPropagation();
-      let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitRef")!;
-      let refName = unescapeHtml(sourceElem.dataset.name!),
-        menu: ContextMenuElement[],
-        copyType: string,
-        copyTitle: string,
-        copyVisible: boolean; // gated per ref type below
-      const cmv = viewState.contextMenuActionsVisibility; // per-action visibility
-      if (sourceElem.classList.contains("stash")) {
-        // Stash refs aren't branches/tags — offer stash-specific actions.
-        const applyOrPop = (command: "applyStash" | "popStash", title: string) => {
-          showFormDialog(
-            title.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
-            [
-              {
-                type: "checkbox",
-                name: l10n.dialogStashReinstateIndex,
-                value: false,
-                remember: true
-              }
-            ],
-            command === "popStash" ? l10n.stashPop : l10n.stashApply,
-            (values) => {
-              sendMessage({
-                command,
-                repo: this.currentRepo!,
-                selector: refName,
-                reinstateIndex: values[0] === "checked"
-              });
-            },
-            sourceElem,
-            "stashApplyPop"
-          );
-        };
-        menu = [
-          {
-            title: l10n.stashApply + ELLIPSIS,
-            visible: cmv.stash.apply,
-            onClick: () => applyOrPop("applyStash", l10n.dialogStashApplyConfirm)
-          },
-          {
-            title: l10n.stashPop + ELLIPSIS,
-            visible: cmv.stash.pop,
-            onClick: () => applyOrPop("popStash", l10n.dialogStashPopConfirm)
-          },
-          {
-            title: l10n.stashDrop + ELLIPSIS,
-            icon: "trash",
-            visible: cmv.stash.drop,
-            onClick: () => {
-              showConfirmationDialog(
-                l10n.dialogStashDropConfirm.replace(
-                  "{0}",
-                  "<b><i>" + escapeHtml(refName) + "</i></b>"
-                ),
-                () =>
-                  sendMessage({ command: "dropStash", repo: this.currentRepo!, selector: refName }),
-                sourceElem
-              );
-            }
-          },
-          {
-            title: l10n.stashRename + ELLIPSIS,
-            icon: "pencil",
-            visible: true,
-            onClick: () => {
-              // Pre-fill with the stash's current displayed name (its commit
-              // subject), taken from the loaded stash node for this ref.
-              const currentMessage =
-                this.commits.find((c) =>
-                  c.refs.some((r) => r.type === "stash" && r.name === refName)
-                )?.message ?? "";
-              showFormDialog(
-                l10n.dialogStashRenameTitle.replace(
-                  "{0}",
-                  "<b><i>" + escapeHtml(refName) + "</i></b>"
-                ),
-                [{ type: "text", name: "", default: currentMessage, placeholder: null }],
-                l10n.dialogStashRenameSubmit,
-                (values) => {
-                  const message = values[0].trim();
-                  if (message === "") return; // empty message: treat as cancel
-                  sendMessage({
-                    command: "renameStash",
-                    repo: this.currentRepo!,
-                    selector: refName,
-                    message
-                  });
-                },
-                sourceElem
-              );
-            }
-          }
-        ];
-        copyType = "Stash Name";
-        copyTitle = l10n.copyStashName;
-        copyVisible = cmv.stash.copyName;
-      } else if (sourceElem.classList.contains("tag")) {
-        menu = [
-          {
-            title: l10n.viewTagDetails + ELLIPSIS,
-            visible: cmv.tag.viewDetails,
-            onClick: () => {
-              sendMessage({ command: "tagDetails", repo: this.currentRepo!, tagName: refName });
-            }
-          },
-          {
-            title: l10n.createArchive + ELLIPSIS,
-            visible: cmv.tag.createArchive,
-            onClick: () => {
-              sendMessage({ command: "createArchive", repo: this.currentRepo!, ref: refName });
-            }
-          },
-          {
-            title: l10n.deleteTag + ELLIPSIS,
-            icon: "trash",
-            visible: cmv.tag.delete,
-            onClick: () => {
-              const confirmMsg = l10n.dialogDeleteConfirm
-                .replace("{0}", l10n.labelTag)
-                .replace("{1}", "<b><i>" + escapeHtml(refName) + "</i></b>");
-              if (this.remotes.length === 0) {
-                showConfirmationDialog(
-                  confirmMsg,
-                  () => {
-                    sendMessage({
-                      command: "deleteTag",
-                      repo: this.currentRepo!,
-                      tagName: refName,
-                      deleteOnRemote: null
-                    });
-                  },
-                  null
-                );
-              } else {
-                // Offer to also delete the tag from a remote.
-                showSelectDialog(
-                  confirmMsg + "<br>" + l10n.dialogDeleteTagOnRemote,
-                  "",
-                  [
-                    { name: l10n.dialogDeleteTagLocalOnly, value: "" },
-                    ...this.remotes.map((r) => ({ name: r, value: r }))
-                  ],
-                  l10n.deleteTag,
-                  (remote) => {
-                    sendMessage({
-                      command: "deleteTag",
-                      repo: this.currentRepo!,
-                      tagName: refName,
-                      deleteOnRemote: remote === "" ? null : remote
-                    });
-                    if (remote !== "") showActionRunningDialog(l10n.deletingTag);
-                  },
-                  null
-                );
-              }
-            }
-          }
-        ];
-        if (this.remotes.length > 0) {
-          menu.push({
-            title: l10n.pushTag + ELLIPSIS,
-            icon: "repoPush",
-            visible: cmv.tag.push,
-            onClick: () => this.pushTagAction(refName)
-          });
-        }
-        copyType = "Tag Name";
-        copyTitle = l10n.copyTagName;
-        copyVisible = cmv.tag.copyName;
-      } else {
-        if (sourceElem.classList.contains("head")) {
-          menu = [];
-          if (this.gitBranchHead !== refName) {
-            menu.push({
-              title: l10n.checkoutBranch,
-              icon: "arrowSwitch",
-              visible: cmv.branch.checkout,
-              onClick: () => this.checkoutBranchAction(refName, false)
-            });
-          }
-          menu.push({
-            title: l10n.renameBranch + ELLIPSIS,
-            icon: "pencil",
-            visible: cmv.branch.rename,
-            onClick: () => this.renameBranchAction(refName)
-          });
-          if (this.remotes.length > 0) {
-            menu.push({
-              title: l10n.pushBranch + ELLIPSIS,
-              icon: "repoPush",
-              visible: cmv.branch.push,
-              onClick: () => this.pushBranchAction(refName)
-            });
-          }
-          menu.push({
-            title: l10n.createArchive + ELLIPSIS,
-            visible: cmv.branch.createArchive,
-            onClick: () => {
-              sendMessage({ command: "createArchive", repo: this.currentRepo!, ref: refName });
-            }
-          });
-          if (this.gitBranchHead !== refName) {
-            menu.push(
-              {
-                title: l10n.deleteBranch + ELLIPSIS,
-                icon: "trash",
-                visible: cmv.branch.delete,
-                onClick: () => this.deleteBranchAction(refName)
-              },
-              {
-                title: l10n.merge + ELLIPSIS,
-                icon: "gitMerge",
-                visible: cmv.branch.merge,
-                onClick: () => this.mergeBranchAction(refName)
-              },
-              {
-                title: l10n.rebaseOnBranch + ELLIPSIS,
-                icon: "rebase",
-                visible: cmv.branch.rebase,
-                onClick: () => this.rebaseOnBranchAction(refName)
-              },
-              {
-                title: l10n.fastForwardBranch,
-                icon: "moveToEnd",
-                visible: true,
-                onClick: () => this.fastForwardBranchAction(refName)
-              }
-            );
-          }
-        } else {
-          menu = [
-            {
-              title: l10n.checkoutBranch + ELLIPSIS,
-              icon: "arrowSwitch",
-              visible: cmv.remoteBranch.checkout,
-              onClick: () => this.checkoutBranchAction(refName, true)
-            },
-            {
-              title: l10n.merge + ELLIPSIS,
-              icon: "gitMerge",
-              visible: cmv.remoteBranch.merge,
-              onClick: () => this.mergeBranchAction(refName)
-            }
-          ];
-          // Remote branch refs are "<remote>/<branch>"; offer to delete the
-          // branch on its remote (but not the symbolic "<remote>/HEAD" ref).
-          if (splitRemoteRef(refName) !== null) {
-            menu.push({
-              title: l10n.pullIntoCurrentBranch + ELLIPSIS,
-              icon: "repoPull",
-              visible: cmv.remoteBranch.pull,
-              onClick: () => this.pullRemoteBranchAction(refName)
-            });
-            menu.push({
-              title: l10n.fetchIntoLocalBranch + ELLIPSIS,
-              icon: "download",
-              visible: cmv.remoteBranch.fetch,
-              onClick: () => this.fetchIntoLocalBranchAction(refName, sourceElem)
-            });
-            menu.push({
-              title: l10n.deleteRemoteBranch + ELLIPSIS,
-              icon: "trash",
-              visible: cmv.remoteBranch.delete,
-              onClick: () => this.deleteRemoteBranchAction(refName)
-            });
-          }
-        }
-        // Offered on every branch — including the checked-out one and the
-        // default branch itself — but not on the symbolic "<remote>/HEAD",
-        // which is not a branch, matching the remote actions above.
-        const remoteRef = sourceElem.classList.contains("remote");
-        if (!remoteRef || splitRemoteRef(refName) !== null) {
-          menu.push({
-            title: l10n.checkRedundancy,
-            visible: remoteRef ? cmv.remoteBranch.checkRedundancy : cmv.branch.checkRedundancy,
-            onClick: () => requestBranchRedundancy(this.currentRepo!, refName)
-          });
-        }
-        // Offered only when this branch is itself a cleanup candidate — the same
-        // rule the side-view's menu uses (ADR-0014). The dialog it opens ignores
-        // which branch was clicked; the row is the affordance, not the target.
-        if (this.cleanupCandidateRefs.has(refName)) {
-          menu.push({
-            title: l10n.cleanupMenuItem,
-            icon: "trash",
-            onClick: () => requestBranchCleanup(this.currentRepo!)
-          });
-        }
-        // Create a pull request from this branch on its remote.
-        if (this.remotes.length > 0) {
-          menu.push({
-            title: l10n.createPullRequest + ELLIPSIS,
-            icon: "gitPullRequest",
-            onClick: () =>
-              this.createPullRequestAction(refName, sourceElem.classList.contains("remote"))
-          });
-        }
-        copyType = "Branch Name";
-        copyTitle = l10n.copyBranchName;
-        copyVisible = sourceElem.classList.contains("remote")
-          ? cmv.remoteBranch.copyName
-          : cmv.branch.copyName;
-      }
+      const sourceElem = <HTMLElement>(<Element>e.target).closest(".gitRef")!;
+      const refName = unescapeHtml(sourceElem.dataset.name!);
+      // Classified once, here at the DOM boundary: menuFor decides the menu's
+      // content from this typed target instead of reading classes back off the
+      // DOM. The precedence mirrors the chip markup — a combined remote badge
+      // is a .remote chip nested inside a .head chip, and closest() has
+      // already resolved to the innermost one.
+      const target: RefTarget = sourceElem.classList.contains("stash")
+        ? { kind: "stash", name: refName }
+        : sourceElem.classList.contains("tag")
+          ? { kind: "tag", name: refName }
+          : sourceElem.classList.contains("head")
+            ? { kind: "branch", name: refName, isHead: this.gitBranchHead === refName }
+            : { kind: "remoteBranch", name: refName };
+      const isRemote = target.kind === "remoteBranch";
       const issueUrl = firstIssueUrl(
         refName,
         this.config.issueLinkingRegex,
         this.config.issueLinkingUrl
       );
-      if (issueUrl !== null) {
-        menu.push({
-          title: l10n.viewIssue,
-          icon: "issue",
-          onClick: () => sendMessage({ command: "openExternalUrl", url: issueUrl })
-        });
-      }
-      menu.push(null, {
-        title: copyTitle,
-        visible: copyVisible,
-        onClick: () => {
-          sendMessage({ command: "copyToClipboard", type: copyType, data: refName });
-        }
-      });
-      showContextMenu(<MouseEvent>e, menu, sourceElem);
+      const applyOrPop = (command: "applyStash" | "popStash", title: string) => {
+        showFormDialog(
+          title.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
+          [
+            {
+              type: "checkbox",
+              name: l10n.dialogStashReinstateIndex,
+              value: false,
+              remember: true
+            }
+          ],
+          command === "popStash" ? l10n.stashPop : l10n.stashApply,
+          (values) => {
+            sendMessage({
+              command,
+              repo: this.currentRepo!,
+              selector: refName,
+              reinstateIndex: values[0] === "checked"
+            });
+          },
+          sourceElem,
+          "stashApplyPop"
+        );
+      };
+      // What activating each item does. The behaviour stays here — dialogs
+      // anchor on the chip, messages carry this.currentRepo — while menuFor
+      // owns which items appear.
+      const actions: RefMenuActions = {
+        applyStash: () => applyOrPop("applyStash", l10n.dialogStashApplyConfirm),
+        popStash: () => applyOrPop("popStash", l10n.dialogStashPopConfirm),
+        dropStash: () => {
+          showConfirmationDialog(
+            l10n.dialogStashDropConfirm.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
+            () => sendMessage({ command: "dropStash", repo: this.currentRepo!, selector: refName }),
+            sourceElem
+          );
+        },
+        renameStash: () => {
+          // Pre-fill with the stash's current displayed name (its commit
+          // subject), taken from the loaded stash node for this ref.
+          const currentMessage =
+            this.commits.find((c) => c.refs.some((r) => r.type === "stash" && r.name === refName))
+              ?.message ?? "";
+          showFormDialog(
+            l10n.dialogStashRenameTitle.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
+            [{ type: "text", name: "", default: currentMessage, placeholder: null }],
+            l10n.dialogStashRenameSubmit,
+            (values) => {
+              const message = values[0].trim();
+              if (message === "") return; // empty message: treat as cancel
+              sendMessage({
+                command: "renameStash",
+                repo: this.currentRepo!,
+                selector: refName,
+                message
+              });
+            },
+            sourceElem
+          );
+        },
+        viewTagDetails: () => {
+          sendMessage({ command: "tagDetails", repo: this.currentRepo!, tagName: refName });
+        },
+        deleteTag: () => {
+          const confirmMsg = l10n.dialogDeleteConfirm
+            .replace("{0}", l10n.labelTag)
+            .replace("{1}", "<b><i>" + escapeHtml(refName) + "</i></b>");
+          if (this.remotes.length === 0) {
+            showConfirmationDialog(
+              confirmMsg,
+              () => {
+                sendMessage({
+                  command: "deleteTag",
+                  repo: this.currentRepo!,
+                  tagName: refName,
+                  deleteOnRemote: null
+                });
+              },
+              null
+            );
+          } else {
+            // Offer to also delete the tag from a remote.
+            showSelectDialog(
+              confirmMsg + "<br>" + l10n.dialogDeleteTagOnRemote,
+              "",
+              [
+                { name: l10n.dialogDeleteTagLocalOnly, value: "" },
+                ...this.remotes.map((r) => ({ name: r, value: r }))
+              ],
+              l10n.deleteTag,
+              (remote) => {
+                sendMessage({
+                  command: "deleteTag",
+                  repo: this.currentRepo!,
+                  tagName: refName,
+                  deleteOnRemote: remote === "" ? null : remote
+                });
+                if (remote !== "") showActionRunningDialog(l10n.deletingTag);
+              },
+              null
+            );
+          }
+        },
+        pushTag: () => this.pushTagAction(refName),
+        checkout: () => this.checkoutBranchAction(refName, isRemote),
+        rename: () => this.renameBranchAction(refName),
+        push: () => this.pushBranchAction(refName),
+        createArchive: () => {
+          sendMessage({ command: "createArchive", repo: this.currentRepo!, ref: refName });
+        },
+        delete: () => this.deleteBranchAction(refName),
+        merge: () => this.mergeBranchAction(refName),
+        rebase: () => this.rebaseOnBranchAction(refName),
+        fastForward: () => this.fastForwardBranchAction(refName),
+        pull: () => this.pullRemoteBranchAction(refName),
+        fetchIntoLocal: () => this.fetchIntoLocalBranchAction(refName, sourceElem),
+        deleteRemote: () => this.deleteRemoteBranchAction(refName),
+        checkRedundancy: () => requestBranchRedundancy(this.currentRepo!, refName),
+        cleanupBranches: () => requestBranchCleanup(this.currentRepo!),
+        createPullRequest: () => this.createPullRequestAction(refName, isRemote),
+        // Only reachable when menuFor put the item on the menu, which it does
+        // solely for a non-null issueUrl.
+        viewIssue: () => sendMessage({ command: "openExternalUrl", url: issueUrl! }),
+        copyName: (type) => sendMessage({ command: "copyToClipboard", type, data: refName })
+      };
+      showContextMenu(
+        e,
+        menuFor(target, {
+          cmv: viewState.contextMenuActionsVisibility, // per-action visibility
+          hasRemotes: this.remotes.length > 0,
+          isCleanupCandidate: this.cleanupCandidateRefs.has(refName),
+          issueUrl,
+          actions
+        }),
+        sourceElem
+      );
     });
     addListenerToClass("gitRef", "click", (e: Event) => e.stopPropagation());
     addListenerToClass("gitRef", "dblclick", (e: Event) => {
@@ -2590,7 +2414,7 @@ class GitGraphView {
     );
   }
   private pullRemoteBranchAction(refName: string) {
-    const parts = splitRemoteRef(refName);
+    const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
     showConfirmationDialog(
       l10n.dialogPullConfirm
@@ -2609,7 +2433,7 @@ class GitGraphView {
     );
   }
   private fetchIntoLocalBranchAction(refName: string, sourceElem: HTMLElement | null = null) {
-    const parts = splitRemoteRef(refName);
+    const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
     showFormDialog(
       l10n.dialogFetchIntoLocalBranchTitle.replace(
@@ -2646,7 +2470,7 @@ class GitGraphView {
     );
   }
   private deleteRemoteBranchAction(refName: string) {
-    const parts = splitRemoteRef(refName);
+    const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
     showConfirmationDialog(
       l10n.dialogDeleteRemoteBranchConfirm.replace(
