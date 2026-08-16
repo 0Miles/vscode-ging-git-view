@@ -4,7 +4,7 @@
  * how current the basis is, and whether this repo is hiding its remote branches.
  *
  * The payload is built **here, in the extension host**, never in the webview
- * (ADR-0014). Everything it needs already lives beside `branchFacts`
+ * (ADR-0017). Everything it needs already lives beside `branchFacts`
  * (ADR-0013), and computing it here is what lets the caller discover an empty
  * candidate set before summoning the graph panel to say "nothing to clean".
  *

@@ -86,7 +86,7 @@ export interface RefMenuContext {
   cmv: ContextMenuActionsVisibility;
   /** Whether the repo has any remotes — gates push branch/tag and create PR. */
   hasRemotes: boolean;
-  /** Whether the target branch is itself a cleanup candidate (ADR-0014). */
+  /** Whether the target branch is itself a cleanup candidate (ADR-0017). */
   isCleanupCandidate: boolean;
   /** First issue URL matched in the ref's name (`firstIssueUrl`), or null. */
   issueUrl: string | null;
@@ -334,7 +334,7 @@ function pushBranchCommonTail(
     });
   }
   // Offered only when this branch is itself a cleanup candidate — the same
-  // rule the side-view's menu uses (ADR-0014). The dialog it opens ignores
+  // rule the side-view's menu uses (ADR-0017). The dialog it opens ignores
   // which branch was clicked; the row is the affordance, not the target.
   // Not a catalogue action, so no cmv gate can exist for it.
   if (ctx.isCleanupCandidate) {

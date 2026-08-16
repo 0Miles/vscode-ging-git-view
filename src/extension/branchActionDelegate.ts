@@ -154,7 +154,7 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
   };
 
   /** Open the cleanup dialog on an already-built payload. The candidate rules
-   *  and the empty-set check are the caller's (ADR-0014) — this only gets the
+   *  and the empty-set check are the caller's (ADR-0017) — this only gets the
    *  payload there. */
   const openCleanup = async (repo: string, payload: BranchCleanupPayload): Promise<void> => {
     await deliver({ command: "showBranchCleanup", repo, payload, seq: ++seq });

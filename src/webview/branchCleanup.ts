@@ -2,7 +2,7 @@
  * The cleanup dialog's rules that are worth stating apart from its markup.
  *
  * The dialog itself lives in `main.ts` beside the other dialogs (it asks the
- * user something, so it belongs in the graph — ADR-0009/ADR-0014); what lives
+ * user something, so it belongs in the graph — ADR-0009/ADR-0017); what lives
  * here is the part with a decision behind it.
  */
 
@@ -50,7 +50,7 @@ export function groupToggleState(
 
 /**
  * The checked set after the list is replaced — which a deep check or a fetch
- * does, whole (ADR-0014).
+ * does, whole (ADR-0017).
  *
  * Rows the user has already been offered keep whatever they decided; only rows
  * appearing for the first time get {@link defaultCheckedRefs}' treatment. Both

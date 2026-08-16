@@ -36,7 +36,7 @@ export type BranchTreeLeaf = {
   /** True when the cleanup dialog would propose this branch. Not the same set as
    *  `isHidable` — the exemptions differ by the branch filter — so a leaf can
    *  carry this without being dimmed. It gates the cleanup menu item only; the
-   *  row's appearance is unaffected (ADR-0014). */
+   *  row's appearance is unaffected (ADR-0017). */
   isCleanupCandidate: boolean;
   /** Last commit time (unix seconds) when known, for the age label. */
   lastActivitySec?: number;

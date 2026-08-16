@@ -227,7 +227,7 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
         if (!showMerged) for (const branch of facts.merged.hidable) hidden.add(branch);
         // Candidacy is resolved from the same facts, but it is not `hidable`:
         // the exemptions differ by the branch filter, so a leaf can be a
-        // candidate without being dimmed (ADR-0014). It changes nothing about
+        // candidate without being dimmed (ADR-0017). It changes nothing about
         // how a row looks — only whether it offers the cleanup menu item.
         const cleanupCandidates = new Set(
           resolveCleanupCandidates({

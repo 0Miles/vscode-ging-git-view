@@ -94,7 +94,7 @@ describe("the branch cleanup dialog delivered by the host", () => {
   });
 
   it("deletes exactly the ticked branches, through the shared batch request", () => {
-    // The dialog's own confirmation is the only one (ADR-0014): confirming goes
+    // The dialog's own confirmation is the only one (ADR-0017): confirming goes
     // straight into the same `deleteBranches` request the side-view's batch
     // delete uses, with no second dialog in between.
     rowBoxes()
@@ -190,7 +190,7 @@ describe("the branch cleanup dialog delivered by the host", () => {
 
   it("ignores a duplicate delivery of the same seq", () => {
     // The host posts over two paths to survive a panel that is still loading, so
-    // the cleanup message shares the ref actions' dedupe (ADR-0014).
+    // the cleanup message shares the ref actions' dedupe (ADR-0017).
     receive({
       command: "showBranchCleanup",
       repo: REPO,

@@ -454,7 +454,7 @@ export type CleanupCandidate = {
 };
 
 /** Everything the cleanup dialog renders. Produced by the host — the candidate
- *  rules live beside the classification facts (ADR-0013/ADR-0014) — and re-sent
+ *  rules live beside the classification facts (ADR-0013/ADR-0017) — and re-sent
  *  whole whenever a deep check or a fetch changes the answer, so the webview
  *  never has to merge two versions of the list. */
 export type BranchCleanupPayload = {
@@ -475,7 +475,7 @@ export type BranchCleanupPayload = {
 
 /** Open the cleanup dialog on `payload`. Delivered through the same
  *  wait-for-load path and `seq` counter as the delegated ref actions, so a
- *  panel still loading cannot drop it (ADR-0014). */
+ *  panel still loading cannot drop it (ADR-0017). */
 export type ResponseShowBranchCleanup = {
   command: "showBranchCleanup";
   repo: string;
