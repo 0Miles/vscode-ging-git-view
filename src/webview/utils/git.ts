@@ -229,3 +229,49 @@ export function arraysEqual<T>(a: T[], b: T[], equalElements: (a: T, b: T) => bo
   }
   return true;
 }
+
+/** The `<upstream> <branch>` pair `git rebase --onto` takes, resolved from the
+ *  two commits the user CTRL-selected, plus the local branches that can stand
+ *  in for the tip. */
+export interface RebaseOntoRange {
+  /** Exclusive lower bound of the replayed range — git's `<upstream>`. Always
+   *  the ancestor of the pair. */
+  upstream: string;
+  /** The commit whose history is replayed — git's `<branch>`. Always the
+   *  descendant. */
+  tip: string;
+  /** Local branches whose tip is exactly `tip`, in graph order. Empty means the
+   *  rebase can only be spelled with a hash, and git will leave HEAD detached. */
+  tipBranches: string[];
+}
+
+/**
+ * Resolve two CTRL-selected commits into the range `git rebase --onto` replays.
+ *
+ * The order matters and the user's click order does not: `upstream` is excluded
+ * from the range, so it has to be the ancestor. Ancestry is read off the loaded
+ * commits by walking parents; when neither commit reaches the other (divergent
+ * branches, or an ancestry that runs past the loaded commits) the graph's own
+ * order decides — further down the list is older.
+ */
+export function rebaseOntoRange(
+  hashA: string,
+  hashB: string,
+  commits: { hash: string; parentHashes: string[]; refs: { name: string; type: string }[] }[],
+  commitLookup: { [hash: string]: number }
+): RebaseOntoRange {
+  const parentsOf = (hash: string) => {
+    const index = commitLookup[hash];
+    return index === undefined ? undefined : commits[index].parentHashes;
+  };
+  const withTip = (upstream: string, tip: string): RebaseOntoRange => {
+    const index = commitLookup[tip];
+    const refs = index === undefined ? [] : commits[index].refs;
+    return { upstream, tip, tipBranches: refs.filter((r) => r.type === "head").map((r) => r.name) };
+  };
+  if (commitsReachableFrom([hashA], parentsOf).has(hashB)) return withTip(hashB, hashA);
+  if (commitsReachableFrom([hashB], parentsOf).has(hashA)) return withTip(hashA, hashB);
+  const indexA = commitLookup[hashA] ?? 0;
+  const indexB = commitLookup[hashB] ?? 0;
+  return indexA > indexB ? withTip(hashA, hashB) : withTip(hashB, hashA);
+}

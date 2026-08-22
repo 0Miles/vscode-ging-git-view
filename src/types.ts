@@ -29,6 +29,7 @@ export type ContextMenuActionsVisibility = {
     merge: boolean;
     reset: boolean;
     rebase: boolean;
+    rebaseOnto: boolean;
     drop: boolean;
     copyHash: boolean;
     copySubject: boolean;
@@ -157,6 +158,9 @@ export type GitGraphViewState = {
   /** Whether the Source Control view allows several repos to be selected — the
    *  state that gates the repo dropdown. See `ResponseSetScmMultiRepoSelection`. */
   scmMultiRepoSelection: boolean;
+  /** Whether extension-run git commands sign the commits they create — the
+   *  `-S` the rebase dialog's command preview has to account for. */
+  signCommits: boolean;
   showCurrentBranchByDefault: boolean;
   uncommittedChangesAtHead: boolean;
   showSpecificBranches: string[];

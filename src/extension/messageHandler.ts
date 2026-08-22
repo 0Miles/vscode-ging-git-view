@@ -30,7 +30,7 @@ import { fetchFromRemotes } from "@/backend/actions/fetch";
 import { mergeBranch, mergeCommit } from "@/backend/actions/merge";
 import { abortOperation, continueOperation, markResolved } from "@/backend/actions/operation";
 import { exportPatch } from "@/backend/actions/patch";
-import { rebaseOn } from "@/backend/actions/rebase";
+import { rebaseOn, rebaseOnto } from "@/backend/actions/rebase";
 import { getRemoteUrl } from "@/backend/actions/remote";
 import { applyStash, dropStash, popStash, renameStash } from "@/backend/actions/stash";
 import { addTag, deleteTag, pushTag } from "@/backend/actions/tag";
@@ -266,6 +266,9 @@ export function registerMessageHandlers(
     )
   );
   registerAction("rebaseOn", (msg) => rebaseOn(gitClient.getInstance(), msg, config.signCommits()));
+  registerAction("rebaseOnto", (msg) =>
+    rebaseOnto(gitClient.getInstance(), msg, config.signCommits())
+  );
   registerAction("applyStash", (msg) => applyStash(gitClient.getInstance(), msg));
   registerAction("popStash", (msg) => popStash(gitClient.getInstance(), msg));
   registerAction("dropStash", (msg) => dropStash(gitClient.getInstance(), msg));

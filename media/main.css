@@ -1233,6 +1233,24 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
   margin-top: 10px;
   text-align: left;
 }
+/* The exact git command a dialog is about to run, and the caveat that goes
+   with it — shown where the dialog resolved something the user didn't spell
+   out (rebase --onto works out the range's direction and the branch to move). */
+#dialog .commandPreview {
+  display: block;
+  font-family: var(--vscode-editor-font-family), monospace;
+  font-size: 0.9em;
+  margin-top: 10px;
+  text-align: left;
+  word-break: break-all;
+}
+#dialog .dialogNote {
+  color: var(--vscode-descriptionForeground);
+  display: block;
+  font-size: 0.9em;
+  margin-top: 6px;
+  text-align: left;
+}
 #dialog .conflictPrediction {
   display: block;
   font-size: 0.9em;

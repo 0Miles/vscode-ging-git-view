@@ -57,6 +57,7 @@ tradeoffs, and release process clearer.
 - **Branch actions**: Create, checkout, rename, delete, merge, rebase, and push
 - **Tag actions**: Create, delete, and push tags
 - **Commit actions**: Checkout, cherry-pick, revert, and reset
+- **Rebase a range**: CTRL/CMD-click two commits to bound a range, then right-click a third to replay that range onto it (`git rebase --onto`)
 - **Avatar support**: Optional avatars from GitHub, GitLab, or Gravatar
 - **Devcontainer ready**: Works in remote and container environments
 
