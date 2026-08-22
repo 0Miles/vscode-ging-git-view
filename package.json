@@ -99,6 +99,11 @@
       },
       {
         "category": "GING",
+        "command": "ging-git-view.managePullRequestProviders",
+        "title": "%command.managePullRequestProviders%"
+      },
+      {
+        "category": "GING",
         "command": "ging-git-view.viewReflog",
         "title": "%command.viewReflog%"
       },
@@ -482,6 +487,11 @@
           "command": "ging-git-view.remotes.refresh",
           "when": "view == ging-git-view.remotes",
           "group": "navigation@1"
+        },
+        {
+          "command": "ging-git-view.managePullRequestProviders",
+          "when": "view == ging-git-view.remotes",
+          "group": "1_tools@0"
         }
       ],
       "view/item/context": [
@@ -1077,6 +1087,47 @@
           },
           "default": [],
           "description": "%config.customBranchGlobPatterns%"
+        },
+        "ging-git-view.pullRequests.providers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "type": "string",
+                "description": "%config.pullRequestProviders.host%"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "github",
+                  "gitlab",
+                  "bitbucket",
+                  "gitea",
+                  "custom"
+                ],
+                "enumDescriptions": [
+                  "%config.pullRequestProviders.type.github%",
+                  "%config.pullRequestProviders.type.gitlab%",
+                  "%config.pullRequestProviders.type.bitbucket%",
+                  "%config.pullRequestProviders.type.gitea%",
+                  "%config.pullRequestProviders.type.custom%"
+                ],
+                "description": "%config.pullRequestProviders.type%"
+              },
+              "urlTemplate": {
+                "type": "string",
+                "description": "%config.pullRequestProviders.urlTemplate%"
+              }
+            },
+            "required": [
+              "host",
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          "default": [],
+          "description": "%config.pullRequestProviders%"
         },
         "ging-git-view.customEmojiShortcodes": {
           "type": "array",

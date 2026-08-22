@@ -42,6 +42,7 @@ import {
 import { createLogger } from "./extension/logger";
 import { registerMessageHandlers } from "./extension/messageHandler";
 import { type ConfigScope, runPruneTagsMigration } from "./extension/pruneTagsMigration";
+import { managePullRequestProviders } from "./extension/pullRequestProviders";
 import {
   createRemotesView,
   remoteActionTarget,
@@ -827,6 +828,10 @@ export function activate(context: vscode.ExtensionContext) {
         );
       }
     }),
+    vscode.commands.registerCommand(
+      "ging-git-view.managePullRequestProviders",
+      (host?: string | null) => managePullRequestProviders(host)
+    ),
     vscode.commands.registerCommand("ging-git-view.manageRemotes", async () => {
       // View/add/edit/delete remotes; offered as a command since neo has
       // no settings widget.
