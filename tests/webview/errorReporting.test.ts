@@ -38,7 +38,7 @@ const viewState: GG.GitGraphViewState = {
   keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
   lastActiveRepo: null,
   loadMoreAutomatically: false,
-  loadMoreCommits: 75,
+  loadMoreCount: 100,
   markdown: false,
   muteCommitsNotAncestorsOfHead: false,
   muteMergeCommits: true,

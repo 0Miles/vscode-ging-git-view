@@ -155,7 +155,7 @@ export const config = {
     scrollToStash: getKeybinding("shortcuts.scrollToStash", "s")
   }),
   loadMoreAutomatically: (): boolean => getConfig("history.loadMoreOnScroll", false),
-  loadMoreCommits: (): number => getConfig("history.loadMoreCount", 75),
+  loadMoreCount: (): number => getConfig("history.loadMoreCount", 100),
   maxDepthOfRepoSearch: (): number => getConfig("repoSearchDepth", 0),
   markdown: (): boolean => getConfig("renderMarkdown", true),
   muteCommitsNotAncestorsOfHead: (): boolean => getConfig("dim.nonAncestorCommits", false),
