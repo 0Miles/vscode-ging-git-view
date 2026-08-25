@@ -27,10 +27,19 @@ export class RovingTabStop {
   }
 
   /** Hand the tab stop to `target` and put focus there, keeping the two in
-   *  step — wherever the arrow keys last went is where Tab comes back to. */
-  focus(target: HTMLElement) {
+   *  step — wherever the arrow keys last went is where Tab comes back to.
+   *  Nothing scrolls, which is what makes this the right call for putting focus
+   *  *back* after a re-render replaced the element holding it: the user did not
+   *  move, so nothing may move on their behalf. Use {@link focus} to step onto
+   *  a member the user actually chose. */
+  focusInPlace(target: HTMLElement) {
     this.set(target);
     target.focus({ preventScroll: true });
+  }
+
+  /** Move focus to `target` and surface it. */
+  focus(target: HTMLElement) {
+    this.focusInPlace(target);
     // preventScroll above, then a nearest-edge scroll of our own: a row stepped
     // onto from off-screen should surface, but without the jump to centre that
     // the browser's default focus scroll makes. (jsdom has no scrollIntoView.)
