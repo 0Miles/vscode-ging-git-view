@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  branchSelectionOf,
   buildBranchTree,
   buildGroupedBranchRoots,
   type BranchTreeFolder,
@@ -172,5 +173,35 @@ describe("buildGroupedBranchRoots", () => {
     const stale = leaves(roots[1].children).find((l) => l.name === "stale")!;
     expect(stale.isInactive).toBe(true);
     expect(stale.isMerged).toBe(false);
+  });
+});
+
+describe("branch selection of a highlight", () => {
+  // The side view lets the user highlight any row, but only leaves denote a
+  // branch. Telling "a row is highlighted" apart from "a branch is selected" is
+  // what this function exists for — #42 was the bug from conflating them.
+  const roots = buildGroupedBranchRoots(["main", "feature/login", "remotes/origin/main"], "main");
+  const group = roots[0] as BranchTreeGroup;
+  const localGroup = roots[1] as BranchTreeGroup;
+  const folder = localGroup.children.find((n) => n.type === "folder") as BranchTreeFolder;
+  const leaf = localGroup.children.find((n) => n.type === "leaf") as BranchTreeLeaf;
+  // A remote ref displays under its remote name, so its leaf sits one folder in.
+  const remoteFolder = group.children.find((n) => n.type === "folder") as BranchTreeFolder;
+  const remoteLeaf = remoteFolder.children.find((n) => n.type === "leaf") as BranchTreeLeaf;
+
+  it("a highlight on nothing but folders and group headings denotes an empty selection", () => {
+    expect(branchSelectionOf([group, folder])).toEqual([]);
+  });
+
+  it("folders alongside a leaf drop out, leaving the branch", () => {
+    expect(branchSelectionOf([group, folder, leaf])).toEqual(["main"]);
+  });
+
+  it("leaves keep their full ref and the order they were given", () => {
+    expect(branchSelectionOf([leaf, remoteLeaf])).toEqual(["main", "remotes/origin/main"]);
+  });
+
+  it("an empty highlight denotes an empty selection", () => {
+    expect(branchSelectionOf([])).toEqual([]);
   });
 });

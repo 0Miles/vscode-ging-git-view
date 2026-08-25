@@ -34,10 +34,10 @@ export function createBranchSelectionReconciler() {
    *  emits when it is rebuilt for a different repo (whose items have different
    *  ids). Null until the first event arrives. */
   let lastSelectionRepo: string | null = null;
-  /** Armed by a direct write that is about to clear the tree's visual
-   *  selection: the empty event the clearing emits must not clobber the filter
-   *  just written with "show all". Consumed by the first empty event; a
-   *  non-empty event passes through and leaves it armed. */
+  /** Armed by a direct write whose clearing of the tree's visual selection will
+   *  actually drop a branch selection: the empty event that clearing emits must
+   *  not clobber the filter just written with "show all". Consumed by the first
+   *  empty event; a non-empty event passes through and leaves it armed. */
   let suppressEmptySelectionOnce = false;
 
   return {
@@ -67,16 +67,28 @@ export function createBranchSelectionReconciler() {
     /** The filter is being written around the tree (the multi-pick search:
      *  there is no API to set a TreeView multi-selection, so the adapter writes
      *  the store directly and clears the visual selection instead). Drops any
-     *  pending debounced write and, when a visual selection is about to be
-     *  cleared, arms the one-shot suppression of the empty event that clearing
-     *  will emit. Returns the write to perform, immediately. */
+     *  pending debounced write and arms the one-shot suppression of the empty
+     *  event the clearing will emit. Returns the write to perform, immediately.
+     *
+     *  `selectionBeingCleared` is the branch selection that clearing is about to
+     *  drop — the same set `onSelection` receives, so folders and group headings
+     *  are already excluded — and it is the whole arming condition. The clear
+     *  emits an event only when it actually changes the selection (see
+     *  `clearSelection` in `branchesView.ts` for which rows it can touch);
+     *  arming over a selection it leaves alone would strand the flag until the
+     *  user's next genuine deselect-all, which it would then swallow.
+     *
+     *  Refs rather than the boolean only `.length` needs: this module speaks
+     *  branch selections throughout, and a boolean parameter would hand the
+     *  caller back the job of deciding *which* set to measure — measuring the
+     *  wrong one is precisely what stranded the flag before. */
     onDirectWrite(
       repo: string,
       refs: readonly string[],
-      opts: { clearsVisualSelection: boolean }
+      opts: { selectionBeingCleared: readonly string[] }
     ): FilterWrite {
       pending = null;
-      if (opts.clearsVisualSelection) suppressEmptySelectionOnce = true;
+      if (opts.selectionBeingCleared.length > 0) suppressEmptySelectionOnce = true;
       return { repo, branches: [...refs] };
     },
 
