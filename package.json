@@ -1401,7 +1401,7 @@
         },
         "ging-git-view.history.loadMoreOnScroll": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "%config.loadMoreAutomatically%"
         },
         "ging-git-view.history.loadMoreCount": {

@@ -45,7 +45,7 @@ export function makeViewState(overrides: Partial<GG.GitGraphViewState> = {}): GG
     issueLinkingUrl: "",
     keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
     lastActiveRepo: null,
-    loadMoreAutomatically: false,
+    loadMoreAutomatically: true,
     loadMoreCount: 100,
     markdown: false,
     muteCommitsNotAncestorsOfHead: false,

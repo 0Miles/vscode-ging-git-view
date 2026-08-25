@@ -29,6 +29,9 @@ suite("config settings", () => {
     assert.strictEqual(config.dateCustomFormat(), "DD MMM YYYY");
     assert.strictEqual(config.initialLoadCommits(), 300);
     assert.deepStrictEqual(config.showSpecificBranches(), []);
+    // On by default: scrolling to the bottom loads the next page. Flipping a
+    // shipped default is exactly what this list exists to make deliberate.
+    assert.strictEqual(config.loadMoreAutomatically(), true);
     // `loadMoreCount` was renamed in this same pass, so it belongs in this list
     // too — it is asserted in the test below instead, beside the other instance
     // of the rule it exercises. The assertion is the same either way: pinning it

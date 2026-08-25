@@ -55,7 +55,7 @@
   "config.includeCommitsMentionedByReflogs": "Include commits that are only mentioned by reflogs (e.g. orphaned by a reset or rebase) on the graph view. Default: false",
   "config.initialLoadCommits": "Specifies the number of commits to initially load.",
   "config.loadMoreCommits": "Specifies the number of commits to load when the \"Load More Commits\" button is pressed (only shown when more commits are available).",
-  "config.loadMoreAutomatically": "Automatically load the next page of commits when you scroll to the bottom of the graph view, instead of clicking \"Load More Commits\". Default: false",
+  "config.loadMoreAutomatically": "Automatically load the next page of commits when you scroll to the bottom of the graph view, instead of clicking \"Load More Commits\".",
   "config.maxDepthOfRepoSearch": "Specifies the maximum depth of subfolders to search when discovering repositories in the workspace.",
   "config.markdown": "Render a subset of inline Markdown (bold, italic, inline code, strikethrough) in commit and tag messages. Default: true",
   "config.mute.commitsThatAreNotAncestorsOfHead": "Display commits that are not ancestors of the checked out commit (HEAD) with a muted text colour on the graph view. Default: false (disabled)",

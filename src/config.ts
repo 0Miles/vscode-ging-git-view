@@ -154,7 +154,7 @@ export const config = {
     scrollToHead: getKeybinding("shortcuts.scrollToHead", "h"),
     scrollToStash: getKeybinding("shortcuts.scrollToStash", "s")
   }),
-  loadMoreAutomatically: (): boolean => getConfig("history.loadMoreOnScroll", false),
+  loadMoreAutomatically: (): boolean => getConfig("history.loadMoreOnScroll", true),
   loadMoreCount: (): number => getConfig("history.loadMoreCount", 100),
   maxDepthOfRepoSearch: (): number => getConfig("repoSearchDepth", 0),
   markdown: (): boolean => getConfig("renderMarkdown", true),
