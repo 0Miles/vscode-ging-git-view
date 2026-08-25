@@ -173,3 +173,19 @@ export function buildGroupedBranchRoots(
     { type: "group", kind: "local", children: buildBranchTree(local, head, meta) }
   ];
 }
+
+/**
+ * The **branch selection** denoted by a set of highlighted tree nodes: the
+ * selected leaves' refs, in the order given. Folders and group headings carry
+ * no ref — they are display groupings split out of the names, absent from git —
+ * so a highlight sitting on nothing but those denotes an *empty* selection, not
+ * a non-empty one (CONTEXT.md, "Branch selection").
+ *
+ * That distinction is the whole reason this is a named function rather than an
+ * inline filter: the side view has to ask "is a branch selected?" in more than
+ * one place, and asking VS Code "is a row highlighted?" instead is a different
+ * question with a different answer.
+ */
+export function branchSelectionOf(nodes: readonly BranchTreeNode[]): string[] {
+  return nodes.filter((n): n is BranchTreeLeaf => n.type === "leaf").map((n) => n.branch);
+}

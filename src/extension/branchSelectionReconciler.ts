@@ -70,20 +70,20 @@ export function createBranchSelectionReconciler() {
      *  pending debounced write and arms the one-shot suppression of the empty
      *  event the clearing will emit. Returns the write to perform, immediately.
      *
-     *  `clearedSelection` is the branch selection the clearing is about to drop
-     *  — the caller's *current* selection, folders and group headings already
-     *  excluded, exactly as `onSelection` receives it. It is the whole arming
-     *  condition, and it is refs rather than a boolean on purpose: clearing
-     *  re-keys leaves only, so a selection of nothing but folders survives it
-     *  and emits no event at all. Arming on such a selection would leave the
-     *  flag hanging and swallow the user's next genuine deselect-all. */
+     *  `selectionBeingCleared` is the branch selection that clearing is about to
+     *  drop — the same set `onSelection` receives, so folders and group headings
+     *  are already excluded — and it is the whole arming condition. The clear
+     *  emits an event only when it actually changes the selection (see
+     *  `clearSelection` in `branchesView.ts` for which rows it can touch);
+     *  arming over a selection it leaves alone would strand the flag until the
+     *  user's next genuine deselect-all, which it would then swallow. */
     onDirectWrite(
       repo: string,
       refs: readonly string[],
-      opts: { clearedSelection: readonly string[] }
+      opts: { selectionBeingCleared: readonly string[] }
     ): FilterWrite {
       pending = null;
-      if (opts.clearedSelection.length > 0) suppressEmptySelectionOnce = true;
+      if (opts.selectionBeingCleared.length > 0) suppressEmptySelectionOnce = true;
       return { repo, branches: [...refs] };
     },
 

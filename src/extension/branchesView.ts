@@ -10,7 +10,12 @@ import { resolveCleanupCandidates } from "./branchCleanup";
 import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
 import { createBranchSelectionReconciler } from "./branchSelectionReconciler";
-import { type BranchTreeLeaf, type BranchTreeNode, buildGroupedBranchRoots } from "./branchTree";
+import {
+  branchSelectionOf,
+  type BranchTreeLeaf,
+  type BranchTreeNode,
+  buildGroupedBranchRoots
+} from "./branchTree";
 
 /** Scheme of the opaque per-branch URIs carrying a leaf's decoration flags, so
  *  the FileDecorationProvider below can dim it and/or badge it. */
@@ -375,11 +380,11 @@ function findNodeChain(
   return walk(roots, []);
 }
 
-/** The selected leaf branches in a TreeView selection (folders ignored). */
+/** The branch selection a TreeView selection denotes. The rule (folders and
+ *  group headings denote nothing) lives in `branchTree.ts` so it can be
+ *  unit-tested; this is only the unwrapping of the TreeItems. */
 function selectedBranchRefs(items: BranchItem[]): string[] {
-  return items
-    .filter((i): i is BranchItem & { node: BranchTreeLeaf } => i.node.type === "leaf")
-    .map((i) => i.node.branch);
+  return branchSelectionOf(items.map((i) => i.node));
 }
 
 /** A batch context-menu command's action targets, as refs rather than tree
@@ -546,12 +551,12 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     // Zero (= show all) or several branches: write the filter directly and
     // clear the visual selection. The reconciler swallows the empty-selection
     // event the clearing emits, so it can't overwrite the filter just written.
-    // It is handed the *branch* selection, not the raw TreeView one: clearing
-    // re-keys leaves only, so a highlight sitting on nothing but folders is
-    // untouched by it and no event follows to consume the suppression.
+    // What arms that suppression is the *branch* selection, not the raw
+    // TreeView one: `clearSelection` re-keys leaves only, so a highlight on
+    // nothing but folders survives it and emits nothing to consume the flag.
     cancelDebounce();
     const write = reconciler.onDirectWrite(repo, refs, {
-      clearedSelection: selectedBranchRefs([...treeView.selection])
+      selectionBeingCleared: selectedBranchRefs([...treeView.selection])
     });
     deps.filterStore.set(write.repo, write.branches);
     provider.clearSelection();
