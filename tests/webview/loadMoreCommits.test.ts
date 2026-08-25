@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
@@ -57,6 +57,21 @@ const commitsResponse: GG.ResponseMessage = {
   hard: true
 };
 
+const tipDetails: GitCommitDetails = {
+  hash: "aaa111",
+  parents: ["bbb222"],
+  author: "Alice",
+  email: "alice@example.com",
+  committer: "Alice",
+  committerEmail: "alice@example.com",
+  authorDate: 1700000000,
+  commitDate: 1700000000,
+  body: "Tip commit",
+  fileChanges: [
+    { oldFilePath: "src/a.ts", newFilePath: "src/a.ts", type: "M", additions: 1, deletions: 0 }
+  ]
+};
+
 let mock: ReturnType<typeof createVscodeMock>;
 
 function click(id: string) {
@@ -75,6 +90,20 @@ function startInFlightLoad() {
 
 function loadCommitsRequests() {
   return mock.sentMessages.filter((m) => m.command === "loadCommits");
+}
+
+/** Open a commit's CDV, answering the request the click sends. */
+function expandCommit(hash: string) {
+  const row = document.querySelector<HTMLElement>(`.commit[data-hash="${hash}"]`);
+  expect(row, hash).not.toBeNull();
+  row!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  receive({ command: "commitDetails", commitDetails: tipDetails });
+}
+
+/** The commit the open CDV is anchored to, or null when none is open. */
+function anchoredCommit() {
+  if (document.getElementById("commitDetails") === null) return null;
+  return document.querySelector<HTMLElement>(".commit.commitDetailsOpen")?.dataset.hash ?? null;
 }
 
 describe("Load More", () => {
@@ -139,6 +168,53 @@ describe("Load More", () => {
     it("leaves the footer offering the button, with no loading header left spinning", () => {
       expect(document.getElementById("loadingHeader")).toBeNull();
       expect(document.getElementById("loadMoreCommitsBtn")).not.toBeNull();
+    });
+  });
+
+  describe("pressed with the Commit Details View open", () => {
+    let anchoredBefore: string | null = null;
+    let scrollTo = vi.fn();
+
+    beforeAll(() => {
+      receive(commitsResponse); // settle the previous press
+      expandCommit("aaa111");
+      anchoredBefore = anchoredCommit();
+
+      // jsdom has no layout and does not implement scrollTo, so park the
+      // viewport at a known offset and record what the press asks the browser
+      // to do with it.
+      Object.defineProperty(window, "scrollY", { value: 900, configurable: true });
+      scrollTo = vi.fn();
+      window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
+
+      click("loadMoreCommitsBtn");
+      receive(commitsResponse);
+    });
+
+    it("has the CDV open before the press", () => {
+      expect(anchoredBefore).toBe("aaa111");
+    });
+
+    // This also stands in for the content jump the press used to cause, which
+    // jsdom cannot measure because it has no layout. Measured in a real
+    // Chromium: swapping the whole table keeps the scroll position exactly
+    // (0px of drift, because loading only appends), but removing an expanded
+    // CDV sitting above the viewport leaves `scrollY` untouched while the
+    // content slides up by the panel's full height — 253px, about ten rows.
+    // Keeping the row is the only fix; restoring `scrollY` around the load
+    // does nothing, since the browser never moved it. Inline mode only: a
+    // docked CDV is `position: fixed` and outside the flow.
+    it("keeps the CDV open on the same commit across the load", () => {
+      expect(anchoredCommit()).toBe("aaa111");
+    });
+
+    it("does not scroll the viewport at all", () => {
+      // Keeping the CDV open is not enough on its own. Re-rendering it used to
+      // re-run the scroll that brings a CDV into view (detailsPanel.autoScroll,
+      // on by default), dragging the user from wherever they were back up to
+      // the expanded commit. Bringing it into view belongs to opening it, so a
+      // redraw must ask the browser for nothing.
+      expect(scrollTo).not.toHaveBeenCalled();
     });
   });
 });

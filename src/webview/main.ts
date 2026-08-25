@@ -217,6 +217,9 @@ class GitGraphView {
   private pendingScrollRestore: number | null = null;
   private showRemoteBranches: boolean = true;
   private expandedCommit: ExpandedCommit | null = null;
+  // The CDV identity already scrolled into view, so a redraw of the same view
+  // does not scroll again. Null whenever no CDV is open.
+  private cdvBroughtIntoView: string | null = null;
   private maxCommits: number;
   private hasScrolledToHeadOnLoad = false;
   private columnVisibility = { date: true, author: true, commit: true };
@@ -1489,6 +1492,10 @@ class GitGraphView {
         if (this.expandedCommit.compareWithHash !== null) {
           // Re-bind the compared commit's row too; if it scrolled out of
           // the loaded set, fall back to the primary commit's own details.
+          // Known gap in the "a redraw moves nothing" guarantee: that fallback
+          // reopens a different CDV, so it does scroll into view. Appending
+          // pages cannot reach it (nothing leaves the loaded set), but a soft
+          // refresh that drops the compared commit can.
           let compareElem: HTMLElement | null = null;
           for (i = 0; i < elems.length; i++) {
             if (this.expandedCommit.compareWithHash === elems[i].dataset.hash) {
@@ -3230,7 +3237,13 @@ class GitGraphView {
         '<h2 id="loadingHeader">' + svgIcons.loading + l10n.loading + "</h2>";
     }
     this.maxCommits += this.config.loadMoreCount;
-    this.hideCommitDetails();
+    // The expanded Commit Details View stays open: loading strictly appends, so
+    // the expanded commit cannot vanish, and renderTable re-binds it to its new
+    // row (clearing it itself if it really did fall out of the loaded set).
+    // Closing it here moved content under the user, destroyed the keyboard
+    // focus fallback anchor, and closed the panel nobody asked to close.
+    // Re-binding it does not move the viewport either: renderCommitDetailsPanel
+    // only scrolls a CDV into view when it is being opened, not redrawn.
     this.saveState();
     this.requestLoadCommits(true, () => {});
   }
@@ -3260,6 +3273,18 @@ class GitGraphView {
       isStash
     });
   }
+  /** What the open CDV is showing: the expanded commit, plus the commit it is
+   *  being compared with. Two renders sharing an identity are the same view
+   *  drawn twice, which is what {@link renderCommitDetailsPanel} uses to tell
+   *  a redraw from an opening.
+   *
+   *  A redraw that cannot keep the same identity is an opening by definition,
+   *  and does scroll: see renderTable's fallback for a compared commit that
+   *  left the loaded set. */
+  private cdvIdentity(): string | null {
+    if (this.expandedCommit === null) return null;
+    return this.expandedCommit.hash + "|" + (this.expandedCommit.compareWithHash ?? "");
+  }
   public hideCommitDetails() {
     if (this.expandedCommit !== null) {
       this.clearExpandedCommit();
@@ -3276,6 +3301,8 @@ class GitGraphView {
   private clearExpandedCommit() {
     const panel = document.getElementById("commitDetails");
     if (panel !== null) panel.remove();
+    // The next CDV is an opening, however it compares to this one.
+    this.cdvBroughtIntoView = null;
     if (this.expandedCommit !== null) {
       if (this.expandedCommit.srcElem !== null)
         this.expandedCommit.srcElem.classList.remove("commitDetailsOpen");
@@ -3996,7 +4023,17 @@ class GitGraphView {
 
     this.renderGraph();
 
-    if (!docked) {
+    // Bringing the CDV into view belongs to *opening* it, not to drawing it.
+    // renderTable re-renders the panel on every reload that leaves it open —
+    // a Load More page, a soft refresh — and the user asked for none of those:
+    // re-running this would drag them back to the expanded commit from
+    // wherever they had scrolled to, which on the auto-load-on-scroll path
+    // means fighting the scroll that triggered the load (ADR-0018: automatic
+    // loading is browsing, and browsing must not move anything). So it runs
+    // once per CDV, and again only when the CDV becomes a different one.
+    const cdv = this.cdvIdentity();
+    if (!docked && cdv !== this.cdvBroughtIntoView) {
+      this.cdvBroughtIntoView = cdv;
       if (this.config.autoCenterCommitDetailsView) {
         // Center Commit Detail View setting is enabled
         // control menu height [40px] + newElem.y + (commit details view height [250px] + commit height [24px]) / 2 - (window height) / 2
