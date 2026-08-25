@@ -76,7 +76,12 @@ export function createBranchSelectionReconciler() {
      *  emits an event only when it actually changes the selection (see
      *  `clearSelection` in `branchesView.ts` for which rows it can touch);
      *  arming over a selection it leaves alone would strand the flag until the
-     *  user's next genuine deselect-all, which it would then swallow. */
+     *  user's next genuine deselect-all, which it would then swallow.
+     *
+     *  Refs rather than the boolean only `.length` needs: this module speaks
+     *  branch selections throughout, and a boolean parameter would hand the
+     *  caller back the job of deciding *which* set to measure — measuring the
+     *  wrong one is precisely what stranded the flag before. */
     onDirectWrite(
       repo: string,
       refs: readonly string[],
