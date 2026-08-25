@@ -28,17 +28,24 @@ suite("config settings", () => {
     assert.strictEqual(config.dateFormat(), "Date & Time");
     assert.strictEqual(config.dateCustomFormat(), "DD MMM YYYY");
     assert.strictEqual(config.initialLoadCommits(), 300);
-    assert.strictEqual(config.loadMoreCount(), 100);
     assert.deepStrictEqual(config.showSpecificBranches(), []);
+    // `loadMoreCount` was renamed in this same pass, so it belongs in this list
+    // too — it is asserted in the test below instead, beside the other instance
+    // of the rule it exercises. The assertion is the same either way: pinning it
+    // to its declared 100 also proves it is not undefined.
   });
 
   // VS Code answers every registered key with its package.json default, so an
   // accessor's own fallback is unreachable and the two can drift apart unseen.
-  // The palette still diverges: `graphColours` falls back to 6 colours while
-  // package.json declares 12. Deep-comparing against those declared 12 (and
-  // passing) is what proves the declaration is what users get — an assertion
-  // that only checked for a non-empty array could never have caught the drift.
+  // Both keys below were drifting: `loadMoreCount` declared 100 against a
+  // fallback of 75, the palette declares 12 colours against a fallback of 6.
+  // `loadMoreCount` has since been realigned, so it pins the number the webview
+  // viewState fixtures now mirror. The palette is still apart, which is what
+  // makes it the live proof that the declaration is what users actually get —
+  // an assertion that only checked for a non-empty array could never have
+  // caught either.
   test("the declared default wins over the accessor's own fallback", () => {
+    assert.strictEqual(config.loadMoreCount(), 100);
     assert.deepStrictEqual(config.graphColours(), [
       "#0085d9",
       "#d9008f",
