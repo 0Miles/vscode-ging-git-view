@@ -53,10 +53,17 @@ const branchesResponse: GG.ResponseMessage = {
   filter: []
 };
 
-function commitsResponse(moreCommitsAvailable = true): GG.ResponseMessage {
+/** A page the base commit is *not* in — what a shrinking window lands when the
+ *  commit holding focus was past the opening count. */
+const tipOnly: GitCommitNode[] = [commits[0]];
+
+function commitsResponse(
+  moreCommitsAvailable = true,
+  loaded: GitCommitNode[] = commits
+): GG.ResponseMessage {
   return {
     command: "loadCommits",
-    commits,
+    commits: loaded,
     head: "aaa111",
     moreCommitsAvailable,
     hard: true
@@ -65,7 +72,9 @@ function commitsResponse(moreCommitsAvailable = true): GG.ResponseMessage {
 
 let mock: ReturnType<typeof createVscodeMock>;
 // jsdom implements neither scrolling nor scrollTo, so record what the webview
-// asks the browser for instead.
+// asks the browser for instead: which elements it brought into view, in order,
+// and whether it ever reached for a raw scroll offset.
+const scrolledIntoView: Element[] = [];
 const scrollTo = vi.fn();
 
 function click(id: string) {
@@ -80,6 +89,10 @@ function loadCommitsRequests() {
 
 function row(hash: string) {
   return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
+}
+
+function tabStops() {
+  return Array.from(document.querySelectorAll<HTMLElement>('#commitTable [tabindex="0"]'));
 }
 
 /** The footer's loaded-commit-window line, or null when the footer does not
@@ -107,6 +120,9 @@ describe("the loaded commit window on screen", () => {
     mock = createVscodeMock();
     setupHtml(viewState);
     window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolledIntoView.push(this);
+    };
     await import("@/webview/main");
     receive(branchesResponse);
     receive(commitsResponse());
@@ -139,9 +155,26 @@ describe("the loaded commit window on screen", () => {
     });
   });
 
-  describe("widened until the whole history is in", () => {
+  // The footer has one writer, so what it says cannot drift from what the
+  // window actually is. It used to have three: Load More replaced the whole of
+  // `btn.parentNode` — which is the footer, not the button — so every press
+  // wiped the line for the duration of the load. That is the moment the user
+  // most wants it: they just widened the window another page.
+  describe("while a Load More page is on its way", () => {
     beforeAll(() => {
       click("loadMoreCommitsBtn");
+    });
+
+    it("swaps the button for the spinner but keeps the line and its way back", () => {
+      expect(document.getElementById("loadMoreCommitsBtn")).toBeNull();
+      expect(document.getElementById("loadingHeader")).not.toBeNull();
+      expect(windowCount()).toBe(L.loadedCommitWindow.replace("{0}", "500"));
+      expect(document.getElementById("resetLoadedCommitWindowBtn")).not.toBeNull();
+    });
+  });
+
+  describe("widened until the whole history is in", () => {
+    beforeAll(() => {
       receive(commitsResponse(false));
     });
 
@@ -156,15 +189,26 @@ describe("the loaded commit window on screen", () => {
     });
   });
 
-  describe("resetting it", () => {
+  // The reset is the one path that shrinks the loaded set on purpose, so it is
+  // the one redraw whose focus restoration may take the viewport with it. It
+  // has to: the page shrinks under the user, the browser clamps them to its new
+  // bottom, focus goes back hundreds of rows above that, and the next arrow key
+  // scrolls violently to catch up — with automatic loading on, the clamp itself
+  // is a scroll event at the threshold and widens the window straight back out.
+  // Viewport and focus must not end up contradicting each other.
+  describe("resetting it, with focus on a commit the shrunken window keeps", () => {
     let requestedOnPress: GG.RequestMessage[] = [];
+    let lineOnPress: string | null = null;
 
     beforeAll(() => {
       receive(commitsResponse()); // there is more history again
+      row("bbb222").focus();
       mock.clearMessages();
       scrollTo.mockClear();
+      scrolledIntoView.length = 0;
       click("resetLoadedCommitWindowBtn");
       requestedOnPress = loadCommitsRequests();
+      lineOnPress = windowCount();
       receive(commitsResponse());
     });
 
@@ -172,19 +216,31 @@ describe("the loaded commit window on screen", () => {
       expect(requestedOnPress).toMatchObject([{ maxCommits: 300, hard: true }]);
     });
 
-    it("takes the line with it, there being nothing left to reset", () => {
+    it("takes the line with it the moment it presses, not when the page lands", () => {
+      // The footer reads `maxCommits`, which the press has already moved. One
+      // writer, one reading: the line cannot sit there naming a window the
+      // graph is no longer asking for.
+      expect(lineOnPress).toBeNull();
       expect(windowLine()).toBeNull();
     });
 
-    it("puts the viewport back at the top, where the panel opens", () => {
-      // The one path that shrinks the loaded set on purpose, and the only one
-      // that may move the viewport for it: the user asked for the opening
-      // state, and this is part of it. Leaving them where they were pins them
-      // to the bottom of the now far shorter page — and with automatic loading
-      // on, the browser's own clamping scroll trips the near-the-bottom
-      // threshold, which widens the window straight back out. The reset would
-      // undo half of itself in front of the user who asked for it.
-      expect(scrollTo).toHaveBeenCalledWith(0, 0);
+    it("leaves focus on the same commit, whose row the redraw destroyed", () => {
+      expect(document.activeElement).toBe(row("bbb222"));
+      expect(tabStops()).toEqual([row("bbb222")]);
+    });
+
+    it("brings the viewport to that row, so the two cannot contradict", () => {
+      // ADR-0014 read literally: an operation goes back to where the operation
+      // was, which is the row holding focus — not the top of the graph, which
+      // would leave focus and viewport hundreds of rows apart.
+      expect(scrolledIntoView.at(-1)).toBe(row("bbb222"));
+    });
+
+    it("moves it by bringing that row into view, never by restoring an offset", () => {
+      // ADR-0018: scroll position is not a usable tool here. Writing an offset
+      // to cancel out the browser's clamp is compensation, and compensation is
+      // what that ADR spent a section refusing.
+      expect(scrollTo).not.toHaveBeenCalled();
     });
   });
 
@@ -237,27 +293,36 @@ describe("the loaded commit window on screen", () => {
     });
   });
 
-  describe("keyboard focus across the redraw the reset causes", () => {
+  // The other half of the same rule. A window shrinking from 400 to 300 drops
+  // whatever sat past 300, focus included, and #73's restoration already
+  // declines to move focus somewhere the user never was. The viewport then has
+  // no focused row to agree with, so it goes to where the graph now begins —
+  // which is also the one place the near-the-bottom threshold cannot fire.
+  describe("resetting it, with focus on a commit the shrunken window drops", () => {
     let focusedAfterReset: Element | null = null;
 
     beforeAll(() => {
       receive(commitsResponse()); // settle the previous reset
-      click("loadMoreCommitsBtn");
+      click("loadMoreCommitsBtn"); // widen it again, to 400
       receive(commitsResponse());
 
       row("bbb222").focus();
+      scrollTo.mockClear();
+      scrolledIntoView.length = 0;
       click("resetLoadedCommitWindowBtn");
-      receive(commitsResponse());
+      receive(commitsResponse(true, tipOnly));
       focusedAfterReset = document.activeElement;
     });
 
-    // The footer is not inside the commit table, but `renderTable` rewrites
-    // both, and the focus it puts back is read before that rewrite and applied
-    // after it. A footer that grew a second control must not land between the
-    // two.
-    it("leaves focus on the same commit, whose row the redraw destroyed", () => {
-      expect(focusedAfterReset).toBe(row("bbb222"));
-      expect(document.querySelectorAll('#commitTable [tabindex="0"]')).toHaveLength(1);
+    it("drops focus rather than putting it somewhere the user never was", () => {
+      expect(document.querySelector('tr.commit[data-hash="bbb222"]')).toBeNull();
+      expect(focusedAfterReset).toBe(document.body);
+    });
+
+    it("brings the viewport to the row the graph now begins at", () => {
+      expect(tabStops()).toEqual([row("aaa111")]);
+      expect(scrolledIntoView.at(-1)).toBe(row("aaa111"));
+      expect(scrollTo).not.toHaveBeenCalled();
     });
   });
 });
