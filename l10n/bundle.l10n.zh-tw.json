@@ -9,6 +9,8 @@
   "ui.locateHead": "定位 HEAD",
   "ui.loading": "載入中 ...",
   "ui.loadMore": "載入更多 commit",
+  "ui.loadedCommitWindow": "已載入至多 {0} 筆 commit",
+  "ui.resetLoadedCommitWindow": "重設為 {0}",
   "ui.showAll": "顯示全部",
   "ui.switchRepo": "切換存放庫",
   "ui.branchFilterTooltip": "已篩選為：\n{0}",

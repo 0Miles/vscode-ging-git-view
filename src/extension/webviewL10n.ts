@@ -24,6 +24,8 @@ export function getWebviewLocalizedStrings() {
     dialogFindLoadMoreConfirm: l10n.t("dialog.find.loadMoreConfirm"),
     loading: l10n.t("ui.loading"),
     loadMore: l10n.t("ui.loadMore"),
+    loadedCommitWindow: l10n.t("ui.loadedCommitWindow"),
+    resetLoadedCommitWindow: l10n.t("ui.resetLoadedCommitWindow"),
     showAll: l10n.t("ui.showAll"),
     switchRepo: l10n.t("ui.switchRepo"),
     branchFilterTooltip: l10n.t("ui.branchFilterTooltip"),

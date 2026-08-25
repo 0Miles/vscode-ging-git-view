@@ -9,6 +9,8 @@
   "ui.locateHead": "定位 HEAD",
   "ui.loading": "加载中 ...",
   "ui.loadMore": "加载更多 commit",
+  "ui.loadedCommitWindow": "已加载最多 {0} 条 commit",
+  "ui.resetLoadedCommitWindow": "重置为 {0}",
   "ui.showAll": "显示全部",
   "ui.switchRepo": "切换仓库",
   "ui.branchFilterTooltip": "已筛选为：\n{0}",
