@@ -248,9 +248,14 @@ class GitGraphView {
   // does not scroll again. Null whenever no CDV is open.
   private cdvBroughtIntoView: string | null = null;
   private maxCommits: number;
-  // Whether the next redraw's focus restoration may take the viewport with it.
-  // Set by the one operation that shrinks the loaded set on purpose, cleared by
-  // the redraw that consumes it; see restoreGraphFocus.
+  // Whether the *next commit load to land* may take the viewport with it when
+  // it puts focus back. Set by the one operation that shrinks the loaded set on
+  // purpose, and spent in loadCommits — deliberately not in restoreGraphFocus,
+  // which every redraw reaches. `renderTable` has upstreams that owe nothing to
+  // a commit load (a remote list arriving, a column toggled) and none of them
+  // is held back by one in flight, so hanging it on "the next redraw" loses
+  // both ways: that redraw scrolls though the user asked for nothing, and the
+  // reset's own redraw finds the permission already spent.
   private pendingFocusScroll = false;
   private hasScrolledToHeadOnLoad = false;
   private columnVisibility = { date: true, author: true, commit: true };
@@ -848,6 +853,12 @@ class GitGraphView {
     moreAvailable: boolean,
     hard: boolean
   ) {
+    // Spent here, at the top: this load owns the permission, and it owns it
+    // whichever way the function leaves — including the short-circuit below and
+    // the throw the try/finally further down exists to survive. Reading it any
+    // later would leave it set for a redraw that has nothing to do with it.
+    const focusMayScroll = this.pendingFocusScroll;
+    this.pendingFocusScroll = false;
     if (
       !hard &&
       this.moreCommitsAvailable === moreAvailable &&
@@ -914,7 +925,7 @@ class GitGraphView {
         this.clearExpandedCommit();
         this.saveState();
       }
-      this.render();
+      this.render(focusMayScroll);
 
       if (this.findActive) {
         this.refreshFind(this.pendingFindTargetHash);
@@ -1204,8 +1215,11 @@ class GitGraphView {
   }
 
   /* Renderers */
-  private render() {
-    this.renderTable();
+  /** `focusMayScroll` is passed rather than read from the instance so that it
+   *  describes *this* redraw: every other caller redraws without it, which is
+   *  the default and the rule (ADR-0018 — a redraw is not a move). */
+  private render(focusMayScroll: boolean = false) {
+    this.renderTable(focusMayScroll);
     this.renderGraph();
   }
   /**
@@ -1259,7 +1273,7 @@ class GitGraphView {
     this.config.grid.offsetY = headerHeight + this.config.grid.y / 2;
     this.graph.render(inlineExpanded);
   }
-  private renderTable() {
+  private renderTable(focusMayScroll: boolean = false) {
     // Read before a single row is replaced; `restoreGraphFocus` at the end puts
     // the keyboard back on the same commit once the new rows are in place.
     const focusedKey = this.focusedRowKey();
@@ -1556,7 +1570,7 @@ class GitGraphView {
     }
     // After the expanded commit has been re-bound to its new row, so the tab
     // stop can land back on it rather than on the top of the graph.
-    this.restoreGraphFocus(focusedKey);
+    this.restoreGraphFocus(focusedKey, focusMayScroll);
 
     addContextMenuListener("tableColHeader", (e: Event) => {
       const headerElem = <HTMLElement>(<Element>e.target).closest(".tableColHeader")!;
@@ -3832,6 +3846,12 @@ class GitGraphView {
   /** Put the graph's keyboard state back after a re-render, given the row that
    *  held focus before it (`focusedRowKey`, or null when focus was elsewhere).
    *
+   *  `mayScroll` is false for every redraw but one — a redraw is not a move, so
+   *  nothing may move on the user's behalf. The exception is the loaded-commit-
+   *  window reset, where standing still is not the neutral choice: see
+   *  {@link resetLoadedCommitWindow}. It arrives as an argument rather than as
+   *  instance state so that it describes this redraw and no other.
+   *
    *  Focus goes back onto the same commit, in its new row. Automatic loading on
    *  scroll is browsing, and browsing must leave the user where they were
    *  (ADR-0018) — but arrowing onto a row scrolls it into view, that scroll is
@@ -3856,9 +3876,7 @@ class GitGraphView {
    *  fixing the Commit Details View's auto-centre also stopped soft refreshes
    *  dragging the user back to the expanded commit — one cause, treated once,
    *  visible on every path that shared it. */
-  private restoreGraphFocus(focusedKey: string | null) {
-    const mayScroll = this.pendingFocusScroll;
-    this.pendingFocusScroll = false;
+  private restoreGraphFocus(focusedKey: string | null, mayScroll: boolean) {
     const rows = this.graphRows();
     const refocused =
       focusedKey === null ? undefined : rows.find((row) => graphRowKey(row) === focusedKey);

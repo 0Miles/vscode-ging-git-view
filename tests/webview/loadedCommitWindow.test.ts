@@ -325,6 +325,46 @@ describe("the loaded commit window on screen", () => {
       expect(scrollTo).not.toHaveBeenCalled();
     });
   });
+
+  // The permission to scroll belongs to the reset's *load*, not to whichever
+  // redraw happens to come first. `renderTable` has upstreams that owe nothing
+  // to a commit load — a remote list landing, a column toggled — and neither is
+  // held back by an in-flight one. Hanging the permission on "the next redraw"
+  // loses both ways: that redraw scrolls though the user asked for nothing
+  // (ADR-0018), and the reset's own redraw arrives to find it already spent.
+  describe("an unrelated redraw arriving while the reset's page is still out", () => {
+    let scrolledOnInterloper: Element[] = [];
+    let focusedAfterReset: Element | null = null;
+
+    beforeAll(() => {
+      receive(commitsResponse()); // settle the previous reset, both commits back
+      click("loadMoreCommitsBtn"); // widen it again, to 400
+      receive(commitsResponse());
+
+      row("bbb222").focus();
+      scrollTo.mockClear();
+      scrolledIntoView.length = 0;
+      click("resetLoadedCommitWindowBtn");
+
+      // A remote list lands first and re-renders the graph on its own account:
+      // branch labels are laid out from the remote names.
+      receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
+      scrolledOnInterloper = [...scrolledIntoView];
+
+      receive(commitsResponse());
+      focusedAfterReset = document.activeElement;
+    });
+
+    it("moves nothing on the redraw nobody asked for", () => {
+      expect(scrolledOnInterloper).toEqual([]);
+    });
+
+    it("still moves the viewport when the reset's own page lands", () => {
+      expect(focusedAfterReset).toBe(row("bbb222"));
+      expect(scrolledIntoView.at(-1)).toBe(row("bbb222"));
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+  });
 });
 
 // Every time the panel becomes visible again, `webview.html` is reset: a full
