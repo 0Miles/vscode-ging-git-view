@@ -74,6 +74,7 @@ _Avoid_: short name, ref label, 顯示名稱
 
 **Branch selection**:
 分支側檢視中被反白的 leaf 集合。folder 與 group 標題不計入 —— 它們是把 ref 依 `/` 切出來的顯示分組,在 git 裡不存在。空的選取集是使用者明確表達的「顯示全部」,不是「還沒選」。
+VS Code 從 TreeView 回報的原始選取集**含** folder 與 group 標題,因此不等於 branch selection:只反白 folder 時,原始集合非空而 branch selection 是空的。兩者之間的轉換由 `branchSelectionOf` 負責;問「有沒有選到分支」一律以它的結果為準,不是原始集合的大小。
 _Avoid_: 勾選, checked branches, 篩選器, selected refs
 
 **Action target**:
