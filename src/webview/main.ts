@@ -212,7 +212,6 @@ class GitGraphView {
   private graph: Graph;
   private config: Config;
   private moreCommitsAvailable: boolean = false;
-  private loadingMore = false;
   // Scroll offset to restore once the next load re-renders the table, so an
   // action / manual refresh keeps the user's place rather than jumping.
   private pendingScrollRestore: number | null = null;
@@ -726,8 +725,14 @@ class GitGraphView {
   }
 
   /** Reload commits after the branch selection changed: reset paging, close any
-   *  open details, show the loading state, and request the new commit set. */
+   *  open details, show the loading state, and request the new commit set.
+   *
+   *  Guarded before any of that, because none of it survives a dropped request:
+   *  the loaded commit window would sit silently back at the opening count, the
+   *  search index would be gone and the busy indicator would spin, for a graph
+   *  that never reloaded (ADR-0018). */
   private reloadForBranchChange() {
+    if (this.commitLoadInFlight) return;
     this.maxCommits = this.config.initialLoadCommits;
     this.invalidateBranchSearchIndex();
     this.clearExpandedCommit();
@@ -792,6 +797,11 @@ class GitGraphView {
    *  show all. Deduped against the current filter to avoid a redundant reload. */
   public setBranchFilter(branches: string[]) {
     if (arraysEqual(this.currentBranches ?? [], branches, (a, b) => a === b)) return;
+    // No guard ahead of this one, deliberately. Unlike the webview's own
+    // gestures, this is a fire-and-forget push from the host with no follow-up
+    // and no retry: refusing it would leave the side-view showing a filter the
+    // graph has never heard of, and nothing would ever correct that. The
+    // filter is applied; only the reload can be dropped.
     this.setCurrentBranches(branches);
     this.reloadForBranchChange();
   }
@@ -946,17 +956,28 @@ class GitGraphView {
   }
 
   /* Requests */
+  /** Whether a branch load is in flight — the branch-side twin of
+   *  {@link commitLoadInFlight}, and likewise the answer to "would a request
+   *  sent now be dropped?". */
+  private get branchLoadInFlight(): boolean {
+    return this.loadBranchesCallback !== null;
+  }
+  /** Request the branch list, reporting whether it was actually sent. Dropped
+   *  while {@link branchLoadInFlight}, on the same terms as
+   *  {@link requestLoadCommits}: nothing is sent and `loadedCallback` never
+   *  runs. */
   private requestLoadBranches(
     hard: boolean,
     loadedCallback: (changes: boolean, isRepo: boolean) => void
-  ) {
-    if (this.loadBranchesCallback !== null) return;
+  ): boolean {
+    if (this.branchLoadInFlight) return false;
     this.loadBranchesCallback = loadedCallback;
     sendMessage({ command: "selectRepo", repo: this.currentRepo });
     sendMessage({ command: "loadRemotes" });
     // No showRemoteBranches: the host resolves the repo's own state, which is
     // what this copy echoes anyway (ADR-0013).
     sendMessage({ command: "loadBranches", hard: hard });
+    return true;
   }
   public loadRemotes(remotes: string[], pushDefault: string | null) {
     const changed = !arraysEqual(this.remotes, remotes, (a, b) => a === b);
@@ -1049,8 +1070,26 @@ class GitGraphView {
       });
     });
   }
-  private requestLoadCommits(hard: boolean, loadedCallback: (changes: boolean) => void) {
-    if (this.loadCommitsCallback !== null) return;
+  /** Whether a commit load is in flight. At most one ever is: ADR-0018 declined
+   *  queueing the extra one, because delegated ref actions schedule themselves
+   *  off that single fact. It is therefore also the answer to "would a request
+   *  sent now be dropped?", which is how every caller that must not act on a
+   *  dropped request decides whether to act at all. */
+  private get commitLoadInFlight(): boolean {
+    return this.loadCommitsCallback !== null;
+  }
+  /** Request a page of commits, reporting whether it was actually sent. A
+   *  request arriving while {@link commitLoadInFlight} is dropped: nothing is
+   *  sent and `loadedCallback` never runs.
+   *
+   *  Callers whose request carries state they must mutate first (the loaded
+   *  commit window, a persisted preference) cannot act on the return value —
+   *  by then the state would already be wrong — so they check
+   *  {@link commitLoadInFlight} up front instead. The return value is for the
+   *  one caller that requests from inside a callback and so has nowhere
+   *  earlier to stand: {@link requestLoadBranchesAndCommits}. */
+  private requestLoadCommits(hard: boolean, loadedCallback: (changes: boolean) => void): boolean {
+    if (this.commitLoadInFlight) return false;
     this.loadCommitsCallback = loadedCallback;
     sendMessage({
       command: "loadCommits",
@@ -1061,6 +1100,7 @@ class GitGraphView {
       commitOrder: this.gitRepos[this.currentRepo!]?.commitOrdering ?? undefined,
       hiddenRemotes: this.gitRepos[this.currentRepo!]?.hiddenRemotes ?? undefined
     });
+    return true;
   }
   private requestLoadBranchesAndCommits(hard: boolean) {
     this.setRefreshing(true);
@@ -1069,22 +1109,34 @@ class GitGraphView {
     if (this.currentRepo) {
       sendMessage({ command: "operationState", repo: this.currentRepo });
     }
-    this.requestLoadBranches(hard, (branchChanges: boolean, isRepo: boolean) => {
-      if (isRepo) {
-        this.requestLoadCommits(hard, (commitChanges: boolean) => {
+    const branchesSent = this.requestLoadBranches(
+      hard,
+      (branchChanges: boolean, isRepo: boolean) => {
+        if (isRepo) {
+          const finish = (commitChanges: boolean) => {
+            this.setRefreshing(false);
+            // Dismiss the action-running dialog / context menu once the reload
+            // finishes. Hard refreshes follow an action (checkout, merge, …) so
+            // always close; soft refreshes only close when something changed.
+            if (hard || branchChanges || commitChanges) {
+              hideDialogAndContextMenu();
+            }
+          };
+          // A load that never ran brought no changes with it, so finish it as
+          // one. Letting the dropped request take the callback with it left the
+          // Refresh button spinning until the panel was reopened and the
+          // action-running dialog sitting there with Escape as its only exit.
+          if (!this.requestLoadCommits(hard, finish)) finish(false);
+        } else {
           this.setRefreshing(false);
-          // Dismiss the action-running dialog / context menu once the reload
-          // finishes. Hard refreshes follow an action (checkout, merge, …) so
-          // always close; soft refreshes only close when something changed.
-          if (hard || branchChanges || commitChanges) {
-            hideDialogAndContextMenu();
-          }
-        });
-      } else {
-        this.setRefreshing(false);
-        sendMessage({ command: "loadRepos", check: true });
+          sendMessage({ command: "loadRepos", check: true });
+        }
       }
-    });
+    );
+    // The same asymmetry one level out: a dropped branches request takes the
+    // whole reload with it, callback included, so nothing would ever clear the
+    // indicator switched on above.
+    if (!branchesSent) this.setRefreshing(false);
   }
   private fetchAvatars(avatars: { [email: string]: string[] }) {
     let emails = Object.keys(avatars);
@@ -1496,6 +1548,13 @@ class GitGraphView {
       // Per-repo commit-ordering override (null = use the global setting).
       const currentOrder = this.gitRepos[this.currentRepo!]?.commitOrdering ?? null;
       const setOrder = (order: CommitOrdering | null) => {
+        // Nothing below survives a dropped reload: the preference would be
+        // persisted, the loaded commit window snapped back to the opening
+        // count and the branch search index thrown away for a graph that never
+        // reloads — and the shrunken window would then silently collapse the
+        // graph at some later refresh. Either the whole change happens or none
+        // of it does.
+        if (this.commitLoadInFlight) return;
         this.gitRepos[this.currentRepo!].commitOrdering = order;
         sendMessage({
           command: "saveRepoState",
@@ -2538,7 +2597,7 @@ class GitGraphView {
   private tryRunPendingRefAction() {
     const pending = this.pendingRefAction;
     if (pending === null || pending.repo !== this.currentRepo) return;
-    if (this.loadBranchesCallback !== null || this.loadCommitsCallback !== null) return;
+    if (this.branchLoadInFlight || this.commitLoadInFlight) return;
     this.pendingRefAction = null;
     this.lastRefActionSeq = pending.seq;
     if (pending.command === "runRefBatchAction") this.dispatchRefBatchAction(pending);
@@ -3157,10 +3216,14 @@ class GitGraphView {
     });
   }
   /** Load the next page of commits. Guarded so concurrent scroll events (or a
-   *  click during a pending load) don't stack multiple requests. */
+   *  press during a pending load) don't stack multiple requests — and guarded
+   *  *before* any state change, because a request that cannot go out must
+   *  leave the footer, the loaded commit window and the saved state exactly as
+   *  they were. The in-flight load itself is the guard: a separate flag was
+   *  raised before the drop was known, so it never came back down and Load
+   *  More stayed dead for the life of the panel. */
   private loadMoreCommits() {
-    if (this.loadingMore) return;
-    this.loadingMore = true;
+    if (this.commitLoadInFlight) return;
     const btn = document.getElementById("loadMoreCommitsBtn");
     if (btn !== null) {
       (<HTMLElement>btn.parentNode!).innerHTML =
@@ -3169,9 +3232,7 @@ class GitGraphView {
     this.maxCommits += this.config.loadMoreCount;
     this.hideCommitDetails();
     this.saveState();
-    this.requestLoadCommits(true, () => {
-      this.loadingMore = false;
-    });
+    this.requestLoadCommits(true, () => {});
   }
 
   /* Commit Details */
@@ -3399,7 +3460,7 @@ class GitGraphView {
     this.applyFindHighlights(true);
   }
   private loadFindMatch(match: FindMatch) {
-    if (this.loadCommitsCallback !== null) return;
+    if (this.commitLoadInFlight) return;
     const plan = planFindLoad(this.maxCommits, match);
     if (plan === null) return;
     const load = () => {
