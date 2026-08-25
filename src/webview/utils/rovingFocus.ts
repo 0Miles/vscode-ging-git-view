@@ -26,24 +26,29 @@ export class RovingTabStop {
     this.holder = target;
   }
 
-  /** Hand the tab stop to `target` and put focus there, keeping the two in
-   *  step — wherever the arrow keys last went is where Tab comes back to.
-   *  Nothing scrolls, which is what makes this the right call for putting focus
-   *  *back* after a re-render replaced the element holding it: the user did not
-   *  move, so nothing may move on their behalf. Use {@link focus} to step onto
-   *  a member the user actually chose. */
+  /** Move focus to `target` and bring it into view — what the arrow keys call,
+   *  and the one to reach for by default. The tab stop moves with focus,
+   *  keeping the two in step: wherever the arrow keys last went is where Tab
+   *  comes back to.
+   *
+   *  Stepping onto a member is the user asking to go there, so it is allowed to
+   *  scroll. {@link focusInPlace} is the exception, for when it is not. */
+  focus(target: HTMLElement) {
+    this.focusInPlace(target);
+    // preventScroll inside focusInPlace, then a nearest-edge scroll of our own:
+    // a row stepped onto from off-screen should surface, but without the jump
+    // to centre the browser's default focus scroll makes. (jsdom has no
+    // scrollIntoView.)
+    if (typeof target.scrollIntoView === "function") target.scrollIntoView({ block: "nearest" });
+  }
+
+  /** {@link focus} without the scroll, for putting focus *back* where it
+   *  already was after a re-render replaced the element holding it. The tab
+   *  stop moves the same way; only the scroll is withheld, because the user
+   *  never moved and so nothing may move on their behalf. */
   focusInPlace(target: HTMLElement) {
     this.set(target);
     target.focus({ preventScroll: true });
-  }
-
-  /** Move focus to `target` and surface it. */
-  focus(target: HTMLElement) {
-    this.focusInPlace(target);
-    // preventScroll above, then a nearest-edge scroll of our own: a row stepped
-    // onto from off-screen should surface, but without the jump to centre that
-    // the browser's default focus scroll makes. (jsdom has no scrollIntoView.)
-    if (typeof target.scrollIntoView === "function") target.scrollIntoView({ block: "nearest" });
   }
 }
 
