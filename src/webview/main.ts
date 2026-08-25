@@ -98,6 +98,33 @@ function isHeaderRow(row: HTMLElement): boolean {
   return row.id === "tableColHeaders";
 }
 
+/** What a commit table row *stands for*, as opposed to which element it is.
+ *  `renderTable` replaces every row object, so anything that has to survive a
+ *  re-render — the keyboard's place in the graph above all — has to name its
+ *  row by this and look it up again afterwards. A commit's hash is the obvious
+ *  key; the header and uncommitted-changes rows are one of a kind, so their
+ *  place in the table is key enough.
+ *
+ *  Rows are as fine as this goes, deliberately. Focus sitting on a ref chip
+ *  *within* a row comes back to the row, so a re-render resets the Left/Right
+ *  axis of ADR-0014 while preserving the Up/Down one. Keying the widgets too
+ *  would need a second identity scheme for chips whose row may itself have
+ *  gone, to buy back an axis the user re-enters with one keypress — and before
+ *  any of this, focus was lost outright, so the row is already the whole of the
+ *  ground gained. */
+function graphRowKey(row: HTMLElement): string {
+  return row.dataset.hash ?? (isHeaderRow(row) ? "#columnHeaders" : "#uncommittedChanges");
+}
+
+/** Which of `rows` keyboard focus is in — the row itself, or a widget nested
+ *  inside it, such as a ref chip. Undefined when focus is somewhere else
+ *  entirely, which each caller reads its own way: as no row to key, as a cue to
+ *  step from the expanded commit instead, or as nothing to walk. */
+function focusedRow(rows: HTMLElement[]): HTMLElement | undefined {
+  const active = document.activeElement;
+  return rows.find((row) => row === active || row.contains(active));
+}
+
 /** The focusable elements of a commit table row, in visual order: the ref chips
  *  of a commit row, the column headers of the header row. Left/Right walk
  *  these — the row itself is what Up/Down move between. */
@@ -1233,6 +1260,9 @@ class GitGraphView {
     this.graph.render(inlineExpanded);
   }
   private renderTable() {
+    // Read before a single row is replaced; `restoreGraphFocus` at the end puts
+    // the keyboard back on the same commit once the new rows are in place.
+    const focusedKey = this.focusedRowKey();
     const hiddenDate = this.columnVisibility.date ? "" : " hidden";
     const hiddenAuthor = this.columnVisibility.author ? "" : " hidden";
     const hiddenCommit = this.columnVisibility.commit ? "" : " hidden";
@@ -1534,7 +1564,7 @@ class GitGraphView {
     }
     // After the expanded commit has been re-bound to its new row, so the tab
     // stop can land back on it rather than on the top of the graph.
-    this.restoreGraphTabStop();
+    this.restoreGraphFocus(focusedKey);
 
     addContextMenuListener("tableColHeader", (e: Event) => {
       const headerElem = <HTMLElement>(<Element>e.target).closest(".tableColHeader")!;
@@ -3602,14 +3632,22 @@ class GitGraphView {
     );
   }
 
-  /** The row holding focus — directly, or through a ref chip nested in it —
-   *  falling back to the expanded commit's row. That fallback is what keeps
-   *  Up/Down stepping through the Commit Details View from wherever focus
-   *  happens to be, which is what they did before rows could be focused. */
+  /** Which row keyboard focus is in, or null when it is not in the graph at
+   *  all. Read immediately *before* the table is replaced: once the rows are
+   *  gone `document.activeElement` has fallen back to `<body>` and nothing is
+   *  left to say where the user was. */
+  private focusedRowKey(): string | null {
+    const row = focusedRow(this.graphRows());
+    return row === undefined ? null : graphRowKey(row);
+  }
+
+  /** Where the arrow keys step from: the row holding focus, falling back to the
+   *  expanded commit's row. That fallback is what keeps Up/Down stepping
+   *  through the Commit Details View from wherever focus happens to be, which
+   *  is what they did before rows could be focused. */
   private focusedRowIndex(rows: HTMLElement[]): number {
-    const active = document.activeElement;
-    const focused = rows.findIndex((row) => row === active || row.contains(active));
-    if (focused !== -1) return focused;
+    const focused = focusedRow(rows);
+    if (focused !== undefined) return rows.indexOf(focused);
     const anchored = this.expandedCommit?.srcElem ?? null;
     return anchored === null ? -1 : rows.indexOf(anchored);
   }
@@ -3652,14 +3690,13 @@ class GitGraphView {
    *  whatever it otherwise would. */
   public moveWidgetFocus(delta: number): boolean {
     const rows = this.graphRows();
-    const active = document.activeElement;
-    const row = rows.find((candidate) => candidate === active || candidate.contains(active));
+    const row = focusedRow(rows);
     if (row === undefined) return false;
     const widgets = rowWidgets(row);
     if (widgets.length === 0) return false;
     // From the row itself, Right enters at the first widget and Left at the
     // last; stepping off either end hands focus back to the row.
-    const at = widgets.indexOf(<HTMLElement>active);
+    const at = widgets.indexOf(<HTMLElement>document.activeElement);
     const next = at === -1 ? (delta > 0 ? 0 : widgets.length - 1) : at + delta;
     this.graphTabStop.focus(next < 0 || next >= widgets.length ? row : widgets[next]);
     return true;
@@ -3692,12 +3729,44 @@ class GitGraphView {
     return true;
   }
 
-  /** Put the graph's tab stop back after a re-render: on the expanded commit
-   *  when there is one — the row the user last acted on — otherwise on the first
-   *  commit. Without it the table would carry no `tabindex="0"` at all and Tab
-   *  would skip the graph entirely. */
-  private restoreGraphTabStop() {
+  /** Put the graph's keyboard state back after a re-render, given the row that
+   *  held focus before it (`focusedRowKey`, or null when focus was elsewhere).
+   *
+   *  Focus goes back onto the same commit, in its new row. Automatic loading on
+   *  scroll is browsing, and browsing must leave the user where they were
+   *  (ADR-0018) — but arrowing onto a row scrolls it into view, that scroll is
+   *  what trips the load, and the load destroys the very row that focus was on.
+   *  Without putting it back, the next Down key finds no focused row, falls
+   *  through to its "enter the grid" branch and starts again from the first
+   *  commit, hundreds of rows above where the user actually was. Arrow keys
+   *  move between rows (ADR-0014); nothing else may move between them.
+   *
+   *  The tab stop follows focus, and when there is none to restore — focus was
+   *  outside the graph, or the commit that held it is no longer loaded — it
+   *  lands on the expanded commit's row, else the first commit. Without that,
+   *  the table would carry no `tabindex="0"` at all and Tab would skip the
+   *  graph entirely.
+   *
+   *  **This changes every other redraw too, deliberately.** Automatic loading
+   *  is what forced the question, but `renderTable` has other callers — a soft
+   *  refresh, a find, a branch-filter or commit-ordering change, toggling a
+   *  column — and focus now survives all of them. That is the same argument,
+   *  not a wider one: in each of those the user did not move focus either, so
+   *  dropping it was never right. It is the mirror of ADR-0018's note that
+   *  fixing the Commit Details View's auto-centre also stopped soft refreshes
+   *  dragging the user back to the expanded commit — one cause, treated once,
+   *  visible on every path that shared it. */
+  private restoreGraphFocus(focusedKey: string | null) {
     const rows = this.graphRows();
+    const refocused =
+      focusedKey === null ? undefined : rows.find((row) => graphRowKey(row) === focusedKey);
+    if (refocused !== undefined) {
+      // `focusInPlace`, not `focusGraphRow`: a redraw is not a focus *move*, so
+      // it may neither scroll nor — selection follows focus — swap the open
+      // Commit Details View onto a commit the user never arrowed onto.
+      this.graphTabStop.focusInPlace(refocused);
+      return;
+    }
     const anchored = this.expandedCommit?.srcElem ?? null;
     const target =
       anchored !== null && rows.includes(anchored)
