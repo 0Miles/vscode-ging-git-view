@@ -63,7 +63,7 @@ export function buildWebviewHtml(opts: {
     keybindings: config.keybindings(),
     lastActiveRepo: extensionState.getLastActiveRepo(),
     loadMoreAutomatically: config.loadMoreAutomatically(),
-    loadMoreCommits: config.loadMoreCommits(),
+    loadMoreCount: config.loadMoreCount(),
     markdown: config.markdown(),
     muteCommitsNotAncestorsOfHead: config.muteCommitsNotAncestorsOfHead(),
     muteMergeCommits: config.muteMergeCommits(),

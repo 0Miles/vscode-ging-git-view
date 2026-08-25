@@ -147,7 +147,7 @@ export type GitGraphViewState = {
   keybindings: KeybindingConfig;
   lastActiveRepo: string | null;
   loadMoreAutomatically: boolean;
-  loadMoreCommits: number;
+  loadMoreCount: number;
   markdown: boolean;
   muteCommitsNotAncestorsOfHead: boolean;
   muteMergeCommits: boolean;

@@ -3166,7 +3166,7 @@ class GitGraphView {
       (<HTMLElement>btn.parentNode!).innerHTML =
         '<h2 id="loadingHeader">' + svgIcons.loading + l10n.loading + "</h2>";
     }
-    this.maxCommits += this.config.loadMoreCommits;
+    this.maxCommits += this.config.loadMoreCount;
     this.hideCommitDetails();
     this.saveState();
     this.requestLoadCommits(true, () => {
@@ -4299,7 +4299,7 @@ let gitGraph = new GitGraphView(
     issueLinkingRegex: viewState.issueLinkingRegex,
     issueLinkingUrl: viewState.issueLinkingUrl,
     loadMoreAutomatically: viewState.loadMoreAutomatically,
-    loadMoreCommits: viewState.loadMoreCommits,
+    loadMoreCount: viewState.loadMoreCount,
     markdown: viewState.markdown,
     muteCommitsNotAncestorsOfHead: viewState.muteCommitsNotAncestorsOfHead,
     muteMergeCommits: viewState.muteMergeCommits,

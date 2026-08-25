@@ -28,8 +28,31 @@ suite("config settings", () => {
     assert.strictEqual(config.dateFormat(), "Date & Time");
     assert.strictEqual(config.dateCustomFormat(), "DD MMM YYYY");
     assert.strictEqual(config.initialLoadCommits(), 300);
+    assert.strictEqual(config.loadMoreCount(), 100);
     assert.deepStrictEqual(config.showSpecificBranches(), []);
-    assert.ok(Array.isArray(config.graphColours()) && config.graphColours().length > 0);
+  });
+
+  // VS Code answers every registered key with its package.json default, so an
+  // accessor's own fallback is unreachable and the two can drift apart unseen.
+  // The palette still diverges: `graphColours` falls back to 6 colours while
+  // package.json declares 12. Deep-comparing against those declared 12 (and
+  // passing) is what proves the declaration is what users get — an assertion
+  // that only checked for a non-empty array could never have caught the drift.
+  test("the declared default wins over the accessor's own fallback", () => {
+    assert.deepStrictEqual(config.graphColours(), [
+      "#0085d9",
+      "#d9008f",
+      "#00d90a",
+      "#d98500",
+      "#a300d9",
+      "#ff0000",
+      "#00d9cc",
+      "#e138e8",
+      "#85d900",
+      "#dc5b23",
+      "#6f24d6",
+      "#ffcc00"
+    ]);
   });
 
   // A fresh install prunes on fetch, so a branch the host deleted on merge stops
