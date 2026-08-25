@@ -1490,16 +1490,8 @@ class GitGraphView {
       '<table role="grid" aria-label="' + escapeHtml(l10n.commitGraph) + '">' + html + "</table>";
     // Re-apply find highlighting to the freshly-rendered rows (without scrolling).
     if (this.findActive) this.applyFindHighlights(false);
-    this.footerElem.innerHTML = this.moreCommitsAvailable
-      ? '<div id="loadMoreCommitsBtn" class="roundedBtn">' + l10n.loadMore + "</div>"
-      : "";
+    this.renderFooter();
     this.makeTableResizable();
-
-    if (this.moreCommitsAvailable) {
-      document.getElementById("loadMoreCommitsBtn")!.addEventListener("click", () => {
-        this.loadMoreCommits();
-      });
-    }
 
     if (this.expandedCommit !== null) {
       let elem = null,
@@ -2327,6 +2319,41 @@ class GitGraphView {
       '">' +
       date.value +
       '</td><td role="gridcell" title="* <>">*</td><td role="gridcell" title="*">*</td>';
+  }
+  /** The footer under the graph: Load More while there is more history to
+   *  fetch, and — only once the loaded commit window has been widened past the
+   *  opening count — what that window stands at, with the way back to it.
+   *
+   *  Two independent conditions, deliberately. The footer is empty when no more
+   *  commits are available, and that is exactly the moment the window is most
+   *  likely worth resetting: the user got there by widening it until the whole
+   *  history was in. Hanging the line off "is Load More showing?" would hide it
+   *  precisely there. At the opening count the footer gains nothing at all —
+   *  the default view carries no chrome describing a state it is already in. */
+  private renderFooter() {
+    const widened = this.maxCommits > this.config.initialLoadCommits;
+    this.footerElem.innerHTML =
+      (this.moreCommitsAvailable
+        ? '<div id="loadMoreCommitsBtn" class="roundedBtn">' + l10n.loadMore + "</div>"
+        : "") +
+      (widened
+        ? '<div id="loadedCommitWindow"><span id="loadedCommitWindowCount">' +
+          l10n.loadedCommitWindow.replace("{0}", String(this.maxCommits)) +
+          '</span><div id="resetLoadedCommitWindowBtn" class="roundedBtn">' +
+          l10n.resetLoadedCommitWindow.replace("{0}", String(this.config.initialLoadCommits)) +
+          "</div></div>"
+        : "");
+
+    if (this.moreCommitsAvailable) {
+      document.getElementById("loadMoreCommitsBtn")!.addEventListener("click", () => {
+        this.loadMoreCommits();
+      });
+    }
+    if (widened) {
+      document.getElementById("resetLoadedCommitWindowBtn")!.addEventListener("click", () => {
+        this.resetLoadedCommitWindow();
+      });
+    }
   }
   private renderShowLoading() {
     hideDialogAndContextMenu();
@@ -3276,6 +3303,42 @@ class GitGraphView {
     // only scrolls a CDV into view when it is being opened, not redrawn.
     this.saveState();
     this.requestLoadCommits(true, () => {});
+  }
+
+  /** Shrink the loaded commit window back to the opening count and reload.
+   *
+   *  The only entry that does this on purpose. The four that already did it —
+   *  switching repository, changing the branch filter, toggling remote
+   *  branches, changing the commit ordering — do it as a side effect of doing
+   *  something else, so a user who only wants the window back has to go and
+   *  change something they did not want changed (ADR-0018).
+   *
+   *  Guarded before any state changes, on the same terms as Load More and the
+   *  commit-ordering menu: a request sent while a load is in flight is dropped,
+   *  and shrinking the window first would leave the graph still showing the
+   *  wide page while the window says otherwise — with the line gone, so nothing
+   *  on screen says the two came apart, and the next refresh silently
+   *  collapsing the graph as the payment. */
+  private resetLoadedCommitWindow() {
+    if (this.commitLoadInFlight) return;
+    this.maxCommits = this.config.initialLoadCommits;
+    this.invalidateBranchSearchIndex();
+    this.saveState();
+    // Back to the top, once the shorter table is in place. The one path that
+    // shrinks the loaded set on purpose is also the one entitled to move the
+    // viewport for it — the user asked for the state the panel opens in, and
+    // where it opens is part of that. Standing still is not the neutral choice
+    // here: the page shrinks under the user, the browser clamps them to its new
+    // bottom, and with automatic loading on that clamp is itself a scroll event
+    // at the threshold, which widens the window straight back out. The reset
+    // would undo half of itself in front of the user who asked for it.
+    this.pendingScrollRestore = 0;
+    // The expanded Commit Details View is left to renderTable, which re-binds
+    // it or clears it depending on whether its commit is still loaded. Unlike
+    // Load More this reload can genuinely drop it — the window is shrinking —
+    // but only renderTable knows which happened.
+    this.setRefreshing(true);
+    this.requestLoadCommits(true, () => this.setRefreshing(false));
   }
 
   /* Commit Details */
