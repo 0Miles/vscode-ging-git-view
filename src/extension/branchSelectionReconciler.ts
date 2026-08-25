@@ -34,10 +34,10 @@ export function createBranchSelectionReconciler() {
    *  emits when it is rebuilt for a different repo (whose items have different
    *  ids). Null until the first event arrives. */
   let lastSelectionRepo: string | null = null;
-  /** Armed by a direct write that is about to clear the tree's visual
-   *  selection: the empty event the clearing emits must not clobber the filter
-   *  just written with "show all". Consumed by the first empty event; a
-   *  non-empty event passes through and leaves it armed. */
+  /** Armed by a direct write whose clearing of the tree's visual selection will
+   *  actually drop a branch selection: the empty event that clearing emits must
+   *  not clobber the filter just written with "show all". Consumed by the first
+   *  empty event; a non-empty event passes through and leaves it armed. */
   let suppressEmptySelectionOnce = false;
 
   return {
@@ -67,16 +67,23 @@ export function createBranchSelectionReconciler() {
     /** The filter is being written around the tree (the multi-pick search:
      *  there is no API to set a TreeView multi-selection, so the adapter writes
      *  the store directly and clears the visual selection instead). Drops any
-     *  pending debounced write and, when a visual selection is about to be
-     *  cleared, arms the one-shot suppression of the empty event that clearing
-     *  will emit. Returns the write to perform, immediately. */
+     *  pending debounced write and arms the one-shot suppression of the empty
+     *  event the clearing will emit. Returns the write to perform, immediately.
+     *
+     *  `clearedSelection` is the branch selection the clearing is about to drop
+     *  — the caller's *current* selection, folders and group headings already
+     *  excluded, exactly as `onSelection` receives it. It is the whole arming
+     *  condition, and it is refs rather than a boolean on purpose: clearing
+     *  re-keys leaves only, so a selection of nothing but folders survives it
+     *  and emits no event at all. Arming on such a selection would leave the
+     *  flag hanging and swallow the user's next genuine deselect-all. */
     onDirectWrite(
       repo: string,
       refs: readonly string[],
-      opts: { clearsVisualSelection: boolean }
+      opts: { clearedSelection: readonly string[] }
     ): FilterWrite {
       pending = null;
-      if (opts.clearsVisualSelection) suppressEmptySelectionOnce = true;
+      if (opts.clearedSelection.length > 0) suppressEmptySelectionOnce = true;
       return { repo, branches: [...refs] };
     },
 

@@ -115,9 +115,10 @@ describe("direct write (multi-pick search bypassing the tree)", () => {
   it("returns an immediate write and drops any pending debounced write", () => {
     const reconciler = createBranchSelectionReconciler();
     reconciler.onSelection("/repo", ["main"]);
-    expect(
-      reconciler.onDirectWrite("/repo", ["dev", "feat"], { clearsVisualSelection: false })
-    ).toEqual({ repo: "/repo", branches: ["dev", "feat"] });
+    expect(reconciler.onDirectWrite("/repo", ["dev", "feat"], { clearedSelection: [] })).toEqual({
+      repo: "/repo",
+      branches: ["dev", "feat"]
+    });
     expect(reconciler.onDebounceElapsed()).toBeNull();
   });
 
@@ -125,7 +126,7 @@ describe("direct write (multi-pick search bypassing the tree)", () => {
     const reconciler = createBranchSelectionReconciler();
     reconciler.onSelection("/repo", ["main"]);
     reconciler.onDebounceElapsed();
-    reconciler.onDirectWrite("/repo", ["dev", "feat"], { clearsVisualSelection: true });
+    reconciler.onDirectWrite("/repo", ["dev", "feat"], { clearedSelection: ["main"] });
     // The re-key that clears the highlight emits an empty selection; honouring
     // it would clobber the filter just written with "show all".
     expect(reconciler.onSelection("/repo", [])).toEqual({
@@ -140,14 +141,48 @@ describe("direct write (multi-pick search bypassing the tree)", () => {
     expect(reconciler.onDebounceElapsed()).toEqual({ repo: "/repo", branches: [] });
   });
 
-  it("when there was no visual selection to clear, the next empty event is honoured", () => {
+  it("when the clear will drop no branch selection, the next empty event is honoured", () => {
     const reconciler = createBranchSelectionReconciler();
     reconciler.onSelection("/repo", ["main"]);
     reconciler.onDebounceElapsed();
-    reconciler.onDirectWrite("/repo", ["dev"], { clearsVisualSelection: false });
+    reconciler.onDirectWrite("/repo", ["dev"], { clearedSelection: [] });
     expect(reconciler.onSelection("/repo", [])).toEqual({
       kind: "schedule",
       delayMs: SELECTION_WRITE_DEBOUNCE_MS
+    });
+  });
+
+  // Regression (#42): the arming condition asks whether the *branch* selection
+  // is about to be dropped, not whether any row is highlighted. `clearSelection()`
+  // re-keys leaf items only — folder and group ids carry a different generation
+  // — so a highlight sitting on nothing but folders survives it untouched and
+  // the TreeView emits no selection event at all. Arming there left the flag
+  // hanging until the user's next real deselect-all, which it then swallowed.
+  it("a highlight on nothing but folders arms nothing, so a later deselect-all still shows all", () => {
+    const reconciler = createBranchSelectionReconciler();
+    // Clicking a folder row selects it in the TreeView but adds no branch to
+    // the selection, so the adapter reports an empty one either way.
+    reconciler.onSelection("/repo", []);
+    reconciler.onDirectWrite("/repo", ["dev", "feat"], { clearedSelection: [] });
+    // No event follows the clear. The next empty event is the user, and it must
+    // reach the store as "show all".
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "schedule",
+      delayMs: SELECTION_WRITE_DEBOUNCE_MS
+    });
+    expect(reconciler.onDebounceElapsed()).toEqual({ repo: "/repo", branches: [] });
+  });
+
+  it("one selected branch alongside folders still arms: the clear drops that branch", () => {
+    const reconciler = createBranchSelectionReconciler();
+    reconciler.onSelection("/repo", ["main"]);
+    reconciler.onDebounceElapsed();
+    // Folders in the highlight are already filtered out; one leaf is enough for
+    // the clear to change the selection and so emit the empty event.
+    reconciler.onDirectWrite("/repo", ["dev", "feat"], { clearedSelection: ["main"] });
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "ignore",
+      reason: "suppressed-empty"
     });
   });
 
@@ -155,7 +190,7 @@ describe("direct write (multi-pick search bypassing the tree)", () => {
     const reconciler = createBranchSelectionReconciler();
     reconciler.onSelection("/repo", ["main"]);
     reconciler.onDebounceElapsed();
-    reconciler.onDirectWrite("/repo", ["dev"], { clearsVisualSelection: true });
+    reconciler.onDirectWrite("/repo", ["dev"], { clearedSelection: ["main"] });
     expect(reconciler.onSelection("/repo", ["feat"])).toEqual({
       kind: "schedule",
       delayMs: SELECTION_WRITE_DEBOUNCE_MS
@@ -170,7 +205,7 @@ describe("direct write (multi-pick search bypassing the tree)", () => {
     const reconciler = createBranchSelectionReconciler();
     reconciler.onSelection("/repo-a", ["main"]);
     reconciler.onDebounceElapsed();
-    reconciler.onDirectWrite("/repo-a", ["dev"], { clearsVisualSelection: true });
+    reconciler.onDirectWrite("/repo-a", ["dev"], { clearedSelection: ["main"] });
     // The user switches repo before the re-key event lands: the one armed
     // suppression is consumed by whichever empty event arrives first.
     expect(reconciler.onSelection("/repo-b", [])).toEqual({

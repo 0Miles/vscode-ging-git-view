@@ -546,9 +546,12 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     // Zero (= show all) or several branches: write the filter directly and
     // clear the visual selection. The reconciler swallows the empty-selection
     // event the clearing emits, so it can't overwrite the filter just written.
+    // It is handed the *branch* selection, not the raw TreeView one: clearing
+    // re-keys leaves only, so a highlight sitting on nothing but folders is
+    // untouched by it and no event follows to consume the suppression.
     cancelDebounce();
     const write = reconciler.onDirectWrite(repo, refs, {
-      clearsVisualSelection: treeView.selection.length > 0
+      clearedSelection: selectedBranchRefs([...treeView.selection])
     });
     deps.filterStore.set(write.repo, write.branches);
     provider.clearSelection();
