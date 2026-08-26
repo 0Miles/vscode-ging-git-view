@@ -12,16 +12,16 @@ commit 載入維持現狀:每次都向後端要「前 N 筆」,回來重建整�
 
 **「重抓整份不是很浪費嗎?」** 量過了,不浪費 —— 因為那不是成本所在。在一個 20,800 個 commit、401 個 ref 的存放庫上(Windows,合成歷史:主線加每 50 筆一次 side branch 與 merge back):
 
-| 呼叫 | 時間 |
-|---|---|
-| `git --version`(純行程啟動) | 91.7 ms |
-| `git log --max-count=301` | 237.2 ms |
-| `git log --max-count=1001` | 237.0 ms |
-| `git log --max-count=3001` | 243.9 ms |
-| `git log --max-count=20801`(全部) | 291.6 ms |
-| `git log --skip=300 --max-count=101` | 234.6 ms |
+| 呼叫                                  | 時間     |
+| ------------------------------------- | -------- |
+| `git --version`(純行程啟動)           | 91.7 ms  |
+| `git log --max-count=301`             | 237.2 ms |
+| `git log --max-count=1001`            | 237.0 ms |
+| `git log --max-count=3001`            | 243.9 ms |
+| `git log --max-count=20801`(全部)     | 291.6 ms |
+| `git log --skip=300 --max-count=101`  | 234.6 ms |
 | `git log --skip=2900 --max-count=101` | 237.1 ms |
-| `git show-ref -d --head`(401 refs) | 178.3 ms |
+| `git show-ref -d --head`(401 refs)    | 178.3 ms |
 
 開存放庫加解析 ref 的固定成本是 **~145 ms**;走訪 300 筆的邊際成本趨近於零,走訪**全部 20,800 筆**是 55 ms。`--skip` 對比 `--max-count` 省下 **2.4 ms —— 在雜訊裡**。而 `getRefs` 與載入筆數無關,它與 `git log` 在同一個 `Promise.all` 裡並行,所以那 178 ms 一直被遮著 —— append 不會讓任何一支縮短到會露出另一支的程度。
 
@@ -35,9 +35,11 @@ webview 那一側(真實 Chromium):3000 列的字串組裝加 `innerHTML` 加逐
 
 **「ADR-0018 說 webview 可以只追加 DOM。」** 那半句是錯的,而且不是工程難度問題 —— **是版面演算法不允許**。
 
-`graph.ts` 在只載第一頁時,把**所有**落在圖外的 parent 摺成同一個 id 為 -1 的 sentinel vertex。而 merge 的處理有兩條路,入口條件是 `parentVertex.getId() > -1`:parent 是 sentinel 就一律走「配一條新 branch」那一支 —— 配新顏色、把線一路畫到下緣、下方每一列各吃掉一個 lane。第二頁讓那個 parent 變成真的 vertex **且它當下已經掛在某條 branch 上**時,同一個 merge 改走 merge 那一支,併進既有接點後提早收尾:不再吃 lane、不再配顏色,於是之後每一次顏色配置的結果整串位移。
+`graph.ts` 在只載第一頁時,把**所有**落在圖外的 parent 摺成同一個 id 為 -1 的 sentinel vertex。而 merge 的處理有兩條路。走 merge 那一支需要「這個 parent 當下已經掛在某條 branch 上」,而 sentinel 永遠不在 vertex 陣列裡、永遠沒被指派到 branch,所以第一頁一律走「配一條新 branch」那一支 —— 配新顏色、把線一路畫到下緣、下方每一列各吃掉一個 lane。第二頁讓那個 parent 變成真的 vertex **且它當下已經掛在某條 branch 上**時,同一個 merge 改走 merge 那一支,併進既有接點後提早收尾:不再吃 lane、不再配顏色,於是之後每一次顏色配置的結果整串位移。
 
 所以**既有列的繪製會隨載入集合變大而改變,而這是今天就有的行為** —— 每次全清重建正是它的成因。「保證上方不變」不是現行程式碼具備的性質,append 不是要保住它,是要決定要不要第一次去造它。
+
+那個判斷式裡另外還寫著一句明示的 sentinel 檢查(`parentVertex.getId() > -1`),但它是**多餘的** —— 實測拿掉它,版面數值一個字都不變,因為「已經掛在某條 branch 上」那一句已經把 sentinel 擋掉了。會找錯行的人請看這裡。
 
 最小重現(已由兩個獨立實作交叉驗證,並固定在 `tests/webview/graphLayout.test.ts`):第一頁三列 —— `M` 的 parents 是 `[A, P]`、`A` 的 parent 是 `P`、`Z` 的 parent 也是 `P`;`P` 落在第二頁。第二頁到達後 `Z` 的 lane 寬度由 62 變成 46、顏色由 2 變成 1。
 
