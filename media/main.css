@@ -545,9 +545,15 @@ svg.fileIcon {
   cursor: help;
 }
 
+/* Both axes are pinned on purpose. Avatars are requested square (`size=162` /
+   `s=162`, see avatarManager), so height used to come out at 18px anyway — but
+   by way of the source's aspect ratio, not by way of anything stated here. The
+   auto-load-on-scroll height cache depends on a row that cannot grow when an
+   avatar finishes decoding (see observePageHeight), so state the bound. */
 .commit .avatar > img {
   display: inline-block;
   width: 18px;
+  height: 18px;
   border-radius: 4px;
   vertical-align: top;
   margin-top: 3px;
