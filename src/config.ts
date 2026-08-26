@@ -204,7 +204,6 @@ export const config = {
   showTags: (): boolean => getConfig("show.tags", true),
   showStatusBarItem: (): boolean => getConfig("statusBarButton", true),
   showUncommittedChanges: (): boolean => getConfig("show.uncommittedChanges", true),
-  showUntrackedFiles: (): boolean => getConfig("show.untrackedFiles", true),
   useMailmap: (): boolean => getConfig("history.useMailmap", false),
   // Resolvable at a Workspace Folder scope: pass the repo's Uri so a
   // per-folder `fileEncoding` override is honoured, else the global value.

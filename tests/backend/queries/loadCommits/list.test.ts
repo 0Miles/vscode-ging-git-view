@@ -39,12 +39,10 @@ describe("loadCommits", () => {
       branchNames: [""],
       maxCommits: 300,
       showRemoteBranches: false,
-      hard: false,
       dateType: "Author Date",
       showUncommittedChanges: false,
       commitOrder: "date",
       onlyFollowFirstParent: false,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -56,8 +54,7 @@ describe("loadCommits", () => {
     expect(result).toEqual({
       commits: expect.any(Array),
       head: expect.any(String),
-      moreCommitsAvailable: false,
-      hard: false
+      moreCommitsAvailable: false
     });
     expect(result.commits.length).toBeGreaterThan(0);
     expect(result.commits[0]).toEqual({
@@ -77,12 +74,10 @@ describe("loadCommits", () => {
       branchNames: [""],
       maxCommits: 300,
       showRemoteBranches: false,
-      hard: false,
       dateType: "Author Date",
       showUncommittedChanges: false,
       commitOrder: "date",
       onlyFollowFirstParent: false,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -102,12 +97,10 @@ describe("loadCommits", () => {
       branchNames: [""],
       maxCommits: 1,
       showRemoteBranches: false,
-      hard: false,
       dateType: "Author Date",
       showUncommittedChanges: false,
       commitOrder: "date",
       onlyFollowFirstParent: false,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -119,8 +112,7 @@ describe("loadCommits", () => {
     expect(result).toEqual({
       commits: expect.any(Array),
       head: expect.any(String),
-      moreCommitsAvailable: true,
-      hard: false
+      moreCommitsAvailable: true
     });
     expect(result.commits.length).toBe(1);
   });
@@ -130,12 +122,10 @@ describe("loadCommits", () => {
       branchNames: [""],
       maxCommits: 300,
       showRemoteBranches: false,
-      hard: false,
       dateType: "Author Date",
       showUncommittedChanges: false,
       commitOrder: "date",
       onlyFollowFirstParent: false,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -147,8 +137,7 @@ describe("loadCommits", () => {
     expect(result).toEqual({
       commits: expect.any(Array),
       head: expect.any(String),
-      moreCommitsAvailable: false,
-      hard: false
+      moreCommitsAvailable: false
     });
   });
 
@@ -157,12 +146,10 @@ describe("loadCommits", () => {
       branchNames: ["main"],
       maxCommits: 300,
       showRemoteBranches: false,
-      hard: false,
       dateType: "Author Date",
       showUncommittedChanges: false,
       commitOrder: "date",
       onlyFollowFirstParent: false,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -183,12 +170,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date",
         showUncommittedChanges: true,
         commitOrder: "date",
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -212,23 +197,23 @@ describe("loadCommits", () => {
     }
   });
 
-  it("never counts untracked files toward uncommitted changes (even with showUntrackedFiles true)", async () => {
+  it("never counts untracked files toward uncommitted changes", async () => {
     const dirtyRepo = makeRepo();
     try {
       // Only an untracked file is present. The uncommitted-changes count tracks
-      // staged + tracked changes only, so no row is added regardless of the
-      // showUntrackedFiles setting.
+      // staged + tracked changes only, so no row is added — unconditionally.
+      // A `show.untrackedFiles` setting was once declared and passed in here
+      // without ever being read, so its name promised a choice this query never
+      // offered; the setting is gone, and this test is what the query does now.
       fs.writeFileSync(path.join(dirtyRepo, "untracked"), "z");
       const result = await loadCommits(simpleGit(dirtyRepo), {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date",
         showUncommittedChanges: true,
         commitOrder: "date",
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -251,12 +236,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date",
         showUncommittedChanges: false,
         commitOrder: "date",
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -276,12 +259,10 @@ describe("loadCommits", () => {
       branchNames: [""],
       maxCommits: 300,
       showRemoteBranches: false,
-      hard: false,
       dateType: "Author Date",
       showUncommittedChanges: false,
       commitOrder: "date",
       onlyFollowFirstParent: false,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -299,12 +280,10 @@ describe("loadCommits", () => {
       branchNames: [""],
       maxCommits: 300,
       showRemoteBranches: false,
-      hard: false,
       dateType: "Commit Date",
       showUncommittedChanges: false,
       commitOrder: "date",
       onlyFollowFirstParent: false,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -317,17 +296,20 @@ describe("loadCommits", () => {
     expect(result.commits[0].date).toBeGreaterThan(0);
   });
 
-  it("passes hard flag through to the result", async () => {
+  // The query answers with git data and nothing else. `hard` used to ride
+  // through here — declared on the input, echoed to the output, never read —
+  // which read as if the query did something with it. It is the webview's own
+  // flag; the message handler now echoes it, so this shape is the guard against
+  // it drifting back down into the query.
+  it("returns only git data — no flag of the caller's rides back out", async () => {
     const result = await loadCommits(simpleGit(repo), {
       branchNames: [""],
       maxCommits: 300,
       showRemoteBranches: false,
-      hard: true,
       dateType: "Author Date",
       showUncommittedChanges: false,
       commitOrder: "date",
       onlyFollowFirstParent: false,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -336,11 +318,13 @@ describe("loadCommits", () => {
       useMailmap: false,
       hiddenRemotes: []
     });
+    // The key set, not just the values: `toEqual` treats an `undefined` extra
+    // as absent, so it alone would let a re-added pass-through back in.
+    expect(Object.keys(result).toSorted()).toEqual(["commits", "head", "moreCommitsAvailable"]);
     expect(result).toEqual({
       commits: expect.any(Array),
       head: expect.any(String),
-      moreCommitsAvailable: false,
-      hard: true
+      moreCommitsAvailable: false
     });
   });
 
@@ -349,12 +333,10 @@ describe("loadCommits", () => {
       branchNames: [""],
       maxCommits: 300,
       showRemoteBranches: false,
-      hard: false,
       dateType: "Author Date",
       showUncommittedChanges: false,
       commitOrder: "topo",
       onlyFollowFirstParent: false,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -371,12 +353,10 @@ describe("loadCommits", () => {
       branchNames: [""],
       maxCommits: 300,
       showRemoteBranches: false,
-      hard: false,
       dateType: "Author Date",
       showUncommittedChanges: false,
       commitOrder: "date",
       onlyFollowFirstParent: true,
-      showUntrackedFiles: true,
       showCommitsOnlyReferencedByTags: true,
       showRemoteHeads: true,
       includeCommitsMentionedByReflogs: false,
@@ -404,12 +384,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date" as const,
         showUncommittedChanges: false,
         commitOrder: "date" as const,
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -440,12 +418,10 @@ describe("loadCommits", () => {
         branchNames: ["release"],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date",
         showUncommittedChanges: false,
         commitOrder: "date",
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -477,12 +453,10 @@ describe("loadCommits", () => {
       const base = {
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date" as const,
         showUncommittedChanges: false,
         commitOrder: "date" as const,
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -526,12 +500,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date",
         showUncommittedChanges: false,
         commitOrder: "date",
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -562,12 +534,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date" as const,
         showUncommittedChanges: false,
         commitOrder: "date" as const,
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
         showSignatureStatus: false,
@@ -614,12 +584,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date",
         showUncommittedChanges: false,
         commitOrder: "date",
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -650,12 +618,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: true,
-        hard: false,
         dateType: "Author Date" as const,
         showUncommittedChanges: false,
         commitOrder: "date" as const,
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         includeCommitsMentionedByReflogs: false,
         showSignatureStatus: false,
@@ -700,12 +666,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date" as const,
         showUncommittedChanges: false,
         commitOrder: "date" as const,
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         showSignatureStatus: false,
@@ -749,12 +713,10 @@ describe("loadCommits", () => {
         branchNames: ["glob:feature/*"],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date",
         showUncommittedChanges: false,
         commitOrder: "date",
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -792,12 +754,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date" as const,
         showUncommittedChanges: false,
         commitOrder: "date" as const,
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -833,12 +793,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date" as const,
         showUncommittedChanges: false,
         commitOrder: "date" as const,
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -893,12 +851,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: false,
-        hard: false,
         dateType: "Author Date",
         showUncommittedChanges: false,
         commitOrder: "date",
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
@@ -941,12 +897,10 @@ describe("loadCommits", () => {
         branchNames: [""],
         maxCommits: 300,
         showRemoteBranches: true,
-        hard: false,
         dateType: "Author Date" as const,
         showUncommittedChanges: false,
         commitOrder: "date" as const,
         onlyFollowFirstParent: false,
-        showUntrackedFiles: true,
         showCommitsOnlyReferencedByTags: true,
         showRemoteHeads: true,
         includeCommitsMentionedByReflogs: false,
