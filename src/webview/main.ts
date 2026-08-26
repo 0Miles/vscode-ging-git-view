@@ -3306,14 +3306,11 @@ class GitGraphView {
       }
       // Infinite scroll: load the next page once the user nears the bottom.
       //
-      // Not throttled, and deliberately so. A successful load grows the page by
-      // ~100 rows against a 250px threshold, which puts the bottom an order of
-      // magnitude out of reach, so back-to-back triggers are not reachable to
-      // begin with (ADR-0019 measured it). Throttling would only ever drop the
-      // triggers that *are* reachable — a user at the bottom asking for more,
-      // which is the browsing ADR-0014 draws its line around. Nor is the
-      // listener passive: `scroll` is not cancelable, so `{ passive: true }`
-      // has nothing to promise here; the cost was always the measurement.
+      // Neither throttled nor passive, in both cases deliberately: see
+      // ADR-0019's rejected alternatives for the throttling measurement, which
+      // is not restated here. `{ passive: true }` is the other one — `scroll`
+      // is not cancelable, so it has nothing to promise; the cost was always
+      // the measurement below, never the listener's right to block.
       if (
         this.config.loadMoreAutomatically &&
         this.moreCommitsAvailable &&
@@ -3349,28 +3346,43 @@ class GitGraphView {
    *  because a viewport change moves the bottom without touching the DOM.
    *
    *  Ordering is what makes the cache safe rather than merely cheap: mutation
-   *  records are delivered on a microtask, so the invalidation has always run
-   *  before the next scroll event is dispatched. A ResizeObserver would be the
-   *  more direct instrument and is the wrong one here — its broadcast comes
-   *  *after* the frame's scroll events, leaving one tick of stale height right
-   *  where it does the most damage, immediately after a load lands.
+   *  records are delivered on a microtask, and a real scroll event is dispatched
+   *  by the user agent from the rendering steps, so the invalidation has always
+   *  run before the next scroll handler sees the cache. A ResizeObserver would
+   *  be the more direct instrument and is the wrong one here — its broadcast is
+   *  ordered *after* the frame's scroll events, leaving one tick of stale height
+   *  right where it does the most damage, immediately after a load lands.
+   *  loadMoreOnScrollLayoutCost.test.ts pins the microtask half of that; the
+   *  frame-lifecycle half rests on the spec, because jsdom runs no rendering
+   *  steps and so cannot exhibit it.
    *
-   *  What it does *not* cover: layout that settles after the mutation that
+   *  One exception to that guarantee, and it is in the scroll handler itself:
+   *  the `scrollShadow` class is written the statement before the threshold is
+   *  read, so within that tick the record has not been delivered and the read
+   *  is of the pre-write cache. Harmless — `#scrollShadow.active` is
+   *  `position: fixed; height: 0` (`media/main.css:33`), so it is not in flow
+   *  and cannot move the bottom — but it is the one place the ordering above
+   *  does not hold, so it is written down rather than left to be rediscovered.
+   *
+   *  What this does *not* cover: layout that settles after the mutation that
    *  caused it, where the record arrives while the height is still the old one.
    *  Nothing in this webview does that today — there is no `@font-face` and no
    *  height-affecting `transition` anywhere in `media/`, and the one late-
-   *  decoding image, the avatar, sits in a row whose height is pinned by
-   *  `line-height: 24px` (`media/main.css:237`) well above the 18px+3px it can
-   *  occupy. Adding either would want a ResizeObserver alongside this, as the
+   *  decoding image, the avatar, is pinned to 18px in both axes
+   *  (`media/main.css:548`) inside a row whose `line-height: 24px` is taller
+   *  still. Adding either would want a ResizeObserver alongside this, as the
    *  second source rather than the first.
    *
    *  The watchers are a standing cost that the two booleans do *not* gate: they
    *  keep queueing records after `moreCommitsAvailable` goes false, for a cache
    *  nobody will read again. Accepted rather than fixed, because gating them
    *  means a connect/disconnect state machine around an assignment in
-   *  `loadCommits` for a state most repositories never reach, and records are
-   *  only allocated when the document actually changes — which is exactly when
-   *  the height could have moved. */
+   *  `loadCommits` for a state most repositories never reach. The bound is
+   *  looser than "records only appear when the height could have moved", and
+   *  `applyFindHighlights` is the counter-example that keeps that honest: it
+   *  toggles a class per matching row on every keystroke, hundreds of records
+   *  that cannot move the height by construction. Human-paced and bounded, so
+   *  still the cheaper side of the trade — but not free, and not correlated. */
   private observePageHeight() {
     const invalidate = () => {
       this.pageHeight = null;

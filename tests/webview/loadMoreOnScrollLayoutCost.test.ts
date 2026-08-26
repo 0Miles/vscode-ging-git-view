@@ -83,10 +83,25 @@ const TALL_PAGE = 100000;
 /** Short enough that the same viewport is now within 250px of the bottom. */
 const SHORT_PAGE = VIEWPORT_HEIGHT + 100;
 
-/** MutationObserver delivers on a microtask, so anything that watches the
- *  document for changes has seen them by the time this resolves. */
-function settle() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+/** Drain the microtask queue and *nothing else* — no timers, no frames.
+ *
+ *  Deliberately not `setTimeout`. MutationObserver delivers its records on a
+ *  microtask, so an invalidation that has landed by the time this resolves is
+ *  one that lands before any later turn can run — which is the half of the
+ *  ordering argument that makes the cache safe rather than merely cheap, and
+ *  the half that rules out ResizeObserver, whose broadcast is never a
+ *  microtask. A `setTimeout` flush would accept either and pin neither.
+ *
+ *  The other half is not observable here and this file does not pretend to
+ *  cover it: that a real `scroll` event is dispatched by the user agent from
+ *  the rendering steps — a later turn by construction, so the invalidation is
+ *  always already done — rests on the frame lifecycle, and jsdom runs no
+ *  rendering steps at all (it implements neither `requestAnimationFrame` nor
+ *  `ResizeObserver`). Every scroll event below is a synchronous synthetic
+ *  dispatch. That half is guaranteed by the HTML spec and by nothing in this
+ *  repository; see `observePageHeight`. */
+function flushMicrotasks() {
+  return Promise.resolve();
 }
 
 describe("what the near-the-bottom threshold costs while it is live", () => {
@@ -117,7 +132,7 @@ describe("what the near-the-bottom threshold costs while it is live", () => {
       },
       configurable: true
     });
-    await settle();
+    await flushMicrotasks();
     mock.clearMessages(); // drop the opening load, so only scrolling is counted
   });
 
@@ -139,7 +154,7 @@ describe("what the near-the-bottom threshold costs while it is live", () => {
   describe("a redraw that could have moved the bottom", () => {
     beforeAll(async () => {
       receive(commitsResponse(nextPage));
-      await settle();
+      await flushMicrotasks();
       heightReads = 0;
       for (let i = 0; i < 10; i++) document.dispatchEvent(new Event("scroll"));
     });
@@ -154,7 +169,7 @@ describe("what the near-the-bottom threshold costs while it is live", () => {
       pageHeight = SHORT_PAGE;
       mock.clearMessages();
       receive(commitsResponse(commits));
-      await settle();
+      await flushMicrotasks();
       document.dispatchEvent(new Event("scroll"));
     });
 
