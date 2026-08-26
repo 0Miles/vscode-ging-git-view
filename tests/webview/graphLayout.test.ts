@@ -127,12 +127,17 @@ describe("graph layout termination", () => {
 // times with no visual difference at all, so a test phrased that way would be
 // flaky.
 describe("graph layout across a widened commit window", () => {
-  // The palette the shipped manifest defaults to. getVertexColour() returns
-  // `colour % palette.length`, so the three-colour makeConfig() above would
-  // read a raw colour of 5 back as 2 and this suite could not tell the two
-  // apart. Twelve is longer than any lane this fixture can reach, which makes
-  // the modulo inert and the numbers below the raw lane colours ADR-0019
-  // recorded.
+  // The palette package.json declares for `graph.palette` — which is the one
+  // users actually get. VS Code answers every registered key with the manifest
+  // default, so the six-colour fallback in src/config.ts is unreachable, and
+  // tests/extension/config.test.ts pins this exact list to say so (#71, #77).
+  // The three-colour makeConfig() shared with the suite above is a palette
+  // production never hands out.
+  //
+  // For this fixture the two agree bit for bit: its raw lane colours only reach
+  // 2, so getVertexColour()'s `colour % palette.length` folds nothing either
+  // way. The numbers below are pinned against what a user sees rather than
+  // against a value that exists only in this file.
   const shippedPalette = [
     "#0085d9",
     "#d9008f",
