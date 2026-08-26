@@ -3635,6 +3635,11 @@ class GitGraphView {
     const plan = planFindLoad(this.maxCommits, match);
     if (plan === null) return;
     const load = () => {
+      // Guarded again, not just at the top: when the plan needs confirming, this
+      // runs after the user answers the dialog, and a load can have started in
+      // the meantime. Everything below changes state, so the check belongs here
+      // as well — the check above only covers the path that acts immediately.
+      if (this.commitLoadInFlight) return;
       this.pendingFindTargetHash = match.hash;
       this.maxCommits = plan.maxCommits;
       this.hideCommitDetails();

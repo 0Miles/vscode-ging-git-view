@@ -94,6 +94,58 @@ function actionDialogUp() {
   return document.getElementById("actionRunning") !== null;
 }
 
+/** The token on the newest branch-index request. Answers have to carry it or
+ *  the webview discards them as superseded. */
+function latestBranchSearchToken() {
+  const requests = sentOf("branchSearch");
+  expect(requests.length).toBeGreaterThan(0);
+  return (requests[requests.length - 1] as Extract<GG.RequestMessage, { command: "branchSearch" }>)
+    .token;
+}
+
+function savedMaxCommits() {
+  return mock.getState()!.maxCommits;
+}
+
+/** How far past the loaded window {@link raiseFindLoadConfirmation} puts its
+ *  branch. Anything over 200 makes planFindLoad ask before loading; measuring
+ *  it from the window rather than fixing a depth keeps the scenarios standing
+ *  wherever the earlier ones left the window. */
+const ADDITIONAL_COMMITS = 401;
+
+/** Step Find onto a branch that far below the loaded window and leave its
+ *  confirmation dialog up. Find has been open since the first scenario, so
+ *  every commit load that lands re-requests the branch index; this answers the
+ *  newest request. */
+function raiseFindLoadConfirmation() {
+  const deepBranch = {
+    ref: "feature/ancient",
+    name: "feature/ancient",
+    hash: "ancient999",
+    depth: savedMaxCommits() + ADDITIONAL_COMMITS - 1
+  };
+  const input = <HTMLInputElement>document.getElementById("findInput");
+  input.value = "ancient";
+  input.dispatchEvent(new KeyboardEvent("keyup", { key: "t" }));
+  receive({
+    command: "branchSearch",
+    token: latestBranchSearchToken(),
+    status: null,
+    branches: [deepBranch]
+  });
+  // Enter on a branch hit revalidates the index before committing to a load —
+  // the branch may have moved — so the load is decided when that second answer
+  // arrives, not on the keypress.
+  input.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter" }));
+  receive({
+    command: "branchSearch",
+    token: latestBranchSearchToken(),
+    status: null,
+    branches: [deepBranch]
+  });
+  expect(document.getElementById("dialogAction"), "confirmation dialog").not.toBeNull();
+}
+
 /** The branch-filter chip's label — the toolbar's only outward sign of which
  *  branches the graph is showing. */
 function filterChipText() {
@@ -257,6 +309,90 @@ describe("a commit load request arriving while one is in flight", () => {
       // The dropped request takes the callback — and with it the only path
       // that would ever have switched the indicator back off — so the caller
       // has to close out what it switched on.
+      expect(refreshing()).toBe(false);
+    });
+  });
+
+  // The one caller whose state changes are not adjacent to the decision to make
+  // them: a Find load big enough to need confirming acts when the user answers
+  // the dialog, an unbounded wait later. Whatever the state of things was when
+  // the dialog went up says nothing about the state of things when Yes is
+  // pressed — a background refresh or the file watcher may have started a load
+  // in between — so the guard has to be re-taken there, next to the mutations.
+  describe("from a Find navigation the user was still confirming", () => {
+    let windowBefore = 0;
+    let confirmText = "";
+
+    beforeAll(() => {
+      receive(branchesResponse); // settle the previous refresh's branch half
+      receive(commitsResponse); // and the commit load it sends
+      windowBefore = savedMaxCommits();
+
+      raiseFindLoadConfirmation();
+      confirmText = document.getElementById("dialog")!.textContent ?? "";
+
+      // While the dialog stands there, a refresh starts a load of its own.
+      click("refreshBtn");
+      receive(branchesResponse); // its commit half goes out, deliberately unanswered
+      mock.clearMessages();
+
+      click("dialogAction"); // and only now does the user press Yes
+    });
+
+    it("asked first, the match being that far past the loaded window", () => {
+      expect(confirmText).toContain(String(ADDITIONAL_COMMITS));
+    });
+
+    it("does not reload the graph", () => {
+      expect(sentOf("loadCommits")).toHaveLength(0);
+    });
+
+    it("does not widen the loaded commit window for the page it never asked for", () => {
+      // The mutation the guard at the top of loadFindMatch cannot cover: it was
+      // taken before the dialog went up and says nothing about now. Widening
+      // here records a window hundreds of commits past anything ever loaded,
+      // and the next Load More pages from there.
+      expect(savedMaxCommits()).toBe(windowBefore);
+    });
+
+    describe("and once the in-flight load lands", () => {
+      beforeAll(() => {
+        receive(commitsResponse);
+        mock.clearMessages();
+        click("loadMoreCommitsBtn");
+      });
+
+      it("leaves the loaded commit window where it was", () => {
+        expect(sentOf("loadCommits")).toMatchObject([{ maxCommits: windowBefore + 100 }]);
+      });
+    });
+  });
+
+  // Same dialog, but the load that starts underneath it is a Load More rather
+  // than a refresh. It is the refresh's own callback that clears the busy
+  // indicator above, which is why the indicator has to be watched here: Load
+  // More's callback has no interest in it, so nothing else would.
+  describe("and that Find navigation, confirmed over a Load More page instead", () => {
+    let spinningBefore = true;
+
+    beforeAll(() => {
+      receive(commitsResponse); // settle the previous press
+      raiseFindLoadConfirmation();
+      spinningBefore = refreshing();
+      click("loadMoreCommitsBtn"); // a page in flight, its callback owning nothing
+      mock.clearMessages();
+      click("dialogAction");
+      receive(commitsResponse); // and the page lands
+    });
+
+    it("was not already showing a busy indicator", () => {
+      expect(spinningBefore).toBe(false);
+    });
+
+    it("leaves no busy indicator that nothing can clear", () => {
+      // Switched on next to the mutations and switched off from the callback of
+      // the request that is dropped a line later — so acting here spins the
+      // Refresh button for the life of the panel.
       expect(refreshing()).toBe(false);
     });
   });
