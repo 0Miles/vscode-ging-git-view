@@ -1580,11 +1580,6 @@
           "default": true,
           "description": "%config.showUncommittedChanges%"
         },
-        "ging-git-view.show.untrackedFiles": {
-          "type": "boolean",
-          "default": true,
-          "description": "%config.showUntrackedFiles%"
-        },
         "ging-git-view.history.useMailmap": {
           "type": "boolean",
           "default": false,

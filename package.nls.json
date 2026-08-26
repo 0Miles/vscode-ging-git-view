@@ -87,7 +87,6 @@
   "config.tabIconColourTheme.grey": "Show a grey icon which suits Visual Studio Code colour themes that are predominantly grayscale",
   "config.showTags": "Show tags on the graph view. Default: true (enabled)",
   "config.showStashes": "Show stashes on the graph view (as nodes branching off the commit they were created on). Default: true",
-  "config.showUntrackedFiles": "Show untracked files in the uncommitted changes on the graph view. Default: true (enabled)",
   "config.dateFormat.isoDateTime": "Show the ISO date and time, for example \"2019-03-19 21:34:00\"",
   "config.dateFormat.isoDateOnly": "Show the ISO date only, for example \"2019-03-19\"",
   "config.useMailmap": "Use .mailmap files when displaying author and committer names and email addresses. Default: false",

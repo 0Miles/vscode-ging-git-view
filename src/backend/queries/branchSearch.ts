@@ -40,9 +40,12 @@ export async function loadBranchSearchIndex(
     git.raw(logArgs(input))
   ]);
 
-  const depths = new Map<string, number>();
-  for (const [depth, hash] of logOutput.trimEnd().split(/\r?\n/).entries()) {
-    if (hash !== "") depths.set(hash, depth);
+  // Positions in `git log`, not rows on the graph: the graph splices stash rows
+  // in among these commits, so the webview converts before either number can be
+  // treated as a row (see `BranchSearchEntry.logDepth`).
+  const logDepths = new Map<string, number>();
+  for (const [logDepth, hash] of logOutput.trimEnd().split(/\r?\n/).entries()) {
+    if (hash !== "") logDepths.set(hash, logDepth);
   }
 
   const branches: BranchSearchEntry[] = [];
@@ -65,10 +68,10 @@ export async function loadBranchSearchIndex(
       continue;
     }
 
-    const depth = depths.get(hash);
-    if (depth !== undefined) branches.push({ ref, name, hash, depth });
+    const logDepth = logDepths.get(hash);
+    if (logDepth !== undefined) branches.push({ ref, name, hash, logDepth });
   }
 
-  branches.sort((a, b) => a.depth - b.depth || a.name.localeCompare(b.name));
+  branches.sort((a, b) => a.logDepth - b.logDepth || a.name.localeCompare(b.name));
   return { branches };
 }

@@ -87,7 +87,6 @@
   "config.tabIconColourTheme.grey": "显示适合以灰度为主的 Visual Studio Code 颜色主题的灰色图标",
   "config.showTags": "在 Git 图形视图中显示 tag。默认值：true（启用）",
   "config.showStashes": "在 Git 图形视图中显示 stash （作为从其创建 commit 分出的节点）。默认值：true",
-  "config.showUntrackedFiles": "在 Git 图形视图的 uncommitted 更改中显示未跟踪的文件。默认值：true（启用）",
   "config.dateFormat.isoDateTime": "显示 ISO 日期和时间，例如 \"2019-03-19 21:34:00\"",
   "config.dateFormat.isoDateOnly": "仅显示 ISO 日期，例如 \"2019-03-19\"",
   "config.useMailmap": "显示 author 和 committer 的名称及电子邮件地址时使用 .mailmap 文件。默认值：false",

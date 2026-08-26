@@ -15,17 +15,18 @@ import { type GraphStash, loadStashes } from "./loadStashes";
 const eolRegex = /\r\n|\r|\n/g;
 const gitLogSeparator = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
 
+/** Everything here is read. The webview's `hard` flag is deliberately absent:
+ *  it steers nothing about which commits get read, and the message handler
+ *  echoes it back on its own (see `messageHandler.ts`). */
 type LoadCommitsInput = {
   /** Branch refs to show commits from; see the request type. */
   branchNames: string[];
   maxCommits: number;
   showRemoteBranches: boolean;
-  hard: boolean;
   dateType: DateType;
   showUncommittedChanges: boolean;
   commitOrder: CommitOrdering;
   onlyFollowFirstParent: boolean;
-  showUntrackedFiles: boolean;
   showCommitsOnlyReferencedByTags: boolean;
   showRemoteHeads: boolean;
   includeCommitsMentionedByReflogs: boolean;
@@ -149,6 +150,12 @@ async function getUnsavedChanges(git: SimpleGit) {
     // The uncommitted-changes node counts staged + tracked working-tree changes
     // only. `not_added` (untracked paths, a subset of `files`) never contributes,
     // so a tree with nothing but untracked files shows no node.
+    //
+    // Unconditional, and no setting governs it. A `show.untrackedFiles` setting
+    // was once declared and threaded down to here, where nothing ever read it,
+    // so it offered a choice this line never honoured. The setting is gone
+    // rather than made live: switching it on would change the number every user
+    // already reads on that row (see `tests/backend/queries/loadCommits`).
     const changes = status.files.length - status.not_added.length;
     if (changes <= 0) return null;
     return { branch: status.current ?? "HEAD", changes };
@@ -207,12 +214,11 @@ function stashInsertIndex(
 export async function loadCommits(
   git: SimpleGit,
   input: LoadCommitsInput
-): Promise<QueryResult<"loadCommits">> {
+): Promise<Omit<QueryResult<"loadCommits">, "hard">> {
   const {
     branchNames,
     maxCommits,
     showRemoteBranches,
-    hard,
     dateType,
     showUncommittedChanges,
     commitOrder,
@@ -311,5 +317,5 @@ export async function loadCommits(
     }
   }
 
-  return { commits: commitNodes, head: refData.head, moreCommitsAvailable, hard };
+  return { commits: commitNodes, head: refData.head, moreCommitsAvailable };
 }
