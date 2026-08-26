@@ -158,11 +158,11 @@ async function getUnsavedChanges(git: SimpleGit) {
 }
 
 /**
- * Which row a stash belongs on within the loaded commits, or -1 when its row
- * lies past the end of a truncated window.
+ * Where to splice a stash into the loaded commits, or -1 when its place lies
+ * past the end of a window that is still hiding commits.
  *
- * The row is the first loaded commit older than the stash — or the stash's base
- * commit, when that one sits higher still. **That clamp to the base is a
+ * The index is the first loaded commit older than the stash — or the stash's
+ * base commit, when that one sits higher still. **That clamp to the base is a
  * correctness requirement, not tidiness.** The graph layout assumes a commit's
  * parents appear below it (a higher index), and a stash's date can disagree
  * with the commits around it in three ways: the stash date is always its
@@ -171,24 +171,37 @@ async function getUnsavedChanges(git: SimpleGit) {
  * place a stash *below* its own base, pointing its only parent upward, which
  * the layout walk cannot terminate on (see `tests/webview/graphLayout.test.ts`).
  *
- * When neither exists, the stash is older than everything loaded, so its row is
- * past the last loaded one. Appending it there — what this used to do — makes
- * the row a function of how much is loaded: the stash sits at the bottom of
- * whatever happens to be loaded, then moves down each time a later load reveals
- * the commits that belong above it. So the end of the list counts as a real row
- * only when the list *is* the whole history; otherwise the stash waits for the
- * window to reach the commits it belongs among.
+ * When neither exists, the stash is older than everything loaded, so its place
+ * is past the last loaded commit. Appending it there — what this used to do —
+ * makes the row a function of how much is loaded: the stash sits at the bottom
+ * of whatever happens to be loaded, then moves down each time a later load
+ * reveals the commits that belong above it. So the end of the list counts as a
+ * real place only when the list *is* the whole history; otherwise the stash
+ * waits for the loaded commit window to reach the commits it belongs among.
  *
- * That wait has a price, and it is deliberate: the graph is the only surface
- * that offers a stash's actions, so a stash with no row has none until the
- * window reaches it. A row nobody can predict is the worse of the two.
+ * **The -1 is a knowingly accepted trade, and it costs more than it looks.**
+ * Two facts sharpen it. First, the old fallback was not holding the layout
+ * together on this path: a stash appended past the end has an unloaded base, so
+ * its parent is the id -1 sentinel and the walk was never at risk. This buys a
+ * stable row with the stash's visibility, not with correctness. Second, the
+ * graph is the only surface GING offers for a stash — `refContextMenu` keys off
+ * `ref.type === "stash"`, `listStashes` is unwired, and both the README and the
+ * `scrollToStash` shortcut still assume every stash is on the graph. So a stash
+ * whose base is unreachable is out of reach here until the whole history is
+ * loaded (`git` and VS Code's built-in Git still show it). Accepted anyway: a
+ * row at a position that is invented, and that moves when the user loads more,
+ * is harder to explain than a row that is not there yet.
  */
-function stashRow(commits: GitLogEntry[], stash: GraphStash, windowIsTruncated: boolean): number {
+function stashInsertIndex(
+  commits: GitLogEntry[],
+  stash: GraphStash,
+  moreCommitsAvailable: boolean
+): number {
   const byDate = commits.findIndex((c) => c.date < stash.date);
   const base = stash.baseHash === null ? -1 : commits.findIndex((c) => c.hash === stash.baseHash);
   if (base !== -1 && (byDate === -1 || base < byDate)) return base;
   if (byDate !== -1) return byDate;
-  return windowIsTruncated ? -1 : commits.length;
+  return moreCommitsAvailable ? -1 : commits.length;
 }
 
 export async function loadCommits(
@@ -260,7 +273,7 @@ export async function loadCommits(
     // positioned by date, and add a "stash" ref so they're labelled on the graph.
     const stashes = await loadStashes(git);
     for (const stash of stashes) {
-      const idx = stashRow(commits, stash, moreCommitsAvailable);
+      const idx = stashInsertIndex(commits, stash, moreCommitsAvailable);
       // The stash belongs below everything this window holds; it gets its row
       // (and its label with it) once the window reaches that far.
       if (idx === -1) continue;
