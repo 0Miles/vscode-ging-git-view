@@ -10,7 +10,7 @@ import type {
 } from "@/backend/types";
 
 import { gitLogScopeArgs, gitLogTraversalArgs } from "./gitLogScope";
-import { loadStashes } from "./loadStashes";
+import { type GraphStash, loadStashes } from "./loadStashes";
 
 const eolRegex = /\r\n|\r|\n/g;
 const gitLogSeparator = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
@@ -157,6 +157,40 @@ async function getUnsavedChanges(git: SimpleGit) {
   }
 }
 
+/**
+ * Which row a stash belongs on within the loaded commits, or -1 when its row
+ * lies past the end of a truncated window.
+ *
+ * The row is the first loaded commit older than the stash — or the stash's base
+ * commit, when that one sits higher still. **That clamp to the base is a
+ * correctness requirement, not tidiness.** The graph layout assumes a commit's
+ * parents appear below it (a higher index), and a stash's date can disagree
+ * with the commits around it in three ways: the stash date is always its
+ * committer date (%ct) while the commits carry %at or %ct per `dateType`, topo
+ * ordering isn't date-sorted at all, and clock skew happens. Any of those can
+ * place a stash *below* its own base, pointing its only parent upward, which
+ * the layout walk cannot terminate on (see `tests/webview/graphLayout.test.ts`).
+ *
+ * When neither exists, the stash is older than everything loaded, so its row is
+ * past the last loaded one. Appending it there — what this used to do — makes
+ * the row a function of how much is loaded: the stash sits at the bottom of
+ * whatever happens to be loaded, then moves down each time a later load reveals
+ * the commits that belong above it. So the end of the list counts as a real row
+ * only when the list *is* the whole history; otherwise the stash waits for the
+ * window to reach the commits it belongs among.
+ *
+ * That wait has a price, and it is deliberate: the graph is the only surface
+ * that offers a stash's actions, so a stash with no row has none until the
+ * window reaches it. A row nobody can predict is the worse of the two.
+ */
+function stashRow(commits: GitLogEntry[], stash: GraphStash, windowIsTruncated: boolean): number {
+  const byDate = commits.findIndex((c) => c.date < stash.date);
+  const base = stash.baseHash === null ? -1 : commits.findIndex((c) => c.hash === stash.baseHash);
+  if (base !== -1 && (byDate === -1 || base < byDate)) return base;
+  if (byDate !== -1) return byDate;
+  return windowIsTruncated ? -1 : commits.length;
+}
+
 export async function loadCommits(
   git: SimpleGit,
   input: LoadCommitsInput
@@ -226,19 +260,10 @@ export async function loadCommits(
     // positioned by date, and add a "stash" ref so they're labelled on the graph.
     const stashes = await loadStashes(git);
     for (const stash of stashes) {
-      let idx = commits.findIndex((c) => c.date < stash.date);
-      if (idx === -1) idx = commits.length;
-      // The graph layout assumes a commit's parents appear below it (a higher
-      // index). Placing a stash purely by date can drop it *below* its base
-      // commit — the stash date (%ct) and the commits' date basis (%at/%ct, per
-      // dateType) can disagree, topo ordering isn't date-sorted at all, and
-      // clock skew happens — which makes the stash's parent point upward and
-      // hangs the layout walk (a frozen graph). Clamp the stash to sit at or
-      // above its base so that invariant always holds.
-      if (stash.baseHash !== null) {
-        const baseIdx = commits.findIndex((c) => c.hash === stash.baseHash);
-        if (baseIdx !== -1 && baseIdx < idx) idx = baseIdx;
-      }
+      const idx = stashRow(commits, stash, moreCommitsAvailable);
+      // The stash belongs below everything this window holds; it gets its row
+      // (and its label with it) once the window reaches that far.
+      if (idx === -1) continue;
       commits.splice(idx, 0, {
         hash: stash.hash,
         parentHashes: stash.baseHash !== null ? [stash.baseHash] : [],
