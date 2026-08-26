@@ -109,9 +109,11 @@ type QueryPayloads = {
        *  webview's "same content, skip the redraw" short-circuit, which a hard
        *  refresh has to defeat: same commits, but the user asked to see the
        *  reload happen. Messaging here is command-keyed rather than
-       *  request-id'd, so the flag rides the round trip instead of being
-       *  remembered locally — that is what keeps it pinned to the response it
-       *  belongs to. */
+       *  request-id'd, so a flag that has to stay pinned to its own response
+       *  rides the round trip rather than being remembered locally. Only one
+       *  commit load is ever in flight (ADR-0018), so remembering it locally
+       *  would work too — the round trip is what the protocol already gives us,
+       *  not the only thing that could pin it. */
       hard: boolean;
       commitOrder?: CommitOrdering;
       /** Remote names whose branches are hidden. */
