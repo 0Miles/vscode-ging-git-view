@@ -258,6 +258,10 @@ class GitGraphView {
   // reset's own redraw finds the permission already spent.
   private pendingFocusScroll = false;
   private hasScrolledToHeadOnLoad = false;
+  // Cached `document.body.offsetHeight` for the near-the-bottom threshold; null
+  // means "not measured since the last change that could have moved the bottom".
+  // See getPageHeight / observePageHeight.
+  private pageHeight: number | null = null;
   private columnVisibility = { date: true, author: true, commit: true };
   private currentStashScroll = -1;
   private alwaysAcceptCheckoutCommit = false;
@@ -3301,14 +3305,95 @@ class GitGraphView {
         this.scrollShadowElem.className = active ? "active" : "";
       }
       // Infinite scroll: load the next page once the user nears the bottom.
+      //
+      // Neither throttled nor passive, in both cases deliberately: see
+      // ADR-0019's rejected alternatives for the throttling measurement, which
+      // is not restated here. `{ passive: true }` is the other one — `scroll`
+      // is not cancelable, so it has nothing to promise; the cost was always
+      // the measurement below, never the listener's right to block.
       if (
         this.config.loadMoreAutomatically &&
         this.moreCommitsAvailable &&
-        window.innerHeight + window.scrollY >= document.body.offsetHeight - 250
+        window.innerHeight + window.scrollY >= this.getPageHeight() - 250
       ) {
         this.loadMoreCommits();
       }
     });
+    // Nothing invalidates a height nobody reads, and only the branch above
+    // reads one — so the watchers are the switch's dependents, not the panel's.
+    if (this.config.loadMoreAutomatically) this.observePageHeight();
+  }
+  /** The page height the near-the-bottom threshold measures against.
+   *
+   *  Measuring it lays the document out synchronously, and the threshold sits
+   *  on the scroll path — so the measurement is cached, and `pageHeight` is
+   *  null exactly when something has happened that could have moved the bottom.
+   *  The reflow window is therefore "once per change while more commits are
+   *  still loadable" rather than "once per tick", and the two booleans in front
+   *  still take it to nothing at all once the whole history is in. */
+  private getPageHeight() {
+    if (this.pageHeight === null) this.pageHeight = document.body.offsetHeight;
+    return this.pageHeight;
+  }
+  /** Drop the cached page height whenever the document changes at all.
+   *
+   *  Deliberately not a list of the places that change the height: such a list
+   *  is right only until the next one is added, and the failure is silent and
+   *  awful — a stale height that reads short loads pages nobody scrolled to,
+   *  one that reads long strands the user at the bottom with a Load More they
+   *  have to find. Mutations are watched from `documentElement` so a theme
+   *  landing on `<html>` counts too, and `resize` is listened for separately
+   *  because a viewport change moves the bottom without touching the DOM.
+   *
+   *  Ordering is what makes the cache safe rather than merely cheap: mutation
+   *  records are delivered on a microtask, and a real scroll event is dispatched
+   *  by the user agent from the rendering steps, so the invalidation has always
+   *  run before the next scroll handler sees the cache. A ResizeObserver would
+   *  be the more direct instrument and is the wrong one here — its broadcast is
+   *  ordered *after* the frame's scroll events, leaving one tick of stale height
+   *  right where it does the most damage, immediately after a load lands.
+   *  loadMoreOnScrollLayoutCost.test.ts pins the microtask half of that; the
+   *  frame-lifecycle half rests on the spec, because jsdom runs no rendering
+   *  steps and so cannot exhibit it.
+   *
+   *  One exception to that guarantee, and it is in the scroll handler itself:
+   *  the `scrollShadow` class is written the statement before the threshold is
+   *  read, so within that tick the record has not been delivered and the read
+   *  is of the pre-write cache. Harmless — `#scrollShadow.active` is
+   *  `position: fixed; height: 0` (`media/main.css:33`), so it is not in flow
+   *  and cannot move the bottom — but it is the one place the ordering above
+   *  does not hold, so it is written down rather than left to be rediscovered.
+   *
+   *  What this does *not* cover: layout that settles after the mutation that
+   *  caused it, where the record arrives while the height is still the old one.
+   *  Nothing in this webview does that today — there is no `@font-face` and no
+   *  height-affecting `transition` anywhere in `media/`, and the one late-
+   *  decoding image, the avatar, is pinned to 18px in both axes
+   *  (`media/main.css:548`) inside a row whose `line-height: 24px` is taller
+   *  still. Adding either would want a ResizeObserver alongside this, as the
+   *  second source rather than the first.
+   *
+   *  The watchers are a standing cost that the two booleans do *not* gate: they
+   *  keep queueing records after `moreCommitsAvailable` goes false, for a cache
+   *  nobody will read again. Accepted rather than fixed, because gating them
+   *  means a connect/disconnect state machine around an assignment in
+   *  `loadCommits` for a state most repositories never reach. The bound is
+   *  looser than "records only appear when the height could have moved", and
+   *  `applyFindHighlights` is the counter-example that keeps that honest: it
+   *  toggles a class per matching row on every keystroke, hundreds of records
+   *  that cannot move the height by construction. Human-paced and bounded, so
+   *  still the cheaper side of the trade — but not free, and not correlated. */
+  private observePageHeight() {
+    const invalidate = () => {
+      this.pageHeight = null;
+    };
+    new MutationObserver(invalidate).observe(document.documentElement, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true
+    });
+    window.addEventListener("resize", invalidate);
   }
   /** Pull the loaded commit window back to the opening count — the one width it
    *  ever shrinks to, never an intermediate one.
