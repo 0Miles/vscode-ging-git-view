@@ -74,6 +74,7 @@ A few commonly adjusted settings:
 | `ging-git-view.dates.type`                 | `Author Date` | `Author Date` or `Commit Date`                   |
 | `ging-git-view.graph.edgeStyle`            | `rounded`     | `rounded` or `angular`                           |
 | `ging-git-view.history.initialCommitCount` | `300`         | Commits to load on open                          |
+| `ging-git-view.history.loadMoreOnScroll`   | `true`        | Load the next page on scrolling to the bottom    |
 | `ging-git-view.repoSearchDepth`            | `0`           | Folder depth for repository search               |
 | `ging-git-view.statusBarButton`            | `true`        | Show the status bar button                       |
 

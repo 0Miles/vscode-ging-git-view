@@ -29,7 +29,40 @@ suite("config settings", () => {
     assert.strictEqual(config.dateCustomFormat(), "DD MMM YYYY");
     assert.strictEqual(config.initialLoadCommits(), 300);
     assert.deepStrictEqual(config.showSpecificBranches(), []);
-    assert.ok(Array.isArray(config.graphColours()) && config.graphColours().length > 0);
+    // On by default: scrolling to the bottom loads the next page. Flipping a
+    // shipped default is exactly what this list exists to make deliberate.
+    assert.strictEqual(config.loadMoreAutomatically(), true);
+    // `loadMoreCount` was renamed in this same pass, so it belongs in this list
+    // too — it is asserted in the test below instead, beside the other instance
+    // of the rule it exercises. The assertion is the same either way: pinning it
+    // to its declared 100 also proves it is not undefined.
+  });
+
+  // VS Code answers every registered key with its package.json default, so an
+  // accessor's own fallback is unreachable and the two can drift apart unseen.
+  // Both keys below were drifting: `loadMoreCount` declared 100 against a
+  // fallback of 75, the palette declares 12 colours against a fallback of 6.
+  // `loadMoreCount` has since been realigned, so it pins the number the webview
+  // viewState fixtures now mirror. The palette is still apart, which is what
+  // makes it the live proof that the declaration is what users actually get —
+  // an assertion that only checked for a non-empty array could never have
+  // caught either.
+  test("the declared default wins over the accessor's own fallback", () => {
+    assert.strictEqual(config.loadMoreCount(), 100);
+    assert.deepStrictEqual(config.graphColours(), [
+      "#0085d9",
+      "#d9008f",
+      "#00d90a",
+      "#d98500",
+      "#a300d9",
+      "#ff0000",
+      "#00d9cc",
+      "#e138e8",
+      "#85d900",
+      "#dc5b23",
+      "#6f24d6",
+      "#ffcc00"
+    ]);
   });
 
   // A fresh install prunes on fetch, so a branch the host deleted on merge stops

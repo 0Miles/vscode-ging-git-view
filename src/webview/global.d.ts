@@ -38,7 +38,7 @@ declare global {
     grid: { x: number; y: number; offsetX: number; offsetY: number; expandY: number };
     initialLoadCommits: number;
     loadMoreAutomatically: boolean;
-    loadMoreCommits: number;
+    loadMoreCount: number;
     markdown: boolean;
     issueLinkingRegex: string;
     issueLinkingUrl: string;

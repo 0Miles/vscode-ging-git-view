@@ -55,7 +55,7 @@
   "config.includeCommitsMentionedByReflogs": "在 Git 圖形檢視中包含僅由 reflog 參考的 commit （例如被 reset 或 rebase 棄置的 commit）。預設值：false",
   "config.initialLoadCommits": "指定初始載入的 commit 數量。",
   "config.loadMoreCommits": "指定按下「載入更多 commit」按鈕時要載入的 commit 數量（僅在有更多 commit 可用時顯示）。",
-  "config.loadMoreAutomatically": "捲動到 Git 圖形檢視底部時自動載入下一頁 commit，而非點擊「載入更多 commit」。預設值：false",
+  "config.loadMoreAutomatically": "捲動到 Git 圖形檢視底部時自動載入下一頁 commit，而非點擊「載入更多 commit」。",
   "config.maxDepthOfRepoSearch": "指定在工作區中發現存放庫時搜尋的子資料夾最大深度。",
   "config.markdown": "在 commit 和 tag 訊息中渲染部分行內 Markdown（粗體、斜體、行內程式碼、刪除線）。預設值：true",
   "config.mute.commitsThatAreNotAncestorsOfHead": "在 Git 圖形檢視中以變淡的文字顏色顯示並非已 checkout commit （HEAD）祖先的 commit。預設值：false（停用）",

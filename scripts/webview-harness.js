@@ -140,7 +140,7 @@ const VIEW_STATE = {
   keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
   lastActiveRepo: REPO,
   loadMoreAutomatically: false,
-  loadMoreCommits: 75,
+  loadMoreCount: 100,
   markdown: true,
   muteCommitsNotAncestorsOfHead: false,
   muteMergeCommits: true,

@@ -98,6 +98,33 @@ function isHeaderRow(row: HTMLElement): boolean {
   return row.id === "tableColHeaders";
 }
 
+/** What a commit table row *stands for*, as opposed to which element it is.
+ *  `renderTable` replaces every row object, so anything that has to survive a
+ *  re-render — the keyboard's place in the graph above all — has to name its
+ *  row by this and look it up again afterwards. A commit's hash is the obvious
+ *  key; the header and uncommitted-changes rows are one of a kind, so their
+ *  place in the table is key enough.
+ *
+ *  Rows are as fine as this goes, deliberately. Focus sitting on a ref chip
+ *  *within* a row comes back to the row, so a re-render resets the Left/Right
+ *  axis of ADR-0014 while preserving the Up/Down one. Keying the widgets too
+ *  would need a second identity scheme for chips whose row may itself have
+ *  gone, to buy back an axis the user re-enters with one keypress — and before
+ *  any of this, focus was lost outright, so the row is already the whole of the
+ *  ground gained. */
+function graphRowKey(row: HTMLElement): string {
+  return row.dataset.hash ?? (isHeaderRow(row) ? "#columnHeaders" : "#uncommittedChanges");
+}
+
+/** Which of `rows` keyboard focus is in — the row itself, or a widget nested
+ *  inside it, such as a ref chip. Undefined when focus is somewhere else
+ *  entirely, which each caller reads its own way: as no row to key, as a cue to
+ *  step from the expanded commit instead, or as nothing to walk. */
+function focusedRow(rows: HTMLElement[]): HTMLElement | undefined {
+  const active = document.activeElement;
+  return rows.find((row) => row === active || row.contains(active));
+}
+
 /** The focusable elements of a commit table row, in visual order: the ref chips
  *  of a commit row, the column headers of the header row. Left/Right walk
  *  these — the row itself is what Up/Down move between. */
@@ -212,13 +239,24 @@ class GitGraphView {
   private graph: Graph;
   private config: Config;
   private moreCommitsAvailable: boolean = false;
-  private loadingMore = false;
   // Scroll offset to restore once the next load re-renders the table, so an
   // action / manual refresh keeps the user's place rather than jumping.
   private pendingScrollRestore: number | null = null;
   private showRemoteBranches: boolean = true;
   private expandedCommit: ExpandedCommit | null = null;
+  // The CDV identity already scrolled into view, so a redraw of the same view
+  // does not scroll again. Null whenever no CDV is open.
+  private cdvBroughtIntoView: string | null = null;
   private maxCommits: number;
+  // Whether the *next commit load to land* may take the viewport with it when
+  // it puts focus back. Set by the one operation that shrinks the loaded set on
+  // purpose, and spent in loadCommits — deliberately not in restoreGraphFocus,
+  // which every redraw reaches. `renderTable` has upstreams that owe nothing to
+  // a commit load (a remote list arriving, a column toggled) and none of them
+  // is held back by one in flight, so hanging it on "the next redraw" loses
+  // both ways: that redraw scrolls though the user asked for nothing, and the
+  // reset's own redraw finds the permission already spent.
+  private pendingFocusScroll = false;
   private hasScrolledToHeadOnLoad = false;
   private columnVisibility = { date: true, author: true, commit: true };
   private currentStashScroll = -1;
@@ -413,8 +451,7 @@ class GitGraphView {
   private switchToRepo(repo: string) {
     if (repo === this.currentRepo) return;
     this.currentRepo = repo;
-    this.maxCommits = this.config.initialLoadCommits;
-    this.invalidateBranchSearchIndex();
+    this.shrinkLoadedCommitWindow();
     this.clearExpandedCommit();
     this.setCurrentBranches(null);
     this.applyShowRemoteBranchesForRepo();
@@ -645,8 +682,7 @@ class GitGraphView {
     if (typeof this.gitRepos[this.currentRepo] !== "undefined") {
       this.gitRepos[this.currentRepo].showRemoteBranches = value;
     }
-    this.maxCommits = this.config.initialLoadCommits;
-    this.invalidateBranchSearchIndex();
+    this.shrinkLoadedCommitWindow();
     this.saveState();
     this.refresh(true);
   }
@@ -690,8 +726,7 @@ class GitGraphView {
     if (this.currentRepo === repo) return;
     if (typeof this.gitRepos[repo] === "undefined") return;
     this.currentRepo = repo;
-    this.maxCommits = this.config.initialLoadCommits;
-    this.invalidateBranchSearchIndex();
+    this.shrinkLoadedCommitWindow();
     this.clearExpandedCommit();
     this.setCurrentBranches(null);
     this.applyShowRemoteBranchesForRepo();
@@ -726,10 +761,15 @@ class GitGraphView {
   }
 
   /** Reload commits after the branch selection changed: reset paging, close any
-   *  open details, show the loading state, and request the new commit set. */
+   *  open details, show the loading state, and request the new commit set.
+   *
+   *  Guarded before any of that, because none of it survives a dropped request:
+   *  the loaded commit window would sit silently back at the opening count, the
+   *  search index would be gone and the busy indicator would spin, for a graph
+   *  that never reloaded (ADR-0018). */
   private reloadForBranchChange() {
-    this.maxCommits = this.config.initialLoadCommits;
-    this.invalidateBranchSearchIndex();
+    if (this.commitLoadInFlight) return;
+    this.shrinkLoadedCommitWindow();
     this.clearExpandedCommit();
     this.saveState();
     // Keep the current graph on screen and show the busy indicator while the new
@@ -792,6 +832,11 @@ class GitGraphView {
    *  show all. Deduped against the current filter to avoid a redundant reload. */
   public setBranchFilter(branches: string[]) {
     if (arraysEqual(this.currentBranches ?? [], branches, (a, b) => a === b)) return;
+    // No guard ahead of this one, deliberately. Unlike the webview's own
+    // gestures, this is a fire-and-forget push from the host with no follow-up
+    // and no retry: refusing it would leave the side-view showing a filter the
+    // graph has never heard of, and nothing would ever correct that. The
+    // filter is applied; only the reload can be dropped.
     this.setCurrentBranches(branches);
     this.reloadForBranchChange();
   }
@@ -808,6 +853,12 @@ class GitGraphView {
     moreAvailable: boolean,
     hard: boolean
   ) {
+    // Spent here, at the top: this load owns the permission, and it owns it
+    // whichever way the function leaves — including the short-circuit below and
+    // the throw the try/finally further down exists to survive. Reading it any
+    // later would leave it set for a redraw that has nothing to do with it.
+    const focusMayScroll = this.pendingFocusScroll;
+    this.pendingFocusScroll = false;
     if (
       !hard &&
       this.moreCommitsAvailable === moreAvailable &&
@@ -874,7 +925,7 @@ class GitGraphView {
         this.clearExpandedCommit();
         this.saveState();
       }
-      this.render();
+      this.render(focusMayScroll);
 
       if (this.findActive) {
         this.refreshFind(this.pendingFindTargetHash);
@@ -946,17 +997,28 @@ class GitGraphView {
   }
 
   /* Requests */
+  /** Whether a branch load is in flight — the branch-side twin of
+   *  {@link commitLoadInFlight}, and likewise the answer to "would a request
+   *  sent now be dropped?". */
+  private get branchLoadInFlight(): boolean {
+    return this.loadBranchesCallback !== null;
+  }
+  /** Request the branch list, reporting whether it was actually sent. Dropped
+   *  while {@link branchLoadInFlight}, on the same terms as
+   *  {@link requestLoadCommits}: nothing is sent and `loadedCallback` never
+   *  runs. */
   private requestLoadBranches(
     hard: boolean,
     loadedCallback: (changes: boolean, isRepo: boolean) => void
-  ) {
-    if (this.loadBranchesCallback !== null) return;
+  ): boolean {
+    if (this.branchLoadInFlight) return false;
     this.loadBranchesCallback = loadedCallback;
     sendMessage({ command: "selectRepo", repo: this.currentRepo });
     sendMessage({ command: "loadRemotes" });
     // No showRemoteBranches: the host resolves the repo's own state, which is
     // what this copy echoes anyway (ADR-0013).
     sendMessage({ command: "loadBranches", hard: hard });
+    return true;
   }
   public loadRemotes(remotes: string[], pushDefault: string | null) {
     const changed = !arraysEqual(this.remotes, remotes, (a, b) => a === b);
@@ -1049,8 +1111,26 @@ class GitGraphView {
       });
     });
   }
-  private requestLoadCommits(hard: boolean, loadedCallback: (changes: boolean) => void) {
-    if (this.loadCommitsCallback !== null) return;
+  /** Whether a commit load is in flight. At most one ever is: ADR-0018 declined
+   *  queueing the extra one, because delegated ref actions schedule themselves
+   *  off that single fact. It is therefore also the answer to "would a request
+   *  sent now be dropped?", which is how every caller that must not act on a
+   *  dropped request decides whether to act at all. */
+  private get commitLoadInFlight(): boolean {
+    return this.loadCommitsCallback !== null;
+  }
+  /** Request a page of commits, reporting whether it was actually sent. A
+   *  request arriving while {@link commitLoadInFlight} is dropped: nothing is
+   *  sent and `loadedCallback` never runs.
+   *
+   *  Callers whose request carries state they must mutate first (the loaded
+   *  commit window, a persisted preference) cannot act on the return value —
+   *  by then the state would already be wrong — so they check
+   *  {@link commitLoadInFlight} up front instead. The return value is for the
+   *  one caller that requests from inside a callback and so has nowhere
+   *  earlier to stand: {@link requestLoadBranchesAndCommits}. */
+  private requestLoadCommits(hard: boolean, loadedCallback: (changes: boolean) => void): boolean {
+    if (this.commitLoadInFlight) return false;
     this.loadCommitsCallback = loadedCallback;
     sendMessage({
       command: "loadCommits",
@@ -1061,6 +1141,7 @@ class GitGraphView {
       commitOrder: this.gitRepos[this.currentRepo!]?.commitOrdering ?? undefined,
       hiddenRemotes: this.gitRepos[this.currentRepo!]?.hiddenRemotes ?? undefined
     });
+    return true;
   }
   private requestLoadBranchesAndCommits(hard: boolean) {
     this.setRefreshing(true);
@@ -1069,22 +1150,34 @@ class GitGraphView {
     if (this.currentRepo) {
       sendMessage({ command: "operationState", repo: this.currentRepo });
     }
-    this.requestLoadBranches(hard, (branchChanges: boolean, isRepo: boolean) => {
-      if (isRepo) {
-        this.requestLoadCommits(hard, (commitChanges: boolean) => {
+    const branchesSent = this.requestLoadBranches(
+      hard,
+      (branchChanges: boolean, isRepo: boolean) => {
+        if (isRepo) {
+          const finish = (commitChanges: boolean) => {
+            this.setRefreshing(false);
+            // Dismiss the action-running dialog / context menu once the reload
+            // finishes. Hard refreshes follow an action (checkout, merge, …) so
+            // always close; soft refreshes only close when something changed.
+            if (hard || branchChanges || commitChanges) {
+              hideDialogAndContextMenu();
+            }
+          };
+          // A load that never ran brought no changes with it, so finish it as
+          // one. Letting the dropped request take the callback with it left the
+          // Refresh button spinning until the panel was reopened and the
+          // action-running dialog sitting there with Escape as its only exit.
+          if (!this.requestLoadCommits(hard, finish)) finish(false);
+        } else {
           this.setRefreshing(false);
-          // Dismiss the action-running dialog / context menu once the reload
-          // finishes. Hard refreshes follow an action (checkout, merge, …) so
-          // always close; soft refreshes only close when something changed.
-          if (hard || branchChanges || commitChanges) {
-            hideDialogAndContextMenu();
-          }
-        });
-      } else {
-        this.setRefreshing(false);
-        sendMessage({ command: "loadRepos", check: true });
+          sendMessage({ command: "loadRepos", check: true });
+        }
       }
-    });
+    );
+    // The same asymmetry one level out: a dropped branches request takes the
+    // whole reload with it, callback included, so nothing would ever clear the
+    // indicator switched on above.
+    if (!branchesSent) this.setRefreshing(false);
   }
   private fetchAvatars(avatars: { [email: string]: string[] }) {
     let emails = Object.keys(avatars);
@@ -1122,8 +1215,11 @@ class GitGraphView {
   }
 
   /* Renderers */
-  private render() {
-    this.renderTable();
+  /** `focusMayScroll` is passed rather than read from the instance so that it
+   *  describes *this* redraw: every other caller redraws without it, which is
+   *  the default and the rule (ADR-0018 — a redraw is not a move). */
+  private render(focusMayScroll: boolean = false) {
+    this.renderTable(focusMayScroll);
     this.renderGraph();
   }
   /**
@@ -1177,7 +1273,10 @@ class GitGraphView {
     this.config.grid.offsetY = headerHeight + this.config.grid.y / 2;
     this.graph.render(inlineExpanded);
   }
-  private renderTable() {
+  private renderTable(focusMayScroll: boolean = false) {
+    // Read before a single row is replaced; `restoreGraphFocus` at the end puts
+    // the keyboard back on the same commit once the new rows are in place.
+    const focusedKey = this.focusedRowKey();
     const hiddenDate = this.columnVisibility.date ? "" : " hidden";
     const hiddenAuthor = this.columnVisibility.author ? "" : " hidden";
     const hiddenCommit = this.columnVisibility.commit ? "" : " hidden";
@@ -1405,16 +1504,8 @@ class GitGraphView {
       '<table role="grid" aria-label="' + escapeHtml(l10n.commitGraph) + '">' + html + "</table>";
     // Re-apply find highlighting to the freshly-rendered rows (without scrolling).
     if (this.findActive) this.applyFindHighlights(false);
-    this.footerElem.innerHTML = this.moreCommitsAvailable
-      ? '<div id="loadMoreCommitsBtn" class="roundedBtn">' + l10n.loadMore + "</div>"
-      : "";
+    this.renderFooter();
     this.makeTableResizable();
-
-    if (this.moreCommitsAvailable) {
-      document.getElementById("loadMoreCommitsBtn")!.addEventListener("click", () => {
-        this.loadMoreCommits();
-      });
-    }
 
     if (this.expandedCommit !== null) {
       let elem = null,
@@ -1437,6 +1528,10 @@ class GitGraphView {
         if (this.expandedCommit.compareWithHash !== null) {
           // Re-bind the compared commit's row too; if it scrolled out of
           // the loaded set, fall back to the primary commit's own details.
+          // Known gap in the "a redraw moves nothing" guarantee: that fallback
+          // reopens a different CDV, so it does scroll into view. Appending
+          // pages cannot reach it (nothing leaves the loaded set), but a soft
+          // refresh that drops the compared commit can.
           let compareElem: HTMLElement | null = null;
           for (i = 0; i < elems.length; i++) {
             if (this.expandedCommit.compareWithHash === elems[i].dataset.hash) {
@@ -1475,7 +1570,7 @@ class GitGraphView {
     }
     // After the expanded commit has been re-bound to its new row, so the tab
     // stop can land back on it rather than on the top of the graph.
-    this.restoreGraphTabStop();
+    this.restoreGraphFocus(focusedKey, focusMayScroll);
 
     addContextMenuListener("tableColHeader", (e: Event) => {
       const headerElem = <HTMLElement>(<Element>e.target).closest(".tableColHeader")!;
@@ -1496,14 +1591,20 @@ class GitGraphView {
       // Per-repo commit-ordering override (null = use the global setting).
       const currentOrder = this.gitRepos[this.currentRepo!]?.commitOrdering ?? null;
       const setOrder = (order: CommitOrdering | null) => {
+        // Nothing below survives a dropped reload: the preference would be
+        // persisted, the loaded commit window snapped back to the opening
+        // count and the branch search index thrown away for a graph that never
+        // reloads — and the shrunken window would then silently collapse the
+        // graph at some later refresh. Either the whole change happens or none
+        // of it does.
+        if (this.commitLoadInFlight) return;
         this.gitRepos[this.currentRepo!].commitOrdering = order;
         sendMessage({
           command: "saveRepoState",
           repo: this.currentRepo!,
           state: this.gitRepos[this.currentRepo!]
         });
-        this.maxCommits = this.config.initialLoadCommits;
-        this.invalidateBranchSearchIndex();
+        this.shrinkLoadedCommitWindow();
         this.requestLoadCommits(true, () => {});
       };
       const orderItem = (order: CommitOrdering | null, label: string) => ({
@@ -2232,12 +2333,65 @@ class GitGraphView {
       date.value +
       '</td><td role="gridcell" title="* <>">*</td><td role="gridcell" title="*">*</td>';
   }
+  /** The footer under the graph: Load More while there is more history to
+   *  fetch — or the spinner that stands in for it while its page is on the way
+   *  — and, only once the loaded commit window has been widened past the
+   *  opening count, what that window stands at with the way back to it.
+   *
+   *  **The one place that writes the footer.** It used to have three, and the
+   *  other two took the whole element: Load More replaced `btn.parentNode`,
+   *  which is the footer and not the button, so every press wiped the line for
+   *  the duration of the load — the moment the user most wants it, having just
+   *  widened the window another page. Reading the state here, once, is what
+   *  stops the footer describing a window the graph does not have.
+   *
+   *  The line reads `maxCommits`: the loaded commit window is the cap the graph
+   *  is currently asking the backend for, so it moves when the request goes
+   *  out, not when the page comes back. One quantity, one reading.
+   *
+   *  Its two conditions are independent, deliberately. The footer is empty when
+   *  no more commits are available, and that is exactly the moment the window
+   *  is most worth resetting: the user got there by widening it until the whole
+   *  history was in. Hanging the line off "is Load More showing?" would hide it
+   *  precisely there. At the opening count the footer gains nothing at all —
+   *  the default view carries no chrome describing a state it is already in. */
+  private renderFooter(loading: boolean = false) {
+    const widened = this.maxCommits > this.config.initialLoadCommits;
+    this.footerElem.innerHTML =
+      (loading
+        ? '<h2 id="loadingHeader">' + svgIcons.loading + l10n.loading + "</h2>"
+        : this.moreCommitsAvailable
+          ? '<div id="loadMoreCommitsBtn" class="roundedBtn">' + l10n.loadMore + "</div>"
+          : "") +
+      (widened
+        ? '<div id="loadedCommitWindow"><span id="loadedCommitWindowCount">' +
+          l10n.loadedCommitWindow.replace("{0}", String(this.maxCommits)) +
+          '</span><div id="resetLoadedCommitWindowBtn" class="roundedBtn">' +
+          l10n.resetLoadedCommitWindow.replace("{0}", String(this.config.initialLoadCommits)) +
+          "</div></div>"
+        : "");
+
+    if (!loading && this.moreCommitsAvailable) {
+      document.getElementById("loadMoreCommitsBtn")!.addEventListener("click", () => {
+        this.loadMoreCommits();
+      });
+    }
+    if (widened) {
+      document.getElementById("resetLoadedCommitWindowBtn")!.addEventListener("click", () => {
+        this.resetLoadedCommitWindow();
+      });
+    }
+  }
   private renderShowLoading() {
     hideDialogAndContextMenu();
     this.graph.clear();
     this.tableElem.innerHTML =
       '<h2 id="loadingHeader">' + svgIcons.loading + l10n.loading + "</h2>";
-    this.footerElem.innerHTML = "";
+    // Through renderFooter rather than blanking the element: this runs once, at
+    // boot before any state is restored, where the window is still at the
+    // opening count and nothing is known to be loadable — so it renders the
+    // same empty footer, from the state, instead of asserting emptiness.
+    this.renderFooter();
   }
   private checkoutBranchAction(refName: string, isRemote: boolean) {
     if (!isRemote) {
@@ -2538,7 +2692,7 @@ class GitGraphView {
   private tryRunPendingRefAction() {
     const pending = this.pendingRefAction;
     if (pending === null || pending.repo !== this.currentRepo) return;
-    if (this.loadBranchesCallback !== null || this.loadCommitsCallback !== null) return;
+    if (this.branchLoadInFlight || this.commitLoadInFlight) return;
     this.pendingRefAction = null;
     this.lastRefActionSeq = pending.seq;
     if (pending.command === "runRefBatchAction") this.dispatchRefBatchAction(pending);
@@ -3156,22 +3310,86 @@ class GitGraphView {
       }
     });
   }
+  /** Pull the loaded commit window back to the opening count — the one width it
+   *  ever shrinks to, never an intermediate one.
+   *
+   *  The branch search index goes with it because the index is built over the
+   *  loaded set: leaving the wider one standing would have Find offering to
+   *  reach commits the graph no longer holds. The two have never moved apart in
+   *  any caller, which is what makes them one action rather than two that keep
+   *  turning up next to each other.
+   *
+   *  The state change only — every caller pairs it with a reload of its own.
+   *  Three of them (switchToRepo, setRepo, setShowRemoteBranches) still run it
+   *  before knowing whether that reload can go out at all (#84); naming the
+   *  pair is what makes that fix one edit rather than three. */
+  private shrinkLoadedCommitWindow() {
+    this.maxCommits = this.config.initialLoadCommits;
+    this.invalidateBranchSearchIndex();
+  }
+
   /** Load the next page of commits. Guarded so concurrent scroll events (or a
-   *  click during a pending load) don't stack multiple requests. */
+   *  press during a pending load) don't stack multiple requests — and guarded
+   *  *before* any state change, because a request that cannot go out must
+   *  leave the footer, the loaded commit window and the saved state exactly as
+   *  they were. The in-flight load itself is the guard: a separate flag was
+   *  raised before the drop was known, so it never came back down and Load
+   *  More stayed dead for the life of the panel. */
   private loadMoreCommits() {
-    if (this.loadingMore) return;
-    this.loadingMore = true;
-    const btn = document.getElementById("loadMoreCommitsBtn");
-    if (btn !== null) {
-      (<HTMLElement>btn.parentNode!).innerHTML =
-        '<h2 id="loadingHeader">' + svgIcons.loading + l10n.loading + "</h2>";
-    }
-    this.maxCommits += this.config.loadMoreCommits;
-    this.hideCommitDetails();
+    if (this.commitLoadInFlight) return;
+    this.maxCommits += this.config.loadMoreCount;
+    // The expanded Commit Details View stays open: loading strictly appends, so
+    // the expanded commit cannot vanish, and renderTable re-binds it to its new
+    // row (clearing it itself if it really did fall out of the loaded set).
+    // Closing it here moved content under the user, destroyed the keyboard
+    // focus fallback anchor, and closed the panel nobody asked to close.
+    // Re-binding it does not move the viewport either: renderCommitDetailsPanel
+    // only scrolls a CDV into view when it is being opened, not redrawn.
     this.saveState();
-    this.requestLoadCommits(true, () => {
-      this.loadingMore = false;
-    });
+    this.renderFooter(true);
+    this.requestLoadCommits(true, () => {});
+  }
+
+  /** Shrink the loaded commit window back to the opening count and reload.
+   *
+   *  The only entry that does this on purpose. The four that already did it —
+   *  switching repository, changing the branch filter, toggling remote
+   *  branches, changing the commit ordering — do it as a side effect of doing
+   *  something else, so a user who only wants the window back has to go and
+   *  change something they did not want changed (ADR-0018).
+   *
+   *  Guarded before any state changes, on the same terms as Load More and the
+   *  commit-ordering menu: a request sent while a load is in flight is dropped,
+   *  and shrinking the window first would leave the graph still showing the
+   *  wide page while the window says otherwise — with the line gone, so nothing
+   *  on screen says the two came apart, and the next refresh silently
+   *  collapsing the graph as the payment. */
+  private resetLoadedCommitWindow() {
+    if (this.commitLoadInFlight) return;
+    this.shrinkLoadedCommitWindow();
+    // Viewport and focus must not end up contradicting each other, and here
+    // they would: the page shrinks under the user, the browser clamps them to
+    // its new bottom, and #73 puts focus back on a row that may be hundreds
+    // above it — one arrow key later `scrollIntoView` hauls them back down.
+    // With automatic loading on it is worse: the clamp is itself a scroll event
+    // at the near-the-bottom threshold, so the window widens straight back out
+    // and the reset visibly undoes half of itself. So the viewport follows the
+    // restored focus (ADR-0014's "back to where the operation was", read
+    // literally), or the row the graph now begins at when focus was dropped.
+    //
+    // A trade-off, not a treatment. The cause is that the threshold cannot tell
+    // the browser's own clamping scroll from the user's, and nothing available
+    // in a scroll handler distinguishes them cleanly. Reaching for a scroll
+    // *offset* instead would be the compensation ADR-0018 refused; moving with
+    // the anchor the user actually has is not.
+    this.pendingFocusScroll = true;
+    this.saveState();
+    // The expanded Commit Details View is left to renderTable, which re-binds
+    // it or clears it depending on whether its commit is still loaded. Unlike
+    // Load More this reload can genuinely drop it — the window is shrinking —
+    // but only renderTable knows which happened.
+    this.renderFooter(true);
+    this.requestLoadCommits(true, () => {});
   }
 
   /* Commit Details */
@@ -3199,6 +3417,18 @@ class GitGraphView {
       isStash
     });
   }
+  /** What the open CDV is showing: the expanded commit, plus the commit it is
+   *  being compared with. Two renders sharing an identity are the same view
+   *  drawn twice, which is what {@link renderCommitDetailsPanel} uses to tell
+   *  a redraw from an opening.
+   *
+   *  A redraw that cannot keep the same identity is an opening by definition,
+   *  and does scroll: see renderTable's fallback for a compared commit that
+   *  left the loaded set. */
+  private cdvIdentity(): string | null {
+    if (this.expandedCommit === null) return null;
+    return this.expandedCommit.hash + "|" + (this.expandedCommit.compareWithHash ?? "");
+  }
   public hideCommitDetails() {
     if (this.expandedCommit !== null) {
       this.clearExpandedCommit();
@@ -3215,6 +3445,8 @@ class GitGraphView {
   private clearExpandedCommit() {
     const panel = document.getElementById("commitDetails");
     if (panel !== null) panel.remove();
+    // The next CDV is an opening, however it compares to this one.
+    this.cdvBroughtIntoView = null;
     if (this.expandedCommit !== null) {
       if (this.expandedCommit.srcElem !== null)
         this.expandedCommit.srcElem.classList.remove("commitDetailsOpen");
@@ -3399,10 +3631,15 @@ class GitGraphView {
     this.applyFindHighlights(true);
   }
   private loadFindMatch(match: FindMatch) {
-    if (this.loadCommitsCallback !== null) return;
+    if (this.commitLoadInFlight) return;
     const plan = planFindLoad(this.maxCommits, match);
     if (plan === null) return;
     const load = () => {
+      // Guarded again, not just at the top: when the plan needs confirming, this
+      // runs after the user answers the dialog, and a load can have started in
+      // the meantime. Everything below changes state, so the check belongs here
+      // as well — the check above only covers the path that acts immediately.
+      if (this.commitLoadInFlight) return;
       this.pendingFindTargetHash = match.hash;
       this.maxCommits = plan.maxCommits;
       this.hideCommitDetails();
@@ -3514,14 +3751,22 @@ class GitGraphView {
     );
   }
 
-  /** The row holding focus — directly, or through a ref chip nested in it —
-   *  falling back to the expanded commit's row. That fallback is what keeps
-   *  Up/Down stepping through the Commit Details View from wherever focus
-   *  happens to be, which is what they did before rows could be focused. */
+  /** Which row keyboard focus is in, or null when it is not in the graph at
+   *  all. Read immediately *before* the table is replaced: once the rows are
+   *  gone `document.activeElement` has fallen back to `<body>` and nothing is
+   *  left to say where the user was. */
+  private focusedRowKey(): string | null {
+    const row = focusedRow(this.graphRows());
+    return row === undefined ? null : graphRowKey(row);
+  }
+
+  /** Where the arrow keys step from: the row holding focus, falling back to the
+   *  expanded commit's row. That fallback is what keeps Up/Down stepping
+   *  through the Commit Details View from wherever focus happens to be, which
+   *  is what they did before rows could be focused. */
   private focusedRowIndex(rows: HTMLElement[]): number {
-    const active = document.activeElement;
-    const focused = rows.findIndex((row) => row === active || row.contains(active));
-    if (focused !== -1) return focused;
+    const focused = focusedRow(rows);
+    if (focused !== undefined) return rows.indexOf(focused);
     const anchored = this.expandedCommit?.srcElem ?? null;
     return anchored === null ? -1 : rows.indexOf(anchored);
   }
@@ -3564,14 +3809,13 @@ class GitGraphView {
    *  whatever it otherwise would. */
   public moveWidgetFocus(delta: number): boolean {
     const rows = this.graphRows();
-    const active = document.activeElement;
-    const row = rows.find((candidate) => candidate === active || candidate.contains(active));
+    const row = focusedRow(rows);
     if (row === undefined) return false;
     const widgets = rowWidgets(row);
     if (widgets.length === 0) return false;
     // From the row itself, Right enters at the first widget and Left at the
     // last; stepping off either end hands focus back to the row.
-    const at = widgets.indexOf(<HTMLElement>active);
+    const at = widgets.indexOf(<HTMLElement>document.activeElement);
     const next = at === -1 ? (delta > 0 ? 0 : widgets.length - 1) : at + delta;
     this.graphTabStop.focus(next < 0 || next >= widgets.length ? row : widgets[next]);
     return true;
@@ -3604,18 +3848,66 @@ class GitGraphView {
     return true;
   }
 
-  /** Put the graph's tab stop back after a re-render: on the expanded commit
-   *  when there is one — the row the user last acted on — otherwise on the first
-   *  commit. Without it the table would carry no `tabindex="0"` at all and Tab
-   *  would skip the graph entirely. */
-  private restoreGraphTabStop() {
+  /** Put the graph's keyboard state back after a re-render, given the row that
+   *  held focus before it (`focusedRowKey`, or null when focus was elsewhere).
+   *
+   *  `mayScroll` is false for every redraw but one — a redraw is not a move, so
+   *  nothing may move on the user's behalf. The exception is the loaded-commit-
+   *  window reset, where standing still is not the neutral choice: see
+   *  {@link resetLoadedCommitWindow}. It arrives as an argument rather than as
+   *  instance state so that it describes this redraw and no other.
+   *
+   *  Focus goes back onto the same commit, in its new row. Automatic loading on
+   *  scroll is browsing, and browsing must leave the user where they were
+   *  (ADR-0018) — but arrowing onto a row scrolls it into view, that scroll is
+   *  what trips the load, and the load destroys the very row that focus was on.
+   *  Without putting it back, the next Down key finds no focused row, falls
+   *  through to its "enter the grid" branch and starts again from the first
+   *  commit, hundreds of rows above where the user actually was. Arrow keys
+   *  move between rows (ADR-0014); nothing else may move between them.
+   *
+   *  The tab stop follows focus, and when there is none to restore — focus was
+   *  outside the graph, or the commit that held it is no longer loaded — it
+   *  lands on the expanded commit's row, else the first commit. Without that,
+   *  the table would carry no `tabindex="0"` at all and Tab would skip the
+   *  graph entirely.
+   *
+   *  **This changes every other redraw too, deliberately.** Automatic loading
+   *  is what forced the question, but `renderTable` has other callers — a soft
+   *  refresh, a find, a branch-filter or commit-ordering change, toggling a
+   *  column — and focus now survives all of them. That is the same argument,
+   *  not a wider one: in each of those the user did not move focus either, so
+   *  dropping it was never right. It is the mirror of ADR-0018's note that
+   *  fixing the Commit Details View's auto-centre also stopped soft refreshes
+   *  dragging the user back to the expanded commit — one cause, treated once,
+   *  visible on every path that shared it. */
+  private restoreGraphFocus(focusedKey: string | null, mayScroll: boolean) {
     const rows = this.graphRows();
+    const refocused =
+      focusedKey === null ? undefined : rows.find((row) => graphRowKey(row) === focusedKey);
+    if (refocused !== undefined) {
+      // `focusInPlace`, not `focusGraphRow`: a redraw is not a focus *move*, so
+      // it may neither scroll nor — selection follows focus — swap the open
+      // Commit Details View onto a commit the user never arrowed onto.
+      // `focus` only when the caller shrank the loaded set on purpose, which is
+      // the one case where standing still is not the neutral choice.
+      if (mayScroll) this.graphTabStop.focus(refocused);
+      else this.graphTabStop.focusInPlace(refocused);
+      return;
+    }
     const anchored = this.expandedCommit?.srcElem ?? null;
     const target =
       anchored !== null && rows.includes(anchored)
         ? anchored
         : (rows.find((row) => !isHeaderRow(row)) ?? rows[0]);
-    if (target !== undefined) this.graphTabStop.set(target);
+    if (target === undefined) return;
+    this.graphTabStop.set(target);
+    // Focus was dropped, so there is no row for the viewport to agree with —
+    // it goes to where the graph now begins for the keyboard, which is this
+    // one. `set`, not `focus`: the tab stop moves, focus does not.
+    if (mayScroll && typeof target.scrollIntoView === "function") {
+      target.scrollIntoView({ block: "nearest" });
+    }
   }
 
   /** Give the Commit Details View's file list a tab stop, so Tab can reach it
@@ -3935,7 +4227,17 @@ class GitGraphView {
 
     this.renderGraph();
 
-    if (!docked) {
+    // Bringing the CDV into view belongs to *opening* it, not to drawing it.
+    // renderTable re-renders the panel on every reload that leaves it open —
+    // a Load More page, a soft refresh — and the user asked for none of those:
+    // re-running this would drag them back to the expanded commit from
+    // wherever they had scrolled to, which on the auto-load-on-scroll path
+    // means fighting the scroll that triggered the load (ADR-0018: automatic
+    // loading is browsing, and browsing must not move anything). So it runs
+    // once per CDV, and again only when the CDV becomes a different one.
+    const cdv = this.cdvIdentity();
+    if (!docked && cdv !== this.cdvBroughtIntoView) {
+      this.cdvBroughtIntoView = cdv;
       if (this.config.autoCenterCommitDetailsView) {
         // Center Commit Detail View setting is enabled
         // control menu height [40px] + newElem.y + (commit details view height [250px] + commit height [24px]) / 2 - (window height) / 2
@@ -4299,7 +4601,7 @@ let gitGraph = new GitGraphView(
     issueLinkingRegex: viewState.issueLinkingRegex,
     issueLinkingUrl: viewState.issueLinkingUrl,
     loadMoreAutomatically: viewState.loadMoreAutomatically,
-    loadMoreCommits: viewState.loadMoreCommits,
+    loadMoreCount: viewState.loadMoreCount,
     markdown: viewState.markdown,
     muteCommitsNotAncestorsOfHead: viewState.muteCommitsNotAncestorsOfHead,
     muteMergeCommits: viewState.muteMergeCommits,
