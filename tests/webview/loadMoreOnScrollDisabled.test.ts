@@ -3,7 +3,15 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  makeViewState,
+  NEAR_BOTTOM,
+  PAGE_HEIGHT,
+  parkViewportAt,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The other half of the auto-load-on-scroll switch. `loadMoreAutomatically` is
 // read once, at boot, so "off" needs a webview of its own — hence a file of its
@@ -55,10 +63,6 @@ const commitsResponse: GG.ResponseMessage = {
   hard: true
 };
 
-const VIEWPORT_HEIGHT = 768;
-const PAGE_HEIGHT = 10000;
-const NEAR_BOTTOM = PAGE_HEIGHT - 250 - VIEWPORT_HEIGHT;
-
 describe("automatic loading on scroll, switched off", () => {
   let mock: ReturnType<typeof createVscodeMock>;
   let heightReads = 0;
@@ -67,8 +71,9 @@ describe("automatic loading on scroll, switched off", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
-    Object.defineProperty(window, "scrollY", { value: NEAR_BOTTOM, configurable: true });
+    // The shared setup starts every suite at the top of the page; this one
+    // needs the opposite end, where the threshold would hold if it were read.
+    parkViewportAt(NEAR_BOTTOM);
     await import("@/webview/main");
     receive(branchesResponse);
     receive(commitsResponse);

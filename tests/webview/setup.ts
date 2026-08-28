@@ -64,6 +64,81 @@ export function makeViewState(overrides: Partial<GG.GitGraphViewState> = {}): GG
   };
 }
 
+/** The viewport height every suite starts with — jsdom's own default, restated
+ *  so the threshold below is worked out from declared numbers rather than from
+ *  one declared number and one inherited one. */
+export const VIEWPORT_HEIGHT = 768;
+/** The page height every suite starts with. Only its relation to
+ *  VIEWPORT_HEIGHT matters: tall enough that a viewport at the top is nowhere
+ *  near the bottom, so the near-the-bottom threshold starts out false. */
+export const PAGE_HEIGHT = 10000;
+/** The offset at which `innerHeight + scrollY >= offsetHeight - 250` first
+ *  holds — the threshold, worked out from the geometry above rather than
+ *  copied off the implementation. Suites that want automatic loading to fire
+ *  park the viewport here. */
+export const NEAR_BOTTOM = PAGE_HEIGHT - 250 - VIEWPORT_HEIGHT;
+
+/** Park the viewport at a known offset. jsdom never scrolls on its own and its
+ *  scrollTo is unimplemented, so the offset has to be declared.
+ *
+ *  Both names for it are written together because the webview reads each in a
+ *  different place: `scrollY` for the near-the-bottom threshold, `pageYOffset`
+ *  for context-menu placement *and* for deciding whether an opening Commit
+ *  Details View needs bringing into view (`main.ts` around the
+ *  `cdvBroughtIntoView` guard). That second reader is why the CDV suites care:
+ *  their "never moves the viewport" assertions are about the branch those two
+ *  comparisons choose. A viewport that is in two places at once would pick a
+ *  branch neither suite is describing. */
+export function parkViewportAt(offset: number) {
+  Object.defineProperty(window, "scrollY", { value: offset, configurable: true });
+  Object.defineProperty(window, "pageYOffset", { value: offset, configurable: true });
+}
+
+/* Give every webview suite a page with a size, at the top of it.
+ *
+ * jsdom performs no layout, so `document.body.offsetHeight` is 0 and `scrollY`
+ * never moves unless told to. The webview's near-the-bottom test —
+ * `innerHeight + scrollY >= offsetHeight - 250` — therefore degenerates to
+ * `768 >= -250`: true wherever the viewport is. Multiply that by the fixture
+ * above, which carries `loadMoreAutomatically: true` because it tracks the
+ * shipped configuration on purpose, and any scroll event in any suite smuggles
+ * in a `loadCommits` that reads like the code under test asking twice.
+ *
+ * Nothing was actually being smuggled when this landed: every suite that
+ * dispatched a scroll had already stubbed a height of its own. That is what
+ * makes it worth pinning rather than leaving alone — the ones exposed to it are
+ * the ones not yet written, by someone who has not met the trap, and a suite
+ * has to already suspect it to opt out. So the default is far from the bottom
+ * and the threshold is false until a suite says otherwise.
+ *
+ * Of the three pins only `offsetHeight` changes what any suite sees today; the
+ * other two restate jsdom's own defaults, so that the numbers the threshold is
+ * derived from are all declared in one place instead of half-declared and
+ * half-inherited.
+ *
+ * It reaches every suite through `setupFiles` in vitest.config.ts, not through
+ * being imported — seven webview suites never import this file at all. That is
+ * also why it is one bare side effect rather than an exported function nobody
+ * would think to call. Every property is `configurable`, so a suite that owns
+ * its geometry redefines it as before and this is only what it starts from:
+ * loadMoreOnScrollDisabled and loadMoreOnScrollLayoutCost swap in counting
+ * getters over their own heights, and contextMenuPosition adds the viewport
+ * *width*, the one dimension nothing else measures against.
+ *
+ * On ADR-0019: its rejected alternative "為捲動門檻抽一個純函式" gave three
+ * reasons, and this overturns the middle one — "不需要進共用的測試 setup". The
+ * ruling on #97 is what overturned it, on the grounds that the first and third
+ * still stand: per-suite stubbing is still the precedent for suites that want
+ * their own geometry, and no seam has been opened in product code, which is
+ * untouched by this file. The ADR has since been corrected in place — the
+ * middle reason struck through, the other two left standing. */
+Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
+Object.defineProperty(document.body, "offsetHeight", {
+  value: PAGE_HEIGHT,
+  configurable: true
+});
+parkViewportAt(0);
+
 // The real vscode.setState persists state as JSON, so anything that doesn't
 // survive a JSON round-trip (Map, Set, DOM elements) is silently lost. Model
 // that here, otherwise tests restore live objects the real webview never gets.
