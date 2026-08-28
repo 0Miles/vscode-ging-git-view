@@ -1317,7 +1317,10 @@ class GitGraphView {
    *
    *  The `finally` covers `renderGraph` only. A throw inside `renderTable`
    *  loses the write with it, and nothing here can reach that — which is the
-   *  one thing handing it back costs. */
+   *  one thing handing it back costs. It costs little: the window it leaves
+   *  open spans the rest of `renderTable`, listener registration included, so
+   *  a throw in there already means the rows have no click or context menu.
+   *  A missing column padding is the smallest loss in that pile. */
   private render(focusMayScroll: boolean = false) {
     const applyGraphColumnWidth = this.renderTable(focusMayScroll);
     try {

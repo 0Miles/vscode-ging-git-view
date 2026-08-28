@@ -165,7 +165,11 @@ function patchReadMethod(proto: object, name: string) {
 /** Every inline-style write, taken off the prototypes rather than listed: jsdom
  *  defines the CSS properties on a subclass of CSSStyleDeclaration, which one
  *  has moved between versions, and a list would go stale the first time the
- *  product code touched a property nobody thought of. */
+ *  product code touched a property nobody thought of.
+ *
+ *  This shape is jsdom's, not the web's. Chromium puts the CSS properties on
+ *  each style object as own properties, so walking the prototypes there would
+ *  patch nothing. The model only has to hold where it runs. */
 function patchInlineStyleWrites() {
   let proto: object | null = Object.getPrototypeOf(document.createElement("div").style);
   let patched = 0;
