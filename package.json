@@ -48,7 +48,8 @@
     "format:fix": "oxfmt .",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "l10n:check": "node ./scripts/check-l10n.js"
+    "l10n:check": "node ./scripts/check-l10n.js",
+    "adr:check": "node ./scripts/check-adr.js"
   },
   "dependencies": {
     "iconv-lite": "^0.7.2",
