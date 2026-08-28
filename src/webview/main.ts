@@ -118,6 +118,22 @@ function graphRowKey(row: HTMLElement): string {
   return row.dataset.hash ?? (isHeaderRow(row) ? "#columnHeaders" : "#uncommittedChanges");
 }
 
+/** What a Commit Details View file row *stands for*, the way
+ *  {@link graphRowKey} names a commit row — the path the row is about, which is
+ *  what the user thinks they are standing on. Two renders of the same view give
+ *  the same file the same key, so it survives the redraw that replaces every
+ *  row object.
+ *
+ *  The path, not the row's position, for the same reason a commit is keyed by
+ *  hash: the tree and list layouts order and label the rows differently, and a
+ *  file's index means nothing across the two. The path is written into both
+ *  layouts' markup by the same `renderGitFileRow`, so the key is the one thing
+ *  that does not change between them. It is also unique within a view: a commit
+ *  changes any given path at most once. */
+function cdvFileKey(file: HTMLElement): string {
+  return file.dataset.newfilepath!;
+}
+
 /** Which of `rows` keyboard focus is in — the row itself, or a widget nested
  *  inside it, such as a ref chip. Undefined when focus is somewhere else
  *  entirely, which each caller reads its own way: as no row to key, as a cue to
@@ -1293,6 +1309,13 @@ class GitGraphView {
     // Read before a single row is replaced; `restoreGraphFocus` at the end puts
     // the keyboard back on the same commit once the new rows are in place.
     const focusedKey = this.focusedRowKey();
+    // The Commit Details View's file list is the other roving group a redraw
+    // destroys, and it is read here for the same reason — one capture point
+    // covers both layouts, because this runs before the table an inline panel
+    // lives in is replaced and before a docked one is rebuilt further down.
+    // At most one of the two keys is non-null: a file row is never inside a
+    // commit row.
+    const focusedFileKey = this.focusedCdvFileKey();
     const hiddenDate = this.columnVisibility.date ? "" : " hidden";
     const hiddenAuthor = this.columnVisibility.author ? "" : " hidden";
     const hiddenCommit = this.columnVisibility.commit ? "" : " hidden";
@@ -1584,8 +1607,12 @@ class GitGraphView {
         }
       }
     }
-    // After the expanded commit has been re-bound to its new row, so the tab
-    // stop can land back on it rather than on the top of the graph.
+    // Both restores run after the expanded commit has been re-bound to its new
+    // row: the panel is by now either redrawn from cache, with file rows to be
+    // found, or gone pending a re-request, which restoreCdvFileFocus documents
+    // as its one reachable miss. The graph's tab stop can likewise land back on
+    // the expanded commit rather than on the top of the graph.
+    this.restoreCdvFileFocus(focusedFileKey);
     this.restoreGraphFocus(focusedKey, focusMayScroll);
 
     addContextMenuListener("tableColHeader", (e: Event) => {
@@ -4112,6 +4139,24 @@ class GitGraphView {
     );
   }
 
+  /** Which file in the Commit Details View keyboard focus is in, or null when it
+   *  is not in that list at all. Read immediately *before* the table is
+   *  replaced, the same way {@link focusedRowKey} is: the panel goes with the
+   *  table it is inline in, and a docked one is removed and rebuilt a moment
+   *  later, so by the end of the redraw `document.activeElement` is `<body>`
+   *  under either layout and nothing is left to say where the user was.
+   *
+   *  Asked of {@link cdvFileRows}, not of the focused element's nearest
+   *  `.gitFile`: a `.gitFile` row is not proof of the Commit Details View. The
+   *  branch-redundancy dialog renders its commit's files through the same
+   *  `renderGitFileRow`, carrying the same paths, and a redraw arriving while
+   *  focus sits in that dialog must not haul it out of the modal and onto the
+   *  panel behind it. */
+  private focusedCdvFileKey(): string | null {
+    const file = focusedRow(this.cdvFileRows());
+    return file === undefined ? null : cdvFileKey(file);
+  }
+
   /** Move focus `delta` file rows through the Commit Details View. False when
    *  focus isn't in the file list, so the caller falls back to the graph's rows
    *  — the file list is its own widget, and arrowing through it must not walk
@@ -4188,6 +4233,50 @@ class GitGraphView {
     if (mayScroll && typeof target.scrollIntoView === "function") {
       target.scrollIntoView({ block: "nearest" });
     }
+  }
+
+  /** Put the Commit Details View's file list back on the file that held focus
+   *  before the redraw (`focusedCdvFileKey`, or null when focus was elsewhere).
+   *
+   *  This is {@link restoreGraphFocus}'s argument applied to the other roving
+   *  group, and for the same reason: a redraw is not a focus *move*, so a
+   *  browsing-triggered load (ADR-0019) may not take the user out of the list
+   *  they were reading. It cost the user twice without this. Focus fell to
+   *  `<body>`, and `moveCdvFileFocus` — which reads the focused file to decide
+   *  whether the file list even owns the arrow keys — then found nothing and
+   *  returned false, so the next Down key fell through to `moveRowFocus` and
+   *  put them in the graph. Restoring the tab stop, which is all
+   *  {@link restoreCdvFileTabStop} does, brought Tab back but not the arrow
+   *  keys: the tab stop is where Tab *re-enters*, focus is where the arrows
+   *  *continue from*, and only the second one was the user's place.
+   *
+   *  `focusInPlace`, so nothing scrolls. There is no `mayScroll` counterpart to
+   *  the graph's here: the one redraw allowed to take the viewport with it is
+   *  the loaded-commit-window reset, and that is a change to which *commits*
+   *  are loaded — the graph's own restore carries the viewport there, and an
+   *  inline panel travels with the row it hangs off while a docked one is
+   *  fixed to the window. Either way the file is already wherever the commit
+   *  is.
+   *
+   *  Looks the file up in {@link cdvFileRows} rather than the raw markup, so a
+   *  restore can only land where the arrow keys can step from — a file buried
+   *  in a collapsed folder is out of the focus order, and reaching it any other
+   *  way would strand focus on a row the user cannot leave.
+   *
+   *  A miss changes nothing: the list keeps the tab stop
+   *  `attachCdvFileListeners` gave it when the panel was rebuilt, or there is
+   *  no panel to leave alone. The reachable miss is a redraw that has to
+   *  *re-request* rather than redraw from cache — a comparison whose compared
+   *  commit left the loaded set, or whose file changes are not cached. Those
+   *  tear the panel down and wait for an answer that opens a view the user was
+   *  never in. When the *expanded* commit is itself the one that left,
+   *  `loadCommits` drops the panel before `renderTable` runs, so focus is
+   *  already gone and there is no key to miss with. */
+  private restoreCdvFileFocus(fileKey: string | null) {
+    if (fileKey === null) return;
+    const refocused = this.cdvFileRows().find((file) => cdvFileKey(file) === fileKey);
+    if (refocused === undefined) return;
+    this.cdvFileTabStop.focusInPlace(refocused);
   }
 
   /** Give the Commit Details View's file list a tab stop, so Tab can reach it
