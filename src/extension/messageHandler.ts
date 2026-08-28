@@ -30,7 +30,7 @@ import { fetchFromRemotes } from "@/backend/actions/fetch";
 import { mergeBranch, mergeCommit } from "@/backend/actions/merge";
 import { abortOperation, continueOperation, markResolved } from "@/backend/actions/operation";
 import { exportPatch } from "@/backend/actions/patch";
-import { rebaseOn } from "@/backend/actions/rebase";
+import { rebaseOn, rebaseOnto } from "@/backend/actions/rebase";
 import { getRemoteUrl } from "@/backend/actions/remote";
 import { applyStash, dropStash, popStash, renameStash } from "@/backend/actions/stash";
 import { addTag, deleteTag, pushTag } from "@/backend/actions/tag";
@@ -54,7 +54,7 @@ import type {
 } from "@/backend/types";
 import { GitFileChangeType } from "@/backend/types";
 import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
-import { pullRequestCreateUrl } from "@/backend/utils/pullRequest";
+import { parseRemoteUrl, pullRequestCreateUrl } from "@/backend/utils/pullRequest";
 import { abbrevCommit } from "@/backend/utils/string";
 import { Config } from "@/config";
 import { encodeDiffDocUri } from "@/diffDocProvider";
@@ -266,6 +266,9 @@ export function registerMessageHandlers(
     )
   );
   registerAction("rebaseOn", (msg) => rebaseOn(gitClient.getInstance(), msg, config.signCommits()));
+  registerAction("rebaseOnto", (msg) =>
+    rebaseOnto(gitClient.getInstance(), msg, config.signCommits())
+  );
   registerAction("applyStash", (msg) => applyStash(gitClient.getInstance(), msg));
   registerAction("popStash", (msg) => popStash(gitClient.getInstance(), msg));
   registerAction("dropStash", (msg) => dropStash(gitClient.getInstance(), msg));
@@ -704,13 +707,28 @@ export function registerMessageHandlers(
     "createPullRequest",
     async (msg) => {
       // Build the provider's pre-filled PR-create URL from the remote and open it
-      // externally; tell the user when the remote's host isn't supported.
+      // externally. With no provider for the remote's host, the error offers the
+      // one thing that fixes it — configuring that very host — rather than
+      // leaving the user to find the setting.
       const remoteUrl = await getRemoteUrl(gitClient.getInstance(), msg.remote);
-      const url = pullRequestCreateUrl(remoteUrl === "" ? null : remoteUrl, msg.branchName);
+      const remote = remoteUrl === "" ? null : remoteUrl;
+      const url = pullRequestCreateUrl(remote, msg.branchName, config.pullRequestProviders());
       if (url !== null) {
         void vscode.env.openExternal(vscode.Uri.parse(url));
-      } else {
-        void vscode.window.showErrorMessage(l10n.t("pullRequest.unsupported"));
+        return;
+      }
+      const host = parseRemoteUrl(remote)?.host ?? null;
+      const configure = l10n.t("pullRequest.configureProvider");
+      const message =
+        host !== null
+          ? l10n.t("pullRequest.noProviderForHost", host)
+          : l10n.t("pullRequest.unsupported");
+      const choice = await vscode.window.showErrorMessage(
+        message,
+        ...(host !== null ? [configure] : [])
+      );
+      if (choice === configure) {
+        void vscode.commands.executeCommand("ging-git-view.managePullRequestProviders", host);
       }
     },
     { mutatesRepo: false }

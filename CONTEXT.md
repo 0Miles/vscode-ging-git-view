@@ -68,6 +68,12 @@ _Avoid_: branch-list format, full ref, 完整分支名
 canonical ref 的呈現形 —— 剝掉 `remotes/` 前綴(`origin/main`),與畫面上的標籤一字不差。只存在於輸出端:畫面、對話框、剪貼簿。它永不回流當輸入:本地分支可以真的叫 `origin/main`,前綴一剝,身分就丟了。
 _Avoid_: short name, ref label, 顯示名稱
 
+### Pull request 的落點
+
+**Pull request provider**:
+一台 host 上跑的是哪一種 forge —— GitHub、GitLab、Bitbucket、Gitea/Forgejo,或一段自訂 URL 樣板。它是 **host 的性質,不是 repo 的、也不是 remote 的**:同一台自架主機上的所有 repo 共用一筆。「建立 pull request」據此決定要開哪個 URL;查不到就據實回報並提議設定那個 host,不猜。五個公開 host 內建,同名 host 的設定整筆取代內建那筆(ADR-0018)。
+_Avoid_: PR host, git host, remote provider, PR 服務
+
 ### 側檢視的選取
 
 側檢視的選取只有一個集合,卻同時餵給兩件事:圖形要顯示什麼,以及右鍵動作要作用在誰身上。以下三個詞把「使用者選了什麼」「動作實際作用在什麼」「哪些動作能這樣作用」釘開。

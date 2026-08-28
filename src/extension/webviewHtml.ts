@@ -67,6 +67,7 @@ export function buildWebviewHtml(opts: {
     markdown: config.markdown(),
     muteCommitsNotAncestorsOfHead: config.muteCommitsNotAncestorsOfHead(),
     muteMergeCommits: config.muteMergeCommits(),
+    signCommits: config.signCommits(),
     onLoadScrollToHead: config.onLoadScrollToHead(),
     referenceInputSpaceSubstitution: config.referenceInputSpaceSubstitution(),
     repos: repoManager.getRepos(),

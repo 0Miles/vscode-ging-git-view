@@ -50,6 +50,9 @@ declare global {
     showSpecificBranches: string[];
     showRemoteBranches: boolean;
     showTags: boolean;
+    /** Whether extension-run git commands sign the commits they create — the
+     *  `-S` the rebase dialog's command preview has to account for. */
+    signCommits: boolean;
   }
 
   interface ContextMenuItem {

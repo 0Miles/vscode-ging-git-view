@@ -54,6 +54,7 @@ export function makeViewState(overrides: Partial<GG.GitGraphViewState> = {}): GG
     referenceInputSpaceSubstitution: "None",
     repos: { [DEFAULT_REPO]: { columnWidths: null } },
     scmMultiRepoSelection: true,
+    signCommits: false,
     showCurrentBranchByDefault: false,
     uncommittedChangesAtHead: false,
     showSpecificBranches: [],

@@ -52,6 +52,7 @@ type ActionPayloads = {
   };
   pushTag: { tagName: string; remotes: string[] };
   rebaseOn: { obj: string };
+  rebaseOnto: { newBase: string; upstream: string; tip: string };
   renameBranch: { oldName: string; newName: string };
   resetToCommit: { commitHash: string; resetMode: GitResetMode };
   revertCommit: { commitHash: string; parentIndex: number };

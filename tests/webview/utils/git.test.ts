@@ -8,6 +8,7 @@ import {
   dropCommitPossible,
   graphNavigationTarget,
   latestTagName,
+  rebaseOntoRange,
   signatureCategory,
   substituteRefSpaces
 } from "@/webview/utils/git";
@@ -202,6 +203,72 @@ describe("dropCommitPossible", () => {
   it("refuses a commit whose chain does not reach HEAD", () => {
     const { commits, lookup } = build({ a: ["b"], b: ["c"], c: [] });
     expect(dropCommitPossible("b", commits, lookup, "unrelated")).toBe(false);
+  });
+});
+
+// buildCommitGraph, with local branch refs from `heads` attached — graph order
+// is the object's key order, newest first.
+function buildRefGraph(
+  graph: { [hash: string]: string[] },
+  heads: { [hash: string]: string[] } = {}
+) {
+  const commits = Object.entries(graph).map(([hash, parentHashes]) => ({
+    hash,
+    parentHashes,
+    refs: (heads[hash] ?? []).map((name) => ({ name, type: "head" }))
+  }));
+  const lookup: { [hash: string]: number } = {};
+  commits.forEach((c, i) => (lookup[c.hash] = i));
+  return { commits, lookup };
+}
+
+describe("rebaseOntoRange", () => {
+  const build = buildRefGraph;
+
+  // HEAD=c → b → a → root, with branch "feature" on c.
+  const linear = build({ c: ["b"], b: ["a"], a: ["root"], root: [] }, { c: ["feature"] });
+
+  it("makes the ancestor the upstream whichever commit was clicked first", () => {
+    const forwards = rebaseOntoRange("a", "c", linear.commits, linear.lookup);
+    const backwards = rebaseOntoRange("c", "a", linear.commits, linear.lookup);
+    expect(forwards).toEqual(backwards);
+    expect(forwards.upstream).toBe("a");
+    expect(forwards.tip).toBe("c");
+  });
+
+  it("reports the local branches sitting on the tip", () => {
+    expect(rebaseOntoRange("a", "c", linear.commits, linear.lookup).tipBranches).toEqual([
+      "feature"
+    ]);
+    // Nothing points at b, so a range ending there can only be spelled as a hash.
+    expect(rebaseOntoRange("a", "b", linear.commits, linear.lookup).tipBranches).toEqual([]);
+  });
+
+  it("ignores tags and remote branches when naming the tip", () => {
+    const commits = [
+      { hash: "b", parentHashes: ["a"], refs: [{ name: "v1", type: "tag" }] },
+      { hash: "a", parentHashes: [], refs: [] }
+    ];
+    expect(rebaseOntoRange("a", "b", commits, { b: 0, a: 1 }).tipBranches).toEqual([]);
+  });
+
+  it("falls back to graph order for two commits on divergent branches", () => {
+    // x and y both sit on base; neither reaches the other. y is listed lower
+    // (older in graph order), so it becomes the upstream.
+    const { commits, lookup } = build({ x: ["base"], y: ["base"], base: [] });
+    expect(rebaseOntoRange("x", "y", commits, lookup)).toMatchObject({
+      upstream: "y",
+      tip: "x"
+    });
+  });
+
+  it("falls back to graph order when the ancestry runs past the loaded commits", () => {
+    // b's parent was never loaded, so walking parents from b never reaches a.
+    const { commits, lookup } = build({ b: ["unloaded"], a: ["alsoUnloaded"] });
+    expect(rebaseOntoRange("a", "b", commits, lookup)).toMatchObject({
+      upstream: "a",
+      tip: "b"
+    });
   });
 });
 

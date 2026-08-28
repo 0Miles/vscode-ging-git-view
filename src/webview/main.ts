@@ -46,6 +46,8 @@ import {
   ELLIPSIS,
   graphNavigationTarget,
   latestTagName,
+  type RebaseOntoRange,
+  rebaseOntoRange,
   refInvalid,
   signatureCategory,
   splitDisplayRemoteRef,
@@ -1637,6 +1639,13 @@ class GitGraphView {
       let hash = sourceElem.dataset.hash!;
       // Drop is only offered when the topological check passes.
       const canDrop = dropCommitPossible(hash, this.commits, this.commitLookup, this.commitHead);
+      // Two CTRL-selected commits bound the range `rebase --onto` replays, and
+      // the right-clicked commit is the new base — so it cannot be one of them.
+      const compared = this.comparedCommitPair();
+      const ontoRange =
+        compared !== null && compared[0] !== hash && compared[1] !== hash
+          ? rebaseOntoRange(compared[0], compared[1], this.commits, this.commitLookup)
+          : null;
       const cmv = viewState.contextMenuActionsVisibility.commit; // per-action visibility
       showContextMenu(
         <MouseEvent>e,
@@ -2029,6 +2038,16 @@ class GitGraphView {
               );
             }
           },
+          ...(ontoRange !== null
+            ? <ContextMenuElement[]>[
+                {
+                  visible: cmv.rebaseOnto,
+                  title: l10n.rebaseOntoCommit + ELLIPSIS,
+                  icon: "rebase",
+                  onClick: () => this.rebaseOntoAction(hash, ontoRange, sourceElem)
+                }
+              ]
+            : []),
           ...(canDrop
             ? <ContextMenuElement[]>[
                 {
@@ -2556,6 +2575,86 @@ class GitGraphView {
         showActionRunningDialog(l10n.rebasing);
       },
       null
+    );
+  }
+
+  /**
+   * `git rebase --onto <newBase> <upstream> <tip>` over the range the two
+   * CTRL-selected commits bound (`range`), with the right-clicked commit as the
+   * new base.
+   *
+   * The tip is handed to git as a branch name whenever a local branch points at
+   * it, so that branch is what moves; with several to choose from the dialog
+   * asks, and with none the rebase can only be spelled as a hash and the dialog
+   * says so — git leaves HEAD detached in that case. The command is shown on
+   * every path, since the range's direction was resolved for the user; while
+   * the branch is still being picked it stands as a literal `<branch>`.
+   */
+  private rebaseOntoAction(
+    newBase: string,
+    range: RebaseOntoRange,
+    sourceElem: HTMLElement | null
+  ) {
+    const run = (tip: string) => {
+      sendMessage({
+        command: "rebaseOnto",
+        repo: this.currentRepo!,
+        newBase,
+        upstream: range.upstream,
+        tip
+      });
+      showActionRunningDialog(l10n.rebasing);
+    };
+    const confirmMsg = (tipLabel: string) =>
+      fillTemplate(
+        l10n.dialogRebaseOntoConfirm,
+        "<b><i>" + abbrevCommit(range.upstream) + "</i></b>",
+        "<b><i>" + tipLabel + "</i></b>",
+        "<b><i>" + abbrevCommit(newBase) + "</i></b>"
+      );
+    const commandPreview = (tip: string) =>
+      '<span class="commandPreview">' +
+      escapeHtml(
+        "git rebase " +
+          (this.config.signCommits ? "-S " : "") +
+          "--onto " +
+          abbrevCommit(newBase) +
+          " " +
+          abbrevCommit(range.upstream) +
+          " " +
+          tip
+      ) +
+      "</span>";
+
+    if (range.tipBranches.length > 1) {
+      // Several local branches sit on the tip commit and only one of them can be
+      // the branch git moves, so the preview carries git's own `<branch>`
+      // placeholder — the select below is what fills it.
+      showSelectDialog(
+        confirmMsg(abbrevCommit(range.tip)) + commandPreview("<branch>"),
+        range.tipBranches[0],
+        [
+          ...range.tipBranches.map((branch) => ({ name: branch, value: branch })),
+          { name: l10n.dialogRebaseOntoDetachedNone, value: "" }
+        ],
+        l10n.dialogYesRebase,
+        (branch) => run(branch === "" ? range.tip : branch),
+        sourceElem
+      );
+      return;
+    }
+    const branch = range.tipBranches[0];
+    const tip = branch ?? range.tip;
+    showConfirmationDialog(
+      confirmMsg(branch !== undefined ? escapeHtml(branch) : abbrevCommit(range.tip)) +
+        commandPreview(branch !== undefined ? branch : abbrevCommit(range.tip)) +
+        (branch === undefined
+          ? '<span class="dialogNote">' +
+            escapeHtml(fillTemplate(l10n.dialogRebaseOntoDetached, abbrevCommit(range.tip))) +
+            "</span>"
+          : ""),
+      () => run(tip),
+      sourceElem
     );
   }
   private fastForwardBranchAction(refName: string) {
@@ -3593,6 +3692,16 @@ class GitGraphView {
     compareElem.classList.add("commitDetailsOpen");
     this.saveState();
     sendMessage({ command: "compareCommits", repo: this.currentRepo!, fromHash, toHash });
+  }
+
+  /** The two commits a CTRL-click comparison has selected — the anchored row
+   *  and the one compared against it — or null while the Commit Details View is
+   *  showing a single commit. Unordered: the pair is whatever was clicked, and
+   *  each caller resolves the order its own operation needs. */
+  private comparedCommitPair(): [string, string] | null {
+    const expanded = this.expandedCommit;
+    if (expanded === null || expanded.compareWithHash === null) return null;
+    return [expanded.hash, expanded.compareWithHash];
   }
 
   /** Close the comparison and fall back to the expanded commit's own details
@@ -4690,6 +4799,7 @@ let gitGraph = new GitGraphView(
     markdown: viewState.markdown,
     muteCommitsNotAncestorsOfHead: viewState.muteCommitsNotAncestorsOfHead,
     muteMergeCommits: viewState.muteMergeCommits,
+    signCommits: viewState.signCommits,
     onLoadScrollToHead: viewState.onLoadScrollToHead,
     showCurrentBranchByDefault: viewState.showCurrentBranchByDefault,
     uncommittedChangesAtHead: viewState.uncommittedChangesAtHead,
@@ -5567,6 +5677,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       refreshGraphOrDisplayError(msg.status, l10n.unableToReset);
       break;
     case "rebaseOn":
+    case "rebaseOnto":
       refreshGraphOrDisplayError(msg.status, l10n.unableToRebase);
       break;
     case "revertCommit":

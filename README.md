@@ -57,6 +57,8 @@ tradeoffs, and release process clearer.
 - **Branch actions**: Create, checkout, rename, delete, merge, rebase, and push
 - **Tag actions**: Create, delete, and push tags
 - **Commit actions**: Checkout, cherry-pick, revert, and reset
+- **Rebase a range**: CTRL/CMD-click two commits to bound a range, then right-click a third to replay that range onto it (`git rebase --onto`)
+- **Pull requests**: Open a pre-filled "create pull request" page for a branch on GitHub, GitLab, Bitbucket, Gitea/Forgejo, or a self-hosted host you configure
 - **Avatar support**: Optional avatars from GitHub, GitLab, or Gravatar
 - **Devcontainer ready**: Works in remote and container environments
 
@@ -77,8 +79,40 @@ A few commonly adjusted settings:
 | `ging-git-view.history.loadMoreOnScroll`   | `true`        | Load the next page on scrolling to the bottom    |
 | `ging-git-view.repoSearchDepth`            | `0`           | Folder depth for repository search               |
 | `ging-git-view.statusBarButton`            | `true`        | Show the status bar button                       |
+| `ging-git-view.pullRequests.providers`     | `[]`          | Which host serves pull requests for which forge  |
 
 See `contributes.configuration` in `package.json` for the full list of settings.
+
+### Pull request providers
+
+"Create Pull Request" opens the forge's own page with the branch pre-filled. `github.com`,
+`gitlab.com`, `bitbucket.org`, `gitea.com` and `codeberg.org` work with no configuration.
+For a self-hosted host, map it to the forge running there — one entry, no URL to write:
+
+```jsonc
+"ging-git-view.pullRequests.providers": [
+  { "host": "git.example.com", "type": "gitea" },
+  { "host": "gitlab.internal", "type": "gitlab" }
+]
+```
+
+`type` is one of `github`, `gitlab`, `bitbucket`, `gitea` (also Forgejo), or `custom`. A `custom`
+entry spells the URL out itself, with `{scheme}`, `{host}`, `{path}`, `{owner}`, `{repo}` and
+`{branch}` placeholders — and it must contain `{branch}`, or the entry is ignored:
+
+```jsonc
+{
+  "host": "git.example.com",
+  "type": "custom",
+  "urlTemplate": "https://review.example.com/{owner}/{repo}/pr?from={branch}"
+}
+```
+
+An entry replaces the built-in mapping for the same host. Rather than editing the list by hand, run
+**Manage Pull Request Providers...** — from the Remotes view's title `...` menu, or from the Command
+Palette. It lists the built-in and configured hosts, writes to the settings scope it names, and can
+open the setting afterwards. Attempting to create a pull request on an unconfigured host offers the
+same command, with that host already filled in.
 
 ## Installation
 

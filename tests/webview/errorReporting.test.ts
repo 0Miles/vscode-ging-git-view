@@ -50,7 +50,8 @@ const viewState: GG.GitGraphViewState = {
   uncommittedChangesAtHead: false,
   showSpecificBranches: [],
   showRemoteBranches: true,
-  showTags: true
+  showTags: true,
+  signCommits: false
 };
 
 /** A response whose payload breaks the handler applying it — the shape of the

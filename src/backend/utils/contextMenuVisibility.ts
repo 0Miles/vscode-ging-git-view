@@ -11,6 +11,7 @@ export const DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY: ContextMenuActionsVisibili
     merge: true,
     reset: true,
     rebase: true,
+    rebaseOnto: true,
     drop: true,
     copyHash: true,
     copySubject: true

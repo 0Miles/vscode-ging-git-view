@@ -6,6 +6,10 @@ import { mergeContextMenuActionsVisibility } from "./backend/utils/contextMenuVi
 import { resolveGitPath } from "./backend/utils/gitPath";
 import { normalizeKeybinding } from "./backend/utils/keybinding";
 import {
+  normalizePullRequestProviders,
+  type PullRequestProvider
+} from "./backend/utils/pullRequest";
+import {
   ContextMenuActionsVisibility,
   DateFormat,
   FileViewType,
@@ -171,6 +175,11 @@ export const config = {
       .get<string>("repositories.selectionMode", "multiple") !== "single",
   onlyFollowFirstParent: (): boolean => getConfig("history.firstParentOnly", false),
   openNewTabEditorGroup: (): EditorGroup => getConfig("diffEditorGroup", "Active"),
+  // Which host serves pull requests for which forge. Malformed entries are
+  // dropped rather than turned into a broken URL; the built-in public hosts
+  // apply on top of whatever is listed here (see backend/utils/pullRequest.ts).
+  pullRequestProviders: (): PullRequestProvider[] =>
+    normalizePullRequestProviders(getConfig<unknown>("pullRequests.providers", [])),
   referenceInputSpaceSubstitution: (): RefSpaceSubstitution =>
     getConfig("refNameSpaceReplacement", "None"),
   retainContextWhenHidden: (): boolean => getConfig("keepWebviewAlive", true),
