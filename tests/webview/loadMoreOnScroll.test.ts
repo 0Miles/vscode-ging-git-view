@@ -3,7 +3,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  makeViewState,
+  NEAR_BOTTOM,
+  parkViewportAt,
+  receive,
+  setupHtml
+} from "./setup";
 
 // Automatic loading on scroll is the continuation of *browsing*, so it must be
 // indistinguishable from browsing: it may not move anything the user did not
@@ -99,34 +106,6 @@ const tipDetails: GitCommitDetails = {
   ]
 };
 
-const VIEWPORT_HEIGHT = 768;
-const PAGE_HEIGHT = 10000;
-/** The offset at which `innerHeight + scrollY >= offsetHeight - 250` first
- *  holds — the threshold, worked out from the stubbed geometry rather than
- *  copied off the implementation. */
-const NEAR_BOTTOM = PAGE_HEIGHT - 250 - VIEWPORT_HEIGHT;
-
-/** Give the page a size. jsdom performs no layout, so `scrollY` is 0 and
- *  `body.offsetHeight` is 0 unless told otherwise — which makes
- *  `innerHeight + scrollY >= offsetHeight - 250` true wherever the viewport
- *  is. A suite that skips this passes for the wrong reason and can never show
- *  the negative case at all. Stubbed per suite with `Object.defineProperty`,
- *  as contextMenuPosition.test.ts stubs the viewport it measures against. */
-function stubPageGeometry() {
-  Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
-  Object.defineProperty(document.body, "offsetHeight", {
-    value: PAGE_HEIGHT,
-    configurable: true
-  });
-}
-
-/** Park the viewport at a known offset. jsdom never scrolls on its own, and
- *  its scrollTo is unimplemented, so the offset has to be declared. */
-function parkViewportAt(offset: number) {
-  Object.defineProperty(window, "scrollY", { value: offset, configurable: true });
-  Object.defineProperty(window, "pageYOffset", { value: offset, configurable: true });
-}
-
 function row(hash: string) {
   return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
 }
@@ -152,7 +131,6 @@ describe("automatic loading on scroll", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    stubPageGeometry();
     // jsdom implements neither, so record what the webview asks for instead.
     window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = scrollIntoView;

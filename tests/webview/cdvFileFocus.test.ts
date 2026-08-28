@@ -4,7 +4,14 @@ import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@/backend/t
 import type * as GG from "@/types";
 import { generateGitFileListHtml } from "@/webview/utils/fileTree";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  makeViewState,
+  NEAR_BOTTOM,
+  parkViewportAt,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The Commit Details View's file list is its own roving-tabindex group, and a
 // redraw destroys it the same way it destroys the commit rows: `renderTable`
@@ -115,26 +122,6 @@ const comparisonChanges: GitFileChange[] = [
   }
 ];
 
-const VIEWPORT_HEIGHT = 768;
-const PAGE_HEIGHT = 10000;
-/** The offset at which `innerHeight + scrollY >= offsetHeight - 250` first
- *  holds, worked out from the stubbed geometry rather than copied off the
- *  implementation. */
-const NEAR_BOTTOM = PAGE_HEIGHT - 250 - VIEWPORT_HEIGHT;
-
-/** jsdom performs no layout, so the page has no size and the near-the-bottom
- *  threshold would hold wherever the viewport is — a suite that skips this
- *  passes for the wrong reason. */
-function stubPageGeometry() {
-  Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
-  Object.defineProperty(document.body, "offsetHeight", { value: PAGE_HEIGHT, configurable: true });
-}
-
-function parkViewportAt(offset: number) {
-  Object.defineProperty(window, "scrollY", { value: offset, configurable: true });
-  Object.defineProperty(window, "pageYOffset", { value: offset, configurable: true });
-}
-
 function row(hash: string) {
   return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
 }
@@ -170,7 +157,6 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    stubPageGeometry();
     // jsdom implements neither, so record what the webview asks for instead.
     window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = scrollIntoView;

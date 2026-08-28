@@ -3,7 +3,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { BranchSearchEntry, GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  makeViewState,
+  NEAR_BOTTOM,
+  parkViewportAt,
+  receive,
+  setupHtml
+} from "./setup";
 
 // Bringing the current find match into view belongs to *moving* to it, not to
 // drawing it. `loadCommits` refreshes Find after every redraw, and automatic
@@ -136,28 +143,6 @@ function commitsResponse(loaded: GitCommitNode[]): GG.ResponseMessage {
   };
 }
 
-const VIEWPORT_HEIGHT = 768;
-const PAGE_HEIGHT = 10000;
-/** The offset at which `innerHeight + scrollY >= offsetHeight - 250` first
- *  holds — the threshold, worked out from the stubbed geometry rather than
- *  copied off the implementation. */
-const NEAR_BOTTOM = PAGE_HEIGHT - 250 - VIEWPORT_HEIGHT;
-
-/** Give the page a size. jsdom performs no layout, so `scrollY` is 0 and
- *  `body.offsetHeight` is 0 unless told otherwise — which makes the threshold
- *  true wherever the viewport is, and the negative cases unprovable. */
-function stubPageGeometry() {
-  Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
-  Object.defineProperty(document.body, "offsetHeight", { value: PAGE_HEIGHT, configurable: true });
-}
-
-/** Park the viewport at a known offset. jsdom never scrolls on its own, and
- *  its scrollTo is unimplemented, so the offset has to be declared. */
-function parkViewportAt(offset: number) {
-  Object.defineProperty(window, "scrollY", { value: offset, configurable: true });
-  Object.defineProperty(window, "pageYOffset", { value: offset, configurable: true });
-}
-
 function row(hash: string) {
   return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
 }
@@ -240,7 +225,6 @@ describe("bringing the current find match into view", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    stubPageGeometry();
     // jsdom implements neither, so record what the webview asks for instead.
     window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = scrollIntoView;
