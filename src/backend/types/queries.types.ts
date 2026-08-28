@@ -102,6 +102,18 @@ type QueryPayloads = {
        *  branches; entries may be branch names or `glob:<pattern>` markers. */
       branchNames: string[];
       maxCommits: number;
+      /** The webview's own flag, and the host reads it exactly once — to copy
+       *  it onto the response. It changes nothing about which commits are read,
+       *  which is what separates it from the identically named field on
+       *  `loadBranches`, where the host acts on it. Its only reader is the
+       *  webview's "same content, skip the redraw" short-circuit, which a hard
+       *  refresh has to defeat: same commits, but the user asked to see the
+       *  reload happen. Messaging here is command-keyed rather than
+       *  request-id'd, so a flag that has to stay pinned to its own response
+       *  rides the round trip rather than being remembered locally. Only one
+       *  commit load is ever in flight (ADR-0018), so remembering it locally
+       *  would work too — the round trip is what the protocol already gives us,
+       *  not the only thing that could pin it. */
       hard: boolean;
       commitOrder?: CommitOrdering;
       /** Remote names whose branches are hidden. */
@@ -111,6 +123,7 @@ type QueryPayloads = {
       commits: GitCommitNode[];
       head: string | null;
       moreCommitsAvailable: boolean;
+      /** Verbatim echo of the request's `hard`; carries no host knowledge. */
       hard: boolean;
     };
   };

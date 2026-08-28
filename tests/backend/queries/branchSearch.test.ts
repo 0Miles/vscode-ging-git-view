@@ -26,7 +26,7 @@ beforeAll(() => {
 afterAll(() => rmrf(repo));
 
 describe("loadBranchSearchIndex", () => {
-  it("returns local branch heads in graph order with their zero-based depth", async () => {
+  it("returns local branch heads with their zero-based `git log` position", async () => {
     const result = await loadBranchSearchIndex(simpleGit(repo), {
       branchNames: [""],
       showRemoteBranches: false,
@@ -35,9 +35,9 @@ describe("loadBranchSearchIndex", () => {
       hiddenRemotes: []
     });
 
-    expect(result.branches.map(({ name, depth }) => ({ name, depth }))).toEqual([
-      { name: "main", depth: 0 },
-      { name: "feature/done", depth: 2 }
+    expect(result.branches.map(({ name, logDepth }) => ({ name, logDepth }))).toEqual([
+      { name: "main", logDepth: 0 },
+      { name: "feature/done", logDepth: 2 }
     ]);
   });
 
@@ -97,7 +97,7 @@ describe("loadBranchSearchIndex", () => {
     }
   });
 
-  it("does not let a hidden remote affect branch depths", async () => {
+  it("does not let a hidden remote affect branch log positions", async () => {
     const hiddenRepo = makeRepo();
     try {
       fs.writeFileSync(path.join(hiddenRepo, "f"), "remote ahead");
@@ -114,8 +114,8 @@ describe("loadBranchSearchIndex", () => {
         hiddenRemotes: ["origin"]
       });
 
-      expect(result.branches.map(({ name, depth }) => ({ name, depth }))).toEqual([
-        { name: "main", depth: 0 }
+      expect(result.branches.map(({ name, logDepth }) => ({ name, logDepth }))).toEqual([
+        { name: "main", logDepth: 0 }
       ]);
     } finally {
       rmrf(hiddenRepo);
@@ -141,9 +141,9 @@ describe("loadBranchSearchIndex", () => {
         hiddenRemotes: []
       });
 
-      expect(result.branches.map(({ name, depth }) => ({ name, depth }))).toEqual([
-        { name: "origin/release/1", depth: 0 },
-        { name: "main", depth: 1 }
+      expect(result.branches.map(({ name, logDepth }) => ({ name, logDepth }))).toEqual([
+        { name: "origin/release/1", logDepth: 0 },
+        { name: "main", logDepth: 1 }
       ]);
     } finally {
       rmrf(globRepo);
@@ -177,7 +177,7 @@ describe("loadBranchSearchIndex", () => {
     }
   });
 
-  it("measures branch depth in the same graph order when tag-only commits are shown", async () => {
+  it("measures the log position against the same traversal when tag-only commits are shown", async () => {
     const taggedRepo = makeRepo();
     try {
       git(["checkout", "--detach"], taggedRepo);
@@ -196,8 +196,8 @@ describe("loadBranchSearchIndex", () => {
         hiddenRemotes: []
       });
 
-      expect(result.branches.map(({ name, depth }) => ({ name, depth }))).toEqual([
-        { name: "main", depth: 1 }
+      expect(result.branches.map(({ name, logDepth }) => ({ name, logDepth }))).toEqual([
+        { name: "main", logDepth: 1 }
       ]);
     } finally {
       rmrf(taggedRepo);

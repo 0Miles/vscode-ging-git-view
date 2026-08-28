@@ -2,13 +2,20 @@ import type { BranchSearchEntry, GitCommitNode } from "@/backend/types";
 
 import { commitMatchesQuery } from "./utils/git";
 
+/** The two numbers below are the same distance measured on two different
+ *  rulers, and Find needs both: `depth` orders matches the way the user sees
+ *  them, `logDepth` sizes the load that would reach one. They agree only in a
+ *  repo with no stashes on screen. */
 export type FindMatch = {
   hash: string;
   loaded: boolean;
-  /** Zero-based row in the unbounded graph, excluding the working-tree row. */
+  /** Zero-based row in the unbounded graph, excluding the working-tree row and
+   *  including every rendered stash row. */
   depth: number;
-  /** Zero-based position in `git log`, excluding rendered stash rows. */
-  loadDepth: number;
+  /** Zero-based position in `git log`, excluding rendered stash rows — the
+   *  same ruler as {@link BranchSearchEntry.logDepth}, and the one
+   *  `--max-count` is measured on. */
+  logDepth: number;
   /** Branches whose display refs matched the query. */
   branches: Pick<BranchSearchEntry, "ref" | "name">[];
 };
@@ -37,8 +44,8 @@ export function buildFindMatches(
   for (const commit of commits) {
     if (commit.hash === "*") continue;
     loadedHashes.add(commit.hash);
-    const commitLoadDepth = logDepth;
-    if (commit.refs.some((ref) => ref.type === "stash")) stashBoundaries.push(commitLoadDepth);
+    const commitLogDepth = logDepth;
+    if (commit.refs.some((ref) => ref.type === "stash")) stashBoundaries.push(commitLogDepth);
     else logDepth++;
     const branches = matchingBranches.get(commit.hash) ?? [];
     if (commitMatchesQuery(commit, query) || branches.length > 0) {
@@ -46,21 +53,24 @@ export function buildFindMatches(
         hash: commit.hash,
         loaded: true,
         depth: graphDepth,
-        loadDepth: commitLoadDepth,
+        logDepth: commitLogDepth,
         branches: branches.map(({ ref, name }) => ({ ref, name }))
       });
     }
     graphDepth++;
   }
 
+  // The index arrives on the `git log` ruler, so converting to a graph row means
+  // adding back the stash rows the graph splices in above this branch.
   for (const [hash, branches] of matchingBranches) {
     if (loadedHashes.has(hash)) continue;
-    const branchDepth = Math.min(...branches.map((branch) => branch.depth));
+    const branchLogDepth = Math.min(...branches.map((branch) => branch.logDepth));
     matches.push({
       hash,
       loaded: false,
-      depth: branchDepth + stashBoundaries.filter((boundary) => boundary <= branchDepth).length,
-      loadDepth: branchDepth,
+      depth:
+        branchLogDepth + stashBoundaries.filter((boundary) => boundary <= branchLogDepth).length,
+      logDepth: branchLogDepth,
       branches: branches.map(({ ref, name }) => ({ ref, name }))
     });
   }
@@ -97,10 +107,12 @@ export function resolveFindCurrent(
 
 export function planFindLoad(
   currentMaxCommits: number,
-  match: Pick<FindMatch, "loaded" | "loadDepth">
+  match: Pick<FindMatch, "loaded" | "logDepth">
 ): { maxCommits: number; additionalCommits: number; confirm: boolean } | null {
   if (match.loaded) return null;
-  const maxCommits = Math.max(currentMaxCommits, match.loadDepth + 1);
+  // `maxCommits` becomes git's `--max-count`, which counts log entries — so the
+  // window is sized off `logDepth`, never off the row the match renders at.
+  const maxCommits = Math.max(currentMaxCommits, match.logDepth + 1);
   const additionalCommits = maxCommits - currentMaxCommits;
   return { maxCommits, additionalCommits, confirm: additionalCommits > 200 };
 }

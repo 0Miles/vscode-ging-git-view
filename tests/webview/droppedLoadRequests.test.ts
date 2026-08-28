@@ -109,8 +109,8 @@ function savedMaxCommits() {
 
 /** How far past the loaded window {@link raiseFindLoadConfirmation} puts its
  *  branch. Anything over 200 makes planFindLoad ask before loading; measuring
- *  it from the window rather than fixing a depth keeps the scenarios standing
- *  wherever the earlier ones left the window. */
+ *  it from the window rather than fixing a position keeps the scenarios
+ *  standing wherever the earlier ones left the window. */
 const ADDITIONAL_COMMITS = 401;
 
 /** Step Find onto a branch that far below the loaded window and leave its
@@ -122,7 +122,9 @@ function raiseFindLoadConfirmation() {
     ref: "feature/ancient",
     name: "feature/ancient",
     hash: "ancient999",
-    depth: savedMaxCommits() + ADDITIONAL_COMMITS - 1
+    // `logDepth`, not a graph row: this is a position in `git log`, which is
+    // the ruler planFindLoad sizes the window against. See BranchSearchEntry.
+    logDepth: savedMaxCommits() + ADDITIONAL_COMMITS - 1
   };
   const input = <HTMLInputElement>document.getElementById("findInput");
   input.value = "ancient";

@@ -108,7 +108,7 @@ describe("webview rendering", () => {
       command: "branchSearch",
       token: request.token,
       status: null,
-      branches: [{ ref: "feature/legacy", name: "feature/legacy", hash: "old123", depth: 500 }]
+      branches: [{ ref: "feature/legacy", name: "feature/legacy", hash: "old123", logDepth: 500 }]
     });
 
     expect(document.getElementById("findCount")!.textContent).toBe("1 of 1");
@@ -134,7 +134,7 @@ describe("webview rendering", () => {
       command: "branchSearch",
       token: request.token,
       status: null,
-      branches: [{ ref: "feature/legacy", name: "feature/legacy", hash: "old123", depth: 350 }]
+      branches: [{ ref: "feature/legacy", name: "feature/legacy", hash: "old123", logDepth: 350 }]
     });
     vscodeMock.clearMessages();
 
@@ -159,7 +159,7 @@ describe("webview rendering", () => {
           ref: "feature/legacy",
           name: "feature/legacy",
           hash: "moved123",
-          depth: 350
+          logDepth: 350
         }
       ]
     });
@@ -224,7 +224,7 @@ describe("webview rendering", () => {
           ref: "origin/collision",
           name: "origin/collision",
           hash: "local-old",
-          depth: 350
+          logDepth: 350
         }
       ]
     });
@@ -243,7 +243,7 @@ describe("webview rendering", () => {
           ref: "remotes/origin/collision",
           name: "origin/collision",
           hash: "remote-new",
-          depth: 350
+          logDepth: 350
         }
       ]
     });
@@ -274,7 +274,7 @@ describe("webview rendering", () => {
           ref: "feature/ancient",
           name: "feature/ancient",
           hash: "ancient123",
-          depth: 600
+          logDepth: 600
         }
       ]
     });
@@ -293,7 +293,7 @@ describe("webview rendering", () => {
           ref: "feature/ancient",
           name: "feature/ancient",
           hash: "ancient123",
-          depth: 600
+          logDepth: 600
         }
       ]
     });
@@ -348,12 +348,12 @@ describe("webview rendering", () => {
       token: request.token,
       status: null,
       branches: [
-        { ref: "main", name: "main", hash: "merge789", depth: 0 },
+        { ref: "main", name: "main", hash: "merge789", logDepth: 0 },
         {
           ref: "remotes/origin/main",
           name: "origin/main",
           hash: "merge789",
-          depth: 0
+          logDepth: 0
         }
       ]
     });

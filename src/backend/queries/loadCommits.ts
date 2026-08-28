@@ -10,22 +10,23 @@ import type {
 } from "@/backend/types";
 
 import { gitLogScopeArgs, gitLogTraversalArgs } from "./gitLogScope";
-import { loadStashes } from "./loadStashes";
+import { type GraphStash, loadStashes } from "./loadStashes";
 
 const eolRegex = /\r\n|\r|\n/g;
 const gitLogSeparator = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
 
+/** Everything here is read. The webview's `hard` flag is deliberately absent:
+ *  it steers nothing about which commits get read, and the message handler
+ *  echoes it back on its own (see `messageHandler.ts`). */
 type LoadCommitsInput = {
   /** Branch refs to show commits from; see the request type. */
   branchNames: string[];
   maxCommits: number;
   showRemoteBranches: boolean;
-  hard: boolean;
   dateType: DateType;
   showUncommittedChanges: boolean;
   commitOrder: CommitOrdering;
   onlyFollowFirstParent: boolean;
-  showUntrackedFiles: boolean;
   showCommitsOnlyReferencedByTags: boolean;
   showRemoteHeads: boolean;
   includeCommitsMentionedByReflogs: boolean;
@@ -149,6 +150,12 @@ async function getUnsavedChanges(git: SimpleGit) {
     // The uncommitted-changes node counts staged + tracked working-tree changes
     // only. `not_added` (untracked paths, a subset of `files`) never contributes,
     // so a tree with nothing but untracked files shows no node.
+    //
+    // Unconditional, and no setting governs it. A `show.untrackedFiles` setting
+    // was once declared and threaded down to here, where nothing ever read it,
+    // so it offered a choice this line never honoured. The setting is gone
+    // rather than made live: switching it on would change the number every user
+    // already reads on that row (see `tests/backend/queries/loadCommits`).
     const changes = status.files.length - status.not_added.length;
     if (changes <= 0) return null;
     return { branch: status.current ?? "HEAD", changes };
@@ -157,15 +164,61 @@ async function getUnsavedChanges(git: SimpleGit) {
   }
 }
 
+/**
+ * Where to splice a stash into the loaded commits, or -1 when its place lies
+ * past the end of a window that is still hiding commits.
+ *
+ * The index is the first loaded commit older than the stash — or the stash's
+ * base commit, when that one sits higher still. **That clamp to the base is a
+ * correctness requirement, not tidiness.** The graph layout assumes a commit's
+ * parents appear below it (a higher index), and a stash's date can disagree
+ * with the commits around it in three ways: the stash date is always its
+ * committer date (%ct) while the commits carry %at or %ct per `dateType`, topo
+ * ordering isn't date-sorted at all, and clock skew happens. Any of those can
+ * place a stash *below* its own base, pointing its only parent upward, which
+ * the layout walk cannot terminate on (see `tests/webview/graphLayout.test.ts`).
+ *
+ * When neither exists, the stash is older than everything loaded, so its place
+ * is past the last loaded commit. Appending it there — what this used to do —
+ * makes the row a function of how much is loaded: the stash sits at the bottom
+ * of whatever happens to be loaded, then moves down each time a later load
+ * reveals the commits that belong above it. So the end of the list counts as a
+ * real place only when the list *is* the whole history; otherwise the stash
+ * waits for the loaded commit window to reach the commits it belongs among.
+ *
+ * **The -1 is a knowingly accepted trade, and it costs more than it looks.**
+ * Two facts sharpen it. First, the old fallback was not holding the layout
+ * together on this path: a stash appended past the end has an unloaded base, so
+ * its parent is the id -1 sentinel and the walk was never at risk. This buys a
+ * stable row with the stash's visibility, not with correctness. Second, the
+ * graph is the only surface GING offers for a stash — `refContextMenu` keys off
+ * `ref.type === "stash"`, `listStashes` is unwired, and both the README and the
+ * `scrollToStash` shortcut still assume every stash is on the graph. So a stash
+ * whose base is unreachable is out of reach here until the whole history is
+ * loaded (`git` and VS Code's built-in Git still show it). Accepted anyway: a
+ * row at a position that is invented, and that moves when the user loads more,
+ * is harder to explain than a row that is not there yet.
+ */
+function stashInsertIndex(
+  commits: GitLogEntry[],
+  stash: GraphStash,
+  moreCommitsAvailable: boolean
+): number {
+  const byDate = commits.findIndex((c) => c.date < stash.date);
+  const base = stash.baseHash === null ? -1 : commits.findIndex((c) => c.hash === stash.baseHash);
+  if (base !== -1 && (byDate === -1 || base < byDate)) return base;
+  if (byDate !== -1) return byDate;
+  return moreCommitsAvailable ? -1 : commits.length;
+}
+
 export async function loadCommits(
   git: SimpleGit,
   input: LoadCommitsInput
-): Promise<QueryResult<"loadCommits">> {
+): Promise<Omit<QueryResult<"loadCommits">, "hard">> {
   const {
     branchNames,
     maxCommits,
     showRemoteBranches,
-    hard,
     dateType,
     showUncommittedChanges,
     commitOrder,
@@ -226,19 +279,10 @@ export async function loadCommits(
     // positioned by date, and add a "stash" ref so they're labelled on the graph.
     const stashes = await loadStashes(git);
     for (const stash of stashes) {
-      let idx = commits.findIndex((c) => c.date < stash.date);
-      if (idx === -1) idx = commits.length;
-      // The graph layout assumes a commit's parents appear below it (a higher
-      // index). Placing a stash purely by date can drop it *below* its base
-      // commit — the stash date (%ct) and the commits' date basis (%at/%ct, per
-      // dateType) can disagree, topo ordering isn't date-sorted at all, and
-      // clock skew happens — which makes the stash's parent point upward and
-      // hangs the layout walk (a frozen graph). Clamp the stash to sit at or
-      // above its base so that invariant always holds.
-      if (stash.baseHash !== null) {
-        const baseIdx = commits.findIndex((c) => c.hash === stash.baseHash);
-        if (baseIdx !== -1 && baseIdx < idx) idx = baseIdx;
-      }
+      const idx = stashInsertIndex(commits, stash, moreCommitsAvailable);
+      // The stash belongs below everything this window holds; it gets its row
+      // (and its label with it) once the window reaches that far.
+      if (idx === -1) continue;
       commits.splice(idx, 0, {
         hash: stash.hash,
         parentHashes: stash.baseHash !== null ? [stash.baseHash] : [],
@@ -273,5 +317,5 @@ export async function loadCommits(
     }
   }
 
-  return { commits: commitNodes, head: refData.head, moreCommitsAvailable, hard };
+  return { commits: commitNodes, head: refData.head, moreCommitsAvailable };
 }

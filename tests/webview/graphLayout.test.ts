@@ -104,3 +104,99 @@ describe("graph layout termination", () => {
     expect(circleCount()).toBe(4);
   });
 });
+
+// Widening the loaded commit window can redraw rows that were already on
+// screen. That is deliberate behaviour, not a bug waiting to be fixed: while a
+// parent sits off-graph, every merge onto it collapses to the same id -1
+// sentinel vertex, so determinePath() takes the "branch is normal" path —
+// allocates a new colour, draws a line to the bottom edge, and eats one lane on
+// every row below. Once the next page makes that parent a real vertex that is
+// already on a branch, the same merge takes the merge path instead: it joins
+// the existing point and finishes early, so the lane and the colour it used to
+// consume are freed. The second page knows more, so it draws the truer picture.
+//
+// See ADR-0019 (docs/adr/0019-commit-loading-stays-whole-window.md). "Rows
+// above stay put" is a property this codebase does not have today, and that is
+// why append-style loading was rejected rather than built — these tests exist
+// to make the absence visible, not to lock in a defect.
+//
+// The numbers below are the ADR's minimal repro, cross-checked against a second
+// independent implementation. The tests assert those measurements and nothing
+// more. In particular they do NOT assert "the fork flips, therefore something
+// visibly changes": across 12,000 synthetic repositories the fork flipped 389
+// times with no visual difference at all, so a test phrased that way would be
+// flaky.
+describe("graph layout across a widened commit window", () => {
+  // The palette package.json declares for `graph.palette` — which is the one
+  // users actually get. VS Code answers every registered key with the manifest
+  // default, so the six-colour fallback in src/config.ts is unreachable, and
+  // tests/extension/config.test.ts pins this exact list to say so (#71, #77).
+  // The three-colour makeConfig() shared with the suite above is a palette
+  // production never hands out.
+  //
+  // For this fixture the two agree bit for bit: its raw lane colours only reach
+  // 2, so getVertexColour()'s `colour % palette.length` folds nothing either
+  // way. The numbers below are pinned against what a user sees rather than
+  // against a value that exists only in this file.
+  const shippedPalette = [
+    "#0085d9",
+    "#d9008f",
+    "#00d90a",
+    "#d98500",
+    "#a300d9",
+    "#ff0000",
+    "#00d9cc",
+    "#e138e8",
+    "#85d900",
+    "#dc5b23",
+    "#6f24d6",
+    "#ffcc00"
+  ];
+
+  /** Lay out one whole window and read back what the row positions became. */
+  function layOut(commits: GitCommitNode[]): { widths: number[]; colours: number[] } {
+    document.body.innerHTML = '<div id="commitGraph"></div>';
+    const g = new Graph("commitGraph", { ...makeConfig(), graphColours: shippedPalette });
+    g.loadCommits(commits, commits[0].hash, lookupOf(commits));
+    return {
+      widths: g.getWidthsAtVertices(),
+      colours: commits.map((_, i) => g.getVertexColour(i))
+    };
+  }
+
+  it("moves Z's lane and colour once the next page turns its off-graph parent into a vertex", () => {
+    // M merges A and P; A and Z both have P as their only parent. P is the row
+    // the second page adds, so on the first page all three references to it are
+    // the same id -1 sentinel.
+    const firstPage = [
+      commit("M", ["A", "P"]), // 0: merge
+      commit("A", ["P"]), // 1
+      commit("Z", ["P"]) // 2: the row that moves
+    ];
+    const secondPage = [...firstPage, commit("P", [])]; // 3: P arrives
+
+    const Z = 2;
+    const firstPass = layOut(firstPage);
+    const secondPass = layOut(secondPage);
+
+    expect(firstPass.widths[Z]).toBe(62);
+    expect(firstPass.colours[Z]).toBe(2);
+    expect(secondPass.widths[Z]).toBe(46);
+    expect(secondPass.colours[Z]).toBe(1);
+  });
+
+  it("leaves a linear history untouched when the window widens", () => {
+    // No merge anywhere, so nothing reaches the fork in determinePath() at all
+    // and R arriving on the second page changes none of the rows above it.
+    const firstPage = [commit("C", ["B"]), commit("B", ["A"]), commit("A", ["R"])];
+    const secondPage = [...firstPage, commit("R", [])]; // R arrives
+
+    const firstPass = layOut(firstPage);
+    const secondPass = layOut(secondPage);
+
+    expect(firstPass.widths).toEqual([30, 30, 30]);
+    expect(firstPass.colours).toEqual([0, 0, 0]);
+    expect(secondPass.widths).toEqual([30, 30, 30, 30]);
+    expect(secondPass.colours).toEqual([0, 0, 0, 0]);
+  });
+});

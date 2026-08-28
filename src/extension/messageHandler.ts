@@ -316,13 +316,11 @@ export function registerMessageHandlers(
           branchNames: msg.branchNames,
           maxCommits: msg.maxCommits,
           showRemoteBranches: resolveShowRemote(currentRepo!),
-          hard: msg.hard,
           dateType: config.dateType(),
           showUncommittedChanges: config.showUncommittedChanges(),
           // A per-repo override (from the column-header menu) wins over the setting.
           commitOrder: msg.commitOrder ?? config.commitOrder(),
           onlyFollowFirstParent: config.onlyFollowFirstParent(),
-          showUntrackedFiles: config.showUntrackedFiles(),
           showCommitsOnlyReferencedByTags: config.showCommitsOnlyReferencedByTags(),
           showRemoteHeads: config.showRemoteHeads(),
           includeCommitsMentionedByReflogs: config.includeCommitsMentionedByReflogs(),
@@ -330,7 +328,16 @@ export function registerMessageHandlers(
           showStashes: config.showStashes(),
           useMailmap: config.useMailmap(),
           hiddenRemotes: msg.hiddenRemotes ?? []
-        }))
+        })),
+        // Echoed back, and this line is as deep as it ever goes — the query
+        // above is not given it and would have nothing to do with it. Unlike
+        // `loadBranches`, where `hard` bypasses the branch-facts coalescing
+        // window and so is real work for the host, nothing about a commit load
+        // changes with it: it is the webview's own flag riding home so the
+        // response it belongs to can be told apart from the ones it does not
+        // (see the request type). Deliberately after the spread, so a future
+        // query that starts returning `hard` cannot quietly overwrite the echo.
+        hard: msg.hard
       });
     },
     { mutatesRepo: false }

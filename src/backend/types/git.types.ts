@@ -23,15 +23,35 @@ export type GitCommitNode = {
   signatureStatus?: string;
 };
 
-/** A branch head placed in the unbounded commit graph for Find navigation. */
+/** A branch head placed in the unbounded commit history for Find navigation. */
 export type BranchSearchEntry = {
   /** Canonical ref used as branch identity across refreshes. */
   ref: string;
   /** Display ref (`main`, `origin/main`). */
   name: string;
   hash: string;
-  /** Zero-based row in the graph, excluding the working-tree row. */
-  depth: number;
+  /** Zero-based position in `git log` — counted straight off the bare
+   *  `git log --format=%H` this index is built from, which has no working-tree
+   *  entry and no stash rows spliced in. It is deliberately **not** a graph
+   *  row: the graph splices stash rows in among the commits, so a row index
+   *  runs ahead of this by the stash rows sitting above it, and
+   *  `buildFindMatches` converts between the two (see
+   *  `tests/webview/find.test.ts`).
+   *
+   *  "No stash rows spliced in" is about the splice, not about the commits:
+   *  with `includeCommitsMentionedByReflogs` on, `--reflog` reaches
+   *  `refs/stash`'s own reflog, so a stash's commit can appear in this log as
+   *  an ordinary entry. The conversion then adds a row for the same stash a
+   *  second time. That is a pre-existing hole, not one this index introduces,
+   *  and it is tracked in #105.
+   *
+   *  What makes that conversion sound is that this log is scoped and ordered by
+   *  the same two helpers as the graph's own (`gitLogScopeArgs` /
+   *  `gitLogTraversalArgs`), so both walk the same entries in the same order —
+   *  and this is the ruler `--max-count` is measured on, which is why
+   *  `planFindLoad` sizes its window off it. Naming rule across Find: `depth`
+   *  is a graph row, `logDepth` is this. */
+  logDepth: number;
 };
 
 export type GitLogEntry = {
