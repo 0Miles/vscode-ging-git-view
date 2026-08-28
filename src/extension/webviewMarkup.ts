@@ -36,7 +36,10 @@ export function buildWebviewMarkup(l10n: LocalizedStrings): string {
       <div id="commitGraph"></div>
       <div id="commitTable"></div>
     </div>
-    <div id="footer"></div>
+    <!-- tabindex="-1" so focus can be *put* here without Tab ever stopping
+         here: the footer's controls are rewritten wholesale on every redraw,
+         and this is where focus waits when the one it was on is gone (#82). -->
+    <div id="footer" tabindex="-1"></div>
     <div id="findWidget">
       <input id="findInput" type="text" placeholder="${l10n.findPlaceholder}">
       <span id="findCount"></span>
