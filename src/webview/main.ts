@@ -6792,15 +6792,23 @@ document.addEventListener("keydown", (e) => {
   } else if ((e.ctrlKey || e.metaKey) && e.key === "ArrowDown") {
     if (gitGraph.commitDetailsNavigateGraph("parent", e.shiftKey)) e.preventDefault();
   } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-    // The footer keeps its own keys. ADR-0014 made Up/Down unconditional and
-    // had them "enter the grid" when nothing held focus, because nothing
-    // holding focus meant `<body>`, which is nowhere. Since #88 the footer is
-    // somewhere — and it is *below* the graph, so entering the grid from the
-    // first row would answer Down by travelling up past every loaded commit to
-    // the top of the table. Below the last row there is nothing to step to, so
-    // the browser's own answer (scroll) is the right one and this must not
-    // cancel the key to substitute a worse one.
-    if (active instanceof HTMLElement && active.closest("#footer") !== null) return;
+    // Down out of the footer is the one direction with nowhere to go. ADR-0014
+    // made Up/Down unconditional and had them "enter the grid" when nothing
+    // held focus, because nothing holding focus meant `<body>`, which is
+    // nowhere; since #88 the footer is somewhere, and it is *below* the graph.
+    // That makes the two directions different, so they are treated
+    // differently rather than as one "focus is outside the grid" case:
+    //
+    // - **Up** has the whole table above it, and `moveRowFocus(-1)` steps into
+    //   the last row — which is the row directly above the footer, and exactly
+    //   what ADR-0014 asks for. It keeps the key.
+    // - **Down** has nothing below it. Entering the grid from the *first* row
+    //   would answer it by travelling up past every loaded commit to the top
+    //   of the table, so the key goes back to the browser, whose answer is to
+    //   scroll. That is the one Down here can mean.
+    if (e.key === "ArrowDown" && active instanceof HTMLElement) {
+      if (active.closest("#footer") !== null) return;
+    }
     // Up/Down move focus between rows, as they do in any list — inside the
     // Commit Details View's file list when focus is there, otherwise through
     // the graph's own rows. Scrolling is Page Up/Down's job now.

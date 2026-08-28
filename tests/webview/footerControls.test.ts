@@ -13,6 +13,12 @@ import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 // order, the accessible role and the Enter/Space activation all come with the
 // element rather than being three separate things to remember.
 //
+// Everything a `<button>` brings *visually* is the other half of that, and it
+// is not here: jsdom loads no stylesheet, so nothing in this file can tell the
+// reset in `media/main.css` from its absence. That guard is
+// `tests/backend/utils/roundedBtnStyleLock.test.ts`, and the reasoning for it
+// — including the Chromium measurement it stands in for — is in its header.
+//
 // One webview is booted for the whole suite and the scenarios run in order
 // against it, the way a session actually unfolds; re-importing the module per
 // scenario would leave the previous instance still listening on `window`. The
@@ -128,6 +134,16 @@ HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOption
  *  Enter activates on keydown and Space on keyup; a cancelled keydown
  *  suppresses both. Modelled in that order so a listener reading `keyup` would
  *  see the same sequence a browser sends. */
+/** An arrow key delivered to whatever holds focus. Unlike {@link
+ *  pressOnFocused} there is no activation to model: the arrows do nothing
+ *  natively on a button, so what the document handler makes of them is the
+ *  whole behaviour. */
+function arrow(key: "ArrowUp" | "ArrowDown"): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+  document.activeElement!.dispatchEvent(event);
+  return event;
+}
+
 function pressOnFocused(key: string): KeyboardEvent {
   const target = document.activeElement;
   if (!(target instanceof HTMLElement)) throw new Error("nothing holds focus");
@@ -218,31 +234,65 @@ describe("the graph footer's controls", () => {
   // ADR-0014 gave the arrow keys one meaning — move between commit rows — and
   // made them unconditional, entering the grid when nothing was focused because
   // "nothing focused" meant `<body>`, which is nowhere. The footer is somewhere,
-  // and it is *below* the graph, so the old rule sends Down upwards past every
-  // loaded commit to the top of the table. This is reachable only because #88
-  // made the footer focusable, which makes it #88's to answer.
+  // and it is *below* the graph, which makes the two directions different
+  // rather than making the footer an exception: Up has the whole table above
+  // it and means what it always meant, Down has nothing below it and the old
+  // rule would have answered it by travelling to the *top* of the table. Both
+  // halves are reachable only because #88 made the footer focusable, so both
+  // are #88's to answer, and both are pinned here.
   describe("the arrow keys while a footer control holds focus", () => {
-    let down: KeyboardEvent;
-
     beforeAll(() => {
       receive(commitsResponse()); // settle the Space press: the window is at 300
-      loadMoreBtn()!.focus();
-      scrolledIntoView.length = 0;
-      down = new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true });
-      document.activeElement!.dispatchEvent(down);
     });
 
-    it("leaves the user on the button rather than throwing them to the top of the graph", () => {
-      expect(document.activeElement).toBe(loadMoreBtn());
-      expect(scrolledIntoView).toEqual([]);
+    describe("Down, which has nothing below it to step to", () => {
+      let down: KeyboardEvent;
+
+      beforeAll(() => {
+        loadMoreBtn()!.focus();
+        scrolledIntoView.length = 0;
+        down = arrow("ArrowDown");
+      });
+
+      it("leaves the user on the button rather than throwing them to the top of the graph", () => {
+        expect(document.activeElement).toBe(loadMoreBtn());
+        expect(scrolledIntoView).toEqual([]);
+      });
+
+      it("hands the key back to the browser, whose answer to Down here is to scroll", () => {
+        // Scrolling is browsing, and browsing is what Page Up/Down and the
+        // wheel do (ADR-0014). With nothing to step to, the browser's own
+        // behaviour is the only thing Down can mean, and the page must not
+        // cancel the key to substitute a worse meaning.
+        expect(down.defaultPrevented).toBe(false);
+      });
     });
 
-    it("hands the key back to the browser, whose answer to Down here is to scroll", () => {
-      // Scrolling is browsing and browsing is what Page Up/Down and the wheel
-      // do (ADR-0014). Below the last row there is nothing to step to, so the
-      // browser's own behaviour is the right one and the page must not cancel
-      // it to substitute a worse one.
-      expect(down.defaultPrevented).toBe(false);
+    describe("Up, which has the whole graph above it", () => {
+      let up: KeyboardEvent;
+
+      beforeAll(() => {
+        loadMoreBtn()!.focus();
+        scrolledIntoView.length = 0;
+        up = arrow("ArrowUp");
+      });
+
+      it("steps into the last row, the one directly above the footer", () => {
+        // ADR-0014 unchanged, not excepted: Up out of the footer is a step
+        // between rows like any other, and the row it steps to is the one the
+        // footer sits under. `focusGraphRow` brings it into view, which it is
+        // entitled to — a key press is an operation, and operations may move
+        // the viewport.
+        expect(document.activeElement).toBe(row("bbb222"));
+        expect(scrolledIntoView).toEqual([row("bbb222")]);
+      });
+
+      it("takes the key, as ADR-0014 has it take every Up and Down that means something", () => {
+        // The half a gate written for Down alone would have thrown away. Left
+        // uncancelled, Up would move focus into the grid *and* let the browser
+        // scroll the page under it.
+        expect(up.defaultPrevented).toBe(true);
+      });
     });
   });
 
