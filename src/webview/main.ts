@@ -197,6 +197,31 @@ function deserializeExpandedCommit(
  *  so the tag can never drift from the messages it labels. */
 type BatchActionKind = BatchActionRequest["command"];
 
+/** Where Find is standing, in the form something that moved it can put it back.
+ *  The hash is the position; the index is only what `resolveFindCurrent` falls
+ *  back to on the one case the hash cannot cover — the match having stopped
+ *  matching while the branch index was out. */
+type FindPosition = { hash: string | null; index: number };
+
+/** A step onto a match that a branch names, waiting on a fresh branch index —
+ *  the branch may have moved since the one in hand was fetched, so where the
+ *  step lands is settled against the answer, not against the click. Nothing
+ *  about the step has happened yet; `direction` is the one thing it would set,
+ *  carried here rather than written, and written only if the step goes ahead. */
+type PendingFindNavigation = { hash: string; branchRefs: string[]; direction: -1 | 1 };
+
+/** Whether the step that called {@link GitGraphView.loadFindMatch} may record
+ *  itself.
+ *
+ *  - `move`: go ahead. Either the match is already loaded and no request was
+ *    needed — emphatically not a failure, and the ordinary case — or a load is
+ *    on its way and the page that lands will draw it.
+ *  - `hold`: nothing went out, so nothing may be recorded. Either the request
+ *    was dropped ({@link GitGraphView.commitLoadInFlight}), or the plan needs
+ *    confirming and the user has not answered — and while that dialog stands,
+ *    no more has happened than if the request had been dropped. */
+type FindLoadOutcome = "move" | "hold";
+
 class GitGraphView {
   private gitRepos: GG.GitRepoSet;
   // Whether the Source Control view is in multi-select mode. Only then does the
@@ -225,7 +250,7 @@ class GitGraphView {
   private branchSearchIndex: BranchSearchEntry[] = [];
   private findDirection: -1 | 1 = 1;
   private pendingFindTargetHash: string | null = null;
-  private pendingFindNavigation: { hash: string; branchRefs: string[] } | null = null;
+  private pendingFindNavigation: PendingFindNavigation | null = null;
   private commits: GitCommitNode[] = [];
   private commitHead: string | null = null;
   private commitLookup: { [hash: string]: number } = {};
@@ -3795,8 +3820,10 @@ class GitGraphView {
     this.pendingFindTargetHash = null;
     this.clearFindHighlights();
   }
-  /** The commit Find is pointing at, or null when it points at nothing. It
-   *  answers one question and only one, for {@link refreshFind}: has the branch
+  /** The commit Find is pointing at, or null when it points at nothing.
+   *  {@link findPosition} reads it for the plain reason — that is the match to
+   *  put Find back on — and {@link refreshFind} asks it one question and only
+   *  one: has the branch
    *  index that just landed changed the target, or is it the same answer to the
    *  same search arriving again? The index is re-requested after every load, so
    *  without this the first search that matches a branch name would re-centre
@@ -3894,44 +3921,119 @@ class GitGraphView {
     const pendingNavigation = this.pendingFindNavigation;
     this.branchSearchIndex = branches;
     if (!this.findActive) return;
+    // Where Find is standing as this arrival begins. The step that raised the
+    // pending navigation deliberately moved nothing, so this is still the match
+    // the user is looking at — and `refreshFind` is about to move off it, which
+    // is why it is read here rather than after.
+    const position = this.findPosition();
     this.refreshFind("branchIndex", pendingNavigation?.hash ?? this.pendingFindTargetHash);
     if (pendingNavigation === null) return;
 
     this.pendingFindNavigation = null;
-    const branchRefs = new Set(pendingNavigation.branchRefs);
+    this.applyPendingFindNavigation(pendingNavigation, position);
+  }
+  /** Finish a step onto a branch match, against the index that has just been
+   *  revalidated for it. `position` is where Find stood before this arrival,
+   *  which is where the step goes back to if it turns out not to be happening.
+   *
+   *  This is the whole of the step: the click that asked for it recorded a
+   *  wish and nothing else. That is ADR-0019's rule read literally — the guard
+   *  belongs at the front of the same synchronous stretch as the state change,
+   *  and a change waiting on a round trip has to wait with it. */
+  private applyPendingFindNavigation(navigation: PendingFindNavigation, position: FindPosition) {
+    const branchRefs = new Set(navigation.branchRefs);
     const movedIndex = this.findMatches.findIndex((match) =>
       match.branches.some((branch) => branchRefs.has(branch.ref))
     );
     if (movedIndex === -1) return;
+    if (this.loadFindMatch(this.findMatches[movedIndex]) === "hold") {
+      this.restoreFindPosition(position);
+      return;
+    }
     this.findCurrent = movedIndex;
-    const match = this.findMatches[movedIndex];
-    if (match.loaded) this.applyFindHighlights(true);
-    else this.loadFindMatch(match);
+    this.findDirection = navigation.direction;
+    // Painted whether or not a page is on its way. When one is, the match has
+    // no row yet and this moves only the counter — onto the match Find is now
+    // on, which is the point: the two are readings of one fact, and the rebuild
+    // above resolved its reading from the branch's *old* tip.
+    this.applyFindHighlights(true);
   }
   private findStep(delta: number) {
     if (this.findMatches.length === 0) return;
     const n = this.findMatches.length;
-    this.findCurrent = (this.findCurrent + delta + n) % n;
-    this.findDirection = delta < 0 ? -1 : 1;
-    const match = this.findMatches[this.findCurrent];
+    // Presses compound while an answer is out. A step waiting on a branch index
+    // has recorded nothing — that is the whole point of it — but it is still
+    // where the user has asked to be, so this press counts from there.
+    // Counting from `findCurrent` instead would swallow every press made during
+    // the round trip, and the branch index is a `git` call, not a local read.
+    const pending = this.pendingFindNavigation;
+    const outstanding =
+      pending === null ? -1 : this.findMatches.findIndex((match) => match.hash === pending.hash);
+    const next = ((outstanding === -1 ? this.findCurrent : outstanding) + delta + n) % n;
+    const direction: -1 | 1 = delta < 0 ? -1 : 1;
+    const match = this.findMatches[next];
     if (match.branches.length > 0) {
+      // A branch may have moved since the index in hand was fetched, so where
+      // this lands is decided against a fresh one. Nothing is written until
+      // then — not even the direction — because a step recorded now is a step
+      // the answer may say never happened.
       this.pendingFindNavigation = {
         hash: match.hash,
-        branchRefs: match.branches.map((branch) => branch.ref)
+        branchRefs: match.branches.map((branch) => branch.ref),
+        direction
       };
       this.requestBranchSearchIndex();
       return;
     }
-    if (!match.loaded) {
-      this.loadFindMatch(match);
-      return;
-    }
+    // Decided before anything moves, which on this path costs nothing: no
+    // branch to revalidate means no round trip, so the guard and the state
+    // change are already in the same synchronous stretch (ADR-0019).
+    if (this.loadFindMatch(match) === "hold") return;
+    this.findCurrent = next;
+    this.findDirection = direction;
     this.applyFindHighlights(true);
   }
-  private loadFindMatch(match: FindMatch) {
-    if (this.commitLoadInFlight) return;
+  /** Where Find is standing now, in the form something that moves it can put it
+   *  back. */
+  private findPosition(): FindPosition {
+    return { hash: this.findIdentity(), index: this.findCurrent };
+  }
+  /** Put Find back on the match it was on before this arrival rebuilt the
+   *  matches and resolved itself onto the target of a step that is not
+   *  happening. Nothing was sent, so nothing is coming to move the highlight,
+   *  and a counter left one ahead of it would sit there for good.
+   *
+   *  The repaint is not optional: the arrival that carried the news has already
+   *  refreshed the widget once, over the position being undone here. */
+  private restoreFindPosition(position: FindPosition) {
+    this.findCurrent = resolveFindCurrent(
+      this.findMatches,
+      position.hash,
+      position.index,
+      this.findDirection
+    );
+    this.applyFindHighlights(false);
+  }
+  /** Bring `match` within reach of the graph, reporting whether the caller's
+   *  step may go ahead — see {@link FindLoadOutcome}.
+   *
+   *  The confirmation path answers `hold` because that is the truth while the
+   *  dialog stands: the request goes out when the user says yes, if a load has
+   *  not started underneath it in the meantime, and it may never go out at all.
+   *  A step recorded when the question went up would be describing a navigation
+   *  nobody has agreed to, and Cancel would leave it described for ever. A
+   *  confirmed load carries the move itself, on {@link pendingFindTargetHash},
+   *  so the counter, the highlight and the viewport all arrive together with
+   *  the page. */
+  private loadFindMatch(match: FindMatch): FindLoadOutcome {
+    // Ahead of the in-flight guard, and that order is the point: "no request was
+    // needed" and "the request could not be sent" are different answers, and
+    // only the second is a reason to hold Find back. Taking the guard first
+    // would stall every step onto an already-drawn match for the length of any
+    // background load — which is nearly every step.
     const plan = planFindLoad(this.maxCommits, match);
-    if (plan === null) return;
+    if (plan === null) return "move";
+    if (this.commitLoadInFlight) return "hold";
     const load = () => {
       // Guarded again, not just at the top: when the plan needs confirming, this
       // runs after the user answers the dialog, and a load can have started in
@@ -3951,9 +4053,10 @@ class GitGraphView {
         load,
         null
       );
-    } else {
-      load();
+      return "hold";
     }
+    load();
+    return "move";
   }
   private clearFindHighlights() {
     const rows = document.querySelectorAll(".commit.findMatch, .commit.findMatchCurrent");
