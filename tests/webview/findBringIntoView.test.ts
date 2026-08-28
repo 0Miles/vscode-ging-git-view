@@ -98,6 +98,25 @@ const deeperPage: GitCommitNode[] = [
   }
 ];
 
+/** The page that finally contains a commit matching a search which, until it
+ *  arrived, had found nothing at all. */
+const epiloguePage: GitCommitNode[] = [
+  ...deeperPage,
+  {
+    hash: "ggg777",
+    parentHashes: [],
+    author: "Gina",
+    email: "gina@example.com",
+    date: 1694000000,
+    message: "Epilogue",
+    refs: []
+  }
+];
+
+/** What a background refresh lands when the current match has been amended out
+ *  of the history: the same page minus that one commit. */
+const amendedPage: GitCommitNode[] = epiloguePage.filter((c) => c.hash !== "eee555");
+
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
   branches: ["main"],
@@ -326,23 +345,29 @@ describe("bringing the current find match into view", () => {
   });
 
   describe("a match the loaded commits do not reach yet", () => {
+    const index: BranchSearchEntry[] = [
+      { ref: "release-1.0", name: "release-1.0", hash: "ddd444", logDepth: 3 },
+      { ref: "outer-work", name: "outer-work", hash: "eee555", logDepth: 4 }
+    ];
     /** The state the moment the search resolved to a match with no row. */
     let onSearch: { current: string | undefined; scrolled: (string | undefined)[] };
+    /** The state once browsing had drawn that row. */
+    let afterLoad: { current: string | undefined; scrolled: (string | undefined)[] };
 
     beforeAll(() => {
       // A branch tip past the end of the loaded commit window: Find can count
       // it and name it, but there is no row to bring into view.
-      receive(
-        branchSearchResponse([
-          { ref: "release-1.0", name: "release-1.0", hash: "ddd444", logDepth: 3 },
-          { ref: "outer-work", name: "outer-work", hash: "eee555", logDepth: 4 }
-        ])
-      );
+      receive(branchSearchResponse(index));
       clearMovement();
       search("outer");
       onSearch = { current: currentMatchHash(), scrolled: [...scrolledTo] };
 
       autoLoad(deepPage);
+      afterLoad = { current: currentMatchHash(), scrolled: [...scrolledTo] };
+
+      // Every load re-requests the index, so the same answer comes back around.
+      clearMovement();
+      receive(branchSearchResponse(index));
     });
 
     it("centres nothing, having nothing to centre", () => {
@@ -351,12 +376,16 @@ describe("bringing the current find match into view", () => {
     });
 
     it("does not chase it when browsing happens to load it", () => {
-      // The settled target is what Find is pointing at, not what it managed to
-      // scroll to: a row that was never drawn was never somewhere else, and a
-      // page arriving under a browsing user is still not a request to move.
+      expect(afterLoad).toEqual({ current: "eee555", scrolled: [] });
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it("nor when the index that load re-requested answers again", () => {
+      // Find settled on this target when the search resolved, not when a row
+      // finally existed for it — otherwise every re-answered index would read
+      // as a new target and re-centre a user who is only browsing.
       expect(currentMatchHash()).toBe("eee555");
       expect(scrolledTo).toEqual([]);
-      expect(scrollTo).not.toHaveBeenCalled();
     });
   });
 
@@ -390,6 +419,53 @@ describe("bringing the current find match into view", () => {
       // the target looks.
       expect(currentMatchHash()).toBe("fff666");
       expect(scrolledTo).toEqual(["fff666"]);
+    });
+  });
+
+  describe("a search that has found nothing yet", () => {
+    beforeAll(() => {
+      // Searching, finding nothing, and scrolling on for more history is an
+      // ordinary way to use this — and the page that finally holds a match is
+      // still a page the user only browsed into.
+      clearMovement();
+      search("epilogue");
+      autoLoad(epiloguePage);
+    });
+
+    it("says so, without going there", () => {
+      expect(currentMatchHash()).toBe("ggg777");
+      expect(document.getElementById("findCount")!.textContent).toContain("1");
+      expect(scrolledTo).toEqual([]);
+      expect(scrollTo).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("a background refresh that amends the current match away", () => {
+    /** The state the search left, before the refresh landed. */
+    let onSearch: (string | undefined)[];
+
+    beforeAll(() => {
+      clearMovement();
+      search("deep");
+      onSearch = [...scrolledTo];
+
+      clearMovement();
+      // No scroll trigger and no button: a refresh arriving on its own, with
+      // the current match no longer in the history it brings.
+      receive(commitsResponse(amendedPage));
+    });
+
+    it("centred the search's own match on the way in", () => {
+      expect(onSearch).toEqual(["eee555"]);
+    });
+
+    it("moves the current match on without moving the user", () => {
+      // The target changed, and the user had nothing to do with it. A redraw
+      // may not read its own edit as a request.
+      expect(document.querySelector('tr.commit[data-hash="eee555"]')).toBeNull();
+      expect(currentMatchHash()).toBe("fff666");
+      expect(scrolledTo).toEqual([]);
+      expect(scrollTo).not.toHaveBeenCalled();
     });
   });
 });
