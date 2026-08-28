@@ -193,6 +193,15 @@ class GitGraphView {
   private findActive = false;
   private findMatches: FindMatch[] = [];
   private findCurrent = -1;
+  /** The {@link findIdentity} Find has settled on: the target of the last
+   *  scroll it was asked to make, whether or not there was a row to make it to.
+   *  Null when it has been asked for none since the widget was opened.
+   *
+   *  {@link cdvBroughtIntoView} is the same idea one misuse over, and is named
+   *  for the scroll because it only ever records one it performed. This one
+   *  cannot borrow that name: a match past the loaded commit window settles the
+   *  target without any row to bring into view. */
+  private findSettledOn: string | null = null;
   // When on, navigating find matches also opens each one's details view.
   private findOpenCommitDetails = false;
   private branchSearchToken = 0;
@@ -3747,8 +3756,30 @@ class GitGraphView {
     (<HTMLElement | null>document.getElementById("findInput"))?.blur();
     this.findMatches = [];
     this.findCurrent = -1;
+    // Whatever the next search lands on, Find has not settled on it yet.
+    this.findSettledOn = null;
     this.pendingFindNavigation = null;
     this.clearFindHighlights();
+  }
+  /** The commit Find is pointing at, or null when it points at nothing. Two
+   *  refreshes sharing an identity are the same target drawn twice, which is
+   *  what {@link refreshFind} uses to tell a redraw from a move.
+   *
+   *  `findCurrent` is deliberately not part of it: `buildFindMatches` emits at
+   *  most one match per hash, so the index says nothing the hash does not, and
+   *  it is the one part a rebuild moves on its own — a match keeping its hash
+   *  while matches inserted above it shift its index is exactly the redraw this
+   *  must not scroll for.
+   *
+   *  Neither is the search text, which looks like it belongs and does not.
+   *  {@link applyFindHighlights} re-settles this on every scroll it is asked to
+   *  make, and every search asks for one, so by the time a redraw consults the
+   *  identity it already stands for the search now in the box. What carrying
+   *  the text as well would add is a false positive: an input value that
+   *  changed without reaching Find — a right-click paste fires no keyup — would
+   *  make the next background load look like a move to a new target. */
+  private findIdentity(): string | null {
+    return this.findCurrent >= 0 ? (this.findMatches[this.findCurrent]?.hash ?? null) : null;
   }
   private runFind(query: string) {
     this.pendingFindTargetHash = null;
@@ -3775,7 +3806,25 @@ class GitGraphView {
       this.findDirection,
       currentDepth
     );
-    this.applyFindHighlights(true);
+    // Bringing the current match into view belongs to *moving* to it, not to
+    // drawing it. This runs on every arrival that redraws the graph — a Load
+    // More page, an automatic load on scroll, a soft refresh, a branch index
+    // answering late — and the user asked to be moved by none of them
+    // (ADR-0019: automatic loading is browsing, and browsing must not move
+    // anything in front of them). So it scrolls on two counts only.
+    //
+    // `preferredHash` is the first: it is non-null exactly when a step is still
+    // outstanding — `loadFindMatch` set it on the load it sent to reach a match
+    // past the window, or `findStep` is waiting on the branch index — which
+    // makes this arrival the answer to a move the user did ask for, however
+    // settled the target already looks.
+    //
+    // Otherwise the identity decides: scroll only when this arrival changed
+    // which target Find is on. When it did not, the same match is merely being
+    // drawn again. Stepping and searching call applyFindHighlights directly and
+    // are unconditional — those are moves, and one that happens to land back on
+    // the current match still owes the user the scroll.
+    this.applyFindHighlights(preferredHash !== null || this.findIdentity() !== this.findSettledOn);
   }
   public loadBranchSearchIndex(
     branches: BranchSearchEntry[],
@@ -3861,6 +3910,13 @@ class GitGraphView {
   /** Re-apply find styling to the current DOM. Pass scroll=true to bring the
    *  current match into view (e.g. on a new search or step, not on re-render). */
   private applyFindHighlights(scroll: boolean) {
+    // Settled where the scroll is *decided*, not where it happens: a match
+    // beyond the loaded commit window has no row to centre, and leaving the
+    // identity unset there would make the browsing load that eventually draws
+    // that row look like the user asking to be taken to it. Find pointed at it
+    // either way, and that is what the record is about — the scroll it could
+    // not perform was not one it still owes.
+    if (scroll) this.findSettledOn = this.findIdentity();
     this.clearFindHighlights();
     for (const match of this.findMatches) {
       const row = document.querySelector<HTMLElement>('tr.commit[data-hash="' + match.hash + '"]');
