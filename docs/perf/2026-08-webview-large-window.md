@@ -22,7 +22,7 @@
 
 候選 4 在自己那條路徑上量到的是 **0.0 ms**,不是「小」,是量不到。
 
-ADR-0019 用 Node 量到的版面走訪(3000 列 12.5 ms、6000 列 89.1 ms)在真正的引擎裡是 **3.2 ms / 10.5 ms** —— 低了 4 到 8 倍。ADR-0019 說「兩個引擎不可比」是對的,而且差的方向是讓那個候選看起來比實際嚴重。
+ADR-0020 用 Node 量到的版面走訪(3000 列 12.5 ms、6000 列 89.1 ms)在真正的引擎裡是 **3.2 ms / 10.5 ms** —— 低了 4 到 8 倍。ADR-0020 說「兩個引擎不可比」是對的,而且差的方向是讓那個候選看起來比實際嚴重。
 
 ---
 
@@ -40,7 +40,7 @@ ADR-0019 用 Node 量到的版面走訪(3000 列 12.5 ms、6000 列 89.1 ms)在�
 
 ### 形狀
 
-沿用 ADR-0019 的形狀:本機 http server + 真正的瀏覽器分頁 + 從外面用 JS 驅動。
+沿用 ADR-0020 的形狀:本機 http server + 真正的瀏覽器分頁 + 從外面用 JS 驅動。
 
 1. `esbuild` 把 **production 的 `src/webview/graph.ts`** 與一組由它機器生成的變體打包成一支 IIFE bundle(`target: "es6"`,與 `esbuild.js` 裡 webview 那支一致)。
 2. 一個 `index.html`,CSS **從 `media/main.css` 抄過來**(commit table 那一段連 `.autoLayout` / `.fixedLayout` 規則一起),讓表格的版面成本是出貨的那一個。
@@ -70,20 +70,20 @@ ADR-0019 用 Node 量到的版面走訪(3000 列 12.5 ms、6000 列 89.1 ms)在�
 
 ### 合成歷史
 
-一次生成 13,000 筆(最舊在前,再反轉成 `git log` 給 webview 的最新在前),400 個 ref 灑在較新的那一段 —— 對齊 ADR-0019 那個 20,800 commit / 401 ref 的存放庫。「載入視窗 N」就是取前 N 筆,與後端 `--max-count` 的語意一致。
+一次生成 13,000 筆(最舊在前,再反轉成 `git log` 給 webview 的最新在前),400 個 ref 灑在較新的那一段 —— 對齊 ADR-0020 那個 20,800 commit / 401 ref 的存放庫。「載入視窗 N」就是取前 N 筆,與後端 `--max-count` 的語意一致。
 
 拓撲是參數,因為**歸因的答案會隨拓撲改變**:
 
 | 拓撲                     | 形狀                                                                    |
 | ------------------------ | ----------------------------------------------------------------------- |
-| `adr`                    | 主線 + 每 50 筆一條長度 3 的 side branch 並 merge back(ADR-0019 的形狀) |
+| `adr`                    | 主線 + 每 50 筆一條長度 3 的 side branch 並 merge back(ADR-0020 的形狀) |
 | `dense`                  | 同上但每 10 筆一次                                                      |
 | `reused` / `reusedDense` | `adr` / `dense`,**外加 side branch 在被合併之後繼續長 commit**          |
 | `open`                   | 主線 + 24 條長期不合併的分支                                            |
 | `wide`                   | 40 條長期分支 + 每 10 筆一次「合併後繼續長」的 side branch              |
 | `linear`                 | 純線性                                                                  |
 
-**`reused` 這個 motif 是必要的,不是裝飾。** 在沒有它的拓撲裡,`determinePath()` 的 merge 分支入口條件(`!parentVertex.isNotOnBranch()`)**一次都不成立** —— 量到的 `getPointConnectingTo` 呼叫次數是 **0**。第二個 parent 得在別的走訪裡先被排上某條 branch,那個 merge 才會走 merge 那一支;而讓它先被排上的,正是「合併後分支繼續長 commit」把 side tip 頂到 merge 上方。這也正是 ADR-0019 點名、且移除後既有列改變率歸零的同一個 motif。
+**`reused` 這個 motif 是必要的,不是裝飾。** 在沒有它的拓撲裡,`determinePath()` 的 merge 分支入口條件(`!parentVertex.isNotOnBranch()`)**一次都不成立** —— 量到的 `getPointConnectingTo` 呼叫次數是 **0**。第二個 parent 得在別的走訪裡先被排上某條 branch,那個 merge 才會走 merge 那一支;而讓它先被排上的,正是「合併後分支繼續長 commit」把 side tip 頂到 merge 上方。這也正是 ADR-0020 點名、且移除後既有列改變率歸零的同一個 motif。
 
 主表用 `reusedDense`(四個候選都會被觸發);`wide` 用來做候選 1 的對抗性上界。
 
@@ -103,7 +103,7 @@ setState: function(newState) {
 
 ### `renderTable` 用替身
 
-`renderTable()` 是 `GitGraphView` 的 private method,要動它得把整個 webview 立起來。這裡用的是形狀相符的替身(相同的 tag 結構、相同的 `escapeHtml`、相同的欄位)。**校準結果:替身在 3000 列量到 40.1–42.8 ms,ADR-0019 對真正那支方法量到 41 ms。** 替身可信。
+`renderTable()` 是 `GitGraphView` 的 private method,要動它得把整個 webview 立起來。這裡用的是形狀相符的替身(相同的 tag 結構、相同的 `escapeHtml`、相同的欄位)。**校準結果:替身在 3000 列量到 40.1–42.8 ms,ADR-0020 對真正那支方法量到 41 ms。** 替身可信。
 
 ---
 
@@ -143,7 +143,7 @@ setState: function(newState) {
 | `commitLookup`                    |        3.7 |  0.1% |
 | **webview 側合計**                | **5764.7** |       |
 
-同一段路上後端付 28 × ~237 ms ≈ **6,636 ms**(ADR-0019 的數字)。所以「連續載到 3000」大約是 6.6 秒後端加 5.8 秒 webview;webview 那 5.8 秒裡有 **78.2%(4,509 ms)是版面計算**。
+同一段路上後端付 28 × ~237 ms ≈ **6,636 ms**(ADR-0020 的數字)。所以「連續載到 3000」大約是 6.6 秒後端加 5.8 秒 webview;webview 那 5.8 秒裡有 **78.2%(4,509 ms)是版面計算**。
 
 ---
 
@@ -306,7 +306,7 @@ ticket 猜「6000 筆約 850 KB」—— 大小猜得很準(3000 筆就 846 KB �
 
 `fixedLayout` 只在使用者拖過欄寬之後才會啟用(`makeTableResizable` 裡 `columnWidths !== null`),所以**出貨預設走的是比較貴的那一條**。整體而言 `fixedLayout` 讓一次 3000 列的重繪從 328.7 ms 降到 264.7 ms(約 20%)。
 
-另外 ADR-0019 提過的「每個捲動 tick 一次的強制同步版面」(`observeWebviewScroll` 讀 `document.body.offsetHeight`):在版面乾淨時是 **0.00 ms**。它只有在同一個 tick 裡有人先寫了才會變貴。**不要為了它做節流**,那是修錯東西。
+另外 ADR-0020 提過的「每個捲動 tick 一次的強制同步版面」(`observeWebviewScroll` 讀 `document.body.offsetHeight`):在版面乾淨時是 **0.00 ms**。它只有在同一個 tick 裡有人先寫了才會變貴。**不要為了它做節流**,那是修錯東西。
 
 ---
 
@@ -315,7 +315,7 @@ ticket 猜「6000 筆約 850 KB」—— 大小猜得很準(3000 筆就 846 KB �
 **都不在這張票裡做。** 以下只列出來,各自另開票。
 
 1. **虛擬化 commit 表格(只把可視範圍附近的列放進 document)。**
-   針對的是 316 ms / 76.7%(3000 列)裡的絕大部分,外加 `renderTable` 的 59.6 ms / 14.5%。這是唯一一個能改變數量級的方向,也是唯一一個成本相稱的大工程。**動手之前必須先確認它與 ADR-0019 那條「版面是已載入清單的純函數」的性質相容** —— 虛擬化改的是「畫出哪幾列」,不是「版面怎麼算」,兩者可以分開,但那要另外論證。
+   針對的是 316 ms / 76.7%(3000 列)裡的絕大部分,外加 `renderTable` 的 59.6 ms / 14.5%。這是唯一一個能改變數量級的方向,也是唯一一個成本相稱的大工程。**動手之前必須先確認它與 ADR-0020 那條「版面是已載入清單的純函數」的性質相容** —— 虛擬化改的是「畫出哪幾列」,不是「版面怎麼算」,兩者可以分開,但那要另外論證。
 
 2. **拿掉第二次強制同步版面。**
    針對 61.2 ms / 14.9%(3000 列)。做法是把 `makeTableResizable()` 與 `renderGraph()` 的讀集中在寫之前,或讓表頭 padding 不需要先讀 `offsetWidth`。投入產出比最好的一項,而且與 1 互不衝突(虛擬化之後它會自動縮小,但不會消失)。這件事與 ticket #94 是同一片地,應該合併考慮。
@@ -334,7 +334,7 @@ ticket 猜「6000 筆約 850 KB」—— 大小猜得很準(3000 筆就 846 KB �
 ## 量測不足以支撐的地方
 
 - **沒有涵蓋 paint / composite。** 分段裡的「版面」到 layout 為止。原本用 `requestAnimationFrame` 量整個 frame,但這個瀏覽器分頁的 rAF 節奏不穩(300 列量到 277 ms,不可能),數字不可信,已捨棄。所以真實的重繪只會**比這裡列的更慢**,不會更快;各段的相對佔比不受影響。
-- **`renderTable` 是替身不是本尊。** 已對 ADR-0019 的 41 ms 校準過(替身 40.1–42.8 ms),但真正的 `renderTable()` 還做了 emoji 短碼替換、ancestor 集合計算、avatar、tooltip、signature —— 這些只會讓它更貴。它排在第 2 名,不影響結論。
+- **`renderTable` 是替身不是本尊。** 已對 ADR-0020 的 41 ms 校準過(替身 40.1–42.8 ms),但真正的 `renderTable()` 還做了 emoji 短碼替換、ancestor 集合計算、avatar、tooltip、signature —— 這些只會讓它更貴。它排在第 2 名,不影響結論。
 - **絕對值跨回合有 ±25% 漂移**(DOM 與版面那幾段,GC 與熱節流)。同一回合內的**佔比**跨回合穩定在 ±2 個百分點,所以結論建立在佔比上,不建立在單一 ms 讀數上。
 - **拓撲是合成的,不是真存放庫。** 候選 1 的歸因**會隨拓撲改變**(見上),這一點已經據實寫進歸因裡,但「哪一種拓撲比較像 GING 的使用者」這個問題,這次量測沒有回答,也回答不了。要回答它需要真實存放庫的 lane 數分布。
 - **`saveState()` 的 postMessage 是下界。** 用 `MessageChannel` 量,少了 VS Code 那層 iframe 邊界。以 3000 筆 0.1–0.2 ms 的量級來說,補上也改不了任何結論。

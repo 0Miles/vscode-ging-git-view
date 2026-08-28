@@ -8,7 +8,7 @@ import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } fro
 
 // The loaded commit window on screen. Widening it is cheap — one press, or a
 // held PageDown once automatic loading is on — and it survives every panel
-// reload, so it follows the user back. ADR-0018 keeps automatic loading only
+// reload, so it follows the user back. ADR-0019 keeps automatic loading only
 // on the condition that the window is visible and has a way back, so this is
 // that condition, not a nicety: without it the panel silently gets slower and
 // the only ways out are four navigations done for entirely different reasons.
@@ -237,7 +237,7 @@ describe("the loaded commit window on screen", () => {
     });
 
     it("moves it by bringing that row into view, never by restoring an offset", () => {
-      // ADR-0018: scroll position is not a usable tool here. Writing an offset
+      // ADR-0019: scroll position is not a usable tool here. Writing an offset
       // to cancel out the browser's clamp is compensation, and compensation is
       // what that ADR spent a section refusing.
       expect(scrollTo).not.toHaveBeenCalled();
@@ -246,7 +246,7 @@ describe("the loaded commit window on screen", () => {
 
   // The same rule every other load entry follows: the whole thing happens or
   // none of it does, because `requestLoadCommits` sends nothing while a load is
-  // in flight and the caller cannot undo what it changed first (ADR-0018).
+  // in flight and the caller cannot undo what it changed first (ADR-0019).
   describe("the reset entry pressed while a load is in flight", () => {
     let requestedOnPress: GG.RequestMessage[] = [];
     let lineOnPress: string | null = null;
@@ -331,7 +331,7 @@ describe("the loaded commit window on screen", () => {
   // to a commit load — a remote list landing, a column toggled — and neither is
   // held back by an in-flight one. Hanging the permission on "the next redraw"
   // loses both ways: that redraw scrolls though the user asked for nothing
-  // (ADR-0018), and the reset's own redraw arrives to find it already spent.
+  // (ADR-0019), and the reset's own redraw arrives to find it already spent.
   describe("an unrelated redraw arriving while the reset's page is still out", () => {
     let scrolledOnInterloper: Element[] = [];
     let focusedAfterReset: Element | null = null;
@@ -371,7 +371,7 @@ describe("the loaded commit window on screen", () => {
 // reboot followed by a restore from saved state. Snapping the window back to
 // the opening count there would mean "glance at another editor tab and come
 // back to a graph that threw the loading away" — a far more frequent version of
-// the same complaint, not a cure for it (ADR-0018). The window comes back as
+// the same complaint, not a cure for it (ADR-0019). The window comes back as
 // the user left it, and the line comes back with it.
 describe("restored into a panel that has just become visible again", () => {
   const savedState: WebViewState = {

@@ -115,7 +115,7 @@ describe("graph layout termination", () => {
 // the existing point and finishes early, so the lane and the colour it used to
 // consume are freed. The second page knows more, so it draws the truer picture.
 //
-// See ADR-0019 (docs/adr/0019-commit-loading-stays-whole-window.md). "Rows
+// See ADR-0020 (docs/adr/0020-commit-loading-stays-whole-window.md). "Rows
 // above stay put" is a property this codebase does not have today, and that is
 // why append-style loading was rejected rather than built — these tests exist
 // to make the absence visible, not to lock in a defect.

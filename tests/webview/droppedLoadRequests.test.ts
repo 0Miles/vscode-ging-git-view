@@ -7,7 +7,7 @@ import type * as GG from "@/types";
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // At most one commit load is ever in flight, and `requestLoadCommits` drops any
-// request that arrives while one is (ADR-0018 declined queueing it, because
+// request that arrives while one is (ADR-0019 declined queueing it, because
 // delegated ref actions schedule themselves off that invariant). The callers
 // here are the ones that used to change state first and discover the drop
 // afterwards, leaving the view describing a load that never happened. Load

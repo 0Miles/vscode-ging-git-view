@@ -11,7 +11,7 @@ import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 //
 // Reading `document.body.offsetHeight` lays the document out synchronously, and
 // the scroll handler used to do it on every tick for as long as anything was
-// still loadable (ADR-0018 left that noted and unaddressed). The reads are
+// still loadable (ADR-0019 left that noted and unaddressed). The reads are
 // counted rather than the value stubbed, because "measures once and then stops"
 // and "measures every tick" return the same number and only differ in cost.
 //

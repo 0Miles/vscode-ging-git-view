@@ -770,7 +770,7 @@ class GitGraphView {
    *  Guarded before any of that, because none of it survives a dropped request:
    *  the loaded commit window would sit silently back at the opening count, the
    *  search index would be gone and the busy indicator would spin, for a graph
-   *  that never reloaded (ADR-0018). */
+   *  that never reloaded (ADR-0019). */
   private reloadForBranchChange() {
     if (this.commitLoadInFlight) return;
     this.shrinkLoadedCommitWindow();
@@ -1115,7 +1115,7 @@ class GitGraphView {
       });
     });
   }
-  /** Whether a commit load is in flight. At most one ever is: ADR-0018 declined
+  /** Whether a commit load is in flight. At most one ever is: ADR-0019 declined
    *  queueing the extra one, because delegated ref actions schedule themselves
    *  off that single fact. It is therefore also the answer to "would a request
    *  sent now be dropped?", which is how every caller that must not act on a
@@ -1221,7 +1221,7 @@ class GitGraphView {
   /* Renderers */
   /** `focusMayScroll` is passed rather than read from the instance so that it
    *  describes *this* redraw: every other caller redraws without it, which is
-   *  the default and the rule (ADR-0018 — a redraw is not a move). */
+   *  the default and the rule (ADR-0019 — a redraw is not a move). */
   private render(focusMayScroll: boolean = false) {
     this.renderTable(focusMayScroll);
     this.renderGraph();
@@ -3307,7 +3307,7 @@ class GitGraphView {
       // Infinite scroll: load the next page once the user nears the bottom.
       //
       // Neither throttled nor passive, in both cases deliberately: see
-      // ADR-0019's rejected alternatives for the throttling measurement, which
+      // ADR-0020's rejected alternatives for the throttling measurement, which
       // is not restated here. `{ passive: true }` is the other one — `scroll`
       // is not cancelable, so it has nothing to promise; the cost was always
       // the measurement below, never the listener's right to block.
@@ -3441,7 +3441,7 @@ class GitGraphView {
    *  switching repository, changing the branch filter, toggling remote
    *  branches, changing the commit ordering — do it as a side effect of doing
    *  something else, so a user who only wants the window back has to go and
-   *  change something they did not want changed (ADR-0018).
+   *  change something they did not want changed (ADR-0019).
    *
    *  Guarded before any state changes, on the same terms as Load More and the
    *  commit-ordering menu: a request sent while a load is in flight is dropped,
@@ -3465,7 +3465,7 @@ class GitGraphView {
     // A trade-off, not a treatment. The cause is that the threshold cannot tell
     // the browser's own clamping scroll from the user's, and nothing available
     // in a scroll handler distinguishes them cleanly. Reaching for a scroll
-    // *offset* instead would be the compensation ADR-0018 refused; moving with
+    // *offset* instead would be the compensation ADR-0019 refused; moving with
     // the anchor the user actually has is not.
     this.pendingFocusScroll = true;
     this.saveState();
@@ -3944,7 +3944,7 @@ class GitGraphView {
    *
    *  Focus goes back onto the same commit, in its new row. Automatic loading on
    *  scroll is browsing, and browsing must leave the user where they were
-   *  (ADR-0018) — but arrowing onto a row scrolls it into view, that scroll is
+   *  (ADR-0019) — but arrowing onto a row scrolls it into view, that scroll is
    *  what trips the load, and the load destroys the very row that focus was on.
    *  Without putting it back, the next Down key finds no focused row, falls
    *  through to its "enter the grid" branch and starts again from the first
@@ -3962,7 +3962,7 @@ class GitGraphView {
    *  refresh, a find, a branch-filter or commit-ordering change, toggling a
    *  column — and focus now survives all of them. That is the same argument,
    *  not a wider one: in each of those the user did not move focus either, so
-   *  dropping it was never right. It is the mirror of ADR-0018's note that
+   *  dropping it was never right. It is the mirror of ADR-0019's note that
    *  fixing the Commit Details View's auto-centre also stopped soft refreshes
    *  dragging the user back to the expanded commit — one cause, treated once,
    *  visible on every path that shared it. */
@@ -4317,7 +4317,7 @@ class GitGraphView {
     // a Load More page, a soft refresh — and the user asked for none of those:
     // re-running this would drag them back to the expanded commit from
     // wherever they had scrolled to, which on the auto-load-on-scroll path
-    // means fighting the scroll that triggered the load (ADR-0018: automatic
+    // means fighting the scroll that triggered the load (ADR-0019: automatic
     // loading is browsing, and browsing must not move anything). So it runs
     // once per CDV, and again only when the CDV becomes a different one.
     const cdv = this.cdvIdentity();

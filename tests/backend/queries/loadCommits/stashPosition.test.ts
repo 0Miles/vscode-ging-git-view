@@ -201,7 +201,7 @@ describe("loadCommits stash placement", () => {
   });
 
   it("only ever appends rows below the ones a smaller window already had", async () => {
-    // The property ADR-0019 says stashes broke: growing the window must not
+    // The property ADR-0020 says stashes broke: growing the window must not
     // disturb what is already drawn. A stash arriving with a later page lands
     // among the rows that page adds, never above them.
     const windows = await Promise.all([2, 3, 4, 5, 6].map((n) => load(oldStashRepo, n)));
