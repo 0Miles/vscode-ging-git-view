@@ -7,7 +7,7 @@ import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // Automatic loading on scroll is the continuation of *browsing*, so it must be
 // indistinguishable from browsing: it may not move anything the user did not
-// ask to have moved (ADR-0018). Pressing the button is an operation and may
+// ask to have moved (ADR-0019). Pressing the button is an operation and may
 // take the viewport with it; reaching the bottom of the graph is not.
 //
 // The load is asynchronous, and the user is by definition still scrolling when

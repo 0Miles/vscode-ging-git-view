@@ -94,7 +94,7 @@ describe("automatic loading on scroll, switched off", () => {
 
   it("never measures the page, so scrolling costs no layout", () => {
     // The threshold sits behind two cheap booleans for exactly this reason
-    // (ADR-0018 left the scroll handler unthrottled on that basis). Reordering
+    // (ADR-0019 left the scroll handler unthrottled on that basis). Reordering
     // the condition would light this up.
     expect(heightReads).toBe(0);
   });

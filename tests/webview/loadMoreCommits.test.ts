@@ -6,7 +6,7 @@ import type * as GG from "@/types";
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // The Load More path. `requestLoadCommits` sends nothing when a commit load is
-// already in flight — ADR-0018 declined the queue that would have hidden that —
+// already in flight — ADR-0019 declined the queue that would have hidden that —
 // so a press arriving mid-load must not change any state either, or the view is
 // left describing a load that never happened.
 //

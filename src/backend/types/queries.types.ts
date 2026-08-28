@@ -111,7 +111,7 @@ type QueryPayloads = {
        *  reload happen. Messaging here is command-keyed rather than
        *  request-id'd, so a flag that has to stay pinned to its own response
        *  rides the round trip rather than being remembered locally. Only one
-       *  commit load is ever in flight (ADR-0018), so remembering it locally
+       *  commit load is ever in flight (ADR-0019), so remembering it locally
        *  would work too — the round trip is what the protocol already gives us,
        *  not the only thing that could pin it. */
       hard: boolean;
