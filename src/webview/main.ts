@@ -193,14 +193,15 @@ class GitGraphView {
   private findActive = false;
   private findMatches: FindMatch[] = [];
   private findCurrent = -1;
-  /** The {@link findIdentity} Find has settled on: the target of the last
-   *  scroll it was asked to make, whether or not there was a row to make it to.
-   *  Null when it has been asked for none since the widget was opened.
+  /** The {@link findIdentity} the last pass over the matches resolved — every
+   *  pass claims it, whether or not that pass moved the viewport, and whether
+   *  or not the target had a row to move to. Null while Find points at nothing,
+   *  and reset when the widget closes.
    *
    *  {@link cdvBroughtIntoView} is the same idea one misuse over, and is named
    *  for the scroll because it only ever records one it performed. This one
-   *  cannot borrow that name: a match past the loaded commit window settles the
-   *  target without any row to bring into view. */
+   *  cannot borrow that name: what it stands for is where Find is pointing, not
+   *  where the viewport has been. */
   private findSettledOn: string | null = null;
   // When on, navigating find matches also opens each one's details view.
   private findOpenCommitDetails = false;
@@ -3937,14 +3938,15 @@ class GitGraphView {
   /** Re-apply find styling to the current DOM. Pass scroll=true to bring the
    *  current match into view (e.g. on a new search or step, not on re-render). */
   private applyFindHighlights(scroll: boolean) {
-    // Settled where the scroll is *decided*, not where it happens. A match
-    // beyond the loaded commit window has no row to centre, yet Find is
-    // pointing at it just as squarely, and a scroll that could not be performed
-    // is not one still owed. Record only the scrolls that landed and the
-    // identity stays unset there, so the next branch index — re-requested after
-    // every load — reads as a new target and re-centres a user who is only
-    // browsing.
-    if (scroll) this.findSettledOn = this.findIdentity();
+    // Every pass claims the target it resolved, including the ones that move
+    // nothing. `loadCommits` refreshes Find and then re-requests the branch
+    // index, whose answer refreshes Find again — so a redraw that declined to
+    // scroll and also declined to claim what it had just resolved would leave
+    // the index one message later comparing the page's new target against a
+    // record from before the page, reading its own load as a change and
+    // scrolling the browsing user after all. Declining to move and declining to
+    // settle are different things, and only the first one was ever wanted.
+    this.findSettledOn = this.findIdentity();
     this.clearFindHighlights();
     for (const match of this.findMatches) {
       const row = document.querySelector<HTMLElement>('tr.commit[data-hash="' + match.hash + '"]');

@@ -203,12 +203,29 @@ describe("bringing the current find match into view", () => {
     return (requests[requests.length - 1] as { token: number }).token;
   }
 
-  function branchSearchResponse(branches: BranchSearchEntry[]): GG.ResponseMessage {
-    return { command: "branchSearch", branches, token: latestBranchSearchToken(), status: null };
+  /** What the host answers `branchSearch` with, until a scenario says otherwise.
+   *  It is a standing fact about the repo, not a one-off reply: the webview
+   *  re-requests it after every load and the host answers every request. */
+  let branchIndex: BranchSearchEntry[] = [];
+
+  function deliverBranchIndex(entries: BranchSearchEntry[] = branchIndex) {
+    branchIndex = entries;
+    receive({
+      command: "branchSearch",
+      branches: branchIndex,
+      token: latestBranchSearchToken(),
+      status: null
+    });
   }
 
   /** Reach the bottom of the graph and let the page land. The user is still
-   *  scrolling while the request is out, so the viewport moves on underneath it. */
+   *  scrolling while the request is out, so the viewport moves on underneath it.
+   *
+   *  The index answer at the end is not decoration. `loadCommits` re-requests
+   *  the branch index immediately after refreshing Find, and that answer runs
+   *  Find again — so a load that stops at the page stops one message short of
+   *  where Find actually settles, and a suite written that way will pass while
+   *  the user is being scrolled by the message it never delivered. */
   function autoLoad(page: GitCommitNode[]) {
     parkViewportAt(NEAR_BOTTOM);
     mock.clearMessages();
@@ -216,6 +233,7 @@ describe("bringing the current find match into view", () => {
     document.dispatchEvent(new Event("scroll"));
     parkViewportAt(NEAR_BOTTOM + 600);
     receive(commitsResponse(page));
+    deliverBranchIndex();
   }
 
   beforeAll(async () => {
@@ -323,11 +341,9 @@ describe("bringing the current find match into view", () => {
       onSearch = { current: currentMatchHash(), scrolled: [...scrolledTo] };
 
       clearMovement();
-      receive(
-        branchSearchResponse([
-          { ref: "release-1.0", name: "release-1.0", hash: "ddd444", logDepth: 3 }
-        ])
-      );
+      deliverBranchIndex([
+        { ref: "release-1.0", name: "release-1.0", hash: "ddd444", logDepth: 3 }
+      ]);
     });
 
     it("centres nothing while the search has no match to centre", () => {
@@ -357,7 +373,7 @@ describe("bringing the current find match into view", () => {
     beforeAll(() => {
       // A branch tip past the end of the loaded commit window: Find can count
       // it and name it, but there is no row to bring into view.
-      receive(branchSearchResponse(index));
+      deliverBranchIndex(index);
       clearMovement();
       search("outer");
       onSearch = { current: currentMatchHash(), scrolled: [...scrolledTo] };
@@ -365,9 +381,9 @@ describe("bringing the current find match into view", () => {
       autoLoad(deepPage);
       afterLoad = { current: currentMatchHash(), scrolled: [...scrolledTo] };
 
-      // Every load re-requests the index, so the same answer comes back around.
+      // And once more with no load behind it at all.
       clearMovement();
-      receive(branchSearchResponse(index));
+      deliverBranchIndex();
     });
 
     it("centres nothing, having nothing to centre", () => {
@@ -398,15 +414,16 @@ describe("bringing the current find match into view", () => {
     let midStep: (string | undefined)[];
 
     beforeAll(() => {
-      receive(branchSearchResponse(index));
+      deliverBranchIndex(index);
       clearMovement();
       // Two matches now, the second one past the window. Stepping onto it goes
       // out for the branch index, then for the page that would draw it.
       document.getElementById("findNext")!.click();
-      receive(branchSearchResponse(index));
+      deliverBranchIndex();
       midStep = [...scrolledTo];
 
       receive(commitsResponse(deeperPage));
+      deliverBranchIndex();
     });
 
     it("moves nothing while the page is still on its way", () => {
@@ -451,8 +468,10 @@ describe("bringing the current find match into view", () => {
 
       clearMovement();
       // No scroll trigger and no button: a refresh arriving on its own, with
-      // the current match no longer in the history it brings.
+      // the current match no longer in the history it brings — and the index it
+      // re-requests answering behind it, as one always does.
       receive(commitsResponse(amendedPage));
+      deliverBranchIndex();
     });
 
     it("centred the search's own match on the way in", () => {
