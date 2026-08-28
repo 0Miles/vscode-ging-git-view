@@ -90,8 +90,19 @@ const MENU_SOURCES =
 
 /** What Enter and Space activate. Commit-message links are absent: they are real
  *  `<a href>`s, and the browser already knows Enter follows a link while Space
- *  scrolls the page. */
+ *  scrolls the page. The footer's two controls are absent for the same reason —
+ *  they are real `<button>`s, and a second opinion about Enter is how a button
+ *  gets pressed twice. */
 const ACTIVATABLE = GRAPH_FOCUSABLE + ", .gitFile";
+
+/** The graph footer's controls, by id. Peers rather than a roving group: Tab
+ *  visits each of them, so neither needs a tabindex and there is no tab stop to
+ *  hold between them — being real `<button>`s is the whole of it (#88).
+ *
+ *  The list exists so a redraw can tell "focus was on a control this footer is
+ *  about to destroy" from "focus is somewhere else entirely". See
+ *  {@link GitGraphView.rememberFooterFocus}. */
+const FOOTER_CONTROLS = new Set(["loadMoreCommitsBtn", "resetLoadedCommitWindowBtn"]);
 
 /** The commit table's column-header row. A row for navigation — Up from the
  *  first commit reaches it, which is what makes the column and commit-ordering
@@ -322,6 +333,14 @@ class GitGraphView {
   private tableElem: HTMLElement;
   private footerElem: HTMLElement;
   private scrollShadowElem: HTMLElement;
+
+  /** Which of the {@link FOOTER_CONTROLS} held focus when the footer was last
+   *  redrawn, or null when focus was not there to lose. It is state and not a
+   *  local because a Load More press takes two redraws to answer — the spinner
+   *  goes in when the request leaves, the button comes back when the page
+   *  lands — and there is nothing in the footer to hold focus in between. See
+   *  {@link rememberFooterFocus}. */
+  private footerFocusId: string | null = null;
 
   // The graph and the Commit Details View's file list are each one roving-
   // tabindex group, so Tab crosses each in a single press and the arrow keys
@@ -2439,21 +2458,38 @@ class GitGraphView {
    *  is most worth resetting: the user got there by widening it until the whole
    *  history was in. Hanging the line off "is Load More showing?" would hide it
    *  precisely there. At the opening count the footer gains nothing at all —
-   *  the default view carries no chrome describing a state it is already in. */
+   *  the default view carries no chrome describing a state it is already in.
+   *
+   *  Both controls are real `<button>`s (#88). They were `div.roundedBtn` with
+   *  neither a tabindex nor a role, which left ADR-0019's condition for keeping
+   *  automatic loading — the loaded commit window must be visible *and* have a
+   *  way back — half empty: the line is text and reads fine, but the way back
+   *  was reachable only with a mouse. The alternative, a tabindex and a role on
+   *  the `div`, would have meant wiring up Enter and Space by hand, and that is
+   *  the half of a fake button most often forgotten. Being one tag rather than
+   *  three attributes plus a key handler is the whole argument.
+   *
+   *  Writing the whole `innerHTML` is what costs focus, and
+   *  {@link rememberFooterFocus} is what pays it back. */
   private renderFooter(loading: boolean = false) {
+    // Read before the innerHTML below destroys whichever control holds focus;
+    // restored at the end, once the replacements are in and listening.
+    this.rememberFooterFocus();
     const widened = this.maxCommits > this.config.initialLoadCommits;
     this.footerElem.innerHTML =
       (loading
         ? '<h2 id="loadingHeader">' + svgIcons.loading + l10n.loading + "</h2>"
         : this.moreCommitsAvailable
-          ? '<div id="loadMoreCommitsBtn" class="roundedBtn">' + l10n.loadMore + "</div>"
+          ? '<button type="button" id="loadMoreCommitsBtn" class="roundedBtn">' +
+            l10n.loadMore +
+            "</button>"
           : "") +
       (widened
         ? '<div id="loadedCommitWindow"><span id="loadedCommitWindowCount">' +
           l10n.loadedCommitWindow.replace("{0}", String(this.maxCommits)) +
-          '</span><div id="resetLoadedCommitWindowBtn" class="roundedBtn">' +
+          '</span><button type="button" id="resetLoadedCommitWindowBtn" class="roundedBtn">' +
           l10n.resetLoadedCommitWindow.replace("{0}", String(this.config.initialLoadCommits)) +
-          "</div></div>"
+          "</button></div>"
         : "");
 
     if (!loading && this.moreCommitsAvailable) {
@@ -2466,6 +2502,92 @@ class GitGraphView {
         this.resetLoadedCommitWindow();
       });
     }
+    this.restoreFooterFocus(loading);
+  }
+
+  /** Note which footer control holds focus, so the redraw about to destroy it
+   *  can put focus back on its replacement (#82). Without this a keyboard user
+   *  who pressed Load More was left on `<body>` and had to Tab in from the top
+   *  of the document to press it again — a silent loss, invisible to a mouse,
+   *  which is why it went unreported for as long as it did.
+   *
+   *  Three readings of `document.activeElement`, and the second is the one
+   *  that makes this state rather than a local:
+   *
+   *  - **A footer control.** The redraw is about to destroy it; hold its id.
+   *  - **The footer itself.** Where an earlier redraw parked focus because the
+   *    control it had was away — exactly what a Load More press leaves while
+   *    the spinner stands in for the button. The held id stands, waiting for
+   *    the redraw that brings the control back.
+   *  - **Anywhere else, `<body>` included.** The user moved on, so there is
+   *    nothing to put back and any held id is spent. This is what keeps a slow
+   *    page from yanking focus out of wherever they went while it was out.
+   *
+   *  The third reading sees less than it sounds like it does, and deliberately
+   *  no more is made of it: `renderTable` replaces the commit table *before* it
+   *  calls `renderFooter`, so focus that was on a row, a ref chip or an inline
+   *  Commit Details View file row has already fallen to `<body>` by the time
+   *  this runs. That costs nothing, because those are precisely the groups
+   *  {@link restoreGraphFocus} and {@link restoreCdvFileFocus} put back
+   *  afterwards — and they run last, so whatever the footer did with focus, the
+   *  group the user was actually in wins. What it does catch first-hand is
+   *  everything outside the table: the toolbar, the Find input, a docked
+   *  panel's file rows. */
+  private rememberFooterFocus() {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && FOOTER_CONTROLS.has(active.id)) {
+      this.footerFocusId = active.id;
+    } else if (active !== this.footerElem) this.footerFocusId = null;
+  }
+
+  /** Put focus back on the control {@link rememberFooterFocus} named, now that
+   *  the footer has been rewritten. When that control is not in the new footer,
+   *  focus goes to the footer element itself.
+   *
+   *  **Why the footer and not the other control**, which is usually right there
+   *  and pressable at once. Three reasons, any one of which decides it:
+   *
+   *  - A held Enter auto-repeats, and each repeat is another activation. A
+   *    Load More held down until the history runs out would land on the way
+   *    back and then press it, throwing away every page the user just waited
+   *    for. Moving focus onto an action is moving it onto a *loaded gun*.
+   *  - A screen reader announces the swap as though the user had navigated,
+   *    when all they did was press the control they were already on — and the
+   *    thing announced is the action that undoes theirs.
+   *  - It is the only answer that covers the press which empties the footer
+   *    outright (the window back at its opening count with the whole history
+   *    already in). #82's complaint is `<body>`, and `<body>` is where a
+   *    fallback naming the other control leaves that case.
+   *
+   *  The footer carries `tabindex="-1"`, so this is somewhere focus can be put
+   *  but never somewhere Tab stops: Tab from here goes on to whatever follows
+   *  the footer, and Shift+Tab back into the graph, exactly as it would have
+   *  from the control that is gone.
+   *
+   *  The id is held through a *loading* redraw and spent on a settled one. The
+   *  spinner has the button's place only until the page lands, so a control
+   *  missing from a loading footer is coming back and focus is only parked;
+   *  missing from a settled footer, it is gone and the parking is where focus
+   *  stays.
+   *
+   *  `preventScroll`, the same as every other restoration in this file and for
+   *  the same reason (ADR-0019): a redraw is not a focus *move*, so nothing may
+   *  move on the user's behalf. The one redraw entitled to take the viewport
+   *  with it — the loaded commit window reset — spends that in
+   *  {@link restoreGraphFocus} on the row the graph now begins at, which is
+   *  *not* where this leaves focus. That divergence is the trade-off
+   *  {@link resetLoadedCommitWindow} already argues: the footer is at the
+   *  bottom of the page, the bottom of the page is the near-the-bottom
+   *  threshold, and following focus there would have automatic loading widen
+   *  the window the press just shrank. A container holding no action is a
+   *  cheap thing to leave off screen; a scroll that undoes the press is not. */
+  private restoreFooterFocus(loading: boolean) {
+    const held = this.footerFocusId;
+    if (held === null) return;
+    const back = document.getElementById(held);
+    if (back !== null) this.footerFocusId = null;
+    else if (!loading) this.footerFocusId = null;
+    (back ?? this.footerElem).focus({ preventScroll: true });
   }
   private renderShowLoading() {
     hideDialogAndContextMenu();
@@ -4341,9 +4463,12 @@ class GitGraphView {
         : (rows.find((row) => !isHeaderRow(row)) ?? rows[0]);
     if (target === undefined) return;
     this.graphTabStop.set(target);
-    // Focus was dropped, so there is no row for the viewport to agree with —
-    // it goes to where the graph now begins for the keyboard, which is this
-    // one. `set`, not `focus`: the tab stop moves, focus does not.
+    // No row holds focus, so there is none for the viewport to agree with — it
+    // goes to where the graph now begins for the keyboard, which is this one.
+    // `set`, not `focus`: the tab stop moves, focus does not. Since #88 focus
+    // may be in the footer rather than dropped outright, and then this does
+    // leave the two apart; `restoreFooterFocus` argues why that is the cheaper
+    // of the two errors on the one path (the reset) where this scrolls at all.
     if (mayScroll && typeof target.scrollIntoView === "function") {
       target.scrollIntoView({ block: "nearest" });
     }
@@ -6667,6 +6792,15 @@ document.addEventListener("keydown", (e) => {
   } else if ((e.ctrlKey || e.metaKey) && e.key === "ArrowDown") {
     if (gitGraph.commitDetailsNavigateGraph("parent", e.shiftKey)) e.preventDefault();
   } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    // The footer keeps its own keys. ADR-0014 made Up/Down unconditional and
+    // had them "enter the grid" when nothing held focus, because nothing
+    // holding focus meant `<body>`, which is nowhere. Since #88 the footer is
+    // somewhere — and it is *below* the graph, so entering the grid from the
+    // first row would answer Down by travelling up past every loaded commit to
+    // the top of the table. Below the last row there is nothing to step to, so
+    // the browser's own answer (scroll) is the right one and this must not
+    // cancel the key to substitute a worse one.
+    if (active instanceof HTMLElement && active.closest("#footer") !== null) return;
     // Up/Down move focus between rows, as they do in any list — inside the
     // Commit Details View's file list when focus is there, otherwise through
     // the graph's own rows. Scrolling is Page Up/Down's job now.
