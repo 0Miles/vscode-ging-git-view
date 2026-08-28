@@ -1294,9 +1294,37 @@ class GitGraphView {
   /** `focusMayScroll` is passed rather than read from the instance so that it
    *  describes *this* redraw: every other caller redraws without it, which is
    *  the default and the rule (ADR-0019 — a redraw is not a move). */
+  /** Draws the table, then the graph, then the one write `renderTable` handed
+   *  back instead of doing itself.
+   *
+   *  Running that write last is the point of handing it back. Layout is
+   *  computed lazily: a write dirties it and the next read of a geometric
+   *  property computes all of it. Done where it was measured, this write sat
+   *  between that measurement and the heights `renderGraph` derives `grid.y`
+   *  from, so the redraw stopped a second time for a full layout of the table.
+   *
+   *  It does not make that layout go away, and this does not claim it does: the
+   *  write still dirties the table and the browser still lays it out before it
+   *  paints. What changes is who waits for it — the browser's own rendering
+   *  step rather than this task. Re-measured on the shipped bundle at 3000
+   *  rows, `reusedDense`, Chromium 148, median of 9: the two forced layouts
+   *  were 245.5ms and 77.3ms and are now 251.0ms and 0.00ms; the redraw's task
+   *  fell from 508ms to 413ms; and settling the page afterwards, which the
+   *  browser does either way, rose from 25.0ms to 100.5ms — the same work, on
+   *  the other side of the return. (`docs/perf/2026-08-webview-large-window.md`
+   *  put the same two layouts at 237.9ms and 80.7ms using a stand-in for
+   *  `renderTable`. These are a fresh run against the real one, not those.)
+   *
+   *  The `finally` covers `renderGraph` only. A throw inside `renderTable`
+   *  loses the write with it, and nothing here can reach that — which is the
+   *  one thing handing it back costs. */
   private render(focusMayScroll: boolean = false) {
-    this.renderTable(focusMayScroll);
-    this.renderGraph();
+    const applyGraphColumnWidth = this.renderTable(focusMayScroll);
+    try {
+      this.renderGraph();
+    } finally {
+      applyGraphColumnWidth();
+    }
   }
   /**
    * Set of commit hashes reachable from HEAD by following parent links (HEAD
@@ -1349,7 +1377,13 @@ class GitGraphView {
     this.config.grid.offsetY = headerHeight + this.config.grid.y / 2;
     this.graph.render(inlineExpanded);
   }
-  private renderTable(focusMayScroll: boolean = false) {
+  /** Rebuilds the commit table and hands back the one write it deliberately did
+   *  not do — see {@link makeTableResizable} and {@link render}. Whoever calls
+   *  this must run that write, and must run it after the last layout read of
+   *  the same redraw. {@link render} is the only caller, and that is not an
+   *  accident: a second one would be a second place to get it wrong, and
+   *  ignoring the returned value is not a type error. */
+  private renderTable(focusMayScroll: boolean = false): () => void {
     // Read before a single row is replaced; `restoreGraphFocus` at the end puts
     // the keyboard back on the same commit once the new rows are in place.
     const focusedKey = this.focusedRowKey();
@@ -1588,7 +1622,7 @@ class GitGraphView {
     // Re-apply find highlighting to the freshly-rendered rows (without scrolling).
     if (this.findActive) this.applyFindHighlights(false);
     this.renderFooter();
-    this.makeTableResizable();
+    const applyGraphColumnWidth = this.makeTableResizable();
 
     if (this.expandedCommit !== null) {
       let elem = null,
@@ -1667,8 +1701,10 @@ class GitGraphView {
       const toggle = (col: "date" | "author" | "commit") => {
         this.columnVisibility[col] = !this.columnVisibility[col];
         this.saveState();
-        this.renderTable();
-        this.renderGraph();
+        // Every redraw goes through render(): it is the only place the write
+        // renderTable hands back is run, and a path that spells out renderTable
+        // + renderGraph for itself drops that write without saying so.
+        this.render();
       };
       const item = (col: "date" | "author" | "commit", label: string) => ({
         title: label,
@@ -2425,6 +2461,8 @@ class GitGraphView {
         );
       }
     });
+
+    return applyGraphColumnWidth;
   }
   private renderUncommitedChanges() {
     let date = getCommitDate(this.commits[0].date);
@@ -3445,7 +3483,31 @@ class GitGraphView {
       );
     }
   }
-  private makeTableResizable() {
+  /**
+   * Wires up column resizing on the freshly-rendered header row, and sizes the
+   * graph column to the graph.
+   *
+   * Returns that sizing as a write to be run later rather than doing it here.
+   * The auto-laid-out branch has to *measure* the column before it can size it,
+   * and that measurement is the redraw's first layout — unavoidable, the table
+   * has just entered the document. Doing the write here, though, dirtied layout
+   * again before `renderGraph` measured the two heights it derives `grid.y`
+   * from, so the browser laid every row out a second time.
+   *
+   * Holding it back changes what those two heights are only if they depend on
+   * it, and they do not. Measured rather than argued, at 3000 rows and in both
+   * label-alignment modes: with the padding and without it, `#tableColHeaders`
+   * is 31px and the table body 36031px.
+   *
+   * Worth knowing *why*, because the obvious reason is wrong. `padding` is a
+   * shorthand, so this write also zeroes the cell's vertical padding and the
+   * cell genuinely changes height (30px to 18px). The row does not: its height
+   * comes from the description header, which keeps its 6px and is the taller
+   * cell either way. Nor does an expanded Commit Details View, whose row height
+   * is fixed in CSS and whose panels are absolutely positioned — that row is
+   * the one place cells are not `nowrap`. See {@link render}.
+   */
+  private makeTableResizable(): () => void {
     let colHeadersElem = document.getElementById("tableColHeaders")!,
       cols = <HTMLCollectionOf<HTMLElement>>document.getElementsByClassName("tableColHeader");
     let columnWidths = this.gitRepos[this.currentRepo].columnWidths,
@@ -3482,8 +3544,12 @@ class GitGraphView {
         (i > 0 ? '<span class="resizeCol left" data-col="' + (i - 1) + '"></span>' : "") +
         (i < cols.length - 1 ? '<span class="resizeCol right" data-col="' + i + '"></span>' : "");
     }
+    let applyGraphColumnWidth: () => void;
     if (columnWidths !== null) {
       makeTableFixedLayout();
+      // Stored widths need no measurement, so this branch has nothing to hold
+      // back — and never had the second layout the other branch paid for.
+      applyGraphColumnWidth = () => {};
     } else {
       this.tableElem.className = "autoLayout";
       // On narrow auto-laid-out views, cap the graph column at a third of the
@@ -3496,8 +3562,12 @@ class GitGraphView {
       } else {
         this.graph.limitMaxWidth(-1);
       }
-      cols[0].style.padding =
-        "0 " + Math.round((Math.max(graphWidth, 64) - (cols[0].offsetWidth - 24)) / 2) + "px";
+      const graphColumn = cols[0];
+      const padding =
+        "0 " + Math.round((Math.max(graphWidth, 64) - (graphColumn.offsetWidth - 24)) / 2) + "px";
+      applyGraphColumnWidth = () => {
+        graphColumn.style.padding = padding;
+      };
     }
 
     addListenerToClass("resizeCol", "mousedown", (e) => {
@@ -3545,6 +3615,8 @@ class GitGraphView {
     });
     colHeadersElem.addEventListener("mouseup", stopResizing);
     colHeadersElem.addEventListener("mouseleave", stopResizing);
+
+    return applyGraphColumnWidth;
   }
 
   /* Observers */
@@ -4434,7 +4506,7 @@ class GitGraphView {
    *  graph entirely.
    *
    *  **This changes every other redraw too, deliberately.** Automatic loading
-   *  is what forced the question, but `renderTable` has other callers — a soft
+   *  is what forced the question, but every redraw runs `renderTable` — a soft
    *  refresh, a find, a branch-filter or commit-ordering change, toggling a
    *  column — and focus now survives all of them. That is the same argument,
    *  not a wider one: in each of those the user did not move focus either, so
