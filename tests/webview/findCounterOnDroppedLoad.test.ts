@@ -523,12 +523,31 @@ describe("Find's counter when the page a step needs never goes out", () => {
     });
 
     describe("and, asked again, confirmed", () => {
+      /** The counter after the last completed navigation before the confirmed
+       *  one, which this block makes a forwards step on purpose. */
+      let onArrival = "";
+
       beforeAll(() => {
+        // Everything below rests on the direction being the opposite of the one
+        // the confirmed step carries, and the cancelled attempt above left it
+        // backwards — so it is put forwards again here rather than inherited.
+        // Re-running the search then seats Find back on the first match without
+        // touching the direction, which is the only way to reach the deepest
+        // match at all: it is the last one, so only a backwards wrap gets there.
+        click("findNext");
+        deliverBranchIndex();
+        onArrival = counter() ?? "";
+        search("fix");
+
         click("findPrev");
         deliverBranchIndex();
         mock.clearMessages();
         clearMovement();
         click("dialogAction");
+      });
+
+      it("came in from a completed forwards step", () => {
+        expect(onArrival).toBe(counterFor(2, 4));
       });
 
       it("goes out for the page it asked about", () => {
@@ -556,6 +575,28 @@ describe("Find's counter when the page a step needs never goes out", () => {
           expect(currentMatchHash()).toBe("ancient9");
           expect(scrolledTo).toEqual(["ancient9"]);
         });
+
+        describe("and then the branch that named that match is deleted", () => {
+          beforeAll(() => {
+            clearMovement();
+            // No page, no keypress: an index re-fetched after some later load
+            // coming back without that branch, which leaves the commit loaded
+            // but matching nothing.
+            deliverBranchIndex([deepBranch, furtherBranch]);
+          });
+
+          it("resumes backwards, the confirmed step having recorded its direction", () => {
+            // The confirmed step is the only navigation between the forwards
+            // one asserted at the top of this block and here, and it went
+            // backwards. Resuming backwards is therefore only possible if the
+            // request going out recorded that — the caller that raised the
+            // dialog answered "hold" and returned an unbounded wait earlier.
+            // With the forwards direction still standing, Find resumes at the
+            // first match below the one that vanished, which has no row at all.
+            expect(counter()).toBe(counterFor(2, 3));
+            expect(currentMatchHash()).toBe("zzz999");
+          });
+        });
       });
     });
   });
@@ -565,10 +606,8 @@ describe("Find's counter when the page a step needs never goes out", () => {
       // A branch on a commit the search would otherwise miss, so the match list
       // gains an entry above the one Find is standing on.
       deliverBranchIndex([baseBranch, deepBranch, furtherBranch, ancientBranch]);
-      // Two completed steps that leave Find where it was and running forwards,
-      // so that going back by row number and going back by commit disagree.
-      click("findPrev");
-      deliverBranchIndex();
+      // A completed forwards step back onto the deepest drawn match, so that
+      // going back by row number and going back by commit disagree.
       click("findNext");
       deliverBranchIndex();
       click("loadMoreCommitsBtn");

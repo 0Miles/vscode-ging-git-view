@@ -3946,7 +3946,7 @@ class GitGraphView {
       match.branches.some((branch) => branchRefs.has(branch.ref))
     );
     if (movedIndex === -1) return;
-    if (this.loadFindMatch(this.findMatches[movedIndex]) === "hold") {
+    if (this.loadFindMatch(this.findMatches[movedIndex], navigation.direction) === "hold") {
       this.restoreFindPosition(position);
       return;
     }
@@ -3988,7 +3988,7 @@ class GitGraphView {
     // Decided before anything moves, which on this path costs nothing: no
     // branch to revalidate means no round trip, so the guard and the state
     // change are already in the same synchronous stretch (ADR-0019).
-    if (this.loadFindMatch(match) === "hold") return;
+    if (this.loadFindMatch(match, direction) === "hold") return;
     this.findCurrent = next;
     this.findDirection = direction;
     this.applyFindHighlights(true);
@@ -4021,11 +4021,15 @@ class GitGraphView {
    *  dialog stands: the request goes out when the user says yes, if a load has
    *  not started underneath it in the meantime, and it may never go out at all.
    *  A step recorded when the question went up would be describing a navigation
-   *  nobody has agreed to, and Cancel would leave it described for ever. A
-   *  confirmed load carries the move itself, on {@link pendingFindTargetHash},
-   *  so the counter, the highlight and the viewport all arrive together with
-   *  the page. */
-  private loadFindMatch(match: FindMatch): FindLoadOutcome {
+   *  nobody has agreed to, and Cancel would leave it described for ever.
+   *
+   *  Which is why `direction` is handed over rather than kept: on that path the
+   *  step commits an unbounded wait after the caller has returned, so the only
+   *  code left to record it is the request going out. The rest of the move
+   *  travels the same way — {@link pendingFindTargetHash} carries the target to
+   *  the page that lands, so the counter, the highlight and the viewport all
+   *  arrive together with it. */
+  private loadFindMatch(match: FindMatch, direction: -1 | 1): FindLoadOutcome {
     // Ahead of the in-flight guard, and that order is the point: "no request was
     // needed" and "the request could not be sent" are different answers, and
     // only the second is a reason to hold Find back. Taking the guard first
@@ -4041,6 +4045,13 @@ class GitGraphView {
       // as well — the check above only covers the path that acts immediately.
       if (this.commitLoadInFlight) return;
       this.pendingFindTargetHash = match.hash;
+      // The step is happening as of this line, so this is where its direction
+      // belongs. Leaving it to the caller loses it on the confirmed path: that
+      // caller answered `hold` and returned long before the user said yes, and
+      // the page that lands knows the target but not which way Find was going.
+      // A navigation that completes without recording its direction leaves the
+      // next amended-away match resolving off some earlier step's.
+      this.findDirection = direction;
       this.maxCommits = plan.maxCommits;
       this.hideCommitDetails();
       this.saveState();
