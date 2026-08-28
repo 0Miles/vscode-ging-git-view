@@ -20,6 +20,7 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run format
       - run: pnpm run l10n:check
+      - run: pnpm run adr:check
       - run: pnpm run test
 
   extension-tests:

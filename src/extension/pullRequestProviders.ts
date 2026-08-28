@@ -17,7 +17,7 @@ import * as l10n from "@/l10n";
  *
  * It is a view onto the setting, never a second store — every change is written
  * back to a named settings scope and the user is told which one, so "where is
- * this kept?" always has an answer they can open (ADR-0018).
+ * this kept?" always has an answer they can open (ADR-0021).
  */
 
 const SECTION = "ging-git-view";

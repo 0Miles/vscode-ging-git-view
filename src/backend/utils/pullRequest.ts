@@ -6,7 +6,7 @@
  * forge running on it, and the four built-in kinds each know their own URL
  * shape. That is what lets a self-hosted Gitea or GitLab be reached with one
  * line of settings, and it is why the mapping is a visible setting rather than
- * a switch buried in here — see ADR-0018.
+ * a switch buried in here — see ADR-0021.
  */
 
 /** The forges whose URL shape ships with the extension, plus `custom` for a
