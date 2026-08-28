@@ -130,8 +130,8 @@ export function parkViewportAt(offset: number) {
  * ruling on #97 is what overturned it, on the grounds that the first and third
  * still stand: per-suite stubbing is still the precedent for suites that want
  * their own geometry, and no seam has been opened in product code, which is
- * untouched by this file. The ADR still reads as though all three hold; it is
- * the ADR that needs the correction, not this comment that needs to argue. */
+ * untouched by this file. The ADR has since been corrected in place — the
+ * middle reason struck through, the other two left standing. */
 Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
 Object.defineProperty(document.body, "offsetHeight", {
   value: PAGE_HEIGHT,
