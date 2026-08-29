@@ -165,6 +165,7 @@
   "dialog.batch.result": "{0} succeeded, {1} failed",
   "dialog.batch.busy": "Another batch action is still in progress. Wait for it to finish first.",
   "dialog.headMoved": "{0} is no longer the branch this would run on, so nothing was done. Check the current branch and try again.",
+  "dialog.stashMoved": "{0} no longer refers to the stash this was about, so nothing was done. Check the stash list and try again.",
   "dialog.pushRemoteGone": "The remote this would push to no longer exists, so nothing was done.",
   "dialog.renameBranch.title": "Enter the new name for the branch {0}:",
   "dialog.renameBranch.submit": "Rename Branch",

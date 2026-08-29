@@ -165,6 +165,7 @@
   "dialog.batch.result": "成功 {0} 个，失败 {1} 个",
   "dialog.batch.busy": "另一个批次动作仍在进行中，请先等它完成。",
   "dialog.headMoved": "{0} 已不是此操作会作用的 branch，因此没有执行任何操作。请确认当前的 branch 后重试。",
+  "dialog.stashMoved": "{0} 已不是此操作原本要作用的 stash，因此没有执行任何操作。请确认 stash 列表后重试。",
   "dialog.pushRemoteGone": "要推送的目标 remote 已经不存在，因此没有执行任何操作。",
   "dialog.renameBranch.title": "输入 {0} branch 的新名称",
   "dialog.renameBranch.submit": "重命名 branch",

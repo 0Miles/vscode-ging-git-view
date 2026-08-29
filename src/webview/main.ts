@@ -1252,11 +1252,13 @@ class GitGraphView {
         if (isRepo) {
           const finish = (commitChanges: boolean) => {
             this.setRefreshing(false);
-            // Dismiss the action-running dialog / context menu once the reload
-            // finishes. Hard refreshes follow an action (checkout, merge, …) so
-            // always close; soft refreshes only close when something changed.
+            // Dismiss what this reload owns once it finishes — see
+            // {@link hideReloadOwnedOverlays} for why that is the progress
+            // dialog and the context menu but not a confirmation. Hard
+            // refreshes follow an action (checkout, merge, …) so always close;
+            // soft refreshes only close when something changed.
             if (hard || branchChanges || commitChanges) {
-              hideDialogAndContextMenu();
+              hideReloadOwnedOverlays();
             }
           };
           // A load that never ran brought no changes with it, so finish it as
@@ -2375,18 +2377,46 @@ class GitGraphView {
         applyStash: () => applyOrPop("applyStash", l10n.dialogStashApplyConfirm),
         popStash: () => applyOrPop("popStash", l10n.dialogStashPopConfirm),
         dropStash: () => {
+          // `stash@{n}` is a position on the stack, not a name: any
+          // `git stash push` — the terminal, the SCM view, a
+          // `pull --autostash` — pushes onto the top and renumbers everything
+          // below it. So the number the user is agreeing to stops naming this
+          // stash the moment another one lands, and the reload that lands it no
+          // longer takes the question away with it. Bound at consent like the
+          // repo it is sent to ({@link confirmForRepo}) and re-read on the far
+          // side: the premise is not the number, it is what the number pointed
+          // at. Never undefined here — the menu was opened on a row this
+          // lookup's own list drew.
+          const stashHash = this.stashNodeFor(refName)?.hash;
           this.confirmForRepo(
             l10n.dialogStashDropConfirm.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
-            (repo) => sendMessage({ command: "dropStash", repo, selector: refName }),
+            (repo) => {
+              // Refused out loud, and not redirected at the captured stash.
+              // Redirecting is *possible* — the captured hash could be looked
+              // back up to whatever `stash@{m}` it wears now — and it is still
+              // the wrong answer: the number in that message is the whole of
+              // what the dialog said, so acting on a different one acts on
+              // something the user was never shown. A drop leaves no ref
+              // behind, and the only way back is hunting for a dangling commit,
+              // so this is {@link confirmForRepoAndHead}'s case rather than
+              // `confirmForRepo`'s — fail safe, and say so.
+              if (this.stashNodeFor(refName)?.hash !== stashHash) {
+                showErrorDialog(
+                  l10n.dialogStashMoved.replace("{0}", escapeHtml(refName)),
+                  null,
+                  null
+                );
+                return;
+              }
+              sendMessage({ command: "dropStash", repo, selector: refName });
+            },
             sourceElem
           );
         },
         renameStash: () => {
           // Pre-fill with the stash's current displayed name (its commit
           // subject), taken from the loaded stash node for this ref.
-          const currentMessage =
-            this.commits.find((c) => c.refs.some((r) => r.type === "stash" && r.name === refName))
-              ?.message ?? "";
+          const currentMessage = this.stashNodeFor(refName)?.message ?? "";
           showFormDialog(
             l10n.dialogStashRenameTitle.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
             [{ type: "text", name: "", default: currentMessage, placeholder: null }],
@@ -3397,6 +3427,17 @@ class GitGraphView {
   }
 
   /* Binding a dialog's premises to the moment of consent — ADR-0019 */
+
+  /** The loaded commit a stash selector currently points at, if any.
+   *
+   *  One lookup for both readers of it, because they are two halves of the same
+   *  fact: the rename dialog pre-fills from this node's message, and the drop
+   *  confirmation carries this node's hash across the wait as the premise its
+   *  `stash@{n}` stands on. Two copies would let the second reader drift off
+   *  what the first one meant by "this stash". */
+  private stashNodeFor(selector: string): GitCommitNode | undefined {
+    return this.commits.find((c) => c.refs.some((r) => r.type === "stash" && r.name === selector));
+  }
 
   /**
    * Open a confirmation whose deferred half acts on the repository the question
@@ -4422,6 +4463,35 @@ class GitGraphView {
       // the meantime. Everything below changes state, so the check belongs here
       // as well — the check above only covers the path that acts immediately.
       if (this.commitLoadInFlight) return;
+      // And the plan is re-taken with it, for the same reason and on the same
+      // terms (ADR-0019: when the change is deferred into a callback, so is the
+      // reading it rests on). The plan above was sized against the window as it
+      // stood when the question went up, and automatic loading widens that
+      // window while the dialog stands — its scroll listener has no dialog gate,
+      // and the overlay does not scroll, so the wheel chains to the document.
+      // Acting on the stale plan sets `maxCommits` *back* to the older, smaller
+      // number, silently discarding commits already drawn; and if the target
+      // landed in one of those pages, it reloads the whole table and closes the
+      // Commit Details View to reach a row that is already on screen.
+      // Silent, unlike the stash drop's refusal a few hundred lines up, and the
+      // difference is what there is left to do rather than how loud to be. That
+      // one has a stash it could still act on and declines to; this one has no
+      // match to step onto at all — the query itself has changed underneath the
+      // question, so Find has already moved on and repainted, and there is no
+      // half-state to report.
+      const current = this.findMatches.find((m) => m.hash === match.hash);
+      if (current === undefined) return;
+      const now = planFindLoad(this.maxCommits, current);
+      if (now === null) {
+        // Nothing left to load — but the step the user pressed Yes for still
+        // has to happen. Returning here would be the "pressed Yes, nothing
+        // happened" half-state the same ADR rules out, and no page is coming to
+        // move the highlight instead.
+        this.findCurrent = this.findMatches.indexOf(current);
+        this.findDirection = direction;
+        this.applyFindHighlights(true);
+        return;
+      }
       this.pendingFindTargetHash = match.hash;
       // The step is happening as of this line, so this is where its direction
       // belongs. Leaving it to the caller loses it on the confirmed path: that
@@ -4430,7 +4500,7 @@ class GitGraphView {
       // A navigation that completes without recording its direction leaves the
       // next amended-away match resolving off some earlier step's.
       this.findDirection = direction;
-      this.maxCommits = plan.maxCommits;
+      this.maxCommits = now.maxCommits;
       this.hideCommitDetails();
       this.saveState();
       this.setRefreshing(true);
@@ -5468,7 +5538,33 @@ let contextMenu = document.getElementById("contextMenu")!,
   contextMenuSourceBorrowedFocus = false;
 let dialog = document.getElementById("dialog")!,
   dialogBacking = document.getElementById("dialogBacking")!,
-  dialogMenuSource: HTMLElement | null = null;
+  dialogMenuSource: HTMLElement | null = null,
+  /** The open dialog's dismissal hook, if it declared one.
+   *
+   *  Held here rather than only inside the Dismiss button's click closure,
+   *  because the button is not the only way a dialog closes: Escape closes one,
+   *  and so does a background reload that finds its own progress dialog still
+   *  up. A hook wired to one route out of three is not a hook, it is a
+   *  coincidence.
+   *
+   *  The five of them do quite different things, and it is worth not flattening
+   *  that. The cleanup refetch clears the state a late answer would otherwise
+   *  put back on screen; the cleanup scan stops work the host is still doing,
+   *  and stops *only* that — Stop is a "come back with what you found"
+   *  contract, so the answer still arrives and still fills the dialog back in;
+   *  the error dialog and the batch summary go and fetch what they were
+   *  standing in front of (the conflict banner); the batch retry's decline ends
+   *  a run that did real work, and opens a summary dialog of its own. What they
+   *  share is only the occasion — the user is done with this dialog — and that
+   *  is as true of the routes that close it *for* them as of the button.
+   *
+   *  Set on every {@link showDialog}, including the ones that overwrite an open
+   *  dialog, so a stale hook can never outlive its dialog. Overwriting does not
+   *  *run* the hook it replaces: an answer that legitimately replaces the
+   *  dialog it was awaited by is not a dismissal — `handleBranchCleanupOpen`
+   *  builds the new `cleanupState` before rendering over the refetch dialog,
+   *  and running that dialog's hook would null it straight back out. */
+  dialogDismissAction: (() => void) | null = null;
 // "Remember my choice" values per dialog key, seeded from the extension host at
 // load and updated optimistically on each confirm (the save message is one-way).
 let dialogMemory: GG.DialogMemoryStore = viewState.dialogMemory ?? {};
@@ -5922,15 +6018,9 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
  *  replaced by a progress one so the list can't be edited against verdicts that
  *  are still arriving. */
 function startBranchCleanupScan(repo: string, token: number) {
-  showDialog(
-    '<span id="actionRunning">' +
-      svgIcons.loading +
-      escapeHtml(fillTemplate(l10n.cleanupScanning, "0", "?")) +
-      "</span>",
-    null,
+  showActionRunningDialogWith(
+    escapeHtml(fillTemplate(l10n.cleanupScanning, "0", "?")),
     l10n.cleanupScanStop,
-    null,
-    null,
     () => sendMessage({ command: "branchCleanupScanCancel" })
   );
   sendMessage({ command: "branchCleanupScan", repo, token });
@@ -6962,26 +7052,38 @@ function showErrorDialog(
     onDismiss
   );
 }
-function showActionRunningDialog(command: string) {
+/**
+ * The one place a progress dialog is built.
+ *
+ * `#actionRunning` is not decoration: it is the mark by which
+ * {@link hideReloadOwnedOverlays} tells a dialog the webview raised for an
+ * action in flight from a question it asked the user. A progress dialog written
+ * out by hand somewhere else would either carry the mark by imitation — a
+ * convention with nothing enforcing it — or lack it, and then survive the very
+ * reload it was waiting for. So the markup is built here and the entry points
+ * below differ only in what they pass in.
+ *
+ * `content` is inserted as HTML, so callers escape their own interpolations;
+ * `dismissName` is the Dismiss button's label, which the cleanup scan replaces
+ * with "Stop" because for that one wait, dismissing is what stops it.
+ */
+function showActionRunningDialogWith(content: string, dismissName: string, onDismiss?: () => void) {
   showDialog(
-    '<span id="actionRunning">' + svgIcons.loading + command + " ...</span>",
+    '<span id="actionRunning">' + svgIcons.loading + content + "</span>",
     null,
-    l10n.dialogDismiss,
-    null,
-    null
-  );
-}
-/** {@link showActionRunningDialog} plus a hook for dismissal, for the waits that
- *  own state a late answer would otherwise resurrect. */
-function showActionRunningDialogDismissable(command: string, onDismiss: () => void) {
-  showDialog(
-    '<span id="actionRunning">' + svgIcons.loading + command + " ...</span>",
-    null,
-    l10n.dialogDismiss,
+    dismissName,
     null,
     null,
     onDismiss
   );
+}
+function showActionRunningDialog(command: string) {
+  showActionRunningDialogWith(command + " ...", l10n.dialogDismiss);
+}
+/** {@link showActionRunningDialog} plus a hook for dismissal, for the waits that
+ *  own state a late answer would otherwise resurrect. */
+function showActionRunningDialogDismissable(command: string, onDismiss: () => void) {
+  showActionRunningDialogWith(command + " ...", l10n.dialogDismiss, onDismiss);
 }
 function showDialog(
   html: string,
@@ -7004,31 +7106,77 @@ function showDialog(
     "</div></div>";
   if (actionName !== null && actioned !== null)
     document.getElementById("dialogAction")!.addEventListener("click", actioned);
-  document.getElementById("dialogDismiss")!.addEventListener(
-    "click",
-    onDismiss === undefined
-      ? hideDialog
-      : () => {
-          hideDialog();
-          onDismiss();
-        }
-  );
+  dialogDismissAction = onDismiss ?? null;
+  document.getElementById("dialogDismiss")!.addEventListener("click", dismissDialog);
 
   dialogMenuSource = sourceElem;
   if (dialogMenuSource !== null) dialogMenuSource.classList.add("dialogActive");
 }
+/** Close the dialog. The plain close: the dialog's dismissal hook does *not*
+ *  run, because this is also how a dialog closes when its action was taken —
+ *  a confirmed dialog was not dismissed. Anything closing a dialog the user did
+ *  not answer wants {@link dismissDialog} instead. */
 function hideDialog() {
   dialogBacking.className = "";
   dialog.className = "";
   dialog.innerHTML = "";
+  dialogDismissAction = null;
   if (dialogMenuSource !== null) {
     dialogMenuSource.classList.remove("dialogActive");
     dialogMenuSource = null;
   }
 }
+/** Close the dialog the way its own Dismiss button does, running whatever it
+ *  declared for that. The hook is read before the close so that a hook which
+ *  opens a dialog of its own is not undone by the close that invited it. */
+function dismissDialog() {
+  const onDismiss = dialogDismissAction;
+  hideDialog();
+  if (onDismiss !== null) onDismiss();
+}
 
+/** Escape, and the other places that close both overlays on the user's behalf.
+ *  A dismissal, not a plain close: reaching here means the user walked away
+ *  from the dialog rather than answering it. */
 function hideDialogAndContextMenu() {
-  if (dialog.classList.contains("active")) hideDialog();
+  if (dialog.classList.contains("active")) dismissDialog();
+  if (contextMenu.classList.contains("active")) hideContextMenu();
+}
+
+/**
+ * Close the progress dialog and the context menu when a background reload
+ * finishes.
+ *
+ * The reload's own action put up a progress dialog ("Checking out …") and that
+ * dialog has nothing left to say once the reload lands; leaving it up strands
+ * the user behind an overlay whose only exit is Escape. But a *confirmation*
+ * standing at the same moment belongs to the user, not to the reload: the file
+ * watcher fires on any `.git` write, so an unrelated commit in the terminal
+ * would otherwise take away a question the user is halfway through reading —
+ * and with it any chance of answering Yes.
+ *
+ * `#actionRunning` is what separates those two, and that is the whole of what
+ * it separates. It is an existence check, not an identity: it cannot tell this
+ * reload's own progress dialog from one belonging to a host query that has
+ * nothing to do with the reload. "Check for Unmerged Changes" and the cleanup
+ * dialog's own opening request both raise one, and both still lose it to an
+ * unrelated reload — after which their answers are dropped on arrival by the
+ * same existence check (`showBranchRedundancy`, `handleBranchCleanupOpen`).
+ * That predates this split, which only narrows what gets closed; the fix is to
+ * correlate by token, and it is tracked on #127 rather than smuggled in here.
+ * Every progress dialog is built by {@link showActionRunningDialogWith} rather
+ * than by hand so that the mark is at least produced in one place.
+ *
+ * The context menu is not held back with it, deliberately. Its contents are a
+ * snapshot — what can be dropped, what is HEAD, which refs are cleanup
+ * candidates, the rebase range — computed from exactly the state the redraw has
+ * just replaced, and it is positioned in page coordinates against a row that no
+ * longer exists there. Keeping it open would keep offering Drop, Reset and
+ * Delete computed against a graph that has moved underneath them. Reopening it
+ * costs one right-click; a half-filled dialog cannot be reopened at all.
+ */
+function hideReloadOwnedOverlays() {
+  if (document.getElementById("actionRunning") !== null) dismissDialog();
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
