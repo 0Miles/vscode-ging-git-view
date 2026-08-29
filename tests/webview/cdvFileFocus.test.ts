@@ -334,25 +334,81 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     });
   });
 
+  // The other half of the same condition. Everything above reaches the file
+  // list through the roving group itself, which moves the tab stop as part of
+  // moving focus; `syncTabStop` is for focus arriving by a route the group did
+  // not drive — a click on a row, or Tab from outside — and without it Tab
+  // comes back to wherever the user last *arrowed* instead of where they last
+  // were. Calling `focus()` directly is that route: the `focusin` listener is
+  // the only thing that can move the tab stop here.
+  describe("focus arriving on a file row without the arrow keys", () => {
+    let tabStopsAtStart: HTMLElement[] = [];
+    let tabStopsAfterFocusingFirst: HTMLElement[] = [];
+    let tabStopsAfterFocusingBack: HTMLElement[] = [];
+
+    beforeAll(() => {
+      tabStopsAtStart = fileTabStops();
+      fileRows()[0].focus();
+      tabStopsAfterFocusingFirst = fileTabStops();
+      // Back to where the scenario above left it, so the next one still starts
+      // from a tab stop the user put there rather than one this test moved.
+      fileRows()[2].focus();
+      tabStopsAfterFocusingBack = fileTabStops();
+    });
+
+    it("hands the file list's tab stop to the row focus landed on", () => {
+      // The scenario above left it on the last row, so moving to the first is a
+      // move the assertion can see.
+      expect(tabStopsAtStart).toEqual([fileRows()[2]]);
+      expect(tabStopsAfterFocusingFirst).toEqual([fileRows()[0]]);
+      // And back again — one row carries it at a time, never two. That is the
+      // roving invariant, and it is also how this scenario hands the next one a
+      // tab stop the user put there rather than one this test moved.
+      expect(tabStopsAfterFocusingBack).toEqual([fileRows()[2]]);
+    });
+  });
+
   // A `.gitFile` row is not proof of the Commit Details View. The
   // branch-redundancy dialog shows an expanded commit's files through the very
   // same `generateGitFileListHtml`, so its rows carry the same paths and the
   // same `tabindex`; the rows below are that generator's own output, not a
-  // hand-written stand-in. A redraw arriving while focus is in the modal must
-  // leave it there rather than hauling the user onto the panel behind it.
+  // hand-written stand-in, under the wrapper the dialog really builds around
+  // them — a `commitDetailsFiles` *class*, not the panel's `#commitDetails` id,
+  // which is the one thing that tells the two lists apart.
+  //
+  // Two groups of keyboard state are at stake and they fail separately. Focus
+  // is one: a redraw arriving while focus is in the modal must leave it there
+  // rather than hauling the user onto the panel behind it. The tab stop is the
+  // other, and it is spent the moment focus *enters* the dialog rather than on
+  // any later redraw — `syncTabStop` runs on every `focusin`, so an unscoped
+  // `.gitFile` match hands the panel's single `tabindex="0"` to a row in the
+  // modal and demotes the row that had it. The panel is then left with none,
+  // and `restoreCdvFileTabStop` will not give it one back: while the dialog is
+  // open it sees a holder that is still connected and still unhidden and
+  // returns early, and once the dialog closes there is nothing to call it until
+  // the panel is next rebuilt. So the redraw below is not what breaks the tab
+  // stop — it is the first thing that could have repaired it.
   describe("a redraw while focus is on a file row outside the Commit Details View", () => {
     let dialogFile: HTMLElement;
     let cdvFileForSamePath: HTMLElement;
+    let tabStopsBeforeDialog: HTMLElement[] = [];
+    let tabStopsWhileDialogHasFocus: HTMLElement[] = [];
     let focusedAfterLoad: Element | null = null;
+    let tabStopsAfterLoad: HTMLElement[] = [];
 
     beforeAll(() => {
       const dialog = document.getElementById("dialog")!;
-      dialog.innerHTML = generateGitFileListHtml(tipDetails.fileChanges, false);
+      dialog.innerHTML =
+        '<div class="commitDetailsPanel"><div class="commitDetailsFiles">' +
+        generateGitFileListHtml(tipDetails.fileChanges, false) +
+        "</div></div>";
       dialogFile = dialog.querySelector<HTMLElement>('.gitFile[data-newfilepath="src%2Fb.ts"]')!;
       cdvFileForSamePath = fileRows().find((f) => filePathOf(f) === "src/b.ts")!;
+      tabStopsBeforeDialog = fileTabStops();
 
       dialogFile.focus();
       expect(document.activeElement).toBe(dialogFile);
+      tabStopsWhileDialogHasFocus = fileTabStops();
 
       parkViewportAt(NEAR_BOTTOM);
       mock.clearMessages();
@@ -360,12 +416,36 @@ describe("keyboard focus in the Commit Details View's file list", () => {
       document.dispatchEvent(new Event("scroll"));
       receive(commitsResponse(nextPage));
       focusedAfterLoad = document.activeElement;
+      tabStopsAfterLoad = fileTabStops();
     });
 
     it("leaves focus in the dialog rather than moving it to the panel's own row", () => {
       expect(focusedAfterLoad).toBe(dialogFile);
       expect(focusedAfterLoad).not.toBe(cdvFileForSamePath);
       expect(document.getElementById("dialog")!.contains(focusedAfterLoad)).toBe(true);
+    });
+
+    it("leaves the panel's tab stop where the user left it, on the panel's own row", () => {
+      // The scenarios above walked the panel's tab stop onto `src/b.ts` and
+      // left it there, so this says the dialog *kept its hands off* it — not
+      // that it happens to sit on some row or other.
+      expect(tabStopsBeforeDialog).toEqual([cdvFileForSamePath]);
+      expect(tabStopsWhileDialogHasFocus).toEqual([cdvFileForSamePath]);
+      // And the dialog's own row never became one: its file list is inert, so
+      // the row is focusable (the generator ships every row at -1) but is not
+      // any group's tab stop.
+      expect(dialogFile.tabIndex).toBe(-1);
+    });
+
+    it("still lets Tab back into the file list once the redraw has rebuilt it", () => {
+      // The consequence the tab stop being stolen actually has. What this is
+      // really about is that the count is not zero — zero is a file list Tab can
+      // no longer reach at all. The row it names is `restoreCdvFileTabStop`'s
+      // existing fallback, which does not carry the user's place across a
+      // redraw the way `restoreCdvFileFocus` does; naming it pins today's
+      // behaviour rather than endorsing it.
+      expect(fileRows()).toHaveLength(3);
+      expect(tabStopsAfterLoad).toEqual([fileRows()[0]]);
     });
   });
 });

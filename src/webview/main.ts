@@ -4605,11 +4605,37 @@ class GitGraphView {
 
   /** Keep each group's tab stop wherever it last held focus, however focus got
    *  there — a click, Tab, or the arrow keys — so Tab returns to where the user
-   *  left off rather than to the top of the graph. */
+   *  left off rather than to the top of the graph.
+   *
+   *  Asked of {@link cdvFileRows} rather than matched as a bare `.gitFile`, for
+   *  the same reason {@link focusedCdvFileKey} is: a `.gitFile` row is not proof
+   *  of the Commit Details View. The branch-redundancy dialog renders its
+   *  commit's files through the same `renderGitFileRow`, so focus landing on one
+   *  of *its* rows would hand the panel's single tab stop to a row in the modal.
+   *  Setting it is also what *takes* it: `set` demotes the previous holder, so
+   *  the panel is left with no `tabindex="0"` at all and Tab steps straight past
+   *  the file list. Nor does {@link restoreCdvFileTabStop} give one back while
+   *  the dialog is open — it sees a holder that is still connected and still
+   *  unhidden and returns early — and once the dialog closes and takes its rows
+   *  with it, nothing calls that method until the panel is next rebuilt. So the
+   *  list stays unreachable until some *other* thing redraws it: a refresh, a
+   *  page of commits, a layout toggle. The dialog's rows belong to no roving
+   *  group, so there is no tab stop of theirs to keep and none to hand them:
+   *  leaving the panel's where it was is the whole of the fix. It claims nothing
+   *  about how those rows behave otherwise — see {@link commitFilesHtml}, where
+   *  they turn out not to be inert at all.
+   *
+   *  The `.gitFile` match survives in front of the scope check as a cheap way
+   *  in, not as a second scoping rule: `cdvFileRows` is the only thing that says
+   *  what counts, and everything it returns is a `.gitFile`. Without it every
+   *  `focusin` anywhere — each row an arrow key steps onto in the graph — scans
+   *  the panel and builds an array of its rows, to ask a question whose answer
+   *  is already no. */
   public syncTabStop(target: EventTarget | null) {
     if (!(target instanceof HTMLElement)) return;
-    if (target.matches(".gitFile")) this.cdvFileTabStop.set(target);
-    else if (target.closest("#commitTable") !== null && target.matches(GRAPH_FOCUSABLE)) {
+    if (target.matches(".gitFile") && this.cdvFileRows().includes(target)) {
+      this.cdvFileTabStop.set(target);
+    } else if (target.closest("#commitTable") !== null && target.matches(GRAPH_FOCUSABLE)) {
       this.graphTabStop.set(target);
     }
   }
@@ -5192,8 +5218,19 @@ class GitGraphView {
 
   /** The Commit Details View's file section for a set of changes, in whichever
    *  layout the repo is set to. Shared with the branch-redundancy dialog so a
-   *  commit's files read the same wherever they are shown; the dialog's copy is
-   *  inert, since the diff actions are bound to the graph's expanded row. */
+   *  commit's files read the same wherever they are shown.
+   *
+   *  **The dialog's copy is not inert**, though this comment said so for a long
+   *  time on the grounds that the diff actions are bound to the graph's expanded
+   *  row. They are bound through `addListenerToClass`, which is
+   *  `document.getElementsByClassName` and so has no scope at all: every call of
+   *  `attachCdvFileListeners` reaches every `.gitFile` on the page, the dialog's
+   *  included. Once any redraw of the panel has run while the dialog is open,
+   *  clicking one of its rows sends `viewDiff` carrying the path from *that* row
+   *  and the commit from the graph's expanded one, and each further redraw binds
+   *  another copy of the handler to the same rows. Pre-existing, and out of
+   *  scope for #113, which fixed the same unscoped-selector mistake on the focus
+   *  path only; see issue #128. */
   public commitFilesHtml(fileChanges: GitFileChange[]): string {
     const fileTree = generateGitFileTree(fileChanges);
     if (this.config.fileTreeCompactFolders) compactGitFileTree(fileTree);
