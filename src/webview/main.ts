@@ -207,6 +207,12 @@ function deserializeExpandedCommit(
 /** The batch actions a BatchRun can execute, named by their protocol command
  *  so the tag can never drift from the messages it labels. */
 type BatchActionKind = BatchActionRequest["command"];
+/** What every batch run carries for its adapter whatever the action is: the
+ *  repository the run was started for. Each action's own parameters intersect
+ *  with this, so no `send` has to read the repo at send time — by then the
+ *  confirmation, the host round-trip and possibly a retry dialog have all
+ *  happened. */
+type BatchParams = { repo: string };
 
 /** Where Find is standing, in the form something that moved it can put it back.
  *  The hash is the position; the index is only what `resolveFindCurrent` falls
@@ -286,7 +292,11 @@ class GitGraphView {
   private currentRepo!: string;
   // The last branch-deletion request, so a failed non-force delete can offer a
   // one-click force delete.
-  private pendingDeleteBranch: { branchName: string; deleteOnRemotes: boolean } | null = null;
+  private pendingDeleteBranch: {
+    repo: string;
+    branchName: string;
+    deleteOnRemotes: boolean;
+  } | null = null;
   // A branch action delegated by the Branches side-view, held until this view
   // shows the right repo with its data loaded. lastRefActionSeq dedupes the
   // host's two delivery paths (direct post + post-reload flush).
@@ -765,11 +775,16 @@ class GitGraphView {
 
   /** Send a branch-deletion request, remembering its parameters so a failed
    *  non-force delete can offer a one-click force delete. */
-  private sendDeleteBranch(branchName: string, forceDelete: boolean, deleteOnRemotes: boolean) {
-    this.pendingDeleteBranch = { branchName, deleteOnRemotes };
+  private sendDeleteBranch(
+    repo: string,
+    branchName: string,
+    forceDelete: boolean,
+    deleteOnRemotes: boolean
+  ) {
+    this.pendingDeleteBranch = { repo, branchName, deleteOnRemotes };
     sendMessage({
       command: "deleteBranch",
-      repo: this.currentRepo!,
+      repo,
       branchName,
       forceDelete,
       deleteOnRemotes
@@ -783,12 +798,17 @@ class GitGraphView {
   public handleDeleteBranchResponse(status: string | null, notFullyMerged: boolean) {
     const pending = this.pendingDeleteBranch;
     if (notFullyMerged && pending !== null) {
+      // Bound at consent like every other confirmation ({@link confirmForRepo}),
+      // only earlier: the repository this question is about is the one the
+      // refused delete went to, and currentRepo has had the host's whole
+      // round-trip to move since. So the pending record carries it.
       showConfirmationDialog(
         l10n.dialogForceDeleteBranchConfirm.replace(
           "{0}",
           "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
         ),
-        () => this.sendDeleteBranch(pending.branchName, true, pending.deleteOnRemotes),
+        () =>
+          this.sendDeleteBranch(pending.repo, pending.branchName, true, pending.deleteOnRemotes),
         null
       );
     } else {
@@ -1813,10 +1833,10 @@ class GitGraphView {
                 l10n.dialogAddTagSubmit,
                 (values) => {
                   const tagName = values[0];
-                  const send = (force: boolean) => {
+                  const send = (repo: string, force: boolean) => {
                     sendMessage({
                       command: "addTag",
-                      repo: this.currentRepo!,
+                      repo,
                       tagName,
                       commitHash: hash,
                       lightweight: values[1] === "lightweight",
@@ -1830,16 +1850,16 @@ class GitGraphView {
                     c.refs.some((r) => r.type === "tag" && r.name === tagName)
                   );
                   if (tagExists) {
-                    showConfirmationDialog(
+                    this.confirmForRepo(
                       l10n.dialogAddTagExists.replace(
                         "{0}",
                         "<b><i>" + escapeHtml(tagName) + "</i></b>"
                       ),
-                      () => send(true),
+                      (repo) => send(repo, true),
                       null
                     );
                   } else {
-                    send(false);
+                    send(this.currentRepo!, false);
                   }
                 },
                 sourceElem
@@ -1868,10 +1888,10 @@ class GitGraphView {
                 (values) => {
                   const branchName = values[0];
                   const checkout = values[1] === "checked";
-                  const send = (force: boolean) => {
+                  const send = (repo: string, force: boolean) => {
                     sendMessage({
                       command: "createBranch",
-                      repo: this.currentRepo!,
+                      repo,
                       branchName,
                       commitHash: hash,
                       checkout,
@@ -1880,16 +1900,16 @@ class GitGraphView {
                   };
                   // A local branch with this name already exists: confirm replacing it.
                   if (this.gitBranches.includes(branchName)) {
-                    showConfirmationDialog(
+                    this.confirmForRepo(
                       l10n.dialogCreateBranchExists.replace(
                         "{0}",
                         "<b><i>" + escapeHtml(branchName) + "</i></b>"
                       ),
-                      () => send(true),
+                      (repo) => send(repo, true),
                       null
                     );
                   } else {
-                    send(false);
+                    send(this.currentRepo!, false);
                   }
                 },
                 sourceElem
@@ -2023,15 +2043,15 @@ class GitGraphView {
             icon: "undo",
             onClick: () => {
               if (this.commits[this.commitLookup[hash]].parentHashes.length === 1) {
-                showConfirmationDialog(
+                this.confirmForRepo(
                   l10n.dialogRevertConfirm.replace(
                     "{0}",
                     "<b><i>" + abbrevCommit(hash) + "</i></b>"
                   ),
-                  () => {
+                  (repo) => {
                     sendMessage({
                       command: "revertCommit",
-                      repo: this.currentRepo!,
+                      repo,
                       commitHash: hash,
                       parentIndex: 0
                     });
@@ -2146,12 +2166,12 @@ class GitGraphView {
             title: l10n.rebaseOnCommit + ELLIPSIS,
             icon: "rebase",
             onClick: () => {
-              showConfirmationDialog(
+              this.confirmForRepoAndHead(
                 l10n.dialogRebaseConfirm
                   .replace("{0}", "<b><i>" + abbrevCommit(hash) + "</i></b>")
                   .replace("{1}", this.currentBranchLabel()),
-                () => {
-                  sendMessage({ command: "rebaseOn", repo: this.currentRepo!, obj: hash });
+                (repo) => {
+                  sendMessage({ command: "rebaseOn", repo, obj: hash });
                   showActionRunningDialog(l10n.rebasing);
                 },
                 sourceElem
@@ -2175,15 +2195,25 @@ class GitGraphView {
                   icon: "trash",
                   visible: cmv.drop,
                   onClick: () => {
-                    showConfirmationDialog(
+                    // A HEAD site, though it names no branch in its own
+                    // message: `git rebase --onto <hash>~1 <hash>` omits
+                    // git's `<branch>`, so git supplies HEAD. Its own
+                    // availability test says so too — `dropCommitPossible`
+                    // requires a linear path from the commit down to
+                    // `commitHead`, computed when the menu opened. Let HEAD
+                    // move and the replayed range becomes `<hash>..HEAD` on a
+                    // branch nobody agreed to, silently and without a git
+                    // error. The dialog says it: "rewrites the history of the
+                    // current branch".
+                    this.confirmForRepoAndHead(
                       l10n.dialogDropConfirm.replace(
                         "{0}",
                         "<b><i>" + abbrevCommit(hash) + "</i></b>"
                       ),
-                      () => {
+                      (repo) => {
                         sendMessage({
                           command: "dropCommit",
-                          repo: this.currentRepo!,
+                          repo,
                           commitHash: hash
                         });
                         showActionRunningDialog(l10n.dropping);
@@ -2269,9 +2299,9 @@ class GitGraphView {
             icon: "history",
             visible: ucv.reset,
             onClick: () => {
-              showConfirmationDialog(
+              this.confirmForRepo(
                 l10n.dialogResetUncommittedConfirm,
-                () => sendMessage({ command: "resetUncommittedChanges", repo: this.currentRepo! }),
+                (repo) => sendMessage({ command: "resetUncommittedChanges", repo }),
                 null
               );
             }
@@ -2281,9 +2311,9 @@ class GitGraphView {
             icon: "trash",
             visible: ucv.clean,
             onClick: () => {
-              showConfirmationDialog(
+              this.confirmForRepo(
                 l10n.dialogCleanUntrackedConfirm,
-                () => sendMessage({ command: "cleanUntrackedFiles", repo: this.currentRepo! }),
+                (repo) => sendMessage({ command: "cleanUntrackedFiles", repo }),
                 null
               );
             }
@@ -2345,9 +2375,9 @@ class GitGraphView {
         applyStash: () => applyOrPop("applyStash", l10n.dialogStashApplyConfirm),
         popStash: () => applyOrPop("popStash", l10n.dialogStashPopConfirm),
         dropStash: () => {
-          showConfirmationDialog(
+          this.confirmForRepo(
             l10n.dialogStashDropConfirm.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
-            () => sendMessage({ command: "dropStash", repo: this.currentRepo!, selector: refName }),
+            (repo) => sendMessage({ command: "dropStash", repo, selector: refName }),
             sourceElem
           );
         },
@@ -2382,12 +2412,12 @@ class GitGraphView {
             .replace("{0}", l10n.labelTag)
             .replace("{1}", "<b><i>" + escapeHtml(refName) + "</i></b>");
           if (this.remotes.length === 0) {
-            showConfirmationDialog(
+            this.confirmForRepo(
               confirmMsg,
-              () => {
+              (repo) => {
                 sendMessage({
                   command: "deleteTag",
-                  repo: this.currentRepo!,
+                  repo,
                   tagName: refName,
                   deleteOnRemote: null
                 });
@@ -2700,16 +2730,16 @@ class GitGraphView {
               });
             } else if (choice === "reset") {
               // Destructive: confirm before discarding the local branch's commits.
-              showConfirmationDialog(
+              this.confirmForRepo(
                 l10n.dialogCheckoutResetLocalConfirm.replace(
                   "{0}",
                   "<b><i>" + escapeHtml(leaf) + "</i></b>"
                 ),
-                () => {
+                (repo) => {
                   showActionRunningDialog(l10n.checkoutBranch);
                   sendMessage({
                     command: "checkoutBranch",
-                    repo: this.currentRepo!,
+                    repo,
                     branchName: leaf,
                     remoteBranch: refName,
                     force: true
@@ -2771,7 +2801,12 @@ class GitGraphView {
         ],
         l10n.deleteBranch,
         (values) => {
-          this.sendDeleteBranch(refName, values[0] === "checked", values[1] === "checked");
+          this.sendDeleteBranch(
+            this.currentRepo!,
+            refName,
+            values[0] === "checked",
+            values[1] === "checked"
+          );
         },
         null,
         "deleteBranch"
@@ -2783,7 +2818,7 @@ class GitGraphView {
         this.config.dialogDeleteBranchForceDelete,
         l10n.deleteBranch,
         (forceDelete) => {
-          this.sendDeleteBranch(refName, forceDelete, false);
+          this.sendDeleteBranch(this.currentRepo!, refName, forceDelete, false);
         },
         null,
         "deleteBranch"
@@ -2791,12 +2826,12 @@ class GitGraphView {
     }
   }
   private rebaseOnBranchAction(refName: string) {
-    showConfirmationDialog(
+    this.confirmForRepoAndHead(
       l10n.dialogRebaseConfirm
         .replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>")
         .replace("{1}", this.currentBranchLabel()),
-      () => {
-        sendMessage({ command: "rebaseOn", repo: this.currentRepo!, obj: refName });
+      (repo) => {
+        sendMessage({ command: "rebaseOn", repo, obj: refName });
         showActionRunningDialog(l10n.rebasing);
       },
       null
@@ -2820,10 +2855,10 @@ class GitGraphView {
     range: RebaseOntoRange,
     sourceElem: HTMLElement | null
   ) {
-    const run = (tip: string) => {
+    const run = (repo: string, tip: string) => {
       sendMessage({
         command: "rebaseOnto",
-        repo: this.currentRepo!,
+        repo,
         newBase,
         upstream: range.upstream,
         tip
@@ -2863,14 +2898,14 @@ class GitGraphView {
           { name: l10n.dialogRebaseOntoDetachedNone, value: "" }
         ],
         l10n.dialogYesRebase,
-        (branch) => run(branch === "" ? range.tip : branch),
+        (branch) => run(this.currentRepo!, branch === "" ? range.tip : branch),
         sourceElem
       );
       return;
     }
     const branch = range.tipBranches[0];
     const tip = branch ?? range.tip;
-    showConfirmationDialog(
+    this.confirmForRepo(
       confirmMsg(branch !== undefined ? escapeHtml(branch) : abbrevCommit(range.tip)) +
         commandPreview(branch !== undefined ? branch : abbrevCommit(range.tip)) +
         (branch === undefined
@@ -2878,17 +2913,50 @@ class GitGraphView {
             escapeHtml(fillTemplate(l10n.dialogRebaseOntoDetached, abbrevCommit(range.tip))) +
             "</span>"
           : ""),
-      () => run(tip),
+      (repo) => {
+        // This dialog prints the command verbatim, branch name included, and
+        // that line is the whole of what was agreed to. git resolves the name
+        // when the command runs, not when it was printed, so a branch that
+        // moved while the question was on screen replays a different range than
+        // the one on screen. Unlike the repository, nothing here can be
+        // re-aimed — the printed command would simply be false — so this one
+        // refuses, and says so (ADR-0019).
+        if (branch !== undefined && !this.branchPointsAt(branch, range.tip)) {
+          showErrorDialog(
+            l10n.dialogRebaseOntoTipMoved.replace(
+              "{0}",
+              "<b><i>" + escapeHtml(branch) + "</i></b>"
+            ),
+            null,
+            null
+          );
+          return;
+        }
+        run(repo, tip);
+      },
       sourceElem
     );
   }
+
+  /** Whether `branch` still points at `hash`, read off the loaded commits the
+   *  same way {@link rebaseOntoRange} read the tip's branches in the first
+   *  place. A commit that has left the loaded window answers false: what a
+   *  consent check owes is proof the premise still holds, and "cannot tell" is
+   *  not that. */
+  private branchPointsAt(branch: string, hash: string): boolean {
+    const index = this.commitLookup[hash];
+    return (
+      index !== undefined &&
+      this.commits[index].refs.some((r) => r.type === "head" && r.name === branch)
+    );
+  }
   private fastForwardBranchAction(refName: string) {
-    showConfirmationDialog(
+    this.confirmForRepo(
       l10n.dialogFastForwardConfirm.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
-      () => {
+      (repo) => {
         sendMessage({
           command: "fastForwardBranch",
-          repo: this.currentRepo!,
+          repo,
           branchName: refName
         });
       },
@@ -2898,14 +2966,14 @@ class GitGraphView {
   private pullRemoteBranchAction(refName: string) {
     const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
-    showConfirmationDialog(
+    this.confirmForRepoAndHead(
       l10n.dialogPullConfirm
         .replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>")
         .replace("{1}", this.currentBranchLabel()),
-      () => {
+      (repo) => {
         sendMessage({
           command: "pullBranch",
-          repo: this.currentRepo!,
+          repo,
           remote: parts.remote,
           branchName: parts.branchOnRemote
         });
@@ -2954,15 +3022,15 @@ class GitGraphView {
   private deleteRemoteBranchAction(refName: string) {
     const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
-    showConfirmationDialog(
+    this.confirmForRepo(
       l10n.dialogDeleteRemoteBranchConfirm.replace(
         "{0}",
         "<b><i>" + escapeHtml(refName) + "</i></b>"
       ),
-      () => {
+      (repo) => {
         sendMessage({
           command: "deleteRemoteBranch",
-          repo: this.currentRepo!,
+          repo,
           remote: parts.remote,
           branchName: parts.branchOnRemote
         });
@@ -3120,10 +3188,10 @@ class GitGraphView {
       case "deleteBranches":
         return {
           send: (refs, round, params) => {
-            const p = params as { forceDelete: boolean; deleteOnRemotes: boolean };
+            const p = params as BatchParams & { forceDelete: boolean; deleteOnRemotes: boolean };
             sendMessage({
               command: "deleteBranches",
-              repo: this.currentRepo!,
+              repo: p.repo,
               refs,
               // The retry round exists to force what round 1 could not delete.
               forceDelete: round === 2 || p.forceDelete,
@@ -3140,13 +3208,13 @@ class GitGraphView {
       case "pushBranches":
         return {
           send: (refs, _round, params) => {
-            const p = params as {
+            const p = params as BatchParams & {
               remotes: string[];
               forceMode: "normal" | "force" | "forceWithLease";
             };
             sendMessage({
               command: "pushBranches",
-              repo: this.currentRepo!,
+              repo: p.repo,
               branchNames: refs,
               remotes: p.remotes,
               forceMode: p.forceMode
@@ -3157,10 +3225,10 @@ class GitGraphView {
         };
       case "fastForwardBranches":
         return {
-          send: (refs) => {
+          send: (refs, _round, params) => {
             sendMessage({
               command: "fastForwardBranches",
-              repo: this.currentRepo!,
+              repo: (params as BatchParams).repo,
               branchNames: refs
             });
           },
@@ -3171,13 +3239,24 @@ class GitGraphView {
   }
   /** Start one batch run and execute its first command. The action tag feeds
    *  the run and the command executor from the one argument, so the two can
-   *  never drift apart. */
+   *  never drift apart.
+   *
+   *  `repo` rides in the run's echoed `params` rather than being read at send
+   *  time, because a run outlives two waits: the host round-trip for round 1,
+   *  and the retry confirmation between the rounds. `params` exists for exactly
+   *  this — "no adapter state has to survive between rounds" — and the
+   *  repository is adapter state that must (ADR-0019, and see
+   *  {@link confirmForRepo} for why it is carried rather than re-read). */
   private startBatchRun(
     action: BatchActionKind,
+    repo: string,
     targets: string[],
-    options: Omit<BatchRunOptions, "action"> = {}
+    options: Omit<BatchRunOptions, "action" | "params"> & { params?: object } = {}
   ) {
-    this.runBatchCommand(this.batchRun.start(targets, { ...options, action }), action);
+    this.runBatchCommand(
+      this.batchRun.start(targets, { ...options, action, params: { ...options.params, repo } }),
+      action
+    );
   }
   /** Execute one BatchRun command, re-entering as the retry dialog resolves.
    *  All round state lives in the run; this only performs its side effects. */
@@ -3189,6 +3268,8 @@ class GitGraphView {
         showActionRunningDialog(spec.running);
         break;
       case "offerRetry":
+        // No repo capture here: the run already carries the one its first round
+        // was started for, and hands it back on the retry round's `send`.
         showConfirmationDialog(
           spec.retryBody?.(command.refs) ?? "",
           () => this.runBatchCommand(this.batchRun.onRetryConfirmed(), action),
@@ -3230,7 +3311,7 @@ class GitGraphView {
       inputs,
       l10n.deleteBranches,
       (values) =>
-        this.startBatchRun("deleteBranches", targets, {
+        this.startBatchRun("deleteBranches", this.currentRepo!, targets, {
           // The one classification the host makes more reliably than us: a
           // refusal a force round can fix.
           retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
@@ -3252,12 +3333,11 @@ class GitGraphView {
     params: { forceDelete: boolean; deleteOnRemotes: boolean }
   ) {
     // The dialog carries the repo its candidates were computed for, and the
-    // delete must go to that one. `currentRepo` can move underneath an open
-    // dialog — the host posts `setRepo` when the native Source Control view's
-    // focused repo changes, and that does not close dialogs — which would send
-    // this repo's branch names to another repo.
-    if (repo !== this.currentRepo) return;
-    this.startBatchRun("deleteBranches", refs, {
+    // delete goes to that one — the shape every confirmation uses, see
+    // {@link confirmForRepo}. This used to refuse instead, which left "pressed
+    // Delete, nothing happened" whenever the host had posted `setRepo` in the
+    // meantime.
+    this.startBatchRun("deleteBranches", repo, refs, {
       retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
       params
     });
@@ -3277,14 +3357,16 @@ class GitGraphView {
       undefined,
       (remotes, forceMode) => {
         if (remotes.length === 0) return;
-        this.startBatchRun("pushBranches", targets, { params: { remotes, forceMode } });
+        this.startBatchRun("pushBranches", this.currentRepo!, targets, {
+          params: { remotes, forceMode }
+        });
       }
     );
   }
   private fastForwardBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
-    showConfirmationDialog(
+    this.confirmForRepo(
       this.batchConfirmBody(l10n.dialogFastForwardBatchConfirm, targets, skipped),
-      () => this.startBatchRun("fastForwardBranches", targets),
+      (repo) => this.startBatchRun("fastForwardBranches", repo, targets),
       null
     );
   }
@@ -3311,9 +3393,86 @@ class GitGraphView {
   /** Display label for the checked-out branch in dialogs: its actual name when
    *  on a branch, or the generic "current branch" wording when detached. */
   private currentBranchLabel(): string {
-    return this.gitBranchHead !== null
-      ? "<b><i>" + escapeHtml(this.gitBranchHead) + "</i></b>"
-      : "<b>" + l10n.labelCurrentBranch + "</b>";
+    return branchLabel(this.gitBranchHead);
+  }
+
+  /* Binding a dialog's premises to the moment of consent — ADR-0019 */
+
+  /**
+   * Open a confirmation whose deferred half acts on the repository the question
+   * was *about*, rather than on whichever repository is current by the time it
+   * is answered.
+   *
+   * `currentRepo` can move underneath an open dialog: the host posts `setRepo`
+   * when the native Source Control view's focused repo changes, and that
+   * dismisses nothing. A callback that reads `this.currentRepo` after the user
+   * has answered is therefore reading a fact younger than the consent it acts
+   * on — ADR-0019's "the guard and the state change must not have a wait
+   * between them", seen from the other side: the reading has to be taken where
+   * the consent was given, and carried across the wait.
+   *
+   * Sending to the captured repo rather than refusing is deliberate. The user
+   * agreed to act on repo A, the dialog's own wording described A, and the
+   * switch was not their doing; doing A is what honours the answer. Refusing
+   * would leave "pressed Yes, nothing happened" — the half-done state the same
+   * ADR rules out.
+   *
+   * Every confirmation whose action carries a repo goes through here, so the
+   * next reader finds one shape rather than a captured one and a refusing one
+   * side by side.
+   */
+  private confirmForRepo(
+    message: string,
+    confirmed: (repo: string) => void,
+    sourceElem: HTMLElement | null
+  ) {
+    const repo = this.currentRepo!;
+    showConfirmationDialog(message, () => confirmed(repo), sourceElem);
+  }
+
+  /**
+   * The same, for the actions git aims at HEAD — pull, and the two rebases that
+   * replay onto the current branch. Their dialogs name the checked-out branch
+   * ({@link currentBranchLabel}) but the command carries no branch at all, so a
+   * `git checkout` in the terminal — reaching the webview through the file
+   * watcher, mid-dialog — silently repoints the whole action.
+   *
+   * These cannot use the capture above: you cannot pull into, or rebase, a
+   * branch that is not checked out. Refusing is the only faithful answer, so it
+   * has to be a refusal the user can *see* — the precedent is
+   * `dialogBatchBusy`, an error dialog raised when state moved under an action.
+   * A silent return here would be indistinguishable from a dead button, on an
+   * action whose damage is history-rewriting.
+   */
+  private confirmForRepoAndHead(
+    message: string,
+    confirmed: (repo: string) => void,
+    sourceElem: HTMLElement | null
+  ) {
+    const head = this.gitBranchHead;
+    this.confirmForRepo(
+      message,
+      (repo) => {
+        // The repo is checked *first*, and a repo that moved is itself a
+        // refusal. `gitBranchHead` is one scalar for whichever repo is on
+        // screen, not a per-repo fact: once the host has switched repos and the
+        // new branch list has landed, it is another repository's answer, and it
+        // agrees or disagrees with `head` by coincidence. Two repos both on
+        // `main` would let this through having verified nothing at all.
+        //
+        // So this is the same rule as {@link branchPointsAt}: what cannot be
+        // shown to still hold has not been shown to still hold. It is also why
+        // these three sites do not follow `confirmForRepo`'s "send it to the
+        // captured repo anyway" — that answer needs a premise about the
+        // captured repo, and a repo switch is exactly what takes it away.
+        if (this.currentRepo !== repo || this.gitBranchHead !== head) {
+          showErrorDialog(l10n.dialogHeadMoved.replace("{0}", branchLabel(head)), null, null);
+          return;
+        }
+        confirmed(repo);
+      },
+      sourceElem
+    );
   }
   /** Merge `branchName` (a local or remote branch) into the current branch,
    *  prompting for the no-fast-forward / squash / no-commit options. */
@@ -3443,16 +3602,34 @@ class GitGraphView {
   /** Push a tag to a remote. Confirms when a single remote exists, otherwise
    *  prompts which remote to push to. Only invoked when a remote is configured. */
   private pushTagAction(tagName: string) {
-    const push = (remotes: string[]) => {
+    const push = (repo: string, remotes: string[]) => {
       if (remotes.length === 0) return;
-      sendMessage({ command: "pushTag", repo: this.currentRepo!, tagName, remotes });
+      sendMessage({ command: "pushTag", repo, tagName, remotes });
       showActionRunningDialog(l10n.pushingTag);
     };
     const chooseRemoteAndPush = () => {
       if (this.remotes.length === 1) {
-        showConfirmationDialog(
+        this.confirmForRepo(
           l10n.dialogPushTagConfirm.replace("{0}", "<b><i>" + escapeHtml(tagName) + "</i></b>"),
-          () => push([this.remotes[0]]),
+          (repo) => {
+            // Re-taken here rather than read into the closure above, because
+            // the sole remote can be removed while this question is on screen
+            // and `push`'s own emptiness check cannot catch what that leaves:
+            // `[this.remotes[0]]` is `[undefined]`, which has length 1 and
+            // sails through, pushing the tag to no remote at all (ADR-0019).
+            //
+            // Reported rather than returned silently. `push`'s own empty check
+            // is silent because reaching it means the user unticked every
+            // remote — they asked for nothing. Here they asked for something
+            // and it cannot be delivered, which is the case
+            // {@link confirmForRepoAndHead} refuses out loud.
+            const remote = this.remotes[0];
+            if (remote === undefined) {
+              showErrorDialog(l10n.dialogPushRemoteGone, null, null);
+              return;
+            }
+            push(repo, [remote]);
+          },
           null
         );
       } else {
@@ -3469,7 +3646,11 @@ class GitGraphView {
           ),
           remoteInputs,
           l10n.pushTag,
-          (values) => push(this.remotes.filter((_, i) => values[i] === "checked")),
+          (values) =>
+            push(
+              this.currentRepo!,
+              this.remotes.filter((_, i) => values[i] === "checked")
+            ),
           null
         );
       }
@@ -5133,14 +5314,14 @@ class GitGraphView {
           title: l10n.resetFileToRevision + ELLIPSIS,
           icon: "history",
           onClick: () => {
-            showConfirmationDialog(
+            this.confirmForRepo(
               l10n.dialogResetFileConfirm
                 .replace("{0}", "<b><i>" + escapeHtml(filePath) + "</i></b>")
                 .replace("{1}", "<b><i>" + abbrevCommit(commitHash) + "</i></b>"),
-              () => {
+              (repo) => {
                 sendMessage({
                   command: "resetFileToRevision",
-                  repo: this.currentRepo!,
+                  repo,
                   commitHash,
                   filePath
                 });
@@ -6306,6 +6487,16 @@ function toPushForceMode(v: string): "normal" | "force" | "forceWithLease" {
 }
 function abbrevCommit(commitHash: string) {
   return commitHash.substring(0, 8);
+}
+
+/** Display label for a checked-out branch in dialogs: its actual name when on a
+ *  branch, or the generic "current branch" wording when detached. Takes the
+ *  head rather than reading it, so a dialog that has to name the branch it was
+ *  *opened* on can say the same thing as one naming the branch it is on now. */
+function branchLabel(head: string | null): string {
+  return head !== null
+    ? "<b><i>" + escapeHtml(head) + "</i></b>"
+    : "<b>" + l10n.labelCurrentBranch + "</b>";
 }
 
 /* Context Menu */
