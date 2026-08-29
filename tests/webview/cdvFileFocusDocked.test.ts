@@ -3,7 +3,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  makeViewState,
+  NEAR_BOTTOM,
+  parkViewportAt,
+  receive,
+  setupHtml
+} from "./setup";
 
 // Docked to the bottom, the Commit Details View is a fixed panel in <body>
 // rather than a row inside the commit table. Nothing about it is inside what
@@ -89,20 +96,6 @@ const tipDetails: GitCommitDetails = {
   ]
 };
 
-const VIEWPORT_HEIGHT = 768;
-const PAGE_HEIGHT = 10000;
-const NEAR_BOTTOM = PAGE_HEIGHT - 250 - VIEWPORT_HEIGHT;
-
-function stubPageGeometry() {
-  Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
-  Object.defineProperty(document.body, "offsetHeight", { value: PAGE_HEIGHT, configurable: true });
-}
-
-function parkViewportAt(offset: number) {
-  Object.defineProperty(window, "scrollY", { value: offset, configurable: true });
-  Object.defineProperty(window, "pageYOffset", { value: offset, configurable: true });
-}
-
 function row(hash: string) {
   return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
 }
@@ -127,7 +120,6 @@ describe("file-list focus with the Commit Details View docked to the bottom", ()
     vi.resetModules();
     createVscodeMock();
     setupHtml(viewState);
-    stubPageGeometry();
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = vi.fn();
     await import("@/webview/main");

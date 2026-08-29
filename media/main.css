@@ -1563,6 +1563,43 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
    base is the neutral (secondary) variant; primary actions are promoted by id
    below. */
 .roundedBtn {
+  /* UA reset, first so the declarations below still win. The footer's two
+     members are real `<button>`s (#88) while the dialog's and the conflict
+     banner's are still `<div>`s, and a `<button>` arrives carrying a platform
+     appearance, a border box, and every one of the inherited text properties
+     replaced with a value of its own — the HTML Standard's form-control
+     rendering rule, which is why a button does not take the page's font.
+     Restated here as what a `div` would have had, member by member, so that
+     the two kinds are indistinguishable and the id rules below go on sizing
+     them exactly as they always did: `#loadMoreCommitsBtn` measures its 180x28
+     from the *content* box, which `box-sizing: border-box` would have shrunk
+     by the border. The list is that rule's, minus what the base already sets
+     for both kinds (`text-align`, `color`, `background-color`, `cursor`,
+     `border`) — so it is complete, not a sample of what happened to show up.
+     Measured rather than reasoned: rendering both markups against this sheet
+     in Chromium and diffing every computed property leaves no difference at
+     all, and removing this block leaves dozens. `unicode-bidi` is in the list
+     for that reason and no other — a block `div` isolates and a `<button>`
+     does not, and though every member here is its own formatting context, so
+     the difference is invisible today, a promise of "indistinguishable" that
+     quietly held back one property is the kind of half-true declaration #95
+     was spent removing.
+
+     `font: inherit` carries `font-style`, `font-weight`, `font-size` and
+     `line-height` with it, and comes before `font-size` on purpose: the
+     shorthand resets the size, so the 13px below has to follow it. */
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: content-box;
+  font: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  text-transform: inherit;
+  text-indent: 0;
+  text-shadow: inherit;
+  unicode-bidi: isolate;
+  margin: 0;
+  padding: 0;
   display: block;
   background-color: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.1));
   color: var(--vscode-button-secondaryForeground, inherit);
@@ -1574,6 +1611,16 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
 }
 .roundedBtn:hover {
   background-color: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2));
+}
+/* Keyboard focus, which only became reachable when the footer's members turned
+   into real `<button>`s. The ring is VS Code's own — its native button offsets
+   the focus outline by 2px rather than insetting it, and these are styled to
+   mirror that component — instead of whatever the browser would have drawn.
+   `:focus-visible` only, on the same grounds as the commit rows: a click
+   already says where it landed. */
+.roundedBtn:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: 2px;
 }
 /* Primary actions: confirm / execute (dialog action, conflict continue). The
    hover highlight is suppressed while the action is disabled (no/invalid input)

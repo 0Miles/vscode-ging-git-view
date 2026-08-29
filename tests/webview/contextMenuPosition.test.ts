@@ -3,7 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { mergeContextMenuActionsVisibility } from "@/backend/utils/contextMenuVisibility";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { createVscodeMock, makeViewState, receive, setupHtml, VIEWPORT_HEIGHT } from "./setup";
 
 const viewState = makeViewState({
   contextMenuActionsVisibility: mergeContextMenuActionsVisibility({})
@@ -30,7 +30,8 @@ const commits: GitCommitNode[] = [
   }
 ];
 
-const VIEWPORT_HEIGHT = 768;
+/** The one dimension the shared setup does not pin, because this is the only
+ *  suite that measures against it. The height comes from setup.ts. */
 const VIEWPORT_WIDTH = 1024;
 
 // jsdom performs no layout, so getBoundingClientRect() reports zeros; stub the
@@ -65,6 +66,8 @@ describe("context menu positioning", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(viewState);
+    // The height is the shared one, restated because every expected position
+    // below is arithmetic on it; the width is this suite's own.
     Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
     Object.defineProperty(window, "innerWidth", { value: VIEWPORT_WIDTH, configurable: true });
     await import("@/webview/main");

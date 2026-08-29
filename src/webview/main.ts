@@ -90,8 +90,19 @@ const MENU_SOURCES =
 
 /** What Enter and Space activate. Commit-message links are absent: they are real
  *  `<a href>`s, and the browser already knows Enter follows a link while Space
- *  scrolls the page. */
+ *  scrolls the page. The footer's two controls are absent for the same reason —
+ *  they are real `<button>`s, and a second opinion about Enter is how a button
+ *  gets pressed twice. */
 const ACTIVATABLE = GRAPH_FOCUSABLE + ", .gitFile";
+
+/** The graph footer's controls, by id. Peers rather than a roving group: Tab
+ *  visits each of them, so neither needs a tabindex and there is no tab stop to
+ *  hold between them — being real `<button>`s is the whole of it (#88).
+ *
+ *  The list exists so a redraw can tell "focus was on a control this footer is
+ *  about to destroy" from "focus is somewhere else entirely". See
+ *  {@link GitGraphView.rememberFooterFocus}. */
+const FOOTER_CONTROLS = new Set(["loadMoreCommitsBtn", "resetLoadedCommitWindowBtn"]);
 
 /** The commit table's column-header row. A row for navigation — Up from the
  *  first commit reaches it, which is what makes the column and commit-ordering
@@ -197,6 +208,31 @@ function deserializeExpandedCommit(
  *  so the tag can never drift from the messages it labels. */
 type BatchActionKind = BatchActionRequest["command"];
 
+/** Where Find is standing, in the form something that moved it can put it back.
+ *  The hash is the position; the index is only what `resolveFindCurrent` falls
+ *  back to on the one case the hash cannot cover — the match having stopped
+ *  matching while the branch index was out. */
+type FindPosition = { hash: string | null; index: number };
+
+/** A step onto a match that a branch names, waiting on a fresh branch index —
+ *  the branch may have moved since the one in hand was fetched, so where the
+ *  step lands is settled against the answer, not against the click. Nothing
+ *  about the step has happened yet; `direction` is the one thing it would set,
+ *  carried here rather than written, and written only if the step goes ahead. */
+type PendingFindNavigation = { hash: string; branchRefs: string[]; direction: -1 | 1 };
+
+/** Whether the step that called {@link GitGraphView.loadFindMatch} may record
+ *  itself.
+ *
+ *  - `move`: go ahead. Either the match is already loaded and no request was
+ *    needed — emphatically not a failure, and the ordinary case — or a load is
+ *    on its way and the page that lands will draw it.
+ *  - `hold`: nothing went out, so nothing may be recorded. Either the request
+ *    was dropped ({@link GitGraphView.commitLoadInFlight}), or the plan needs
+ *    confirming and the user has not answered — and while that dialog stands,
+ *    no more has happened than if the request had been dropped. */
+type FindLoadOutcome = "move" | "hold";
+
 class GitGraphView {
   private gitRepos: GG.GitRepoSet;
   // Whether the Source Control view is in multi-select mode. Only then does the
@@ -225,7 +261,7 @@ class GitGraphView {
   private branchSearchIndex: BranchSearchEntry[] = [];
   private findDirection: -1 | 1 = 1;
   private pendingFindTargetHash: string | null = null;
-  private pendingFindNavigation: { hash: string; branchRefs: string[] } | null = null;
+  private pendingFindNavigation: PendingFindNavigation | null = null;
   private commits: GitCommitNode[] = [];
   private commitHead: string | null = null;
   private commitLookup: { [hash: string]: number } = {};
@@ -297,6 +333,14 @@ class GitGraphView {
   private tableElem: HTMLElement;
   private footerElem: HTMLElement;
   private scrollShadowElem: HTMLElement;
+
+  /** Which of the {@link FOOTER_CONTROLS} held focus when the footer was last
+   *  redrawn, or null when focus was not there to lose. It is state and not a
+   *  local because a Load More press takes two redraws to answer — the spinner
+   *  goes in when the request leaves, the button comes back when the page
+   *  lands — and there is nothing in the footer to hold focus in between. See
+   *  {@link rememberFooterFocus}. */
+  private footerFocusId: string | null = null;
 
   // The graph and the Commit Details View's file list are each one roving-
   // tabindex group, so Tab crosses each in a single press and the arrow keys
@@ -1250,9 +1294,40 @@ class GitGraphView {
   /** `focusMayScroll` is passed rather than read from the instance so that it
    *  describes *this* redraw: every other caller redraws without it, which is
    *  the default and the rule (ADR-0019 — a redraw is not a move). */
+  /** Draws the table, then the graph, then the one write `renderTable` handed
+   *  back instead of doing itself.
+   *
+   *  Running that write last is the point of handing it back. Layout is
+   *  computed lazily: a write dirties it and the next read of a geometric
+   *  property computes all of it. Done where it was measured, this write sat
+   *  between that measurement and the heights `renderGraph` derives `grid.y`
+   *  from, so the redraw stopped a second time for a full layout of the table.
+   *
+   *  It does not make that layout go away, and this does not claim it does: the
+   *  write still dirties the table and the browser still lays it out before it
+   *  paints. What changes is who waits for it — the browser's own rendering
+   *  step rather than this task. Re-measured on the shipped bundle at 3000
+   *  rows, `reusedDense`, Chromium 148, median of 9: the two forced layouts
+   *  were 245.5ms and 77.3ms and are now 251.0ms and 0.00ms; the redraw's task
+   *  fell from 508ms to 413ms; and settling the page afterwards, which the
+   *  browser does either way, rose from 25.0ms to 100.5ms — the same work, on
+   *  the other side of the return. (`docs/perf/2026-08-webview-large-window.md`
+   *  put the same two layouts at 237.9ms and 80.7ms using a stand-in for
+   *  `renderTable`. These are a fresh run against the real one, not those.)
+   *
+   *  The `finally` covers `renderGraph` only. A throw inside `renderTable`
+   *  loses the write with it, and nothing here can reach that — which is the
+   *  one thing handing it back costs. It costs little: the window it leaves
+   *  open spans the rest of `renderTable`, listener registration included, so
+   *  a throw in there already means the rows have no click or context menu.
+   *  A missing column padding is the smallest loss in that pile. */
   private render(focusMayScroll: boolean = false) {
-    this.renderTable(focusMayScroll);
-    this.renderGraph();
+    const applyGraphColumnWidth = this.renderTable(focusMayScroll);
+    try {
+      this.renderGraph();
+    } finally {
+      applyGraphColumnWidth();
+    }
   }
   /**
    * Set of commit hashes reachable from HEAD by following parent links (HEAD
@@ -1305,7 +1380,13 @@ class GitGraphView {
     this.config.grid.offsetY = headerHeight + this.config.grid.y / 2;
     this.graph.render(inlineExpanded);
   }
-  private renderTable(focusMayScroll: boolean = false) {
+  /** Rebuilds the commit table and hands back the one write it deliberately did
+   *  not do — see {@link makeTableResizable} and {@link render}. Whoever calls
+   *  this must run that write, and must run it after the last layout read of
+   *  the same redraw. {@link render} is the only caller, and that is not an
+   *  accident: a second one would be a second place to get it wrong, and
+   *  ignoring the returned value is not a type error. */
+  private renderTable(focusMayScroll: boolean = false): () => void {
     // Read before a single row is replaced; `restoreGraphFocus` at the end puts
     // the keyboard back on the same commit once the new rows are in place.
     const focusedKey = this.focusedRowKey();
@@ -1544,7 +1625,7 @@ class GitGraphView {
     // Re-apply find highlighting to the freshly-rendered rows (without scrolling).
     if (this.findActive) this.applyFindHighlights(false);
     this.renderFooter();
-    this.makeTableResizable();
+    const applyGraphColumnWidth = this.makeTableResizable();
 
     if (this.expandedCommit !== null) {
       let elem = null,
@@ -1623,8 +1704,10 @@ class GitGraphView {
       const toggle = (col: "date" | "author" | "commit") => {
         this.columnVisibility[col] = !this.columnVisibility[col];
         this.saveState();
-        this.renderTable();
-        this.renderGraph();
+        // Every redraw goes through render(): it is the only place the write
+        // renderTable hands back is run, and a path that spells out renderTable
+        // + renderGraph for itself drops that write without saying so.
+        this.render();
       };
       const item = (col: "date" | "author" | "commit", label: string) => ({
         title: label,
@@ -2381,6 +2464,8 @@ class GitGraphView {
         );
       }
     });
+
+    return applyGraphColumnWidth;
   }
   private renderUncommitedChanges() {
     let date = getCommitDate(this.commits[0].date);
@@ -2414,21 +2499,38 @@ class GitGraphView {
    *  is most worth resetting: the user got there by widening it until the whole
    *  history was in. Hanging the line off "is Load More showing?" would hide it
    *  precisely there. At the opening count the footer gains nothing at all —
-   *  the default view carries no chrome describing a state it is already in. */
+   *  the default view carries no chrome describing a state it is already in.
+   *
+   *  Both controls are real `<button>`s (#88). They were `div.roundedBtn` with
+   *  neither a tabindex nor a role, which left ADR-0019's condition for keeping
+   *  automatic loading — the loaded commit window must be visible *and* have a
+   *  way back — half empty: the line is text and reads fine, but the way back
+   *  was reachable only with a mouse. The alternative, a tabindex and a role on
+   *  the `div`, would have meant wiring up Enter and Space by hand, and that is
+   *  the half of a fake button most often forgotten. Being one tag rather than
+   *  three attributes plus a key handler is the whole argument.
+   *
+   *  Writing the whole `innerHTML` is what costs focus, and
+   *  {@link rememberFooterFocus} is what pays it back. */
   private renderFooter(loading: boolean = false) {
+    // Read before the innerHTML below destroys whichever control holds focus;
+    // restored at the end, once the replacements are in and listening.
+    this.rememberFooterFocus();
     const widened = this.maxCommits > this.config.initialLoadCommits;
     this.footerElem.innerHTML =
       (loading
         ? '<h2 id="loadingHeader">' + svgIcons.loading + l10n.loading + "</h2>"
         : this.moreCommitsAvailable
-          ? '<div id="loadMoreCommitsBtn" class="roundedBtn">' + l10n.loadMore + "</div>"
+          ? '<button type="button" id="loadMoreCommitsBtn" class="roundedBtn">' +
+            l10n.loadMore +
+            "</button>"
           : "") +
       (widened
         ? '<div id="loadedCommitWindow"><span id="loadedCommitWindowCount">' +
           l10n.loadedCommitWindow.replace("{0}", String(this.maxCommits)) +
-          '</span><div id="resetLoadedCommitWindowBtn" class="roundedBtn">' +
+          '</span><button type="button" id="resetLoadedCommitWindowBtn" class="roundedBtn">' +
           l10n.resetLoadedCommitWindow.replace("{0}", String(this.config.initialLoadCommits)) +
-          "</div></div>"
+          "</button></div>"
         : "");
 
     if (!loading && this.moreCommitsAvailable) {
@@ -2441,6 +2543,92 @@ class GitGraphView {
         this.resetLoadedCommitWindow();
       });
     }
+    this.restoreFooterFocus(loading);
+  }
+
+  /** Note which footer control holds focus, so the redraw about to destroy it
+   *  can put focus back on its replacement (#82). Without this a keyboard user
+   *  who pressed Load More was left on `<body>` and had to Tab in from the top
+   *  of the document to press it again — a silent loss, invisible to a mouse,
+   *  which is why it went unreported for as long as it did.
+   *
+   *  Three readings of `document.activeElement`, and the second is the one
+   *  that makes this state rather than a local:
+   *
+   *  - **A footer control.** The redraw is about to destroy it; hold its id.
+   *  - **The footer itself.** Where an earlier redraw parked focus because the
+   *    control it had was away — exactly what a Load More press leaves while
+   *    the spinner stands in for the button. The held id stands, waiting for
+   *    the redraw that brings the control back.
+   *  - **Anywhere else, `<body>` included.** The user moved on, so there is
+   *    nothing to put back and any held id is spent. This is what keeps a slow
+   *    page from yanking focus out of wherever they went while it was out.
+   *
+   *  The third reading sees less than it sounds like it does, and deliberately
+   *  no more is made of it: `renderTable` replaces the commit table *before* it
+   *  calls `renderFooter`, so focus that was on a row, a ref chip or an inline
+   *  Commit Details View file row has already fallen to `<body>` by the time
+   *  this runs. That costs nothing, because those are precisely the groups
+   *  {@link restoreGraphFocus} and {@link restoreCdvFileFocus} put back
+   *  afterwards — and they run last, so whatever the footer did with focus, the
+   *  group the user was actually in wins. What it does catch first-hand is
+   *  everything outside the table: the toolbar, the Find input, a docked
+   *  panel's file rows. */
+  private rememberFooterFocus() {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && FOOTER_CONTROLS.has(active.id)) {
+      this.footerFocusId = active.id;
+    } else if (active !== this.footerElem) this.footerFocusId = null;
+  }
+
+  /** Put focus back on the control {@link rememberFooterFocus} named, now that
+   *  the footer has been rewritten. When that control is not in the new footer,
+   *  focus goes to the footer element itself.
+   *
+   *  **Why the footer and not the other control**, which is usually right there
+   *  and pressable at once. Three reasons, any one of which decides it:
+   *
+   *  - A held Enter auto-repeats, and each repeat is another activation. A
+   *    Load More held down until the history runs out would land on the way
+   *    back and then press it, throwing away every page the user just waited
+   *    for. Moving focus onto an action is moving it onto a *loaded gun*.
+   *  - A screen reader announces the swap as though the user had navigated,
+   *    when all they did was press the control they were already on — and the
+   *    thing announced is the action that undoes theirs.
+   *  - It is the only answer that covers the press which empties the footer
+   *    outright (the window back at its opening count with the whole history
+   *    already in). #82's complaint is `<body>`, and `<body>` is where a
+   *    fallback naming the other control leaves that case.
+   *
+   *  The footer carries `tabindex="-1"`, so this is somewhere focus can be put
+   *  but never somewhere Tab stops: Tab from here goes on to whatever follows
+   *  the footer, and Shift+Tab back into the graph, exactly as it would have
+   *  from the control that is gone.
+   *
+   *  The id is held through a *loading* redraw and spent on a settled one. The
+   *  spinner has the button's place only until the page lands, so a control
+   *  missing from a loading footer is coming back and focus is only parked;
+   *  missing from a settled footer, it is gone and the parking is where focus
+   *  stays.
+   *
+   *  `preventScroll`, the same as every other restoration in this file and for
+   *  the same reason (ADR-0019): a redraw is not a focus *move*, so nothing may
+   *  move on the user's behalf. The one redraw entitled to take the viewport
+   *  with it — the loaded commit window reset — spends that in
+   *  {@link restoreGraphFocus} on the row the graph now begins at, which is
+   *  *not* where this leaves focus. That divergence is the trade-off
+   *  {@link resetLoadedCommitWindow} already argues: the footer is at the
+   *  bottom of the page, the bottom of the page is the near-the-bottom
+   *  threshold, and following focus there would have automatic loading widen
+   *  the window the press just shrank. A container holding no action is a
+   *  cheap thing to leave off screen; a scroll that undoes the press is not. */
+  private restoreFooterFocus(loading: boolean) {
+    const held = this.footerFocusId;
+    if (held === null) return;
+    const back = document.getElementById(held);
+    if (back !== null) this.footerFocusId = null;
+    else if (!loading) this.footerFocusId = null;
+    (back ?? this.footerElem).focus({ preventScroll: true });
   }
   private renderShowLoading() {
     hideDialogAndContextMenu();
@@ -3298,7 +3486,31 @@ class GitGraphView {
       );
     }
   }
-  private makeTableResizable() {
+  /**
+   * Wires up column resizing on the freshly-rendered header row, and sizes the
+   * graph column to the graph.
+   *
+   * Returns that sizing as a write to be run later rather than doing it here.
+   * The auto-laid-out branch has to *measure* the column before it can size it,
+   * and that measurement is the redraw's first layout — unavoidable, the table
+   * has just entered the document. Doing the write here, though, dirtied layout
+   * again before `renderGraph` measured the two heights it derives `grid.y`
+   * from, so the browser laid every row out a second time.
+   *
+   * Holding it back changes what those two heights are only if they depend on
+   * it, and they do not. Measured rather than argued, at 3000 rows and in both
+   * label-alignment modes: with the padding and without it, `#tableColHeaders`
+   * is 31px and the table body 36031px.
+   *
+   * Worth knowing *why*, because the obvious reason is wrong. `padding` is a
+   * shorthand, so this write also zeroes the cell's vertical padding and the
+   * cell genuinely changes height (30px to 18px). The row does not: its height
+   * comes from the description header, which keeps its 6px and is the taller
+   * cell either way. Nor does an expanded Commit Details View, whose row height
+   * is fixed in CSS and whose panels are absolutely positioned — that row is
+   * the one place cells are not `nowrap`. See {@link render}.
+   */
+  private makeTableResizable(): () => void {
     let colHeadersElem = document.getElementById("tableColHeaders")!,
       cols = <HTMLCollectionOf<HTMLElement>>document.getElementsByClassName("tableColHeader");
     let columnWidths = this.gitRepos[this.currentRepo].columnWidths,
@@ -3335,8 +3547,12 @@ class GitGraphView {
         (i > 0 ? '<span class="resizeCol left" data-col="' + (i - 1) + '"></span>' : "") +
         (i < cols.length - 1 ? '<span class="resizeCol right" data-col="' + i + '"></span>' : "");
     }
+    let applyGraphColumnWidth: () => void;
     if (columnWidths !== null) {
       makeTableFixedLayout();
+      // Stored widths need no measurement, so this branch has nothing to hold
+      // back — and never had the second layout the other branch paid for.
+      applyGraphColumnWidth = () => {};
     } else {
       this.tableElem.className = "autoLayout";
       // On narrow auto-laid-out views, cap the graph column at a third of the
@@ -3349,8 +3565,12 @@ class GitGraphView {
       } else {
         this.graph.limitMaxWidth(-1);
       }
-      cols[0].style.padding =
-        "0 " + Math.round((Math.max(graphWidth, 64) - (cols[0].offsetWidth - 24)) / 2) + "px";
+      const graphColumn = cols[0];
+      const padding =
+        "0 " + Math.round((Math.max(graphWidth, 64) - (graphColumn.offsetWidth - 24)) / 2) + "px";
+      applyGraphColumnWidth = () => {
+        graphColumn.style.padding = padding;
+      };
     }
 
     addListenerToClass("resizeCol", "mousedown", (e) => {
@@ -3398,6 +3618,8 @@ class GitGraphView {
     });
     colHeadersElem.addEventListener("mouseup", stopResizing);
     colHeadersElem.addEventListener("mouseleave", stopResizing);
+
+    return applyGraphColumnWidth;
   }
 
   /* Observers */
@@ -3795,8 +4017,10 @@ class GitGraphView {
     this.pendingFindTargetHash = null;
     this.clearFindHighlights();
   }
-  /** The commit Find is pointing at, or null when it points at nothing. It
-   *  answers one question and only one, for {@link refreshFind}: has the branch
+  /** The commit Find is pointing at, or null when it points at nothing.
+   *  {@link findPosition} reads it for the plain reason — that is the match to
+   *  put Find back on — and {@link refreshFind} asks it one question and only
+   *  one: has the branch
    *  index that just landed changed the target, or is it the same answer to the
    *  same search arriving again? The index is re-requested after every load, so
    *  without this the first search that matches a branch name would re-centre
@@ -3894,44 +4118,123 @@ class GitGraphView {
     const pendingNavigation = this.pendingFindNavigation;
     this.branchSearchIndex = branches;
     if (!this.findActive) return;
+    // Where Find is standing as this arrival begins. The step that raised the
+    // pending navigation deliberately moved nothing, so this is still the match
+    // the user is looking at — and `refreshFind` is about to move off it, which
+    // is why it is read here rather than after.
+    const position = this.findPosition();
     this.refreshFind("branchIndex", pendingNavigation?.hash ?? this.pendingFindTargetHash);
     if (pendingNavigation === null) return;
 
     this.pendingFindNavigation = null;
-    const branchRefs = new Set(pendingNavigation.branchRefs);
+    this.applyPendingFindNavigation(pendingNavigation, position);
+  }
+  /** Finish a step onto a branch match, against the index that has just been
+   *  revalidated for it. `position` is where Find stood before this arrival,
+   *  which is where the step goes back to if it turns out not to be happening.
+   *
+   *  This is the whole of the step: the click that asked for it recorded a
+   *  wish and nothing else. That is ADR-0019's rule read literally — the guard
+   *  belongs at the front of the same synchronous stretch as the state change,
+   *  and a change waiting on a round trip has to wait with it. */
+  private applyPendingFindNavigation(navigation: PendingFindNavigation, position: FindPosition) {
+    const branchRefs = new Set(navigation.branchRefs);
     const movedIndex = this.findMatches.findIndex((match) =>
       match.branches.some((branch) => branchRefs.has(branch.ref))
     );
     if (movedIndex === -1) return;
+    if (this.loadFindMatch(this.findMatches[movedIndex], navigation.direction) === "hold") {
+      this.restoreFindPosition(position);
+      return;
+    }
     this.findCurrent = movedIndex;
-    const match = this.findMatches[movedIndex];
-    if (match.loaded) this.applyFindHighlights(true);
-    else this.loadFindMatch(match);
+    this.findDirection = navigation.direction;
+    // Painted whether or not a page is on its way. When one is, the match has
+    // no row yet and this moves only the counter — onto the match Find is now
+    // on, which is the point: the two are readings of one fact, and the rebuild
+    // above resolved its reading from the branch's *old* tip.
+    this.applyFindHighlights(true);
   }
   private findStep(delta: number) {
     if (this.findMatches.length === 0) return;
     const n = this.findMatches.length;
-    this.findCurrent = (this.findCurrent + delta + n) % n;
-    this.findDirection = delta < 0 ? -1 : 1;
-    const match = this.findMatches[this.findCurrent];
+    // Presses compound while an answer is out. A step waiting on a branch index
+    // has recorded nothing — that is the whole point of it — but it is still
+    // where the user has asked to be, so this press counts from there.
+    // Counting from `findCurrent` instead would swallow every press made during
+    // the round trip, and the branch index is a `git` call, not a local read.
+    const pending = this.pendingFindNavigation;
+    const outstanding =
+      pending === null ? -1 : this.findMatches.findIndex((match) => match.hash === pending.hash);
+    const next = ((outstanding === -1 ? this.findCurrent : outstanding) + delta + n) % n;
+    const direction: -1 | 1 = delta < 0 ? -1 : 1;
+    const match = this.findMatches[next];
     if (match.branches.length > 0) {
+      // A branch may have moved since the index in hand was fetched, so where
+      // this lands is decided against a fresh one. Nothing is written until
+      // then — not even the direction — because a step recorded now is a step
+      // the answer may say never happened.
       this.pendingFindNavigation = {
         hash: match.hash,
-        branchRefs: match.branches.map((branch) => branch.ref)
+        branchRefs: match.branches.map((branch) => branch.ref),
+        direction
       };
       this.requestBranchSearchIndex();
       return;
     }
-    if (!match.loaded) {
-      this.loadFindMatch(match);
-      return;
-    }
+    // Decided before anything moves, which on this path costs nothing: no
+    // branch to revalidate means no round trip, so the guard and the state
+    // change are already in the same synchronous stretch (ADR-0019).
+    if (this.loadFindMatch(match, direction) === "hold") return;
+    this.findCurrent = next;
+    this.findDirection = direction;
     this.applyFindHighlights(true);
   }
-  private loadFindMatch(match: FindMatch) {
-    if (this.commitLoadInFlight) return;
+  /** Where Find is standing now, in the form something that moves it can put it
+   *  back. */
+  private findPosition(): FindPosition {
+    return { hash: this.findIdentity(), index: this.findCurrent };
+  }
+  /** Put Find back on the match it was on before this arrival rebuilt the
+   *  matches and resolved itself onto the target of a step that is not
+   *  happening. Nothing was sent, so nothing is coming to move the highlight,
+   *  and a counter left one ahead of it would sit there for good.
+   *
+   *  The repaint is not optional: the arrival that carried the news has already
+   *  refreshed the widget once, over the position being undone here. */
+  private restoreFindPosition(position: FindPosition) {
+    this.findCurrent = resolveFindCurrent(
+      this.findMatches,
+      position.hash,
+      position.index,
+      this.findDirection
+    );
+    this.applyFindHighlights(false);
+  }
+  /** Bring `match` within reach of the graph, reporting whether the caller's
+   *  step may go ahead — see {@link FindLoadOutcome}.
+   *
+   *  The confirmation path answers `hold` because that is the truth while the
+   *  dialog stands: the request goes out when the user says yes, if a load has
+   *  not started underneath it in the meantime, and it may never go out at all.
+   *  A step recorded when the question went up would be describing a navigation
+   *  nobody has agreed to, and Cancel would leave it described for ever.
+   *
+   *  Which is why `direction` is handed over rather than kept: on that path the
+   *  step commits an unbounded wait after the caller has returned, so the only
+   *  code left to record it is the request going out. The rest of the move
+   *  travels the same way — {@link pendingFindTargetHash} carries the target to
+   *  the page that lands, so the counter, the highlight and the viewport all
+   *  arrive together with it. */
+  private loadFindMatch(match: FindMatch, direction: -1 | 1): FindLoadOutcome {
+    // Ahead of the in-flight guard, and that order is the point: "no request was
+    // needed" and "the request could not be sent" are different answers, and
+    // only the second is a reason to hold Find back. Taking the guard first
+    // would stall every step onto an already-drawn match for the length of any
+    // background load — which is nearly every step.
     const plan = planFindLoad(this.maxCommits, match);
-    if (plan === null) return;
+    if (plan === null) return "move";
+    if (this.commitLoadInFlight) return "hold";
     const load = () => {
       // Guarded again, not just at the top: when the plan needs confirming, this
       // runs after the user answers the dialog, and a load can have started in
@@ -3939,6 +4242,13 @@ class GitGraphView {
       // as well — the check above only covers the path that acts immediately.
       if (this.commitLoadInFlight) return;
       this.pendingFindTargetHash = match.hash;
+      // The step is happening as of this line, so this is where its direction
+      // belongs. Leaving it to the caller loses it on the confirmed path: that
+      // caller answered `hold` and returned long before the user said yes, and
+      // the page that lands knows the target but not which way Find was going.
+      // A navigation that completes without recording its direction leaves the
+      // next amended-away match resolving off some earlier step's.
+      this.findDirection = direction;
       this.maxCommits = plan.maxCommits;
       this.hideCommitDetails();
       this.saveState();
@@ -3951,9 +4261,10 @@ class GitGraphView {
         load,
         null
       );
-    } else {
-      load();
+      return "hold";
     }
+    load();
+    return "move";
   }
   private clearFindHighlights() {
     const rows = document.querySelectorAll(".commit.findMatch, .commit.findMatchCurrent");
@@ -4198,7 +4509,7 @@ class GitGraphView {
    *  graph entirely.
    *
    *  **This changes every other redraw too, deliberately.** Automatic loading
-   *  is what forced the question, but `renderTable` has other callers — a soft
+   *  is what forced the question, but every redraw runs `renderTable` — a soft
    *  refresh, a find, a branch-filter or commit-ordering change, toggling a
    *  column — and focus now survives all of them. That is the same argument,
    *  not a wider one: in each of those the user did not move focus either, so
@@ -4227,9 +4538,12 @@ class GitGraphView {
         : (rows.find((row) => !isHeaderRow(row)) ?? rows[0]);
     if (target === undefined) return;
     this.graphTabStop.set(target);
-    // Focus was dropped, so there is no row for the viewport to agree with —
-    // it goes to where the graph now begins for the keyboard, which is this
-    // one. `set`, not `focus`: the tab stop moves, focus does not.
+    // No row holds focus, so there is none for the viewport to agree with — it
+    // goes to where the graph now begins for the keyboard, which is this one.
+    // `set`, not `focus`: the tab stop moves, focus does not. Since #88 focus
+    // may be in the footer rather than dropped outright, and then this does
+    // leave the two apart; `restoreFooterFocus` argues why that is the cheaper
+    // of the two errors on the one path (the reset) where this scrolls at all.
     if (mayScroll && typeof target.scrollIntoView === "function") {
       target.scrollIntoView({ block: "nearest" });
     }
@@ -6553,6 +6867,23 @@ document.addEventListener("keydown", (e) => {
   } else if ((e.ctrlKey || e.metaKey) && e.key === "ArrowDown") {
     if (gitGraph.commitDetailsNavigateGraph("parent", e.shiftKey)) e.preventDefault();
   } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    // Down out of the footer is the one direction with nowhere to go. ADR-0014
+    // made Up/Down unconditional and had them "enter the grid" when nothing
+    // held focus, because nothing holding focus meant `<body>`, which is
+    // nowhere; since #88 the footer is somewhere, and it is *below* the graph.
+    // That makes the two directions different, so they are treated
+    // differently rather than as one "focus is outside the grid" case:
+    //
+    // - **Up** has the whole table above it, and `moveRowFocus(-1)` steps into
+    //   the last row — which is the row directly above the footer, and exactly
+    //   what ADR-0014 asks for. It keeps the key.
+    // - **Down** has nothing below it. Entering the grid from the *first* row
+    //   would answer it by travelling up past every loaded commit to the top
+    //   of the table, so the key goes back to the browser, whose answer is to
+    //   scroll. That is the one Down here can mean.
+    if (e.key === "ArrowDown" && active instanceof HTMLElement) {
+      if (active.closest("#footer") !== null) return;
+    }
     // Up/Down move focus between rows, as they do in any list — inside the
     // Commit Details View's file list when focus is there, otherwise through
     // the graph's own rows. Scrolling is Page Up/Down's job now.

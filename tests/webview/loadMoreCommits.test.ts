@@ -3,7 +3,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  makeViewState,
+  NEAR_BOTTOM,
+  parkViewportAt,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The Load More path. `requestLoadCommits` sends nothing when a commit load is
 // already in flight — ADR-0019 declined the queue that would have hidden that —
@@ -16,6 +23,13 @@ import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 // loaded commit window therefore carries across scenarios: it opens at the
 // fixture's initialLoadCommits (300) and each accepted press adds
 // loadMoreCount (100).
+//
+// The last scenario is not about the button at all: it is where the shared page
+// geometry in setup.ts gets its assertion, and it is here because this file is
+// an ordinary suite that declares no height of its own — the position every
+// suite the pin exists for is written from. loadMoreOnScroll.test.ts, which
+// owns the automatic path, cannot stand in for that: it parks itself at
+// NEAR_BOTTOM on purpose.
 
 const viewState = makeViewState();
 
@@ -182,8 +196,9 @@ describe("Load More", () => {
 
       // jsdom has no layout and does not implement scrollTo, so park the
       // viewport at a known offset and record what the press asks the browser
-      // to do with it.
-      Object.defineProperty(window, "scrollY", { value: 900, configurable: true });
+      // to do with it. Still nowhere near the bottom of the page the shared
+      // setup pins, so nothing loads automatically underneath this.
+      parkViewportAt(900);
       scrollTo = vi.fn();
       window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
 
@@ -215,6 +230,72 @@ describe("Load More", () => {
       // the expanded commit. Bringing it into view belongs to opening it, so a
       // redraw must ask the browser for nothing.
       expect(scrollTo).not.toHaveBeenCalled();
+    });
+  });
+
+  // What this pins is `setup.ts`'s PAGE_HEIGHT, from the position of a suite
+  // that never asked for one — which is every webview suite but a handful.
+  // jsdom performs no layout, so an unpinned `document.body.offsetHeight` is 0
+  // and the webview's near-the-bottom test degenerates to
+  // `innerHeight + scrollY >= -250`, true wherever the viewport is. With
+  // `loadMoreAutomatically` shipped on and the fixture above near-shipped by
+  // design, any scroll event in such a suite would smuggle in a `loadCommits`
+  // that reads like the code under test asking twice. Nobody has been bitten
+  // yet — the suites that dispatch scrolls all stub a height — which is exactly
+  // why the guard belongs somewhere they do not have to know about.
+  //
+  // This suite parks the viewport (at 900, above), but it declares no height
+  // and no viewport size, so the threshold it meets is the shared one.
+  //
+  // The negative needs three things true of the scenario or it proves nothing:
+  // more commits available, no load in flight, and automatic loading switched
+  // on. None of them may live in a comment — a comment cannot fail. The first
+  // two are pinned by the footer, which `renderFooter` draws only when both
+  // hold. The third is pinned by scrolling to the bottom afterwards and
+  // watching the same webview ask: a control, not a second copy of
+  // loadMoreOnScroll.test.ts, and the reason it has to be in this file is that
+  // a fixture flipped here alone is invisible to every other one.
+  describe("the near-the-bottom threshold, met by a suite that declares no geometry", () => {
+    let whileFarFromBottom: GG.RequestMessage[] = [];
+    let footerWhileFarFromBottom: HTMLElement | null = null;
+    let onceParkedAtTheBottom: GG.RequestMessage[] = [];
+
+    beforeAll(() => {
+      // The previous scenario settled its own press, so nothing is in flight.
+      mock.clearMessages();
+      document.dispatchEvent(new Event("scroll"));
+      whileFarFromBottom = loadCommitsRequests();
+      footerWhileFarFromBottom = document.getElementById("loadMoreCommitsBtn");
+
+      // Same webview, same event, same everything but where the viewport is.
+      parkViewportAt(NEAR_BOTTOM);
+      mock.clearMessages();
+      document.dispatchEvent(new Event("scroll"));
+      onceParkedAtTheBottom = loadCommitsRequests();
+
+      receive(commitsResponse); // settle it
+      parkViewportAt(900); // and leave the viewport where it was found
+    });
+
+    // Both halves in one test on purpose. "Sent nothing" is also what a scenario
+    // with nothing left to load would report, and what one with a load already
+    // in flight would report. The claim goes first and the guard second, so a
+    // real regression still fails on the stray request rather than on the button
+    // that regression took away.
+    it("asks for nothing, the threshold being a real one", () => {
+      expect(whileFarFromBottom).toHaveLength(0);
+      expect(
+        footerWhileFarFromBottom,
+        "footer must still be offering Load More, or this scenario had nothing to ask for"
+      ).not.toBeNull();
+    });
+
+    // The control. Without it the test above passes just as well against a
+    // webview with automatic loading switched off, which is the one premise the
+    // footer cannot speak for — measured: flipping this file's fixture to
+    // `loadMoreAutomatically: false` left the whole suite green.
+    it("asks once the same viewport reaches the bottom, so automatic loading was live", () => {
+      expect(onceParkedAtTheBottom).toHaveLength(1);
     });
   });
 });

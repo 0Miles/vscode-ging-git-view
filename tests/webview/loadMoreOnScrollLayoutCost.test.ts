@@ -3,7 +3,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  makeViewState,
+  parkViewportAt,
+  receive,
+  setupHtml,
+  VIEWPORT_HEIGHT
+} from "./setup";
 
 // The half of the switch loadMoreOnScrollDisabled.test.ts cannot reach: the
 // feature *on*, with more commits still available, which is the one state in
@@ -76,7 +83,6 @@ function commitsResponse(loaded: GitCommitNode[]): GG.ResponseMessage {
   };
 }
 
-const VIEWPORT_HEIGHT = 768;
 /** Far enough from the bottom that `innerHeight + scrollY >= height - 250` is
  *  false, so measuring is all that happens. */
 const TALL_PAGE = 100000;
@@ -117,8 +123,11 @@ describe("what the near-the-bottom threshold costs while it is live", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
-    Object.defineProperty(window, "scrollY", { value: 0, configurable: true });
+    // The same offset the shared setup starts at, restated because both page
+    // heights below are declared against a viewport at the top and the scenario
+    // should not have to be read elsewhere to know that. The viewport's height
+    // is the shared one, imported above.
+    parkViewportAt(0);
     await import("@/webview/main");
     receive(branchesResponse);
     receive(commitsResponse(commits));
