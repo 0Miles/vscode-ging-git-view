@@ -177,4 +177,49 @@ describe("rebase --onto from the commit context menu", () => {
     ).map((o) => o.value);
     expect(options).toEqual(["dup-a", "dup-b", ""]); // "" = leave HEAD detached
   });
+
+  // Last, because it moves a branch out from under the fixture the tests above
+  // share.
+  //
+  // The dialog prints the literal `git rebase --onto …` it is about to run, and
+  // the branch name in that line is a snapshot of the tip's refs taken when the
+  // dialog opened. git resolves the name when the command runs, not when it was
+  // printed, so a branch that moved while the user was reading would replay a
+  // different range than the one they agreed to. ADR-0019: when the change is
+  // deferred into a callback the guard is deferred with it and the reading is
+  // re-taken there — and here the only honest answer is to refuse, since the
+  // printed command is the whole of what was consented to.
+  it("refuses when the branch it printed no longer points at the tip", () => {
+    compare("keep", "w2"); // tip is w2, and `topic` is on it
+    menuEntries("target");
+    clickItem(REBASE_ONTO);
+    expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
+      "git rebase --onto target keep topic"
+    );
+
+    // `git reset --hard w1` on topic, reaching the webview through the file
+    // watcher: the name in the printed command now covers one commit fewer.
+    receive({
+      command: "loadCommits",
+      commits: commits.map((c) =>
+        c.hash === "w2"
+          ? node("w2", ["w1"], "wanted 2")
+          : c.hash === "w1"
+            ? node("w1", ["keep"], "wanted 1", [{ hash: "w1", name: "topic", type: "head" }])
+            : c
+      ),
+      head: "w1",
+      moreCommitsAvailable: false,
+      hard: true
+    });
+    expect(document.getElementById("dialogAction"), "the dialog was dismissed").not.toBeNull();
+
+    mock.clearMessages();
+    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+
+    expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([]);
+    expect(document.getElementById("dialog")!.textContent).toContain(
+      L.dialogRebaseOntoTipMoved.replace("{0}", "topic")
+    );
+  });
 });

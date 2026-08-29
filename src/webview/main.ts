@@ -207,6 +207,12 @@ function deserializeExpandedCommit(
 /** The batch actions a BatchRun can execute, named by their protocol command
  *  so the tag can never drift from the messages it labels. */
 type BatchActionKind = BatchActionRequest["command"];
+/** What every batch run carries for its adapter whatever the action is: the
+ *  repository the run was started for. Each action's own parameters intersect
+ *  with this, so no `send` has to read the repo at send time — by then the
+ *  confirmation, the host round-trip and possibly a retry dialog have all
+ *  happened. */
+type BatchParams = { repo: string };
 
 /** Where Find is standing, in the form something that moved it can put it back.
  *  The hash is the position; the index is only what `resolveFindCurrent` falls
@@ -286,7 +292,11 @@ class GitGraphView {
   private currentRepo!: string;
   // The last branch-deletion request, so a failed non-force delete can offer a
   // one-click force delete.
-  private pendingDeleteBranch: { branchName: string; deleteOnRemotes: boolean } | null = null;
+  private pendingDeleteBranch: {
+    repo: string;
+    branchName: string;
+    deleteOnRemotes: boolean;
+  } | null = null;
   // A branch action delegated by the Branches side-view, held until this view
   // shows the right repo with its data loaded. lastRefActionSeq dedupes the
   // host's two delivery paths (direct post + post-reload flush).
@@ -765,11 +775,16 @@ class GitGraphView {
 
   /** Send a branch-deletion request, remembering its parameters so a failed
    *  non-force delete can offer a one-click force delete. */
-  private sendDeleteBranch(branchName: string, forceDelete: boolean, deleteOnRemotes: boolean) {
-    this.pendingDeleteBranch = { branchName, deleteOnRemotes };
+  private sendDeleteBranch(
+    repo: string,
+    branchName: string,
+    forceDelete: boolean,
+    deleteOnRemotes: boolean
+  ) {
+    this.pendingDeleteBranch = { repo, branchName, deleteOnRemotes };
     sendMessage({
       command: "deleteBranch",
-      repo: this.currentRepo!,
+      repo,
       branchName,
       forceDelete,
       deleteOnRemotes
@@ -783,12 +798,17 @@ class GitGraphView {
   public handleDeleteBranchResponse(status: string | null, notFullyMerged: boolean) {
     const pending = this.pendingDeleteBranch;
     if (notFullyMerged && pending !== null) {
+      // Bound at consent like every other confirmation ({@link confirmForRepo}),
+      // only earlier: the repository this question is about is the one the
+      // refused delete went to, and currentRepo has had the host's whole
+      // round-trip to move since. So the pending record carries it.
       showConfirmationDialog(
         l10n.dialogForceDeleteBranchConfirm.replace(
           "{0}",
           "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
         ),
-        () => this.sendDeleteBranch(pending.branchName, true, pending.deleteOnRemotes),
+        () =>
+          this.sendDeleteBranch(pending.repo, pending.branchName, true, pending.deleteOnRemotes),
         null
       );
     } else {
@@ -851,8 +871,8 @@ class GitGraphView {
     // Keep the current graph on screen and show the busy indicator while the new
     // commits load, rather than blanking to a loading screen (which flickers on
     // every branch toggle/switch). render() replaces the table atomically.
-    this.setRefreshing(true);
-    this.requestLoadCommits(true, () => this.setRefreshing(false));
+    this.beginBusyLoad();
+    this.requestLoadCommits(true, () => this.endBusyLoad());
   }
 
   public loadBranches(
@@ -1067,9 +1087,49 @@ class GitGraphView {
     this.requestLoadBranchesAndCommits(hard);
   }
 
-  /** Show/clear the busy indicator on the Refresh button while a load runs. */
-  private setRefreshing(refreshing: boolean) {
-    document.getElementById("refreshBtn")?.classList.toggle("refreshing", refreshing);
+  /** How many loads are currently claiming the busy indicator on the Refresh
+   *  button.
+   *
+   *  Counted rather than set, because the indicator is one class on one button
+   *  and three separate things raise it: a refresh, a branch-change reload, and
+   *  a Find step that has to page. ADR-0019's "at most one commit load in
+   *  flight" is what makes the overlap easy to miss — it holds, and it is not
+   *  the whole story. A refresh's branch half is out well before its commit
+   *  half exists, so a second refresh starting in that window is a second live
+   *  refresh; and a refresh whose own commit request is dropped runs its
+   *  close-out immediately, while the load it was dropped onto is still going.
+   *
+   *  Set rather than counted, it let whichever load ended first answer "idle"
+   *  on behalf of one that was still running. The wrong answer was corrected by
+   *  the real load landing, which is why it read as a flicker rather than as a
+   *  lie — but the indicator is the only thing on screen that says a load is
+   *  under way, and one number costs less than a rule every caller has to
+   *  remember. */
+  private busyLoads = 0;
+
+  /** Claim the busy indicator for a load that is starting.
+   *
+   *  Pairs with exactly one {@link endBusyLoad} on every path that load can end
+   *  on — including the paths where the request was dropped and no load ever
+   *  happened. That pairing is the whole invariant: a claim that is never
+   *  dropped leaves the button spinning for the life of the panel, and one
+   *  dropped twice takes another load's claim with it. */
+  private beginBusyLoad() {
+    this.busyLoads++;
+    this.updateBusyIndicator();
+  }
+
+  /** Drop this load's claim. The indicator goes out with the last claim only —
+   *  a load that ends while another is still out has finished, but the panel
+   *  has not. */
+  private endBusyLoad() {
+    this.busyLoads--;
+    this.updateBusyIndicator();
+  }
+
+  /** Repaint the indicator from the count. The one place the class is written. */
+  private updateBusyIndicator() {
+    document.getElementById("refreshBtn")?.classList.toggle("refreshing", this.busyLoads > 0);
   }
 
   /* Requests */
@@ -1220,7 +1280,7 @@ class GitGraphView {
     return true;
   }
   private requestLoadBranchesAndCommits(hard: boolean) {
-    this.setRefreshing(true);
+    this.beginBusyLoad();
     // Refresh the conflict banner alongside every (re)load so it tracks the
     // repo's operation state (.git changes trigger a refresh via the watcher).
     if (this.currentRepo) {
@@ -1231,29 +1291,43 @@ class GitGraphView {
       (branchChanges: boolean, isRepo: boolean) => {
         if (isRepo) {
           const finish = (commitChanges: boolean) => {
-            this.setRefreshing(false);
-            // Dismiss the action-running dialog / context menu once the reload
-            // finishes. Hard refreshes follow an action (checkout, merge, …) so
-            // always close; soft refreshes only close when something changed.
+            this.endBusyLoad();
+            // Dismiss what this reload owns once it finishes — see
+            // {@link hideReloadOwnedOverlays} for why that is the progress
+            // dialog and the context menu but not a confirmation. Hard
+            // refreshes follow an action (checkout, merge, …) so always close;
+            // soft refreshes only close when something changed.
+            //
+            // Not held back when this refresh's own request was dropped, unlike
+            // the claim above, and the two part company on what is left to do
+            // rather than on how loud to be. The claim reports this panel's
+            // state, and a load is still running, so it goes back to being the
+            // other refresh's to drop. The dismissal discharges a debt to an
+            // action that has already finished — and there is no one to hand it
+            // to: the refresh still out may be a soft one that finds nothing
+            // changed, and it would then close nothing. Deferring it is how the
+            // action-running dialog came to sit there with Escape as its only
+            // exit.
             if (hard || branchChanges || commitChanges) {
-              hideDialogAndContextMenu();
+              hideReloadOwnedOverlays();
             }
           };
           // A load that never ran brought no changes with it, so finish it as
           // one. Letting the dropped request take the callback with it left the
-          // Refresh button spinning until the panel was reopened and the
-          // action-running dialog sitting there with Escape as its only exit.
+          // Refresh button spinning until the panel was reopened.
           if (!this.requestLoadCommits(hard, finish)) finish(false);
         } else {
-          this.setRefreshing(false);
+          this.endBusyLoad();
           sendMessage({ command: "loadRepos", check: true });
         }
       }
     );
     // The same asymmetry one level out: a dropped branches request takes the
-    // whole reload with it, callback included, so nothing would ever clear the
-    // indicator switched on above.
-    if (!branchesSent) this.setRefreshing(false);
+    // whole reload with it, callback included, so this refresh has to drop its
+    // own claim. Only its own — the request was dropped onto another refresh's
+    // branch load (nothing else asks for one), so that refresh is still out and
+    // the indicator is still telling the truth.
+    if (!branchesSent) this.endBusyLoad();
   }
   private fetchAvatars(avatars: { [email: string]: string[] }) {
     let emails = Object.keys(avatars);
@@ -1723,7 +1797,22 @@ class GitGraphView {
         // reloads — and the shrunken window would then silently collapse the
         // graph at some later refresh. Either the whole change happens or none
         // of it does.
-        if (this.commitLoadInFlight) return;
+        //
+        // And "none of it" has to be said out loud. This is a menu item the
+        // user picked: the menu closes, the tick does not move, no error, and
+        // the next attempt works — which is the shape of a dead menu item, not
+        // of a refusal. The precedent is `dialogBatchBusy` and the three
+        // refusals that followed it (`dialogHeadMoved`, `dialogStashMoved`,
+        // `dialogPushRemoteGone`): state moved under an action the user asked
+        // for, so the action is refused *visibly*. Silence is only right where
+        // there is nothing left to do — the Find step whose match was amended
+        // away while its question stood, a few thousand lines down, which has
+        // no match to step onto at all. Here there is something left: the very
+        // same click, a moment later.
+        if (this.commitLoadInFlight) {
+          showErrorDialog(l10n.dialogCommitOrderBusy, null, null);
+          return;
+        }
         this.gitRepos[this.currentRepo!].commitOrdering = order;
         sendMessage({
           command: "saveRepoState",
@@ -1813,10 +1902,10 @@ class GitGraphView {
                 l10n.dialogAddTagSubmit,
                 (values) => {
                   const tagName = values[0];
-                  const send = (force: boolean) => {
+                  const send = (repo: string, force: boolean) => {
                     sendMessage({
                       command: "addTag",
-                      repo: this.currentRepo!,
+                      repo,
                       tagName,
                       commitHash: hash,
                       lightweight: values[1] === "lightweight",
@@ -1830,16 +1919,16 @@ class GitGraphView {
                     c.refs.some((r) => r.type === "tag" && r.name === tagName)
                   );
                   if (tagExists) {
-                    showConfirmationDialog(
+                    this.confirmForRepo(
                       l10n.dialogAddTagExists.replace(
                         "{0}",
                         "<b><i>" + escapeHtml(tagName) + "</i></b>"
                       ),
-                      () => send(true),
+                      (repo) => send(repo, true),
                       null
                     );
                   } else {
-                    send(false);
+                    send(this.currentRepo!, false);
                   }
                 },
                 sourceElem
@@ -1868,10 +1957,10 @@ class GitGraphView {
                 (values) => {
                   const branchName = values[0];
                   const checkout = values[1] === "checked";
-                  const send = (force: boolean) => {
+                  const send = (repo: string, force: boolean) => {
                     sendMessage({
                       command: "createBranch",
-                      repo: this.currentRepo!,
+                      repo,
                       branchName,
                       commitHash: hash,
                       checkout,
@@ -1880,16 +1969,16 @@ class GitGraphView {
                   };
                   // A local branch with this name already exists: confirm replacing it.
                   if (this.gitBranches.includes(branchName)) {
-                    showConfirmationDialog(
+                    this.confirmForRepo(
                       l10n.dialogCreateBranchExists.replace(
                         "{0}",
                         "<b><i>" + escapeHtml(branchName) + "</i></b>"
                       ),
-                      () => send(true),
+                      (repo) => send(repo, true),
                       null
                     );
                   } else {
-                    send(false);
+                    send(this.currentRepo!, false);
                   }
                 },
                 sourceElem
@@ -2023,15 +2112,15 @@ class GitGraphView {
             icon: "undo",
             onClick: () => {
               if (this.commits[this.commitLookup[hash]].parentHashes.length === 1) {
-                showConfirmationDialog(
+                this.confirmForRepo(
                   l10n.dialogRevertConfirm.replace(
                     "{0}",
                     "<b><i>" + abbrevCommit(hash) + "</i></b>"
                   ),
-                  () => {
+                  (repo) => {
                     sendMessage({
                       command: "revertCommit",
-                      repo: this.currentRepo!,
+                      repo,
                       commitHash: hash,
                       parentIndex: 0
                     });
@@ -2146,12 +2235,12 @@ class GitGraphView {
             title: l10n.rebaseOnCommit + ELLIPSIS,
             icon: "rebase",
             onClick: () => {
-              showConfirmationDialog(
+              this.confirmForRepoAndHead(
                 l10n.dialogRebaseConfirm
                   .replace("{0}", "<b><i>" + abbrevCommit(hash) + "</i></b>")
                   .replace("{1}", this.currentBranchLabel()),
-                () => {
-                  sendMessage({ command: "rebaseOn", repo: this.currentRepo!, obj: hash });
+                (repo) => {
+                  sendMessage({ command: "rebaseOn", repo, obj: hash });
                   showActionRunningDialog(l10n.rebasing);
                 },
                 sourceElem
@@ -2175,15 +2264,25 @@ class GitGraphView {
                   icon: "trash",
                   visible: cmv.drop,
                   onClick: () => {
-                    showConfirmationDialog(
+                    // A HEAD site, though it names no branch in its own
+                    // message: `git rebase --onto <hash>~1 <hash>` omits
+                    // git's `<branch>`, so git supplies HEAD. Its own
+                    // availability test says so too — `dropCommitPossible`
+                    // requires a linear path from the commit down to
+                    // `commitHead`, computed when the menu opened. Let HEAD
+                    // move and the replayed range becomes `<hash>..HEAD` on a
+                    // branch nobody agreed to, silently and without a git
+                    // error. The dialog says it: "rewrites the history of the
+                    // current branch".
+                    this.confirmForRepoAndHead(
                       l10n.dialogDropConfirm.replace(
                         "{0}",
                         "<b><i>" + abbrevCommit(hash) + "</i></b>"
                       ),
-                      () => {
+                      (repo) => {
                         sendMessage({
                           command: "dropCommit",
-                          repo: this.currentRepo!,
+                          repo,
                           commitHash: hash
                         });
                         showActionRunningDialog(l10n.dropping);
@@ -2269,9 +2368,9 @@ class GitGraphView {
             icon: "history",
             visible: ucv.reset,
             onClick: () => {
-              showConfirmationDialog(
+              this.confirmForRepo(
                 l10n.dialogResetUncommittedConfirm,
-                () => sendMessage({ command: "resetUncommittedChanges", repo: this.currentRepo! }),
+                (repo) => sendMessage({ command: "resetUncommittedChanges", repo }),
                 null
               );
             }
@@ -2281,9 +2380,9 @@ class GitGraphView {
             icon: "trash",
             visible: ucv.clean,
             onClick: () => {
-              showConfirmationDialog(
+              this.confirmForRepo(
                 l10n.dialogCleanUntrackedConfirm,
-                () => sendMessage({ command: "cleanUntrackedFiles", repo: this.currentRepo! }),
+                (repo) => sendMessage({ command: "cleanUntrackedFiles", repo }),
                 null
               );
             }
@@ -2345,18 +2444,46 @@ class GitGraphView {
         applyStash: () => applyOrPop("applyStash", l10n.dialogStashApplyConfirm),
         popStash: () => applyOrPop("popStash", l10n.dialogStashPopConfirm),
         dropStash: () => {
-          showConfirmationDialog(
+          // `stash@{n}` is a position on the stack, not a name: any
+          // `git stash push` — the terminal, the SCM view, a
+          // `pull --autostash` — pushes onto the top and renumbers everything
+          // below it. So the number the user is agreeing to stops naming this
+          // stash the moment another one lands, and the reload that lands it no
+          // longer takes the question away with it. Bound at consent like the
+          // repo it is sent to ({@link confirmForRepo}) and re-read on the far
+          // side: the premise is not the number, it is what the number pointed
+          // at. Never undefined here — the menu was opened on a row this
+          // lookup's own list drew.
+          const stashHash = this.stashNodeFor(refName)?.hash;
+          this.confirmForRepo(
             l10n.dialogStashDropConfirm.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
-            () => sendMessage({ command: "dropStash", repo: this.currentRepo!, selector: refName }),
+            (repo) => {
+              // Refused out loud, and not redirected at the captured stash.
+              // Redirecting is *possible* — the captured hash could be looked
+              // back up to whatever `stash@{m}` it wears now — and it is still
+              // the wrong answer: the number in that message is the whole of
+              // what the dialog said, so acting on a different one acts on
+              // something the user was never shown. A drop leaves no ref
+              // behind, and the only way back is hunting for a dangling commit,
+              // so this is {@link confirmForRepoAndHead}'s case rather than
+              // `confirmForRepo`'s — fail safe, and say so.
+              if (this.stashNodeFor(refName)?.hash !== stashHash) {
+                showErrorDialog(
+                  l10n.dialogStashMoved.replace("{0}", escapeHtml(refName)),
+                  null,
+                  null
+                );
+                return;
+              }
+              sendMessage({ command: "dropStash", repo, selector: refName });
+            },
             sourceElem
           );
         },
         renameStash: () => {
           // Pre-fill with the stash's current displayed name (its commit
           // subject), taken from the loaded stash node for this ref.
-          const currentMessage =
-            this.commits.find((c) => c.refs.some((r) => r.type === "stash" && r.name === refName))
-              ?.message ?? "";
+          const currentMessage = this.stashNodeFor(refName)?.message ?? "";
           showFormDialog(
             l10n.dialogStashRenameTitle.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
             [{ type: "text", name: "", default: currentMessage, placeholder: null }],
@@ -2382,12 +2509,12 @@ class GitGraphView {
             .replace("{0}", l10n.labelTag)
             .replace("{1}", "<b><i>" + escapeHtml(refName) + "</i></b>");
           if (this.remotes.length === 0) {
-            showConfirmationDialog(
+            this.confirmForRepo(
               confirmMsg,
-              () => {
+              (repo) => {
                 sendMessage({
                   command: "deleteTag",
-                  repo: this.currentRepo!,
+                  repo,
                   tagName: refName,
                   deleteOnRemote: null
                 });
@@ -2700,16 +2827,16 @@ class GitGraphView {
               });
             } else if (choice === "reset") {
               // Destructive: confirm before discarding the local branch's commits.
-              showConfirmationDialog(
+              this.confirmForRepo(
                 l10n.dialogCheckoutResetLocalConfirm.replace(
                   "{0}",
                   "<b><i>" + escapeHtml(leaf) + "</i></b>"
                 ),
-                () => {
+                (repo) => {
                   showActionRunningDialog(l10n.checkoutBranch);
                   sendMessage({
                     command: "checkoutBranch",
-                    repo: this.currentRepo!,
+                    repo,
                     branchName: leaf,
                     remoteBranch: refName,
                     force: true
@@ -2771,7 +2898,12 @@ class GitGraphView {
         ],
         l10n.deleteBranch,
         (values) => {
-          this.sendDeleteBranch(refName, values[0] === "checked", values[1] === "checked");
+          this.sendDeleteBranch(
+            this.currentRepo!,
+            refName,
+            values[0] === "checked",
+            values[1] === "checked"
+          );
         },
         null,
         "deleteBranch"
@@ -2783,7 +2915,7 @@ class GitGraphView {
         this.config.dialogDeleteBranchForceDelete,
         l10n.deleteBranch,
         (forceDelete) => {
-          this.sendDeleteBranch(refName, forceDelete, false);
+          this.sendDeleteBranch(this.currentRepo!, refName, forceDelete, false);
         },
         null,
         "deleteBranch"
@@ -2791,12 +2923,12 @@ class GitGraphView {
     }
   }
   private rebaseOnBranchAction(refName: string) {
-    showConfirmationDialog(
+    this.confirmForRepoAndHead(
       l10n.dialogRebaseConfirm
         .replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>")
         .replace("{1}", this.currentBranchLabel()),
-      () => {
-        sendMessage({ command: "rebaseOn", repo: this.currentRepo!, obj: refName });
+      (repo) => {
+        sendMessage({ command: "rebaseOn", repo, obj: refName });
         showActionRunningDialog(l10n.rebasing);
       },
       null
@@ -2820,10 +2952,10 @@ class GitGraphView {
     range: RebaseOntoRange,
     sourceElem: HTMLElement | null
   ) {
-    const run = (tip: string) => {
+    const run = (repo: string, tip: string) => {
       sendMessage({
         command: "rebaseOnto",
-        repo: this.currentRepo!,
+        repo,
         newBase,
         upstream: range.upstream,
         tip
@@ -2863,14 +2995,14 @@ class GitGraphView {
           { name: l10n.dialogRebaseOntoDetachedNone, value: "" }
         ],
         l10n.dialogYesRebase,
-        (branch) => run(branch === "" ? range.tip : branch),
+        (branch) => run(this.currentRepo!, branch === "" ? range.tip : branch),
         sourceElem
       );
       return;
     }
     const branch = range.tipBranches[0];
     const tip = branch ?? range.tip;
-    showConfirmationDialog(
+    this.confirmForRepo(
       confirmMsg(branch !== undefined ? escapeHtml(branch) : abbrevCommit(range.tip)) +
         commandPreview(branch !== undefined ? branch : abbrevCommit(range.tip)) +
         (branch === undefined
@@ -2878,17 +3010,50 @@ class GitGraphView {
             escapeHtml(fillTemplate(l10n.dialogRebaseOntoDetached, abbrevCommit(range.tip))) +
             "</span>"
           : ""),
-      () => run(tip),
+      (repo) => {
+        // This dialog prints the command verbatim, branch name included, and
+        // that line is the whole of what was agreed to. git resolves the name
+        // when the command runs, not when it was printed, so a branch that
+        // moved while the question was on screen replays a different range than
+        // the one on screen. Unlike the repository, nothing here can be
+        // re-aimed — the printed command would simply be false — so this one
+        // refuses, and says so (ADR-0019).
+        if (branch !== undefined && !this.branchPointsAt(branch, range.tip)) {
+          showErrorDialog(
+            l10n.dialogRebaseOntoTipMoved.replace(
+              "{0}",
+              "<b><i>" + escapeHtml(branch) + "</i></b>"
+            ),
+            null,
+            null
+          );
+          return;
+        }
+        run(repo, tip);
+      },
       sourceElem
     );
   }
+
+  /** Whether `branch` still points at `hash`, read off the loaded commits the
+   *  same way {@link rebaseOntoRange} read the tip's branches in the first
+   *  place. A commit that has left the loaded window answers false: what a
+   *  consent check owes is proof the premise still holds, and "cannot tell" is
+   *  not that. */
+  private branchPointsAt(branch: string, hash: string): boolean {
+    const index = this.commitLookup[hash];
+    return (
+      index !== undefined &&
+      this.commits[index].refs.some((r) => r.type === "head" && r.name === branch)
+    );
+  }
   private fastForwardBranchAction(refName: string) {
-    showConfirmationDialog(
+    this.confirmForRepo(
       l10n.dialogFastForwardConfirm.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
-      () => {
+      (repo) => {
         sendMessage({
           command: "fastForwardBranch",
-          repo: this.currentRepo!,
+          repo,
           branchName: refName
         });
       },
@@ -2898,14 +3063,14 @@ class GitGraphView {
   private pullRemoteBranchAction(refName: string) {
     const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
-    showConfirmationDialog(
+    this.confirmForRepoAndHead(
       l10n.dialogPullConfirm
         .replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>")
         .replace("{1}", this.currentBranchLabel()),
-      () => {
+      (repo) => {
         sendMessage({
           command: "pullBranch",
-          repo: this.currentRepo!,
+          repo,
           remote: parts.remote,
           branchName: parts.branchOnRemote
         });
@@ -2954,15 +3119,15 @@ class GitGraphView {
   private deleteRemoteBranchAction(refName: string) {
     const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
-    showConfirmationDialog(
+    this.confirmForRepo(
       l10n.dialogDeleteRemoteBranchConfirm.replace(
         "{0}",
         "<b><i>" + escapeHtml(refName) + "</i></b>"
       ),
-      () => {
+      (repo) => {
         sendMessage({
           command: "deleteRemoteBranch",
-          repo: this.currentRepo!,
+          repo,
           remote: parts.remote,
           branchName: parts.branchOnRemote
         });
@@ -3120,10 +3285,10 @@ class GitGraphView {
       case "deleteBranches":
         return {
           send: (refs, round, params) => {
-            const p = params as { forceDelete: boolean; deleteOnRemotes: boolean };
+            const p = params as BatchParams & { forceDelete: boolean; deleteOnRemotes: boolean };
             sendMessage({
               command: "deleteBranches",
-              repo: this.currentRepo!,
+              repo: p.repo,
               refs,
               // The retry round exists to force what round 1 could not delete.
               forceDelete: round === 2 || p.forceDelete,
@@ -3140,13 +3305,13 @@ class GitGraphView {
       case "pushBranches":
         return {
           send: (refs, _round, params) => {
-            const p = params as {
+            const p = params as BatchParams & {
               remotes: string[];
               forceMode: "normal" | "force" | "forceWithLease";
             };
             sendMessage({
               command: "pushBranches",
-              repo: this.currentRepo!,
+              repo: p.repo,
               branchNames: refs,
               remotes: p.remotes,
               forceMode: p.forceMode
@@ -3157,10 +3322,10 @@ class GitGraphView {
         };
       case "fastForwardBranches":
         return {
-          send: (refs) => {
+          send: (refs, _round, params) => {
             sendMessage({
               command: "fastForwardBranches",
-              repo: this.currentRepo!,
+              repo: (params as BatchParams).repo,
               branchNames: refs
             });
           },
@@ -3171,13 +3336,24 @@ class GitGraphView {
   }
   /** Start one batch run and execute its first command. The action tag feeds
    *  the run and the command executor from the one argument, so the two can
-   *  never drift apart. */
+   *  never drift apart.
+   *
+   *  `repo` rides in the run's echoed `params` rather than being read at send
+   *  time, because a run outlives two waits: the host round-trip for round 1,
+   *  and the retry confirmation between the rounds. `params` exists for exactly
+   *  this — "no adapter state has to survive between rounds" — and the
+   *  repository is adapter state that must (ADR-0019, and see
+   *  {@link confirmForRepo} for why it is carried rather than re-read). */
   private startBatchRun(
     action: BatchActionKind,
+    repo: string,
     targets: string[],
-    options: Omit<BatchRunOptions, "action"> = {}
+    options: Omit<BatchRunOptions, "action" | "params"> & { params?: object } = {}
   ) {
-    this.runBatchCommand(this.batchRun.start(targets, { ...options, action }), action);
+    this.runBatchCommand(
+      this.batchRun.start(targets, { ...options, action, params: { ...options.params, repo } }),
+      action
+    );
   }
   /** Execute one BatchRun command, re-entering as the retry dialog resolves.
    *  All round state lives in the run; this only performs its side effects. */
@@ -3189,6 +3365,8 @@ class GitGraphView {
         showActionRunningDialog(spec.running);
         break;
       case "offerRetry":
+        // No repo capture here: the run already carries the one its first round
+        // was started for, and hands it back on the retry round's `send`.
         showConfirmationDialog(
           spec.retryBody?.(command.refs) ?? "",
           () => this.runBatchCommand(this.batchRun.onRetryConfirmed(), action),
@@ -3230,7 +3408,7 @@ class GitGraphView {
       inputs,
       l10n.deleteBranches,
       (values) =>
-        this.startBatchRun("deleteBranches", targets, {
+        this.startBatchRun("deleteBranches", this.currentRepo!, targets, {
           // The one classification the host makes more reliably than us: a
           // refusal a force round can fix.
           retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
@@ -3252,12 +3430,11 @@ class GitGraphView {
     params: { forceDelete: boolean; deleteOnRemotes: boolean }
   ) {
     // The dialog carries the repo its candidates were computed for, and the
-    // delete must go to that one. `currentRepo` can move underneath an open
-    // dialog — the host posts `setRepo` when the native Source Control view's
-    // focused repo changes, and that does not close dialogs — which would send
-    // this repo's branch names to another repo.
-    if (repo !== this.currentRepo) return;
-    this.startBatchRun("deleteBranches", refs, {
+    // delete goes to that one — the shape every confirmation uses, see
+    // {@link confirmForRepo}. This used to refuse instead, which left "pressed
+    // Delete, nothing happened" whenever the host had posted `setRepo` in the
+    // meantime.
+    this.startBatchRun("deleteBranches", repo, refs, {
       retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
       params
     });
@@ -3277,14 +3454,16 @@ class GitGraphView {
       undefined,
       (remotes, forceMode) => {
         if (remotes.length === 0) return;
-        this.startBatchRun("pushBranches", targets, { params: { remotes, forceMode } });
+        this.startBatchRun("pushBranches", this.currentRepo!, targets, {
+          params: { remotes, forceMode }
+        });
       }
     );
   }
   private fastForwardBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
-    showConfirmationDialog(
+    this.confirmForRepo(
       this.batchConfirmBody(l10n.dialogFastForwardBatchConfirm, targets, skipped),
-      () => this.startBatchRun("fastForwardBranches", targets),
+      (repo) => this.startBatchRun("fastForwardBranches", repo, targets),
       null
     );
   }
@@ -3311,9 +3490,97 @@ class GitGraphView {
   /** Display label for the checked-out branch in dialogs: its actual name when
    *  on a branch, or the generic "current branch" wording when detached. */
   private currentBranchLabel(): string {
-    return this.gitBranchHead !== null
-      ? "<b><i>" + escapeHtml(this.gitBranchHead) + "</i></b>"
-      : "<b>" + l10n.labelCurrentBranch + "</b>";
+    return branchLabel(this.gitBranchHead);
+  }
+
+  /* Binding a dialog's premises to the moment of consent — ADR-0019 */
+
+  /** The loaded commit a stash selector currently points at, if any.
+   *
+   *  One lookup for both readers of it, because they are two halves of the same
+   *  fact: the rename dialog pre-fills from this node's message, and the drop
+   *  confirmation carries this node's hash across the wait as the premise its
+   *  `stash@{n}` stands on. Two copies would let the second reader drift off
+   *  what the first one meant by "this stash". */
+  private stashNodeFor(selector: string): GitCommitNode | undefined {
+    return this.commits.find((c) => c.refs.some((r) => r.type === "stash" && r.name === selector));
+  }
+
+  /**
+   * Open a confirmation whose deferred half acts on the repository the question
+   * was *about*, rather than on whichever repository is current by the time it
+   * is answered.
+   *
+   * `currentRepo` can move underneath an open dialog: the host posts `setRepo`
+   * when the native Source Control view's focused repo changes, and that
+   * dismisses nothing. A callback that reads `this.currentRepo` after the user
+   * has answered is therefore reading a fact younger than the consent it acts
+   * on — ADR-0019's "the guard and the state change must not have a wait
+   * between them", seen from the other side: the reading has to be taken where
+   * the consent was given, and carried across the wait.
+   *
+   * Sending to the captured repo rather than refusing is deliberate. The user
+   * agreed to act on repo A, the dialog's own wording described A, and the
+   * switch was not their doing; doing A is what honours the answer. Refusing
+   * would leave "pressed Yes, nothing happened" — the half-done state the same
+   * ADR rules out.
+   *
+   * Every confirmation whose action carries a repo goes through here, so the
+   * next reader finds one shape rather than a captured one and a refusing one
+   * side by side.
+   */
+  private confirmForRepo(
+    message: string,
+    confirmed: (repo: string) => void,
+    sourceElem: HTMLElement | null
+  ) {
+    const repo = this.currentRepo!;
+    showConfirmationDialog(message, () => confirmed(repo), sourceElem);
+  }
+
+  /**
+   * The same, for the actions git aims at HEAD — pull, and the two rebases that
+   * replay onto the current branch. Their dialogs name the checked-out branch
+   * ({@link currentBranchLabel}) but the command carries no branch at all, so a
+   * `git checkout` in the terminal — reaching the webview through the file
+   * watcher, mid-dialog — silently repoints the whole action.
+   *
+   * These cannot use the capture above: you cannot pull into, or rebase, a
+   * branch that is not checked out. Refusing is the only faithful answer, so it
+   * has to be a refusal the user can *see* — the precedent is
+   * `dialogBatchBusy`, an error dialog raised when state moved under an action.
+   * A silent return here would be indistinguishable from a dead button, on an
+   * action whose damage is history-rewriting.
+   */
+  private confirmForRepoAndHead(
+    message: string,
+    confirmed: (repo: string) => void,
+    sourceElem: HTMLElement | null
+  ) {
+    const head = this.gitBranchHead;
+    this.confirmForRepo(
+      message,
+      (repo) => {
+        // The repo is checked *first*, and a repo that moved is itself a
+        // refusal. `gitBranchHead` is one scalar for whichever repo is on
+        // screen, not a per-repo fact: once the host has switched repos and the
+        // new branch list has landed, it is another repository's answer, and it
+        // agrees or disagrees with `head` by coincidence. Two repos both on
+        // `main` would let this through having verified nothing at all.
+        //
+        // So this is the same rule as {@link branchPointsAt}: what cannot be
+        // shown to still hold has not been shown to still hold. It is also why
+        // these three sites do not follow `confirmForRepo`'s "send it to the
+        // captured repo anyway" — that answer needs a premise about the
+        // captured repo, and a repo switch is exactly what takes it away.
+        if (this.currentRepo !== repo || this.gitBranchHead !== head) {
+          showErrorDialog(l10n.dialogHeadMoved.replace("{0}", branchLabel(head)), null, null);
+          return;
+        }
+        confirmed(repo);
+      },
+      sourceElem
+    );
   }
   /** Merge `branchName` (a local or remote branch) into the current branch,
    *  prompting for the no-fast-forward / squash / no-commit options. */
@@ -3443,16 +3710,34 @@ class GitGraphView {
   /** Push a tag to a remote. Confirms when a single remote exists, otherwise
    *  prompts which remote to push to. Only invoked when a remote is configured. */
   private pushTagAction(tagName: string) {
-    const push = (remotes: string[]) => {
+    const push = (repo: string, remotes: string[]) => {
       if (remotes.length === 0) return;
-      sendMessage({ command: "pushTag", repo: this.currentRepo!, tagName, remotes });
+      sendMessage({ command: "pushTag", repo, tagName, remotes });
       showActionRunningDialog(l10n.pushingTag);
     };
     const chooseRemoteAndPush = () => {
       if (this.remotes.length === 1) {
-        showConfirmationDialog(
+        this.confirmForRepo(
           l10n.dialogPushTagConfirm.replace("{0}", "<b><i>" + escapeHtml(tagName) + "</i></b>"),
-          () => push([this.remotes[0]]),
+          (repo) => {
+            // Re-taken here rather than read into the closure above, because
+            // the sole remote can be removed while this question is on screen
+            // and `push`'s own emptiness check cannot catch what that leaves:
+            // `[this.remotes[0]]` is `[undefined]`, which has length 1 and
+            // sails through, pushing the tag to no remote at all (ADR-0019).
+            //
+            // Reported rather than returned silently. `push`'s own empty check
+            // is silent because reaching it means the user unticked every
+            // remote — they asked for nothing. Here they asked for something
+            // and it cannot be delivered, which is the case
+            // {@link confirmForRepoAndHead} refuses out loud.
+            const remote = this.remotes[0];
+            if (remote === undefined) {
+              showErrorDialog(l10n.dialogPushRemoteGone, null, null);
+              return;
+            }
+            push(repo, [remote]);
+          },
           null
         );
       } else {
@@ -3469,7 +3754,11 @@ class GitGraphView {
           ),
           remoteInputs,
           l10n.pushTag,
-          (values) => push(this.remotes.filter((_, i) => values[i] === "checked")),
+          (values) =>
+            push(
+              this.currentRepo!,
+              this.remotes.filter((_, i) => values[i] === "checked")
+            ),
           null
         );
       }
@@ -4241,6 +4530,35 @@ class GitGraphView {
       // the meantime. Everything below changes state, so the check belongs here
       // as well — the check above only covers the path that acts immediately.
       if (this.commitLoadInFlight) return;
+      // And the plan is re-taken with it, for the same reason and on the same
+      // terms (ADR-0019: when the change is deferred into a callback, so is the
+      // reading it rests on). The plan above was sized against the window as it
+      // stood when the question went up, and automatic loading widens that
+      // window while the dialog stands — its scroll listener has no dialog gate,
+      // and the overlay does not scroll, so the wheel chains to the document.
+      // Acting on the stale plan sets `maxCommits` *back* to the older, smaller
+      // number, silently discarding commits already drawn; and if the target
+      // landed in one of those pages, it reloads the whole table and closes the
+      // Commit Details View to reach a row that is already on screen.
+      // Silent, unlike the stash drop's refusal a few hundred lines up, and the
+      // difference is what there is left to do rather than how loud to be. That
+      // one has a stash it could still act on and declines to; this one has no
+      // match to step onto at all — the query itself has changed underneath the
+      // question, so Find has already moved on and repainted, and there is no
+      // half-state to report.
+      const current = this.findMatches.find((m) => m.hash === match.hash);
+      if (current === undefined) return;
+      const now = planFindLoad(this.maxCommits, current);
+      if (now === null) {
+        // Nothing left to load — but the step the user pressed Yes for still
+        // has to happen. Returning here would be the "pressed Yes, nothing
+        // happened" half-state the same ADR rules out, and no page is coming to
+        // move the highlight instead.
+        this.findCurrent = this.findMatches.indexOf(current);
+        this.findDirection = direction;
+        this.applyFindHighlights(true);
+        return;
+      }
       this.pendingFindTargetHash = match.hash;
       // The step is happening as of this line, so this is where its direction
       // belongs. Leaving it to the caller loses it on the confirmed path: that
@@ -4249,11 +4567,11 @@ class GitGraphView {
       // A navigation that completes without recording its direction leaves the
       // next amended-away match resolving off some earlier step's.
       this.findDirection = direction;
-      this.maxCommits = plan.maxCommits;
+      this.maxCommits = now.maxCommits;
       this.hideCommitDetails();
       this.saveState();
-      this.setRefreshing(true);
-      this.requestLoadCommits(true, () => this.setRefreshing(false));
+      this.beginBusyLoad();
+      this.requestLoadCommits(true, () => this.endBusyLoad());
     };
     if (plan.confirm) {
       showConfirmationDialog(
@@ -4605,11 +4923,37 @@ class GitGraphView {
 
   /** Keep each group's tab stop wherever it last held focus, however focus got
    *  there — a click, Tab, or the arrow keys — so Tab returns to where the user
-   *  left off rather than to the top of the graph. */
+   *  left off rather than to the top of the graph.
+   *
+   *  Asked of {@link cdvFileRows} rather than matched as a bare `.gitFile`, for
+   *  the same reason {@link focusedCdvFileKey} is: a `.gitFile` row is not proof
+   *  of the Commit Details View. The branch-redundancy dialog renders its
+   *  commit's files through the same `renderGitFileRow`, so focus landing on one
+   *  of *its* rows would hand the panel's single tab stop to a row in the modal.
+   *  Setting it is also what *takes* it: `set` demotes the previous holder, so
+   *  the panel is left with no `tabindex="0"` at all and Tab steps straight past
+   *  the file list. Nor does {@link restoreCdvFileTabStop} give one back while
+   *  the dialog is open — it sees a holder that is still connected and still
+   *  unhidden and returns early — and once the dialog closes and takes its rows
+   *  with it, nothing calls that method until the panel is next rebuilt. So the
+   *  list stays unreachable until some *other* thing redraws it: a refresh, a
+   *  page of commits, a layout toggle. The dialog's rows belong to no roving
+   *  group, so there is no tab stop of theirs to keep and none to hand them:
+   *  leaving the panel's where it was is the whole of the fix. It claims nothing
+   *  about how those rows behave otherwise — see {@link commitFilesHtml}, where
+   *  they turn out not to be inert at all.
+   *
+   *  The `.gitFile` match survives in front of the scope check as a cheap way
+   *  in, not as a second scoping rule: `cdvFileRows` is the only thing that says
+   *  what counts, and everything it returns is a `.gitFile`. Without it every
+   *  `focusin` anywhere — each row an arrow key steps onto in the graph — scans
+   *  the panel and builds an array of its rows, to ask a question whose answer
+   *  is already no. */
   public syncTabStop(target: EventTarget | null) {
     if (!(target instanceof HTMLElement)) return;
-    if (target.matches(".gitFile")) this.cdvFileTabStop.set(target);
-    else if (target.closest("#commitTable") !== null && target.matches(GRAPH_FOCUSABLE)) {
+    if (target.matches(".gitFile") && this.cdvFileRows().includes(target)) {
+      this.cdvFileTabStop.set(target);
+    } else if (target.closest("#commitTable") !== null && target.matches(GRAPH_FOCUSABLE)) {
       this.graphTabStop.set(target);
     }
   }
@@ -5107,14 +5451,14 @@ class GitGraphView {
           title: l10n.resetFileToRevision + ELLIPSIS,
           icon: "history",
           onClick: () => {
-            showConfirmationDialog(
+            this.confirmForRepo(
               l10n.dialogResetFileConfirm
                 .replace("{0}", "<b><i>" + escapeHtml(filePath) + "</i></b>")
                 .replace("{1}", "<b><i>" + abbrevCommit(commitHash) + "</i></b>"),
-              () => {
+              (repo) => {
                 sendMessage({
                   command: "resetFileToRevision",
-                  repo: this.currentRepo!,
+                  repo,
                   commitHash,
                   filePath
                 });
@@ -5192,8 +5536,19 @@ class GitGraphView {
 
   /** The Commit Details View's file section for a set of changes, in whichever
    *  layout the repo is set to. Shared with the branch-redundancy dialog so a
-   *  commit's files read the same wherever they are shown; the dialog's copy is
-   *  inert, since the diff actions are bound to the graph's expanded row. */
+   *  commit's files read the same wherever they are shown.
+   *
+   *  **The dialog's copy is not inert**, though this comment said so for a long
+   *  time on the grounds that the diff actions are bound to the graph's expanded
+   *  row. They are bound through `addListenerToClass`, which is
+   *  `document.getElementsByClassName` and so has no scope at all: every call of
+   *  `attachCdvFileListeners` reaches every `.gitFile` on the page, the dialog's
+   *  included. Once any redraw of the panel has run while the dialog is open,
+   *  clicking one of its rows sends `viewDiff` carrying the path from *that* row
+   *  and the commit from the graph's expanded one, and each further redraw binds
+   *  another copy of the handler to the same rows. Pre-existing, and out of
+   *  scope for #113, which fixed the same unscoped-selector mistake on the focus
+   *  path only; see issue #128. */
   public commitFilesHtml(fileChanges: GitFileChange[]): string {
     const fileTree = generateGitFileTree(fileChanges);
     if (this.config.fileTreeCompactFolders) compactGitFileTree(fileTree);
@@ -5250,7 +5605,33 @@ let contextMenu = document.getElementById("contextMenu")!,
   contextMenuSourceBorrowedFocus = false;
 let dialog = document.getElementById("dialog")!,
   dialogBacking = document.getElementById("dialogBacking")!,
-  dialogMenuSource: HTMLElement | null = null;
+  dialogMenuSource: HTMLElement | null = null,
+  /** The open dialog's dismissal hook, if it declared one.
+   *
+   *  Held here rather than only inside the Dismiss button's click closure,
+   *  because the button is not the only way a dialog closes: Escape closes one,
+   *  and so does a background reload that finds its own progress dialog still
+   *  up. A hook wired to one route out of three is not a hook, it is a
+   *  coincidence.
+   *
+   *  The five of them do quite different things, and it is worth not flattening
+   *  that. The cleanup refetch clears the state a late answer would otherwise
+   *  put back on screen; the cleanup scan stops work the host is still doing,
+   *  and stops *only* that — Stop is a "come back with what you found"
+   *  contract, so the answer still arrives and still fills the dialog back in;
+   *  the error dialog and the batch summary go and fetch what they were
+   *  standing in front of (the conflict banner); the batch retry's decline ends
+   *  a run that did real work, and opens a summary dialog of its own. What they
+   *  share is only the occasion — the user is done with this dialog — and that
+   *  is as true of the routes that close it *for* them as of the button.
+   *
+   *  Set on every {@link showDialog}, including the ones that overwrite an open
+   *  dialog, so a stale hook can never outlive its dialog. Overwriting does not
+   *  *run* the hook it replaces: an answer that legitimately replaces the
+   *  dialog it was awaited by is not a dismissal — `handleBranchCleanupOpen`
+   *  builds the new `cleanupState` before rendering over the refetch dialog,
+   *  and running that dialog's hook would null it straight back out. */
+  dialogDismissAction: (() => void) | null = null;
 // "Remember my choice" values per dialog key, seeded from the extension host at
 // load and updated optimistically on each confirm (the save message is one-way).
 let dialogMemory: GG.DialogMemoryStore = viewState.dialogMemory ?? {};
@@ -5704,15 +6085,9 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
  *  replaced by a progress one so the list can't be edited against verdicts that
  *  are still arriving. */
 function startBranchCleanupScan(repo: string, token: number) {
-  showDialog(
-    '<span id="actionRunning">' +
-      svgIcons.loading +
-      escapeHtml(fillTemplate(l10n.cleanupScanning, "0", "?")) +
-      "</span>",
-    null,
+  showActionRunningDialogWith(
+    escapeHtml(fillTemplate(l10n.cleanupScanning, "0", "?")),
     l10n.cleanupScanStop,
-    null,
-    null,
     () => sendMessage({ command: "branchCleanupScanCancel" })
   );
   sendMessage({ command: "branchCleanupScan", repo, token });
@@ -6271,6 +6646,16 @@ function abbrevCommit(commitHash: string) {
   return commitHash.substring(0, 8);
 }
 
+/** Display label for a checked-out branch in dialogs: its actual name when on a
+ *  branch, or the generic "current branch" wording when detached. Takes the
+ *  head rather than reading it, so a dialog that has to name the branch it was
+ *  *opened* on can say the same thing as one naming the branch it is on now. */
+function branchLabel(head: string | null): string {
+  return head !== null
+    ? "<b><i>" + escapeHtml(head) + "</i></b>"
+    : "<b>" + l10n.labelCurrentBranch + "</b>";
+}
+
 /* Context Menu */
 
 /** Where a menu opens from. A right-click supplies a pointer position; the
@@ -6734,26 +7119,38 @@ function showErrorDialog(
     onDismiss
   );
 }
-function showActionRunningDialog(command: string) {
+/**
+ * The one place a progress dialog is built.
+ *
+ * `#actionRunning` is not decoration: it is the mark by which
+ * {@link hideReloadOwnedOverlays} tells a dialog the webview raised for an
+ * action in flight from a question it asked the user. A progress dialog written
+ * out by hand somewhere else would either carry the mark by imitation — a
+ * convention with nothing enforcing it — or lack it, and then survive the very
+ * reload it was waiting for. So the markup is built here and the entry points
+ * below differ only in what they pass in.
+ *
+ * `content` is inserted as HTML, so callers escape their own interpolations;
+ * `dismissName` is the Dismiss button's label, which the cleanup scan replaces
+ * with "Stop" because for that one wait, dismissing is what stops it.
+ */
+function showActionRunningDialogWith(content: string, dismissName: string, onDismiss?: () => void) {
   showDialog(
-    '<span id="actionRunning">' + svgIcons.loading + command + " ...</span>",
+    '<span id="actionRunning">' + svgIcons.loading + content + "</span>",
     null,
-    l10n.dialogDismiss,
-    null,
-    null
-  );
-}
-/** {@link showActionRunningDialog} plus a hook for dismissal, for the waits that
- *  own state a late answer would otherwise resurrect. */
-function showActionRunningDialogDismissable(command: string, onDismiss: () => void) {
-  showDialog(
-    '<span id="actionRunning">' + svgIcons.loading + command + " ...</span>",
-    null,
-    l10n.dialogDismiss,
+    dismissName,
     null,
     null,
     onDismiss
   );
+}
+function showActionRunningDialog(command: string) {
+  showActionRunningDialogWith(command + " ...", l10n.dialogDismiss);
+}
+/** {@link showActionRunningDialog} plus a hook for dismissal, for the waits that
+ *  own state a late answer would otherwise resurrect. */
+function showActionRunningDialogDismissable(command: string, onDismiss: () => void) {
+  showActionRunningDialogWith(command + " ...", l10n.dialogDismiss, onDismiss);
 }
 function showDialog(
   html: string,
@@ -6776,31 +7173,77 @@ function showDialog(
     "</div></div>";
   if (actionName !== null && actioned !== null)
     document.getElementById("dialogAction")!.addEventListener("click", actioned);
-  document.getElementById("dialogDismiss")!.addEventListener(
-    "click",
-    onDismiss === undefined
-      ? hideDialog
-      : () => {
-          hideDialog();
-          onDismiss();
-        }
-  );
+  dialogDismissAction = onDismiss ?? null;
+  document.getElementById("dialogDismiss")!.addEventListener("click", dismissDialog);
 
   dialogMenuSource = sourceElem;
   if (dialogMenuSource !== null) dialogMenuSource.classList.add("dialogActive");
 }
+/** Close the dialog. The plain close: the dialog's dismissal hook does *not*
+ *  run, because this is also how a dialog closes when its action was taken —
+ *  a confirmed dialog was not dismissed. Anything closing a dialog the user did
+ *  not answer wants {@link dismissDialog} instead. */
 function hideDialog() {
   dialogBacking.className = "";
   dialog.className = "";
   dialog.innerHTML = "";
+  dialogDismissAction = null;
   if (dialogMenuSource !== null) {
     dialogMenuSource.classList.remove("dialogActive");
     dialogMenuSource = null;
   }
 }
+/** Close the dialog the way its own Dismiss button does, running whatever it
+ *  declared for that. The hook is read before the close so that a hook which
+ *  opens a dialog of its own is not undone by the close that invited it. */
+function dismissDialog() {
+  const onDismiss = dialogDismissAction;
+  hideDialog();
+  if (onDismiss !== null) onDismiss();
+}
 
+/** Escape, and the other places that close both overlays on the user's behalf.
+ *  A dismissal, not a plain close: reaching here means the user walked away
+ *  from the dialog rather than answering it. */
 function hideDialogAndContextMenu() {
-  if (dialog.classList.contains("active")) hideDialog();
+  if (dialog.classList.contains("active")) dismissDialog();
+  if (contextMenu.classList.contains("active")) hideContextMenu();
+}
+
+/**
+ * Close the progress dialog and the context menu when a background reload
+ * finishes.
+ *
+ * The reload's own action put up a progress dialog ("Checking out …") and that
+ * dialog has nothing left to say once the reload lands; leaving it up strands
+ * the user behind an overlay whose only exit is Escape. But a *confirmation*
+ * standing at the same moment belongs to the user, not to the reload: the file
+ * watcher fires on any `.git` write, so an unrelated commit in the terminal
+ * would otherwise take away a question the user is halfway through reading —
+ * and with it any chance of answering Yes.
+ *
+ * `#actionRunning` is what separates those two, and that is the whole of what
+ * it separates. It is an existence check, not an identity: it cannot tell this
+ * reload's own progress dialog from one belonging to a host query that has
+ * nothing to do with the reload. "Check for Unmerged Changes" and the cleanup
+ * dialog's own opening request both raise one, and both still lose it to an
+ * unrelated reload — after which their answers are dropped on arrival by the
+ * same existence check (`showBranchRedundancy`, `handleBranchCleanupOpen`).
+ * That predates this split, which only narrows what gets closed; the fix is to
+ * correlate by token, and it is tracked on #127 rather than smuggled in here.
+ * Every progress dialog is built by {@link showActionRunningDialogWith} rather
+ * than by hand so that the mark is at least produced in one place.
+ *
+ * The context menu is not held back with it, deliberately. Its contents are a
+ * snapshot — what can be dropped, what is HEAD, which refs are cleanup
+ * candidates, the rebase range — computed from exactly the state the redraw has
+ * just replaced, and it is positioned in page coordinates against a row that no
+ * longer exists there. Keeping it open would keep offering Drop, Reset and
+ * Delete computed against a graph that has moved underneath them. Reopening it
+ * costs one right-click; a half-filled dialog cannot be reopened at all.
+ */
+function hideReloadOwnedOverlays() {
+  if (document.getElementById("actionRunning") !== null) dismissDialog();
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
