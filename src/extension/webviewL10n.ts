@@ -264,6 +264,7 @@ export function getWebviewLocalizedStrings() {
     dialogBatchResult: l10n.t("dialog.batch.result"),
     dialogBatchBusy: l10n.t("dialog.batch.busy"),
     dialogHeadMoved: l10n.t("dialog.headMoved"),
+    dialogStashMoved: l10n.t("dialog.stashMoved"),
     dialogPushRemoteGone: l10n.t("dialog.pushRemoteGone"),
     dialogRenameBranchTitle: l10n.t("dialog.renameBranch.title"),
     dialogRenameBranchSubmit: l10n.t("dialog.renameBranch.submit"),
