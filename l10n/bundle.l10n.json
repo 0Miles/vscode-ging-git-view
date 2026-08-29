@@ -167,6 +167,7 @@
   "dialog.headMoved": "{0} is no longer the branch this would run on, so nothing was done. Check the current branch and try again.",
   "dialog.stashMoved": "{0} no longer refers to the stash this was about, so nothing was done. Check the stash list and try again.",
   "dialog.pushRemoteGone": "The remote this would push to no longer exists, so nothing was done.",
+  "dialog.commitOrderBusy": "Commits are still loading, so the commit order was not changed. Wait for the load to finish and try again.",
   "dialog.renameBranch.title": "Enter the new name for the branch {0}:",
   "dialog.renameBranch.submit": "Rename Branch",
   "dialog.push.tag.confirm": "Are you sure you want to push the tag {0}?",

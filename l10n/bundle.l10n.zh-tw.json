@@ -167,6 +167,7 @@
   "dialog.headMoved": "{0} 已不是這個動作會作用的 branch，因此沒有執行任何動作。請確認目前的 branch 後再試一次。",
   "dialog.stashMoved": "{0} 已不是這個動作原本要作用的 stash，因此沒有執行任何動作。請確認 stash 清單後再試一次。",
   "dialog.pushRemoteGone": "要推送的目標 remote 已經不存在，因此沒有執行任何動作。",
+  "dialog.commitOrderBusy": "commit 仍在載入中，因此沒有變更 commit 排序。請等載入完成後再試一次。",
   "dialog.renameBranch.title": "輸入 {0} branch 的新名稱",
   "dialog.renameBranch.submit": "重新命名 branch",
   "dialog.push.tag.confirm": "你確定要 push tag {0} 嗎？",

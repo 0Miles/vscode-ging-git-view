@@ -871,8 +871,8 @@ class GitGraphView {
     // Keep the current graph on screen and show the busy indicator while the new
     // commits load, rather than blanking to a loading screen (which flickers on
     // every branch toggle/switch). render() replaces the table atomically.
-    this.setRefreshing(true);
-    this.requestLoadCommits(true, () => this.setRefreshing(false));
+    this.beginBusyLoad();
+    this.requestLoadCommits(true, () => this.endBusyLoad());
   }
 
   public loadBranches(
@@ -1087,9 +1087,49 @@ class GitGraphView {
     this.requestLoadBranchesAndCommits(hard);
   }
 
-  /** Show/clear the busy indicator on the Refresh button while a load runs. */
-  private setRefreshing(refreshing: boolean) {
-    document.getElementById("refreshBtn")?.classList.toggle("refreshing", refreshing);
+  /** How many loads are currently claiming the busy indicator on the Refresh
+   *  button.
+   *
+   *  Counted rather than set, because the indicator is one class on one button
+   *  and three separate things raise it: a refresh, a branch-change reload, and
+   *  a Find step that has to page. ADR-0019's "at most one commit load in
+   *  flight" is what makes the overlap easy to miss — it holds, and it is not
+   *  the whole story. A refresh's branch half is out well before its commit
+   *  half exists, so a second refresh starting in that window is a second live
+   *  refresh; and a refresh whose own commit request is dropped runs its
+   *  close-out immediately, while the load it was dropped onto is still going.
+   *
+   *  Set rather than counted, it let whichever load ended first answer "idle"
+   *  on behalf of one that was still running. The wrong answer was corrected by
+   *  the real load landing, which is why it read as a flicker rather than as a
+   *  lie — but the indicator is the only thing on screen that says a load is
+   *  under way, and one number costs less than a rule every caller has to
+   *  remember. */
+  private busyLoads = 0;
+
+  /** Claim the busy indicator for a load that is starting.
+   *
+   *  Pairs with exactly one {@link endBusyLoad} on every path that load can end
+   *  on — including the paths where the request was dropped and no load ever
+   *  happened. That pairing is the whole invariant: a claim that is never
+   *  dropped leaves the button spinning for the life of the panel, and one
+   *  dropped twice takes another load's claim with it. */
+  private beginBusyLoad() {
+    this.busyLoads++;
+    this.updateBusyIndicator();
+  }
+
+  /** Drop this load's claim. The indicator goes out with the last claim only —
+   *  a load that ends while another is still out has finished, but the panel
+   *  has not. */
+  private endBusyLoad() {
+    this.busyLoads--;
+    this.updateBusyIndicator();
+  }
+
+  /** Repaint the indicator from the count. The one place the class is written. */
+  private updateBusyIndicator() {
+    document.getElementById("refreshBtn")?.classList.toggle("refreshing", this.busyLoads > 0);
   }
 
   /* Requests */
@@ -1240,7 +1280,7 @@ class GitGraphView {
     return true;
   }
   private requestLoadBranchesAndCommits(hard: boolean) {
-    this.setRefreshing(true);
+    this.beginBusyLoad();
     // Refresh the conflict banner alongside every (re)load so it tracks the
     // repo's operation state (.git changes trigger a refresh via the watcher).
     if (this.currentRepo) {
@@ -1251,31 +1291,43 @@ class GitGraphView {
       (branchChanges: boolean, isRepo: boolean) => {
         if (isRepo) {
           const finish = (commitChanges: boolean) => {
-            this.setRefreshing(false);
+            this.endBusyLoad();
             // Dismiss what this reload owns once it finishes — see
             // {@link hideReloadOwnedOverlays} for why that is the progress
             // dialog and the context menu but not a confirmation. Hard
             // refreshes follow an action (checkout, merge, …) so always close;
             // soft refreshes only close when something changed.
+            //
+            // Not held back when this refresh's own request was dropped, unlike
+            // the claim above, and the two part company on what is left to do
+            // rather than on how loud to be. The claim reports this panel's
+            // state, and a load is still running, so it goes back to being the
+            // other refresh's to drop. The dismissal discharges a debt to an
+            // action that has already finished — and there is no one to hand it
+            // to: the refresh still out may be a soft one that finds nothing
+            // changed, and it would then close nothing. Deferring it is how the
+            // action-running dialog came to sit there with Escape as its only
+            // exit.
             if (hard || branchChanges || commitChanges) {
               hideReloadOwnedOverlays();
             }
           };
           // A load that never ran brought no changes with it, so finish it as
           // one. Letting the dropped request take the callback with it left the
-          // Refresh button spinning until the panel was reopened and the
-          // action-running dialog sitting there with Escape as its only exit.
+          // Refresh button spinning until the panel was reopened.
           if (!this.requestLoadCommits(hard, finish)) finish(false);
         } else {
-          this.setRefreshing(false);
+          this.endBusyLoad();
           sendMessage({ command: "loadRepos", check: true });
         }
       }
     );
     // The same asymmetry one level out: a dropped branches request takes the
-    // whole reload with it, callback included, so nothing would ever clear the
-    // indicator switched on above.
-    if (!branchesSent) this.setRefreshing(false);
+    // whole reload with it, callback included, so this refresh has to drop its
+    // own claim. Only its own — the request was dropped onto another refresh's
+    // branch load (nothing else asks for one), so that refresh is still out and
+    // the indicator is still telling the truth.
+    if (!branchesSent) this.endBusyLoad();
   }
   private fetchAvatars(avatars: { [email: string]: string[] }) {
     let emails = Object.keys(avatars);
@@ -1745,7 +1797,22 @@ class GitGraphView {
         // reloads — and the shrunken window would then silently collapse the
         // graph at some later refresh. Either the whole change happens or none
         // of it does.
-        if (this.commitLoadInFlight) return;
+        //
+        // And "none of it" has to be said out loud. This is a menu item the
+        // user picked: the menu closes, the tick does not move, no error, and
+        // the next attempt works — which is the shape of a dead menu item, not
+        // of a refusal. The precedent is `dialogBatchBusy` and the three
+        // refusals that followed it (`dialogHeadMoved`, `dialogStashMoved`,
+        // `dialogPushRemoteGone`): state moved under an action the user asked
+        // for, so the action is refused *visibly*. Silence is only right where
+        // there is nothing left to do — the Find step whose match was amended
+        // away while its question stood, a few thousand lines down, which has
+        // no match to step onto at all. Here there is something left: the very
+        // same click, a moment later.
+        if (this.commitLoadInFlight) {
+          showErrorDialog(l10n.dialogCommitOrderBusy, null, null);
+          return;
+        }
         this.gitRepos[this.currentRepo!].commitOrdering = order;
         sendMessage({
           command: "saveRepoState",
@@ -4503,8 +4570,8 @@ class GitGraphView {
       this.maxCommits = now.maxCommits;
       this.hideCommitDetails();
       this.saveState();
-      this.setRefreshing(true);
-      this.requestLoadCommits(true, () => this.setRefreshing(false));
+      this.beginBusyLoad();
+      this.requestLoadCommits(true, () => this.endBusyLoad());
     };
     if (plan.confirm) {
       showConfirmationDialog(
