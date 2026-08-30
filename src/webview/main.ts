@@ -236,8 +236,34 @@ type PendingFindNavigation = { hash: string; branchRefs: string[]; direction: -1
  *  - `hold`: nothing went out, so nothing may be recorded. Either the request
  *    was dropped ({@link GitGraphView.commitLoadInFlight}), or the plan needs
  *    confirming and the user has not answered — and while that dialog stands,
- *    no more has happened than if the request had been dropped. */
+ *    no more has happened than if the request had been dropped.
+ *
+ *  Both sources of `hold` are visible to the user, and neither caller has to
+ *  know which one it got: the confirming one put a question on screen, and the
+ *  dropped one raises `dialogFindStepBusy` where it is refused (#137). That
+ *  parity is why the callers may go on treating `hold` as one answer — before
+ *  it held, half of every `hold` was a step that reported nothing at all. */
 type FindLoadOutcome = "move" | "hold";
+
+/** What brought {@link GitGraphView.loadMoreCommits} here — and therefore
+ *  whether a refusal has anyone to report to.
+ *
+ *  Named for ADR-0019's own two categories rather than for the two input
+ *  devices, because the category is the part a third caller would have to get
+ *  right. Pressing the footer button is an **operation**: the user asked for the
+ *  next page, so a page that cannot be fetched is news they are owed. Reaching
+ *  the bottom of the graph is **browsing** —「捲到底是瀏覽:使用者什麼都沒要
+ *  求」— so there is no request to refuse and nobody to tell, and an error
+ *  dialog raised over a scroll is exactly the operation-level side effect that
+ *  ADR's title forbids.
+ *
+ *  Until now the two paths shared every effect they had. The ADR's 後果 section
+ *  is sometimes read as an earlier divergence, but it is not one: it took
+ *  `hideCommitDetails()` off *both* paths, which is the two of them going on
+ *  agreeing about everything. How the refusal is delivered is the first thing
+ *  they genuinely do not share — hence a named distinction rather than a
+ *  boolean, so the next reader sees a claim rather than a flag. */
+type LoadMoreTrigger = "operation" | "browsing";
 
 class GitGraphView {
   private gitRepos: GG.GitRepoSet;
@@ -2662,7 +2688,7 @@ class GitGraphView {
 
     if (!loading && this.moreCommitsAvailable) {
       document.getElementById("loadMoreCommitsBtn")!.addEventListener("click", () => {
-        this.loadMoreCommits();
+        this.loadMoreCommits("operation");
       });
     }
     if (widened) {
@@ -3986,13 +4012,18 @@ class GitGraphView {
       // pressable while a dialog is up. Load More is the symptom that reaches
       // this listener's subject, not the size of the problem. Nothing here can
       // fix that — a term in this condition cannot make a dialog modal.
+      //
+      // `"browsing"` is what keeps a refused load silent on this path while the
+      // footer button reports its own (#137). It is not a nicety: this listener
+      // is gated on `isDialogOpen()` two lines up, so a dialog raised from here
+      // would switch off the feature that raised it until the user cleared it.
       if (
         this.config.loadMoreAutomatically &&
         this.moreCommitsAvailable &&
         !isDialogOpen() &&
         window.innerHeight + window.scrollY >= this.getPageHeight() - 250
       ) {
-        this.loadMoreCommits();
+        this.loadMoreCommits("browsing");
       }
     });
     // Nothing invalidates a height nobody reads, and only the branch above
@@ -4100,9 +4131,27 @@ class GitGraphView {
    *  leave the footer, the loaded commit window and the saved state exactly as
    *  they were. The in-flight load itself is the guard: a separate flag was
    *  raised before the drop was known, so it never came back down and Load
-   *  More stayed dead for the life of the panel. */
-  private loadMoreCommits() {
-    if (this.commitLoadInFlight) return;
+   *  More stayed dead for the life of the panel.
+   *
+   *  How the refusal is delivered is the one thing the two callers do not
+   *  share, and {@link LoadMoreTrigger} carries which of them is asking. A
+   *  press is refused out loud — a button that answers with nothing is
+   *  indistinguishable from a dead one ({@link confirmForRepoAndHead}), and the
+   *  next press a moment later works, so there is something to say. A scroll is
+   *  refused in silence, because it never asked: raising a dialog over browsing
+   *  is the operation-level side effect ADR-0019 exists to forbid, and it would
+   *  cost more than the page — the dialog takes the graph's keyboard, and while
+   *  it stands this very listener is gated (#124), so one page too many would
+   *  stop every page after it.
+   *
+   *  Speaking from behind a standing dialog costs that dialog — #141 is why the
+   *  user can get here, #127 is why arriving destroys the standing question; the
+   *  measurement and why silence is not the cure are in ADR-0019. */
+  private loadMoreCommits(trigger: LoadMoreTrigger) {
+    if (this.commitLoadInFlight) {
+      if (trigger === "operation") showErrorDialog(l10n.dialogLoadMoreBusy, null, null);
+      return;
+    }
     this.maxCommits += this.config.loadMoreCount;
     // The expanded Commit Details View stays open: loading strictly appends, so
     // the expanded commit cannot vanish, and renderTable re-binds it to its new
@@ -4129,9 +4178,26 @@ class GitGraphView {
    *  and shrinking the window first would leave the graph still showing the
    *  wide page while the window says otherwise — with the line gone, so nothing
    *  on screen says the two came apart, and the next refresh silently
-   *  collapsing the graph as the payment. */
+   *  collapsing the graph as the payment.
+   *
+   *  And refused out loud, on the same terms too. This is the *only* way back
+   *  from a widened window, and ADR-0019 keeps automatic loading on the
+   *  condition that such a way back exists — one that answers a press with
+   *  nothing at all is indistinguishable from a dead button
+   *  ({@link confirmForRepoAndHead}), which is the condition failing while
+   *  appearing to hold. Nothing is lost by saying so: the same press works a
+   *  moment later.
+   *
+   *  Speaking from behind a standing dialog costs that dialog — #141 is why the
+   *  user can get here, #127 is why arriving destroys the standing question; the
+   *  measurement and why silence is not the cure are in ADR-0019. It applies to
+   *  this button as much as to Load More beside it: same footer, same overlay,
+   *  same tab order. */
   private resetLoadedCommitWindow() {
-    if (this.commitLoadInFlight) return;
+    if (this.commitLoadInFlight) {
+      showErrorDialog(l10n.dialogResetWindowBusy, null, null);
+      return;
+    }
     this.shrinkLoadedCommitWindow();
     // Viewport and focus must not end up contradicting each other, and here
     // they would: the page shrinks under the user, the browser clamps them to
@@ -4557,13 +4623,53 @@ class GitGraphView {
     // background load — which is nearly every step.
     const plan = planFindLoad(this.maxCommits, match);
     if (plan === null) return "move";
-    if (this.commitLoadInFlight) return "hold";
+    if (this.commitLoadInFlight) {
+      // Refused out loud, because `hold` has two sources and only one of them
+      // is visible. The other is the confirmation below, which the user is
+      // looking at; this one is a step that moved the graph not at all and said
+      // nothing — a dead Enter key, on the control a user presses most often
+      // (`confirmForRepoAndHead`: an invisible refusal and a broken button
+      // cannot be told apart). Neither caller can say it for us, since neither
+      // can tell the two sources of `hold` apart.
+      //
+      // Something is left to do, which is what separates this from the silence
+      // a few lines down when the match has been amended away: the very same
+      // press, once the load in flight lands.
+      //
+      // Speaking from behind a standing dialog costs that dialog — #141 is why
+      // the user can get here, #127 is why arriving destroys the standing
+      // question; the measurement and why silence is not the cure are in
+      // ADR-0019. Live on this path too: the document keydown handler returns
+      // early while a dialog is up, but the Find input has a keyup listener of
+      // its own, so Enter still steps from behind an overlay.
+      showErrorDialog(l10n.dialogFindStepBusy, null, null);
+      return "hold";
+    }
     const load = () => {
       // Guarded again, not just at the top: when the plan needs confirming, this
       // runs after the user answers the dialog, and a load can have started in
       // the meantime. Everything below changes state, so the check belongs here
       // as well — the check above only covers the path that acts immediately.
-      if (this.commitLoadInFlight) return;
+      //
+      // And reported, for the reason the `now === null` branch below already
+      // spells out about itself: returning here is the "pressed Yes, nothing
+      // happened" half-state the same ADR rules out. This guard is
+      // only ever reached from the confirmed path — on the immediate path the
+      // check above has already answered `hold` — so by construction there is a
+      // question the user just answered, which is the loudest possible claim
+      // that something was about to happen. The wording says a load *started*
+      // rather than that one is running: when the question went up there was
+      // none, and the user has no other way to learn that changed.
+      //
+      // Speaking from behind a standing dialog costs that dialog — #141 is why
+      // the user can get here, #127 is why arriving destroys the standing
+      // question; the measurement and why silence is not the cure are in
+      // ADR-0019. Cheapest to see here of the four: this runs from the answer
+      // to a dialog, so another may well have been raised over it in between.
+      if (this.commitLoadInFlight) {
+        showErrorDialog(l10n.dialogFindLoadBusy, null, null);
+        return;
+      }
       // And the plan is re-taken with it, for the same reason and on the same
       // terms (ADR-0019: when the change is deferred into a callback, so is the
       // reading it rests on). The plan above was sized against two things as

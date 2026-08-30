@@ -134,6 +134,12 @@ function clickItem(label: string) {
   item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
+function click(id: string) {
+  const elem = document.getElementById(id);
+  expect(elem, id).not.toBeNull();
+  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
 function dialogIsOpen() {
   return document.getElementById("dialog")!.classList.contains("active");
 }
@@ -357,6 +363,71 @@ describe("automatic loading on scroll", () => {
     it("is deferred by the dialog, not switched off by it", () => {
       expect(requestedAfterDismissal).toMatchObject([{ maxCommits: 700 }]);
       expect(windowCount()).toBe(L.loadedCommitWindow.replace("{0}", "700"));
+    });
+  });
+
+  // The footer's Load More and this listener share `loadMoreCommits`, and as of
+  // #137 a refused *press* says so — a button that answers with nothing is
+  // indistinguishable from a dead one. This path may not inherit that. The
+  // title of ADR-0019 is that automatic loading on scroll must not produce
+  // operation-level side effects, and an error dialog raised in front of a user
+  // who only scrolled is one of the plainest: reaching the bottom is browsing,
+  // and 「使用者什麼都沒要求」 — there is no request to refuse and nobody to
+  // report to. A dialog here would also take the graph's keyboard away and,
+  // once up, gate this very listener (#124), so one page too many would cost
+  // the user every page after it.
+  //
+  // There is no precedent to lean on: until #137 the two paths shared every
+  // effect they had. That ADR's 後果 section reads like an earlier divergence
+  // but is not one — `hideCommitDetails()` came off *both* paths, which is them
+  // agreeing about everything. This is the first thing they do not share, which
+  // is why it needs a test rather than a convention.
+  describe("reaching the bottom while a commit load is already in flight", () => {
+    let requestedOnTrigger: GG.RequestMessage[] = [];
+    let dialogAfterTheScroll = true;
+    let windowAfterTheScroll: string | null = null;
+    let requestedOnceItLanded: GG.RequestMessage[] = [];
+
+    beforeAll(() => {
+      // A refresh whose branches half has landed and whose commits half has
+      // not: exactly one load in flight, and nothing standing on screen.
+      click("refreshBtn");
+      receive(branchesResponse);
+      expect(dialogIsOpen(), "nothing standing when the scroll arrives").toBe(false);
+
+      parkViewportAt(NEAR_BOTTOM);
+      mock.clearMessages();
+      document.dispatchEvent(new Event("scroll"));
+      requestedOnTrigger = loadCommitsRequests();
+      dialogAfterTheScroll = dialogIsOpen();
+      windowAfterTheScroll = windowCount();
+
+      // The control. "Asked for nothing and said nothing" is also what a
+      // viewport short of the threshold reports, and what a panel with
+      // automatic loading switched off reports — so the same viewport and the
+      // same event are run again with nothing in flight, and this time they
+      // must ask.
+      receive(commitsResponse(nextPage));
+      mock.clearMessages();
+      document.dispatchEvent(new Event("scroll"));
+      requestedOnceItLanded = loadCommitsRequests();
+      receive(commitsResponse(nextPage));
+    });
+
+    it("asks for nothing, one commit load being all this panel ever has out", () => {
+      expect(requestedOnTrigger).toHaveLength(0);
+    });
+
+    it("says nothing either — the user scrolled, and scrolling asked for nothing", () => {
+      expect(dialogAfterTheScroll).toBe(false);
+    });
+
+    it("leaves the loaded commit window reading what the user last saw", () => {
+      expect(windowAfterTheScroll).toBe(L.loadedCommitWindow.replace("{0}", "700"));
+    });
+
+    it("asks again once that load lands, so the threshold was live throughout", () => {
+      expect(requestedOnceItLanded).toHaveLength(1);
     });
   });
 });
