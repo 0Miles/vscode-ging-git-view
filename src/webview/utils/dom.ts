@@ -1,3 +1,16 @@
+/** Bind `event` on every element carrying `className`, **document-wide**. Right
+ *  while one view renders that class. Wrong the moment two do — and this webview
+ *  has views that share a renderer: the Commit Details View's file rows and the
+ *  branch-redundancy dialog's come out of one generator, so binding the panel's
+ *  handlers across the document put them on the modal's rows too, carrying
+ *  another commit's paths (#128). That caller scopes itself instead —
+ *  `GitGraphView.addCdvListenerToClass`.
+ *
+ *  **Not every caller is safe yet — that is #144.** The dialog also renders
+ *  `.commitBodyLink` and `tr.commit` rows of its own, and both are still bound
+ *  through here. So before adding a call, ask what else renders the class — a
+ *  root parameter on this function would not ask it for you, because it would
+ *  have to default to `document`. */
 export function addListenerToClass(className: string, event: string, eventListener: EventListener) {
   let elems = document.getElementsByClassName(className),
     i;
