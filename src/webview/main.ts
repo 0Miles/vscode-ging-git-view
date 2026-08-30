@@ -236,8 +236,34 @@ type PendingFindNavigation = { hash: string; branchRefs: string[]; direction: -1
  *  - `hold`: nothing went out, so nothing may be recorded. Either the request
  *    was dropped ({@link GitGraphView.commitLoadInFlight}), or the plan needs
  *    confirming and the user has not answered — and while that dialog stands,
- *    no more has happened than if the request had been dropped. */
+ *    no more has happened than if the request had been dropped.
+ *
+ *  Both sources of `hold` are visible to the user, and neither caller has to
+ *  know which one it got: the confirming one put a question on screen, and the
+ *  dropped one raises `dialogFindStepBusy` where it is refused (#137). That
+ *  parity is why the callers may go on treating `hold` as one answer — before
+ *  it held, half of every `hold` was a step that reported nothing at all. */
 type FindLoadOutcome = "move" | "hold";
+
+/** What brought {@link GitGraphView.loadMoreCommits} here — and therefore
+ *  whether a refusal has anyone to report to.
+ *
+ *  Named for ADR-0019's own two categories rather than for the two input
+ *  devices, because the category is the part a third caller would have to get
+ *  right. Pressing the footer button is an **operation**: the user asked for the
+ *  next page, so a page that cannot be fetched is news they are owed. Reaching
+ *  the bottom of the graph is **browsing** —「捲到底是瀏覽:使用者什麼都沒要
+ *  求」— so there is no request to refuse and nobody to tell, and an error
+ *  dialog raised over a scroll is exactly the operation-level side effect that
+ *  ADR's title forbids.
+ *
+ *  Until now the two paths shared every effect they had. The ADR's 後果 section
+ *  is sometimes read as an earlier divergence, but it is not one: it took
+ *  `hideCommitDetails()` off *both* paths, which is the two of them going on
+ *  agreeing about everything. How the refusal is delivered is the first thing
+ *  they genuinely do not share — hence a named distinction rather than a
+ *  boolean, so the next reader sees a claim rather than a flag. */
+type LoadMoreTrigger = "operation" | "browsing";
 
 class GitGraphView {
   private gitRepos: GG.GitRepoSet;
@@ -308,7 +334,11 @@ class GitGraphView {
   private lastRefActionSeq = 0;
   // The one batch run in flight (at most): rounds, retry offer and summary all
   // live behind its interface — the adapters below only execute its commands.
-  private batchRun = new BatchRun();
+  private batchRun = new BatchRun<BatchActionKind>();
+  /** A summary an ended run could not show, because the dialog slot was taken
+   *  at the moment it ended. Held until there is a screen for it; see
+   *  {@link abandonBatchRun} and {@link deliverOwedBatchSummary}. */
+  private owedSummary: { results: BatchRefResult[]; action: BatchActionKind } | null = null;
 
   private graph: Graph;
   private config: Config;
@@ -2662,7 +2692,7 @@ class GitGraphView {
 
     if (!loading && this.moreCommitsAvailable) {
       document.getElementById("loadMoreCommitsBtn")!.addEventListener("click", () => {
-        this.loadMoreCommits();
+        this.loadMoreCommits("operation");
       });
     }
     if (widened) {
@@ -3343,12 +3373,27 @@ class GitGraphView {
    *  and the retry confirmation between the rounds. `params` exists for exactly
    *  this — "no adapter state has to survive between rounds" — and the
    *  repository is adapter state that must (ADR-0019, and see
-   *  {@link confirmForRepo} for why it is carried rather than re-read). */
+   *  {@link confirmForRepo} for why it is carried rather than re-read).
+   *
+   *  There is deliberately no guard here for "a retry offer is still on
+   *  screen", though `BatchRun.start` treating a standing `offeringRetry` as an
+   *  ended run would otherwise make one look necessary — the reachability the
+   *  guard would answer is the reason #127 and #141 were raised, and it is real
+   *  as a *gesture*: the context menu sits above the dialog and stays
+   *  clickable, and background controls stay tabbable behind it, so the user
+   *  can absolutely reach for a second batch with the offer in front of them.
+   *  What they cannot do is arrive *here* that way. Every caller below is
+   *  inside a dialog's own action callback, because ADR-0009 sends exactly the
+   *  batch actions that ask through the webview, so each one raises its
+   *  question first — and raising it is what writes over the offer and
+   *  abandons the run (see {@link abandonBatchRun}). By the time a start is
+   *  reached the offer is gone and the run really is over, which is the state
+   *  `BatchRun.start` then reads. A guard here would never fire. */
   private startBatchRun(
     action: BatchActionKind,
     repo: string,
     targets: string[],
-    options: Omit<BatchRunOptions, "action" | "params"> & { params?: object } = {}
+    options: Omit<BatchRunOptions<BatchActionKind>, "action" | "params"> & { params?: object } = {}
   ) {
     this.runBatchCommand(
       this.batchRun.start(targets, { ...options, action, params: { ...options.params, repo } }),
@@ -3357,7 +3402,7 @@ class GitGraphView {
   }
   /** Execute one BatchRun command, re-entering as the retry dialog resolves.
    *  All round state lives in the run; this only performs its side effects. */
-  private runBatchCommand(command: BatchRunCommand, action: BatchActionKind) {
+  private runBatchCommand(command: BatchRunCommand<BatchActionKind>, action: BatchActionKind) {
     const spec = this.batchSpec(action);
     switch (command.kind) {
       case "send":
@@ -3368,7 +3413,13 @@ class GitGraphView {
         // No repo capture here: the run already carries the one its first round
         // was started for, and hands it back on the retry round's `send`.
         showConfirmationDialog(
-          spec.retryBody?.(command.refs) ?? "",
+          // `#batchRetryOffer` marks this dialog as an unanswered retry offer,
+          // the way `#actionRunning` marks a progress dialog. It is a mark in
+          // the dialog's own markup rather than a flag beside it because that
+          // is what makes it un-stale-able: `showDialog` and `hideDialog` both
+          // destroy it by destroying the dialog, so it is present exactly while
+          // the question is on screen with neither answer given.
+          '<span id="batchRetryOffer">' + (spec.retryBody?.(command.refs) ?? "") + "</span>",
           () => this.runBatchCommand(this.batchRun.onRetryConfirmed(), action),
           null,
           // Declining the retry round still ends a batch that did real work, so
@@ -3389,6 +3440,61 @@ class GitGraphView {
   /** Feed a batch action's response to the run in flight. */
   public handleBatchActionResponse(action: BatchActionKind, results: BatchRefResult[]) {
     this.runBatchCommand(this.batchRun.onResults(results, action), action);
+  }
+  /** End the run whose retry offer has just been written over, and keep what
+   *  its first round did until there is a screen to say it on.
+   *
+   *  Called from {@link showDialog} whenever a dialog is raised over a standing
+   *  `#batchRetryOffer` — the offer's two answers both close it themselves, so
+   *  arriving here means neither was given and nobody is going to give one.
+   *  Without this the run holds the single in-flight slot for the life of the
+   *  panel (`BatchRun.start`'s backstop then catches it, but only by dropping
+   *  these results on the floor).
+   *
+   *  The summary is *owed*, not shown. The dialog arriving over the offer keeps
+   *  the screen, because the route this exists for is `tryRunPendingRefAction`,
+   *  which has already taken its delegated action off `pendingRefAction` before
+   *  dispatching it — writing over that confirmation would lose a request the
+   *  user made outright, the same harm this ticket is about pointed the other
+   *  way. But a summary shown into a slot that is about to be overwritten is a
+   *  summary nobody reads, which is the silent drop this exists to prevent. So
+   *  it waits: {@link deliverOwedBatchSummary} raises it at the first moment
+   *  the slot is free. Only *why* each ref failed waits — the refresh below
+   *  happens now, because the graph is worth putting right at the moment the
+   *  run ends, and it can show which branches went but never why the rest
+   *  stayed. */
+  public abandonBatchRun() {
+    const command = this.batchRun.abandon();
+    // `none` is the ordinary case, not a defensive one: the offer's markup is
+    // still up while its own summary is raised, so this re-enters once.
+    if (command.kind !== "summarise" || command.action === null) return;
+    this.owedSummary = { results: command.results, action: command.action };
+    this.refresh(false);
+  }
+  /** Raise a summary that had nowhere to go when its run ended.
+   *
+   *  Queued from {@link hideDialog} — the one place the dialog slot is emptied
+   *  — and run as a microtask, so that whatever the closing route does *next*
+   *  has already had its turn: a Yes that fires off the next action and raises
+   *  its progress dialog, a dismissal hook that opens a dialog of its own. If
+   *  one of those claimed the slot, the summary stays owed and waits for the
+   *  next close.
+   *
+   *  It is deliberately not hung off `dialogDismissAction`. That hook cannot
+   *  tell a dialog the user dismissed from one the webview took away (#134),
+   *  and a summary owed is owed whichever of those happened. What this waits
+   *  for is the slot, not anyone's dismissal.
+   *
+   *  If the panel never frees the slot the summary is never shown, and it does
+   *  not survive a reload. That is the accepted floor: the run is already
+   *  ended, the graph was already refreshed, and what is lost is the reason
+   *  each remaining ref failed — the same thing that was lost unconditionally
+   *  before, now only in the case where the user never closes another dialog. */
+  public deliverOwedBatchSummary() {
+    const owed = this.owedSummary;
+    if (owed === null || isDialogOpen()) return;
+    this.owedSummary = null;
+    this.reportBatchResults(owed.results, this.batchSpec(owed.action).errorTitle);
   }
   private deleteBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     const inputs: DialogInput[] = [
@@ -3958,12 +4064,46 @@ class GitGraphView {
       // is not restated here. `{ passive: true }` is the other one — `scroll`
       // is not cancelable, so it has nothing to promise; the cost was always
       // the measurement below, never the listener's right to block.
+      //
+      // Not while a dialog is up. `#dialogBacking` is an unscrollable
+      // full-screen overlay, so a wheel over it chains to the document and
+      // this fires — but a user reading a modal question is not browsing the
+      // graph underneath it, which is the whole premise ADR-0019 keeps
+      // automatic loading on. Its condition fails here twice over: the loaded
+      // commit window would widen out of sight, and the footer carrying both
+      // the count and the only control that shrinks it is behind the overlay.
+      // A deferral, not a refusal — the next scroll after the dialog closes
+      // loads as it always did.
+      //
+      // This closes the wheel and *only* the wheel, which is worth saying
+      // plainly because the obvious reading of it is wrong. The footer's Load
+      // More is a real `<button>` with a tabindex, and `showDialog` sets two
+      // class names and an `innerHTML` — no `inert` on the background, no
+      // focus trap. So Tab still reaches that button behind the overlay and
+      // Space still activates it natively; the keydown handler's dialog branch
+      // returns without `preventDefault`, which cannot stop an activation it
+      // never saw. The window therefore still widens behind a dialog by
+      // keyboard, out of sight, and ADR-0019's condition is still only half
+      // restored.
+      //
+      // #141 is the other half, and it is deliberately not scoped to this
+      // window: the defect it names is that `showDialog` provides no focus
+      // containment at all, so *every* background control stays tabbable and
+      // pressable while a dialog is up. Load More is the symptom that reaches
+      // this listener's subject, not the size of the problem. Nothing here can
+      // fix that — a term in this condition cannot make a dialog modal.
+      //
+      // `"browsing"` is what keeps a refused load silent on this path while the
+      // footer button reports its own (#137). It is not a nicety: this listener
+      // is gated on `isDialogOpen()` two lines up, so a dialog raised from here
+      // would switch off the feature that raised it until the user cleared it.
       if (
         this.config.loadMoreAutomatically &&
         this.moreCommitsAvailable &&
+        !isDialogOpen() &&
         window.innerHeight + window.scrollY >= this.getPageHeight() - 250
       ) {
-        this.loadMoreCommits();
+        this.loadMoreCommits("browsing");
       }
     });
     // Nothing invalidates a height nobody reads, and only the branch above
@@ -3976,8 +4116,13 @@ class GitGraphView {
    *  on the scroll path — so the measurement is cached, and `pageHeight` is
    *  null exactly when something has happened that could have moved the bottom.
    *  The reflow window is therefore "once per change while more commits are
-   *  still loadable" rather than "once per tick", and the two booleans in front
-   *  still take it to nothing at all once the whole history is in. */
+   *  still loadable" rather than "once per tick", and the three booleans in
+   *  front still take it to nothing at all once the whole history is in.
+   *
+   *  Three since #124 added the dialog gate; two before it. Anything added to
+   *  that condition belongs in front of this call if it is cheap, and the count
+   *  here belongs in the same edit — ADR-0019 carries a bullet whose whole
+   *  subject is this number going stale. */
   private getPageHeight() {
     if (this.pageHeight === null) this.pageHeight = document.body.offsetHeight;
     return this.pageHeight;
@@ -4020,7 +4165,7 @@ class GitGraphView {
    *  still. Adding either would want a ResizeObserver alongside this, as the
    *  second source rather than the first.
    *
-   *  The watchers are a standing cost that the two booleans do *not* gate: they
+   *  The watchers are a standing cost that those booleans do *not* gate: they
    *  keep queueing records after `moreCommitsAvailable` goes false, for a cache
    *  nobody will read again. Accepted rather than fixed, because gating them
    *  means a connect/disconnect state machine around an assignment in
@@ -4066,9 +4211,27 @@ class GitGraphView {
    *  leave the footer, the loaded commit window and the saved state exactly as
    *  they were. The in-flight load itself is the guard: a separate flag was
    *  raised before the drop was known, so it never came back down and Load
-   *  More stayed dead for the life of the panel. */
-  private loadMoreCommits() {
-    if (this.commitLoadInFlight) return;
+   *  More stayed dead for the life of the panel.
+   *
+   *  How the refusal is delivered is the one thing the two callers do not
+   *  share, and {@link LoadMoreTrigger} carries which of them is asking. A
+   *  press is refused out loud — a button that answers with nothing is
+   *  indistinguishable from a dead one ({@link confirmForRepoAndHead}), and the
+   *  next press a moment later works, so there is something to say. A scroll is
+   *  refused in silence, because it never asked: raising a dialog over browsing
+   *  is the operation-level side effect ADR-0019 exists to forbid, and it would
+   *  cost more than the page — the dialog takes the graph's keyboard, and while
+   *  it stands this very listener is gated (#124), so one page too many would
+   *  stop every page after it.
+   *
+   *  Speaking from behind a standing dialog costs that dialog — #141 is why the
+   *  user can get here, #127 is why arriving destroys the standing question; the
+   *  measurement and why silence is not the cure are in ADR-0019. */
+  private loadMoreCommits(trigger: LoadMoreTrigger) {
+    if (this.commitLoadInFlight) {
+      if (trigger === "operation") showErrorDialog(l10n.dialogLoadMoreBusy, null, null);
+      return;
+    }
     this.maxCommits += this.config.loadMoreCount;
     // The expanded Commit Details View stays open: loading strictly appends, so
     // the expanded commit cannot vanish, and renderTable re-binds it to its new
@@ -4095,9 +4258,26 @@ class GitGraphView {
    *  and shrinking the window first would leave the graph still showing the
    *  wide page while the window says otherwise — with the line gone, so nothing
    *  on screen says the two came apart, and the next refresh silently
-   *  collapsing the graph as the payment. */
+   *  collapsing the graph as the payment.
+   *
+   *  And refused out loud, on the same terms too. This is the *only* way back
+   *  from a widened window, and ADR-0019 keeps automatic loading on the
+   *  condition that such a way back exists — one that answers a press with
+   *  nothing at all is indistinguishable from a dead button
+   *  ({@link confirmForRepoAndHead}), which is the condition failing while
+   *  appearing to hold. Nothing is lost by saying so: the same press works a
+   *  moment later.
+   *
+   *  Speaking from behind a standing dialog costs that dialog — #141 is why the
+   *  user can get here, #127 is why arriving destroys the standing question; the
+   *  measurement and why silence is not the cure are in ADR-0019. It applies to
+   *  this button as much as to Load More beside it: same footer, same overlay,
+   *  same tab order. */
   private resetLoadedCommitWindow() {
-    if (this.commitLoadInFlight) return;
+    if (this.commitLoadInFlight) {
+      showErrorDialog(l10n.dialogResetWindowBusy, null, null);
+      return;
+    }
     this.shrinkLoadedCommitWindow();
     // Viewport and focus must not end up contradicting each other, and here
     // they would: the page shrinks under the user, the browser clamps them to
@@ -4523,23 +4703,71 @@ class GitGraphView {
     // background load — which is nearly every step.
     const plan = planFindLoad(this.maxCommits, match);
     if (plan === null) return "move";
-    if (this.commitLoadInFlight) return "hold";
+    if (this.commitLoadInFlight) {
+      // Refused out loud, because `hold` has two sources and only one of them
+      // is visible. The other is the confirmation below, which the user is
+      // looking at; this one is a step that moved the graph not at all and said
+      // nothing — a dead Enter key, on the control a user presses most often
+      // (`confirmForRepoAndHead`: an invisible refusal and a broken button
+      // cannot be told apart). Neither caller can say it for us, since neither
+      // can tell the two sources of `hold` apart.
+      //
+      // Something is left to do, which is what separates this from the silence
+      // a few lines down when the match has been amended away: the very same
+      // press, once the load in flight lands.
+      //
+      // Speaking from behind a standing dialog costs that dialog — #141 is why
+      // the user can get here, #127 is why arriving destroys the standing
+      // question; the measurement and why silence is not the cure are in
+      // ADR-0019. Live on this path too: the document keydown handler returns
+      // early while a dialog is up, but the Find input has a keyup listener of
+      // its own, so Enter still steps from behind an overlay.
+      showErrorDialog(l10n.dialogFindStepBusy, null, null);
+      return "hold";
+    }
     const load = () => {
       // Guarded again, not just at the top: when the plan needs confirming, this
       // runs after the user answers the dialog, and a load can have started in
       // the meantime. Everything below changes state, so the check belongs here
       // as well — the check above only covers the path that acts immediately.
-      if (this.commitLoadInFlight) return;
+      //
+      // And reported, for the reason the `now === null` branch below already
+      // spells out about itself: returning here is the "pressed Yes, nothing
+      // happened" half-state the same ADR rules out. This guard is
+      // only ever reached from the confirmed path — on the immediate path the
+      // check above has already answered `hold` — so by construction there is a
+      // question the user just answered, which is the loudest possible claim
+      // that something was about to happen. The wording says a load *started*
+      // rather than that one is running: when the question went up there was
+      // none, and the user has no other way to learn that changed.
+      //
+      // Speaking from behind a standing dialog costs that dialog — #141 is why
+      // the user can get here, #127 is why arriving destroys the standing
+      // question; the measurement and why silence is not the cure are in
+      // ADR-0019. Cheapest to see here of the four: this runs from the answer
+      // to a dialog, so another may well have been raised over it in between.
+      if (this.commitLoadInFlight) {
+        showErrorDialog(l10n.dialogFindLoadBusy, null, null);
+        return;
+      }
       // And the plan is re-taken with it, for the same reason and on the same
       // terms (ADR-0019: when the change is deferred into a callback, so is the
-      // reading it rests on). The plan above was sized against the window as it
-      // stood when the question went up, and automatic loading widens that
-      // window while the dialog stands — its scroll listener has no dialog gate,
-      // and the overlay does not scroll, so the wheel chains to the document.
-      // Acting on the stale plan sets `maxCommits` *back* to the older, smaller
+      // reading it rests on). The plan above was sized against two things as
+      // they stood when the question went up, and both still move while the
+      // dialog stands.
+      // The loaded commit window: automatic loading no longer widens it there
+      // — #124 gated the scroll listener on the dialog — but the footer's Load
+      // More still does, because `showDialog` provides no focus containment
+      // (#141: no `inert`, no focus trap, no focus move, so every background
+      // control stays tabbable and pressable) and the overlay hides that
+      // button without disabling it. And the match: a background reload lands on the file
+      // watcher's schedule, not the user's, so a rebase or an amend in the
+      // terminal can redraw the very commit this plan was sized to go and
+      // fetch.
+      // Acting on a stale plan sets `maxCommits` *back* to the older, smaller
       // number, silently discarding commits already drawn; and if the target
-      // landed in one of those pages, it reloads the whole table and closes the
-      // Commit Details View to reach a row that is already on screen.
+      // came in on one of those pages, it reloads the whole table and closes
+      // the Commit Details View to reach a row that is already on screen.
       // Silent, unlike the stash drop's refusal a few hundred lines up, and the
       // difference is what there is left to do rather than how loud to be. That
       // one has a stash it could still act on and declines to; this one has no
@@ -4757,11 +4985,29 @@ class GitGraphView {
     return true;
   }
 
+  /** The open Commit Details View, or null when none is. **A class name is never
+   *  proof of the panel**, so this is where everything that has to tell the
+   *  panel's markup from a look-alike asks: the branch-redundancy dialog renders
+   *  a commit's files through the same `commitFilesHtml`, so `.gitFile`,
+   *  `.gitFolder` and every row action's class exist in the modal too, carrying
+   *  another commit's paths. The focus path (`cdvFileRows`, #113) and the
+   *  binding path ({@link addCdvListenerToClass}, #128) share this one answer
+   *  rather than each writing a selector.
+   *
+   *  Not every `getElementById("commitDetails")` in this class goes through it,
+   *  and the ones that don't are asking a different question: they want the
+   *  panel itself — to remove it, to replace it, or (in `renderGraph`) to
+   *  measure its height — not to decide whether some element already in hand
+   *  belongs to it. */
+  private cdvPanel(): HTMLElement | null {
+    return document.getElementById("commitDetails");
+  }
+
   /** The Commit Details View's file rows, in visual order. Files inside a
    *  collapsed folder are left out — `display: none` takes them out of the focus
    *  order, so stepping onto one would strand focus. */
   private cdvFileRows(): HTMLElement[] {
-    const panel = document.getElementById("commitDetails");
+    const panel = this.cdvPanel();
     if (panel === null) return [];
     return Array.from(panel.querySelectorAll<HTMLElement>(".gitFile")).filter(
       (file) => file.closest(".hidden") === null
@@ -4913,7 +5159,15 @@ class GitGraphView {
 
   /** Give the Commit Details View's file list a tab stop, so Tab can reach it
    *  at all. Re-run whenever the visible set changes — a fresh render leaves
-   *  every row at `-1`, and collapsing a folder can bury the row that held it. */
+   *  every row at `-1`, and collapsing a folder can bury the row that held it.
+   *
+   *  Only *this* list gets one. The branch-redundancy dialog's copy of a commit's
+   *  files is left with no tab stop of its own and so is unreachable by keyboard
+   *  — not a conclusion anyone reached, but a question that was asked and moved:
+   *  #128 was told to decide whether that list should be its own roving group and
+   *  the maintainer deferred it to **#145**, so that its own defect (the file
+   *  actions crossing between the two lists) could be fixed without a keyboard
+   *  design riding along. Read this as pending, not as settled. */
   private restoreCdvFileTabStop() {
     const held = this.cdvFileTabStop.current;
     if (held !== null && held.closest(".hidden") === null) return;
@@ -4939,9 +5193,12 @@ class GitGraphView {
    *  list stays unreachable until some *other* thing redraws it: a refresh, a
    *  page of commits, a layout toggle. The dialog's rows belong to no roving
    *  group, so there is no tab stop of theirs to keep and none to hand them:
-   *  leaving the panel's where it was is the whole of the fix. It claims nothing
-   *  about how those rows behave otherwise — see {@link commitFilesHtml}, where
-   *  they turn out not to be inert at all.
+   *  leaving the panel's where it was is the whole of the fix. It claimed
+   *  nothing about how those rows behave otherwise, and at the time they were
+   *  not inert at all; the binding path has since been scoped the same way this
+   *  one is (#128), so {@link commitFilesHtml} can now say they do nothing — on
+   *  three conditions it lists there, the third of which is not about the rows
+   *  and would be re-opened by #145 or #141.
    *
    *  The `.gitFile` match survives in front of the scope check as a cheap way
    *  in, not as a second scoping rule: `cdvFileRows` is the only thing that says
@@ -5324,12 +5581,72 @@ class GitGraphView {
     });
   }
 
+  /** The scoped counterpart of `addListenerToClass`, and the only one
+   *  {@link attachCdvFileListeners} may use: it binds within {@link cdvPanel}
+   *  instead of across the whole document.
+   *
+   *  Scoped here rather than by giving the shared helper a root parameter. A
+   *  root would have to default to `document` — nothing else could be added
+   *  without touching every call site at once — so the wrong scope would stay
+   *  the *default*, and the next class family rendered in two places would
+   *  repeat this bug while reading exactly like the calls around it. Scope
+   *  belongs to the caller that knows what it renders, and the one this caller
+   *  needs already exists: {@link cdvPanel}, drawn for the focus path by #113.
+   *  Not a third scoping rule — the same one.
+   *
+   *  Binding, unlike {@link cdvFileRows}, must reach rows inside a *collapsed*
+   *  folder as well: opening a folder unhides its rows without re-rendering
+   *  anything, and nothing re-binds afterwards.
+   *
+   *  No panel means nothing to bind — but that is unreachable today rather than
+   *  a case being handled: both callers of {@link attachCdvFileListeners} have
+   *  the panel in the document first, one having just inserted it.
+   *
+   *  Two differences from `addListenerToClass` that do not bite today and are
+   *  written down so they go on not biting: `querySelectorAll` never matches the
+   *  root itself, so a class on `#commitDetails` would not be bound; and
+   *  `className` is interpolated into a selector, so a space-separated pair would
+   *  read as a descendant combinator rather than as both classes.
+   *
+   *  **This covers the file rows and nothing else — see #144 for the rest.** The
+   *  dialog's copy of a commit also carries `.commitBodyLink` — the author and
+   *  committer mailto links, which {@link commitSummaryHtml} emits whether or not
+   *  it is `interactive` — and `tr.commit` rows of its own, and the handlers for
+   *  both are still bound document-wide, by `renderCommitDetailsPanel` and by the
+   *  graph's table render. Measured, not reasoned: after one redraw behind a
+   *  standing dialog, right-clicking one of its commit rows opens the graph's
+   *  full commit menu, Checkout and Reset among its items. Same root cause,
+   *  different class families, and a different scope (`#commitTable`), so #144
+   *  carries them rather than this. */
+  private addCdvListenerToClass(className: string, event: string, listener: EventListener) {
+    const panel = this.cdvPanel();
+    if (panel === null) return;
+    panel
+      .querySelectorAll<HTMLElement>("." + className)
+      .forEach((elem) => elem.addEventListener(event, listener));
+  }
+
+  /** The scoped counterpart of `addContextMenuListener`, wiring the same two
+   *  ways of raising a menu. Both, not just the pointer's: the keyboard's
+   *  `MENU_KEY_EVENT` is dispatched at whatever holds focus, and focus reaches
+   *  the dialog's rows the moment anything gives them a tab stop. */
+  private addCdvContextMenuListener(className: string, listener: EventListener) {
+    this.addCdvListenerToClass(className, "contextmenu", listener);
+    this.addCdvListenerToClass(className, MENU_KEY_EVENT, listener);
+  }
+
   /** Wire up the file rows of the Commit Details View file tree/list. Called on
    *  each render of the panel and again whenever the file section is re-rendered
-   *  by the tree/list layout toggle (the old rows are replaced wholesale). */
+   *  by the tree/list layout toggle (the old rows are replaced wholesale).
+   *
+   *  **Every binding here goes through {@link addCdvListenerToClass}, never
+   *  `addListenerToClass`.** Being called repeatedly is what makes that
+   *  load-bearing: an unscoped bind reaches rows that this function's callers do
+   *  not replace — the branch-redundancy dialog's — and leaves one more copy of
+   *  each handler on them every time (#128). */
   private attachCdvFileListeners() {
     this.restoreCdvFileTabStop();
-    addListenerToClass("gitFolder", "click", (e) => {
+    this.addCdvListenerToClass("gitFolder", "click", (e) => {
       let sourceElem = <HTMLElement>(<Element>e.target!).closest(".gitFolder");
       let parent = sourceElem.parentElement!;
       parent.classList.toggle("closed");
@@ -5338,6 +5655,12 @@ class GitGraphView {
         ? svgIcons.openFolder
         : svgIcons.closedFolder;
       parent.children[1].classList.toggle("hidden");
+      // Both `!`s rest on the scope, not on luck: this handler only exists on
+      // rows inside {@link cdvPanel}, and `clearExpandedCommit` removes that
+      // panel and nulls `expandedCommit` in the same breath. Unscoped, the
+      // dialog's rows kept the handler after the panel closed and this line
+      // threw for every redraw the dialog had lived through (#128) — which is
+      // why the fix is the scope rather than a null check here.
       alterGitFileTree(
         this.expandedCommit!.fileTree!,
         decodeURIComponent(sourceElem.dataset.folderpath!),
@@ -5347,7 +5670,7 @@ class GitGraphView {
       this.restoreCdvFileTabStop();
       this.saveState();
     });
-    addListenerToClass("gitFile", "click", (e) => {
+    this.addCdvListenerToClass("gitFile", "click", (e) => {
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFile")!;
       if (this.expandedCommit === null) return;
       // If the entry is a known sub-repository (e.g. a changed submodule gitlink),
@@ -5369,7 +5692,7 @@ class GitGraphView {
         type: <GitFileChangeType>sourceElem.dataset.type
       });
     });
-    addListenerToClass("gitFileCopyPath", "click", (e) => {
+    this.addCdvListenerToClass("gitFileCopyPath", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileCopyPath")!;
       sendMessage({
@@ -5378,7 +5701,7 @@ class GitGraphView {
         data: decodeURIComponent(sourceElem.dataset.filepath!)
       });
     });
-    addContextMenuListener("gitFile", (e: Event) => {
+    this.addCdvContextMenuListener("gitFile", (e: Event) => {
       e.stopPropagation();
       if (this.expandedCommit === null) return;
       const sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFile")!;
@@ -5478,7 +5801,7 @@ class GitGraphView {
       }
       showContextMenu(<MouseEvent>e, menu, sourceElem);
     });
-    addListenerToClass("gitFileOpen", "click", (e) => {
+    this.addCdvListenerToClass("gitFileOpen", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileOpen")!;
       sendMessage({
@@ -5488,7 +5811,7 @@ class GitGraphView {
         commitHash: this.cdvHash
       });
     });
-    addListenerToClass("gitFileViewRev", "click", (e) => {
+    this.addCdvListenerToClass("gitFileViewRev", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       if (this.expandedCommit === null) return;
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileViewRev")!;
@@ -5499,7 +5822,7 @@ class GitGraphView {
         filePath: decodeURIComponent(sourceElem.dataset.filepath!)
       });
     });
-    addListenerToClass("gitFileDiffWorking", "click", (e) => {
+    this.addCdvListenerToClass("gitFileDiffWorking", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       if (this.expandedCommit === null) return;
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileDiffWorking")!;
@@ -5538,17 +5861,34 @@ class GitGraphView {
    *  layout the repo is set to. Shared with the branch-redundancy dialog so a
    *  commit's files read the same wherever they are shown.
    *
-   *  **The dialog's copy is not inert**, though this comment said so for a long
-   *  time on the grounds that the diff actions are bound to the graph's expanded
-   *  row. They are bound through `addListenerToClass`, which is
-   *  `document.getElementsByClassName` and so has no scope at all: every call of
-   *  `attachCdvFileListeners` reaches every `.gitFile` on the page, the dialog's
-   *  included. Once any redraw of the panel has run while the dialog is open,
-   *  clicking one of its rows sends `viewDiff` carrying the path from *that* row
-   *  and the commit from the graph's expanded one, and each further redraw binds
-   *  another copy of the handler to the same rows. Pre-existing, and out of
-   *  scope for #113, which fixed the same unscoped-selector mistake on the focus
-   *  path only; see issue #128. */
+   *  **The dialog's copy is inert, and it rests on three legs, not one.** First,
+   *  nothing here binds a listener — the generator emits markup only. Second,
+   *  the panel's own binding stays out: {@link attachCdvFileListeners} goes
+   *  through {@link addCdvListenerToClass}, scoped to {@link cdvPanel}. Third —
+   *  and this leg is held up by something that is not about these rows at all —
+   *  the rows ship at `tabindex="-1"` and match both `MENU_SOURCES` and
+   *  `ACTIVATABLE`, whose handlers *are* still document-wide; what keeps them
+   *  off is that the one document `keydown` listener returns as soon as
+   *  `isDialogOpen()`, above every branch that reads either constant, and a
+   *  dialog row exists only while a dialog is open.
+   *
+   *  **So check the third leg when #145 or #141 lands.** #145 would give these
+   *  rows a tab stop, and #141 would contain focus in the dialog; either changes
+   *  what can be focused here, and the third leg survives only because that
+   *  early return outranks the branches — not because the rows are unreachable.
+   *  The first two legs are this ticket's and hold on their own.
+   *
+   *  This comment claimed inertness for years on a different ground that was never
+   *  true — that the row actions are bound to the graph's expanded row — while
+   *  the binding actually went through `addListenerToClass`, i.e.
+   *  `document.getElementsByClassName`, which has no scope at all. Every call of
+   *  `attachCdvFileListeners` reached every `.gitFile` on the page, the dialog's
+   *  included, so after one redraw a click here sent `viewDiff` carrying the
+   *  path from *that* row and the commit from the graph's expanded one, and each
+   *  further redraw bound another copy (#128). The claim is kept, its reason
+   *  replaced: an inert list is a property of who binds, not of who renders, and
+   *  the next person to render a commit's files somewhere new inherits the
+   *  claim only if they leave the scope alone. */
   public commitFilesHtml(fileChanges: GitFileChange[]): string {
     const fileTree = generateGitFileTree(fileChanges);
     if (this.config.fileTreeCompactFolders) compactGitFileTree(fileTree);
@@ -7160,6 +7500,13 @@ function showDialog(
   sourceElem: HTMLElement | null,
   onDismiss?: () => void
 ) {
+  // Writing over the batch retry offer takes away a question with neither
+  // answer given, and the run behind it has no other way to hear about that
+  // (#125). This is the one funnel every dialog is raised through, so it is the
+  // one place that catches all of the offer's destruction routes rather than
+  // the eight-and-counting call sites that take it. Before the new markup, so
+  // the dialog arriving here keeps the screen — see `abandonBatchRun`.
+  if (document.getElementById("batchRetryOffer") !== null) gitGraph.abandonBatchRun();
   dialogBacking.className = "active";
   dialog.className = "active";
   dialog.innerHTML =
@@ -7192,6 +7539,12 @@ function hideDialog() {
     dialogMenuSource.classList.remove("dialogActive");
     dialogMenuSource = null;
   }
+  // The slot is empty; a batch summary owed one is now due. As a microtask
+  // rather than a call, because closing is rarely the last thing a route does
+  // — the Yes that closes this dialog goes on to raise the next one — and the
+  // summary is only due if the slot is *still* free once it has (see
+  // `deliverOwedBatchSummary`, which checks).
+  queueMicrotask(() => gitGraph.deliverOwedBatchSummary());
 }
 /** Close the dialog the way its own Dismiss button does, running whatever it
  *  declared for that. The hook is read before the close so that a hook which
@@ -7202,11 +7555,19 @@ function dismissDialog() {
   if (onDismiss !== null) onDismiss();
 }
 
+/** Whether a modal dialog is up. Three callers want quite different things of
+ *  it — one closes the dialog, one hands it the keyboard, one holds automatic
+ *  loading back (#124) — and what they share is the question, not the answer,
+ *  which is why this is the question rather than a third spelling of it. */
+function isDialogOpen() {
+  return dialog.classList.contains("active");
+}
+
 /** Escape, and the other places that close both overlays on the user's behalf.
  *  A dismissal, not a plain close: reaching here means the user walked away
  *  from the dialog rather than answering it. */
 function hideDialogAndContextMenu() {
-  if (dialog.classList.contains("active")) dismissDialog();
+  if (isDialogOpen()) dismissDialog();
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
@@ -7264,7 +7625,7 @@ function pageScrollStep() {
   return Math.max(window.innerHeight - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
 }
 document.addEventListener("keydown", (e) => {
-  if (dialog.classList.contains("active")) {
+  if (isDialogOpen()) {
     // Enter submits the dialog's primary (left) action, but not while an IME
     // composition is in progress (e.g. the Enter that confirms a CJK candidate
     // on macOS reports isComposing on keydown). The action's own click handler

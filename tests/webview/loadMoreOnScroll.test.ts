@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
@@ -28,6 +29,9 @@ import {
 // loaded commit window therefore carries across scenarios: it opens at the
 // fixture's initialLoadCommits (300) and each accepted load adds loadMoreCount
 // (100).
+
+const L = getWebviewLocalizedStrings();
+const E = "…"; // the rendered form of the ELLIPSIS entity
 
 const viewState = makeViewState({ loadMoreAutomatically: true });
 
@@ -116,6 +120,34 @@ function press(key: string) {
 
 function tabStops() {
   return Array.from(document.querySelectorAll<HTMLElement>('#commitTable [tabindex="0"]'));
+}
+
+/** Activate a context-menu item by its label. `toBeDefined`, not
+ *  `not.toBeNull`: `find` yields `undefined` when nothing matches, and a null
+ *  check would pass on it — leaving the scenario to fail later, somewhere that
+ *  reads like the behaviour under test (issue #131). */
+function clickItem(label: string) {
+  const item = Array.from(
+    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
+  ).find((li) => (li.textContent ?? "").trim() === label);
+  expect(item, label).toBeDefined();
+  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+function click(id: string) {
+  const elem = document.getElementById(id);
+  expect(elem, id).not.toBeNull();
+  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+function dialogIsOpen() {
+  return document.getElementById("dialog")!.classList.contains("active");
+}
+
+/** What the footer says the loaded commit window is, or null when it is still
+ *  at the opening count and the footer carries no line. */
+function windowCount() {
+  return document.getElementById("loadedCommitWindowCount")?.textContent ?? null;
 }
 
 describe("automatic loading on scroll", () => {
@@ -268,6 +300,134 @@ describe("automatic loading on scroll", () => {
     it("enters the grid from the top on the next arrow key, as it always did", () => {
       press("ArrowDown");
       expect(document.activeElement).toBe(row("aaa111"));
+    });
+  });
+
+  // A modal dialog is the one state in which a scroll event is certainly not
+  // browsing the graph: `#dialogBacking` is an unscrollable full-screen
+  // overlay, so a wheel over it chains to the document and `scroll` fires
+  // while the user is reading a question about something else entirely.
+  //
+  // ADR-0019's grounds for keeping automatic loading are that the loaded
+  // commit window it widens stays visible and has a way back — and the footer
+  // carrying both is behind that same overlay. Widening the window there is
+  // widening it out of the user's sight, with the one control that shrinks it
+  // covered up.
+  //
+  // Scoped to the wheel, and the scoping is the point rather than an omission.
+  // `showDialog` provides no focus containment — no `inert` on the background,
+  // no focus trap, no focus move — so a dialog is not modal to the keyboard at
+  // all, and every background control stays tabbable and pressable behind it
+  // (#141). The footer's Load More is simply the one of those that reaches
+  // this suite's subject: Tab and Space still widen the window from behind the
+  // overlay, which findLoadPlanBoundAtConsent drives its scenarios with, so it
+  // is pinned somewhere rather than assumed here. A defect in the dialog, not
+  // in this listener.
+  describe("reaching the bottom while a modal dialog is up", () => {
+    let requestedBehindTheDialog: GG.RequestMessage[] = [];
+    let windowBehindTheDialog: string | null = null;
+    let requestedAfterDismissal: GG.RequestMessage[] = [];
+
+    beforeAll(() => {
+      // A real dialog, raised the way the user raises one.
+      row("aaa111").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+      clickItem(L.addTag + E);
+      expect(dialogIsOpen(), "the dialog the scenario is about").toBe(true);
+
+      parkViewportAt(NEAR_BOTTOM);
+      mock.clearMessages();
+      document.dispatchEvent(new Event("scroll"));
+      requestedBehindTheDialog = loadCommitsRequests();
+      windowBehindTheDialog = windowCount();
+
+      document
+        .getElementById("dialogDismiss")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      mock.clearMessages();
+      document.dispatchEvent(new Event("scroll"));
+      requestedAfterDismissal = loadCommitsRequests();
+      receive(commitsResponse(nextPage));
+    });
+
+    it("asks for nothing, the user being sat in a dialog rather than browsing", () => {
+      expect(requestedBehindTheDialog).toHaveLength(0);
+    });
+
+    it("leaves the loaded commit window at the width the user last saw", () => {
+      // 600: the opening 300 plus the three accepted loads above. The window
+      // may not grow behind an overlay that hides both the count and the
+      // control that shrinks it.
+      expect(windowBehindTheDialog).toBe(L.loadedCommitWindow.replace("{0}", "600"));
+    });
+
+    it("is deferred by the dialog, not switched off by it", () => {
+      expect(requestedAfterDismissal).toMatchObject([{ maxCommits: 700 }]);
+      expect(windowCount()).toBe(L.loadedCommitWindow.replace("{0}", "700"));
+    });
+  });
+
+  // The footer's Load More and this listener share `loadMoreCommits`, and as of
+  // #137 a refused *press* says so — a button that answers with nothing is
+  // indistinguishable from a dead one. This path may not inherit that. The
+  // title of ADR-0019 is that automatic loading on scroll must not produce
+  // operation-level side effects, and an error dialog raised in front of a user
+  // who only scrolled is one of the plainest: reaching the bottom is browsing,
+  // and 「使用者什麼都沒要求」 — there is no request to refuse and nobody to
+  // report to. A dialog here would also take the graph's keyboard away and,
+  // once up, gate this very listener (#124), so one page too many would cost
+  // the user every page after it.
+  //
+  // There is no precedent to lean on: until #137 the two paths shared every
+  // effect they had. That ADR's 後果 section reads like an earlier divergence
+  // but is not one — `hideCommitDetails()` came off *both* paths, which is them
+  // agreeing about everything. This is the first thing they do not share, which
+  // is why it needs a test rather than a convention.
+  describe("reaching the bottom while a commit load is already in flight", () => {
+    let requestedOnTrigger: GG.RequestMessage[] = [];
+    let dialogAfterTheScroll = true;
+    let windowAfterTheScroll: string | null = null;
+    let requestedOnceItLanded: GG.RequestMessage[] = [];
+
+    beforeAll(() => {
+      // A refresh whose branches half has landed and whose commits half has
+      // not: exactly one load in flight, and nothing standing on screen.
+      click("refreshBtn");
+      receive(branchesResponse);
+      expect(dialogIsOpen(), "nothing standing when the scroll arrives").toBe(false);
+
+      parkViewportAt(NEAR_BOTTOM);
+      mock.clearMessages();
+      document.dispatchEvent(new Event("scroll"));
+      requestedOnTrigger = loadCommitsRequests();
+      dialogAfterTheScroll = dialogIsOpen();
+      windowAfterTheScroll = windowCount();
+
+      // The control. "Asked for nothing and said nothing" is also what a
+      // viewport short of the threshold reports, and what a panel with
+      // automatic loading switched off reports — so the same viewport and the
+      // same event are run again with nothing in flight, and this time they
+      // must ask.
+      receive(commitsResponse(nextPage));
+      mock.clearMessages();
+      document.dispatchEvent(new Event("scroll"));
+      requestedOnceItLanded = loadCommitsRequests();
+      receive(commitsResponse(nextPage));
+    });
+
+    it("asks for nothing, one commit load being all this panel ever has out", () => {
+      expect(requestedOnTrigger).toHaveLength(0);
+    });
+
+    it("says nothing either — the user scrolled, and scrolling asked for nothing", () => {
+      expect(dialogAfterTheScroll).toBe(false);
+    });
+
+    it("leaves the loaded commit window reading what the user last saw", () => {
+      expect(windowAfterTheScroll).toBe(L.loadedCommitWindow.replace("{0}", "700"));
+    });
+
+    it("asks again once that load lands, so the threshold was live throughout", () => {
+      expect(requestedOnceItLanded).toHaveLength(1);
     });
   });
 });

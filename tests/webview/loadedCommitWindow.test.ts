@@ -114,6 +114,21 @@ function startInFlightLoad() {
   receive(branchesResponse);
 }
 
+/** Whatever the dialog is currently saying, or "" when none is up. */
+function dialogText() {
+  const elem = document.getElementById("dialog")!;
+  return elem.classList.contains("active") ? (elem.textContent ?? "") : "";
+}
+
+/** Close whatever dialog is standing, so it cannot disarm the next scenario.
+ *  Optional-chained for the reason droppedLoadRequests spells out on its copy:
+ *  cleanup must not throw where an assertion should fail. */
+function dismissAnyDialog() {
+  document
+    .getElementById("dialogDismiss")
+    ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
 describe("the loaded commit window on screen", () => {
   beforeAll(async () => {
     vi.resetModules();
@@ -250,6 +265,7 @@ describe("the loaded commit window on screen", () => {
   describe("the reset entry pressed while a load is in flight", () => {
     let requestedOnPress: GG.RequestMessage[] = [];
     let lineOnPress: string | null = null;
+    let refusal = "";
 
     beforeAll(() => {
       click("loadMoreCommitsBtn"); // widen it again, to 400
@@ -259,6 +275,8 @@ describe("the loaded commit window on screen", () => {
       click("resetLoadedCommitWindowBtn");
       requestedOnPress = loadCommitsRequests();
       lineOnPress = windowCount();
+      refusal = dialogText();
+      dismissAnyDialog();
     });
 
     it("sends nothing", () => {
@@ -267,6 +285,15 @@ describe("the loaded commit window on screen", () => {
 
     it("leaves the line reading the window the graph still has", () => {
       expect(lineOnPress).toBe(L.loadedCommitWindow.replace("{0}", "400"));
+    });
+
+    it("says so, rather than leaving a way back that does nothing", () => {
+      // The condition ADR-0019 keeps automatic loading on is that the window is
+      // visible *and* has a way back. A way back that answers a press with
+      // nothing at all is indistinguishable from a dead button — the rule
+      // `confirmForRepoAndHead` states in as many words, and the same refusal
+      // #79 gave the commit-ordering menu.
+      expect(refusal).toContain(L.dialogResetWindowBusy);
     });
 
     describe("and once the in-flight load lands", () => {
