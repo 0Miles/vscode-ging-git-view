@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
@@ -30,6 +31,8 @@ import {
 // suite the pin exists for is written from. loadMoreOnScroll.test.ts, which
 // owns the automatic path, cannot stand in for that: it parks itself at
 // NEAR_BOTTOM on purpose.
+
+const L = getWebviewLocalizedStrings();
 
 const viewState = makeViewState();
 
@@ -102,6 +105,22 @@ function startInFlightLoad() {
   receive(branchesResponse);
 }
 
+/** Whatever the dialog is currently saying, or "" when none is up. */
+function dialogText() {
+  const elem = document.getElementById("dialog")!;
+  return elem.classList.contains("active") ? (elem.textContent ?? "") : "";
+}
+
+/** Close whatever dialog is standing. Load-bearing in this file rather than
+ *  merely tidy: the scroll listener is gated on a dialog being up (#124), and
+ *  the last scenario here dispatches scrolls. Optional-chained for the reason
+ *  droppedLoadRequests spells out on its copy. */
+function dismissAnyDialog() {
+  document
+    .getElementById("dialogDismiss")
+    ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
 function loadCommitsRequests() {
   return mock.sentMessages.filter((m) => m.command === "loadCommits");
 }
@@ -172,16 +191,52 @@ describe("Load More", () => {
   });
 
   describe("dropped because a load is in flight", () => {
+    let refusal = "";
+    let footerAfterTheRefusal: HTMLElement | null = null;
+    let spinnerAfterTheRefusal: HTMLElement | null = null;
+
     beforeAll(() => {
       receive(commitsResponse); // settle the previous press
       startInFlightLoad();
       mock.clearMessages();
       click("loadMoreCommitsBtn");
+      refusal = dialogText();
+      footerAfterTheRefusal = document.getElementById("loadMoreCommitsBtn");
+      spinnerAfterTheRefusal = document.getElementById("loadingHeader");
+      dismissAnyDialog();
     });
 
     it("leaves the footer offering the button, with no loading header left spinning", () => {
-      expect(document.getElementById("loadingHeader")).toBeNull();
-      expect(document.getElementById("loadMoreCommitsBtn")).not.toBeNull();
+      expect(spinnerAfterTheRefusal).toBeNull();
+      expect(footerAfterTheRefusal).not.toBeNull();
+    });
+
+    it("says so, rather than answering a press with nothing", () => {
+      // The button the user pressed does not move, nothing loads, no error, and
+      // the next press works — the shape of a dead button, not of a refusal
+      // (`confirmForRepoAndHead`, and #79's same refusal for the
+      // commit-ordering menu). This is the *press*; the scroll listener shares
+      // this function and must stay silent, which loadMoreOnScroll pins.
+      expect(refusal).toContain(L.dialogLoadMoreBusy);
+    });
+
+    describe("and once the in-flight load lands", () => {
+      let requestedOnTheRetry: GG.RequestMessage[] = [];
+
+      beforeAll(() => {
+        receive(commitsResponse);
+        mock.clearMessages();
+        click("loadMoreCommitsBtn");
+        requestedOnTheRetry = loadCommitsRequests();
+      });
+
+      it("takes the same press, so the refusal said something true", () => {
+        // The message tells the user to wait and try again, so it has to be
+        // worth acting on. Without this the refusal would read identically
+        // against a button that had gone dead for good — which is the failure
+        // the guard's own docstring records having caused once already.
+        expect(requestedOnTheRetry).toMatchObject([{ maxCommits: 600 }]);
+      });
     });
   });
 

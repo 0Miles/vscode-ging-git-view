@@ -134,11 +134,16 @@ function savedMaxCommits() {
  *  standing wherever the earlier ones left the window. */
 const ADDITIONAL_COMMITS = 401;
 
-/** Step Find onto a branch that far below the loaded window and leave its
- *  confirmation dialog up. Find has been open since the first scenario, so
- *  every commit load that lands re-requests the branch index; this answers the
- *  newest request. */
-function raiseFindLoadConfirmation() {
+/** Press Enter on a Find match that far below the loaded window, and see the
+ *  step through to the point where the webview decides what to do about it.
+ *  Find has been open since the first scenario, so every commit load that lands
+ *  re-requests the branch index; this answers the newest request.
+ *
+ *  A branch match is the only kind that can reach `loadFindMatch`'s guards at
+ *  all: `planFindLoad` returns null for anything already drawn, and by
+ *  construction `buildFindMatches` only ever leaves a match `loaded: false`
+ *  when a branch names it. */
+function stepFindOntoDeepBranch() {
   const deepBranch = {
     ref: "feature/ancient",
     name: "feature/ancient",
@@ -166,6 +171,12 @@ function raiseFindLoadConfirmation() {
     status: null,
     branches: [deepBranch]
   });
+}
+
+/** The same step, taken with nothing in flight so that it gets as far as asking
+ *  the user, and left standing there. */
+function raiseFindLoadConfirmation() {
+  stepFindOntoDeepBranch();
   expect(document.getElementById("dialogAction"), "confirmation dialog").not.toBeNull();
 }
 
@@ -499,6 +510,7 @@ describe("a commit load request arriving while one is in flight", () => {
   describe("from a Find navigation the user was still confirming", () => {
     let windowBefore = 0;
     let confirmText = "";
+    let refusal = "";
 
     beforeAll(() => {
       // Nothing outstanding to settle: the two scenarios above answered both
@@ -514,6 +526,8 @@ describe("a commit load request arriving while one is in flight", () => {
       mock.clearMessages();
 
       click("dialogAction"); // and only now does the user press Yes
+      refusal = dialogText();
+      dismissAnyDialog();
     });
 
     it("asked first, the match being that far past the loaded window", () => {
@@ -522,6 +536,14 @@ describe("a commit load request arriving while one is in flight", () => {
 
     it("does not reload the graph", () => {
       expect(sentOf("loadCommits")).toHaveLength(0);
+    });
+
+    it("says so, rather than answering Yes with nothing at all", () => {
+      // "Pressed Yes, nothing happened" — the half-state the `now === null`
+      // branch further down the same function already refuses by name, on the
+      // same ADR. A question the user answered is the loudest possible claim
+      // that something was about to happen.
+      expect(refusal).toContain(L.dialogFindLoadBusy);
     });
 
     it("does not widen the loaded commit window for the page it never asked for", () => {
@@ -615,6 +637,68 @@ describe("a commit load request arriving while one is in flight", () => {
 
     it("leaves no busy indicator behind either", () => {
       expect(refreshing()).toBe(false);
+    });
+  });
+
+  // The earlier of `loadFindMatch`'s two guards, and the one the user meets
+  // most easily: the match needs a page, a background load already has the one
+  // request this panel allows itself, and the step is refused before any
+  // question is ever asked. Both callers give up on `hold` without a word, so
+  // Enter — or Next, or Previous — moved the graph not at all and reported
+  // nothing.
+  //
+  // `hold` has two sources and only this one is silent: the other is the
+  // confirmation dialog, which the user is looking at. So the refusal belongs
+  // at the guard rather than at the callers, which cannot tell the two apart.
+  describe("from a Find step that needs a page, with a load already in flight", () => {
+    let windowAfterThePress = 0;
+    let refusal = "";
+    let requestedOnRefusal: unknown[] = [];
+
+    beforeAll(() => {
+      // Nothing outstanding: the soft refresh above answered both its halves.
+      // A Load More page in flight takes the one request the panel allows.
+      click("loadMoreCommitsBtn");
+      windowAfterThePress = savedMaxCommits();
+      const sentBeforeTheStep = sentOf("loadCommits").length;
+
+      stepFindOntoDeepBranch();
+      refusal = dialogText();
+      // Counted from a mark rather than from a cleared log: the token on the
+      // newest branchSearch is what the step's own answers are addressed to,
+      // and clearing would take it with them.
+      requestedOnRefusal = sentOf("loadCommits").slice(sentBeforeTheStep);
+      dismissAnyDialog();
+    });
+
+    it("says so, rather than leaving Enter looking broken", () => {
+      expect(refusal).toContain(L.dialogFindStepBusy);
+    });
+
+    it("does not reload the graph", () => {
+      expect(requestedOnRefusal).toHaveLength(0);
+    });
+
+    it("does not widen the loaded commit window for a page it never asked for", () => {
+      expect(savedMaxCommits()).toBe(windowAfterThePress);
+    });
+
+    describe("and once the in-flight load lands", () => {
+      let confirmationOnTheRetry: HTMLElement | null = null;
+
+      beforeAll(() => {
+        receive(commitsResponse);
+        stepFindOntoDeepBranch();
+        confirmationOnTheRetry = document.getElementById("dialogAction");
+        dismissAnyDialog();
+      });
+
+      it("takes the same step, so the refusal was a deferral", () => {
+        // The step gets as far as asking, which is where it would have got had
+        // nothing been in flight the first time. A refusal that stayed refused
+        // would be a worse bug than the silence it replaced.
+        expect(confirmationOnTheRetry).not.toBeNull();
+      });
     });
   });
 });
