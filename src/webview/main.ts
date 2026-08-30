@@ -1484,6 +1484,115 @@ class GitGraphView {
     this.config.grid.offsetY = headerHeight + this.config.grid.y / 2;
     this.graph.render(inlineExpanded);
   }
+
+  /** Bind `event` on every element under `root` carrying `className`. The one
+   *  implementation behind both scoped families — {@link addGraphListenerToClass}
+   *  for the graph's table, {@link addCdvListenerToClass} for the Commit Details
+   *  View — which exist to name a root, not to bind differently.
+   *
+   *  **`root` is required, and that is the whole of the difference from
+   *  `addListenerToClass`.** The exported helper keeps its signature on purpose,
+   *  and the argument for that (in `utils/dom.ts`) is narrower than it first
+   *  reads: a root parameter *there* would have to default to `document`,
+   *  because nothing else could be added without changing every remaining call
+   *  site at once — so the wrong scope would stay the **default**, and the next
+   *  class family rendered in two places would repeat #128 and #144 while
+   *  reading exactly like the calls around it. A *private* helper that cannot be
+   *  called without a root carries none of that: there is no default left to be
+   *  wrong. So the objection was always to a defaulted root on a shared exported
+   *  helper, never to scoping itself, and this is where the two scoped families
+   *  stop being two copies of one loop.
+   *
+   *  Two differences from `addListenerToClass` that do not bite today and are
+   *  written down so they go on not biting: `querySelectorAll` never matches the
+   *  root itself, so a class on `#commitTable` or on `#commitDetails` would not
+   *  be bound; and `className` is interpolated into a selector, so a
+   *  space-separated pair would read as a descendant combinator rather than as
+   *  both classes.
+   *
+   *  The two families differ in one thing only, and it is why just one of them
+   *  checks for a missing root: `tableElem` is non-nullable and set in the
+   *  constructor, so the graph always has a table, while {@link cdvPanel} returns
+   *  `null` whenever no panel is open. */
+  private addScopedListenerToClass(
+    root: HTMLElement,
+    className: string,
+    event: string,
+    listener: EventListener
+  ) {
+    root
+      .querySelectorAll<HTMLElement>("." + className)
+      .forEach((elem) => elem.addEventListener(event, listener));
+  }
+
+  /** Wire a context-menu handler within `root` to both ways of raising one — the
+   *  scoped counterpart of `addContextMenuListener`. Both, not just the
+   *  pointer's: the keyboard's `MENU_KEY_EVENT` is dispatched at whatever holds
+   *  focus, and focus reaches the branch-redundancy dialog's rows the moment
+   *  anything gives them a tab stop (#141, #145). */
+  private addScopedContextMenuListener(
+    root: HTMLElement,
+    className: string,
+    listener: EventListener
+  ) {
+    this.addScopedListenerToClass(root, className, "contextmenu", listener);
+    this.addScopedListenerToClass(root, className, MENU_KEY_EVENT, listener);
+  }
+
+  /** The graph's root, named: the only binder {@link renderTable} may use for a
+   *  class the graph's *rows* carry, binding within `#commitTable` instead of
+   *  across the whole document.
+   *
+   *  **A class name is never proof of the graph.** The branch-redundancy dialog
+   *  builds its own commit list out of `redundancyCommitRow`, which emits
+   *  `<tr class="commit" data-hash="…">` — the same shape the graph's rows have
+   *  and the same shape both handlers here read a hash out of. Bound
+   *  document-wide, every redraw behind a standing dialog wired the graph's
+   *  click and context menu onto rows for commits the graph never loaded (#144).
+   *
+   *  Scope belongs to the caller that knows what it renders, and the scope this
+   *  one needs already existed: `this.tableElem` is `#commitTable`, which
+   *  {@link graphRows} has drawn for the focus path all along. Not a second
+   *  scoping rule — the same one named once more.
+   *
+   *  `tableElem` is read live rather than captured because `renderTable`
+   *  replaces its `innerHTML`, never the element, so the boundary outlives every
+   *  redraw that runs through here.
+   *
+   *  **Not every binding the graph makes goes through here.** What is left, and
+   *  what each one's safety rests on, is listed once beside `addListenerToClass`
+   *  in `utils/dom.ts` — next to the unscoped helper, which is where someone
+   *  adding a call site is actually looking. `tr.commit` was on that list until
+   *  the redundancy dialog started drawing commit rows.
+   *
+   *  **And binding is only half of it: five *reads* of `tr.commit` are still
+   *  document-wide**, each of which would take the dialog's row instead of the
+   *  graph's if one ever came first in document order. `#dialog` follows
+   *  `#commitTable` in `buildWebviewMarkup`, which is what makes them agree
+   *  today — a fact about the markup, not about any of the five lines:
+   *
+   *  - `renderTable`'s re-attach of the expanded commit below (the heaviest: it
+   *    picks the row an inline Commit Details View is inserted after, so a dialog
+   *    row would put the panel inside the modal). #144 removed the only way its
+   *    hash could name a commit the graph has not loaded, which is what made that
+   *    reachable, but the read itself is unchanged;
+   *  - the `commitBodyHash` click in {@link renderCommitDetailsPanel};
+   *  - `applyFindHighlights`, and the stash scroll in `scrollToStash`;
+   *  - `blinkHeadRow` in `utils/dom.ts`.
+   *
+   *  Left alone on purpose: they are a different defect from this one — reading
+   *  the wrong element rather than binding to it — and none has a failing test
+   *  to drive it. Filed rather than folded in. */
+  private addGraphListenerToClass(className: string, event: string, listener: EventListener) {
+    this.addScopedListenerToClass(this.tableElem, className, event, listener);
+  }
+
+  /** {@link addGraphListenerToClass}'s context-menu pair, wiring both ways of
+   *  raising one within `#commitTable`. */
+  private addGraphContextMenuListener(className: string, listener: EventListener) {
+    this.addScopedContextMenuListener(this.tableElem, className, listener);
+  }
+
   /** Rebuilds the commit table and hands back the one write it deliberately did
    *  not do — see {@link makeTableResizable} and {@link render}. Whoever calls
    *  this must run that write, and must run it after the last layout read of
@@ -1872,7 +1981,10 @@ class GitGraphView {
         headerElem
       );
     });
-    addContextMenuListener("commit", (e: Event) => {
+    // Scoped, like the click below: `.commit` is the dialog's shape too, and
+    // this menu is where that cost the most — 11 items, Checkout and Reset among
+    // them, aimed at whatever hash the clicked row carried (#144).
+    this.addGraphContextMenuListener("commit", (e: Event) => {
       e.stopPropagation();
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".commit")!;
       let hash = sourceElem.dataset.hash!;
@@ -2356,7 +2468,13 @@ class GitGraphView {
         sourceElem
       );
     });
-    addListenerToClass("commit", "click", (e: Event) => {
+    // The `!`s below rest on the scope, not on luck: every row this reaches was
+    // rendered by the loop above, so it has both a `data-id` and a `data-hash`.
+    // Unscoped, this also reached the redundancy dialog's rows, which have a
+    // hash but no id — `loadCommitDetails` parsed `NaN` for one, asked the host
+    // for a commit the graph had never loaded, and closed the panel standing
+    // behind the dialog before it did (#144).
+    this.addGraphListenerToClass("commit", "click", (e: Event) => {
       const mouseEvent = e as MouseEvent;
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".commit")!;
       const hash = sourceElem.dataset.hash!;
@@ -5260,6 +5378,16 @@ class GitGraphView {
    * message body. Shared with the branch-redundancy dialog, which renders the
    * same commit the same way.
    *
+   * **`interactive` governs the hashes only — never the mailto links.** Both
+   * `.commitBodyLink`s are emitted unconditionally, so a caller passing `false`
+   * still gets two elements of a class the Commit Details View binds a context
+   * menu to. That read as "the dialog's summary is inert" for as long as the
+   * binding was document-wide, and it was not: the panel's Copy Link menu opened
+   * on the dialog's links after any redraw (#144). The binding is scoped to the
+   * panel now, so the claim holds — but it holds because of where the *handler*
+   * goes, not because of this flag, and a third surface rendering a summary
+   * would inherit the markup without inheriting the scope.
+   *
    * `interactive` is false for that dialog: the clickable parent hashes and the
    * hashes linkified inside the body both navigate the graph's own rows, and a
    * commit listed in a dialog need not be among them.
@@ -5543,13 +5671,24 @@ class GitGraphView {
     document.getElementById("commitDetailsClose")!.addEventListener("click", () => {
       this.hideCommitDetails();
     });
-    addListenerToClass("cdvFileViewBtn", "click", (e) => {
+    // Nothing this function binds goes through `addListenerToClass`. Only the
+    // last of the three was actually leaking, but the panel is a surface the
+    // dialog copies wholesale, and a scoped call sitting next to an unscoped one
+    // is how the next class family gets bound the wrong way while reading
+    // exactly like its neighbours (#144).
+    this.addCdvListenerToClass("cdvFileViewBtn", "click", (e) => {
       const btn = <HTMLElement>(<Element>e.target).closest(".cdvFileViewBtn")!;
       this.setFileViewType(<GG.FileViewType>btn.dataset.viewtype);
     });
     this.attachCdvFileListeners();
-    addListenerToClass("commitBodyHash", "click", (e) => {
+    this.addCdvListenerToClass("commitBodyHash", "click", (e) => {
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".commitBodyHash")!;
+      // Left document-wide deliberately, though the destination is a *graph*
+      // row and this therefore wants the table. It is one of five unscoped
+      // reads of `tr.commit` that #144 does not touch — see the list at
+      // {@link addGraphListenerToClass}. Scoping one of the five and not the
+      // rest would read as though the other four had been considered and
+      // cleared, which they have not; they want one ticket and one test each.
       let row = document.querySelector<HTMLElement>(
         'tr.commit[data-hash="' + sourceElem.dataset.hash + '"]'
       );
@@ -5558,7 +5697,11 @@ class GitGraphView {
         this.loadCommitDetails(row);
       }
     });
-    addContextMenuListener("commitBodyLink", (e: Event) => {
+    // The dialog renders these too: `commitSummaryHtml` emits `.commitBodyLink`
+    // whether or not it is `interactive`, so asking for the non-interactive
+    // rendering does not opt out of them. Their scope is the panel's rather than
+    // the table's — a docked panel is not inside `#commitTable` at all.
+    this.addCdvContextMenuListener("commitBodyLink", (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".commitBodyLink")!;
@@ -5581,58 +5724,48 @@ class GitGraphView {
     });
   }
 
-  /** The scoped counterpart of `addListenerToClass`, and the only one
-   *  {@link attachCdvFileListeners} may use: it binds within {@link cdvPanel}
-   *  instead of across the whole document.
+  /** The Commit Details View's root, named: the only binder
+   *  {@link attachCdvFileListeners} or {@link renderCommitDetailsPanel} may use,
+   *  binding within {@link cdvPanel} instead of across the whole document.
    *
-   *  Scoped here rather than by giving the shared helper a root parameter. A
-   *  root would have to default to `document` — nothing else could be added
-   *  without touching every call site at once — so the wrong scope would stay
-   *  the *default*, and the next class family rendered in two places would
-   *  repeat this bug while reading exactly like the calls around it. Scope
-   *  belongs to the caller that knows what it renders, and the one this caller
-   *  needs already exists: {@link cdvPanel}, drawn for the focus path by #113.
-   *  Not a third scoping rule — the same one.
+   *  Scope belongs to the caller that knows what it renders, and the one this
+   *  caller needs already existed: {@link cdvPanel}, drawn for the focus path by
+   *  #113. Not a second scoping rule — the same one.
    *
    *  Binding, unlike {@link cdvFileRows}, must reach rows inside a *collapsed*
    *  folder as well: opening a folder unhides its rows without re-rendering
    *  anything, and nothing re-binds afterwards.
    *
    *  No panel means nothing to bind — but that is unreachable today rather than
-   *  a case being handled: both callers of {@link attachCdvFileListeners} have
-   *  the panel in the document first, one having just inserted it.
+   *  a case being handled: every caller has the panel in the document first.
+   *  {@link renderCommitDetailsPanel} binds only after it has inserted the panel
+   *  and reached into it by id, and both callers of
+   *  {@link attachCdvFileListeners} are downstream of that. The check is here
+   *  and not in {@link addGraphListenerToClass} because only this root can be
+   *  missing — see {@link addScopedListenerToClass}.
    *
-   *  Two differences from `addListenerToClass` that do not bite today and are
-   *  written down so they go on not biting: `querySelectorAll` never matches the
-   *  root itself, so a class on `#commitDetails` would not be bound; and
-   *  `className` is interpolated into a selector, so a space-separated pair would
-   *  read as a descendant combinator rather than as both classes.
-   *
-   *  **This covers the file rows and nothing else — see #144 for the rest.** The
-   *  dialog's copy of a commit also carries `.commitBodyLink` — the author and
-   *  committer mailto links, which {@link commitSummaryHtml} emits whether or not
-   *  it is `interactive` — and `tr.commit` rows of its own, and the handlers for
-   *  both are still bound document-wide, by `renderCommitDetailsPanel` and by the
-   *  graph's table render. Measured, not reasoned: after one redraw behind a
-   *  standing dialog, right-clicking one of its commit rows opens the graph's
-   *  full commit menu, Checkout and Reset among its items. Same root cause,
-   *  different class families, and a different scope (`#commitTable`), so #144
-   *  carries them rather than this. */
+   *  **The rest of the family arrived with #144, and it needed a second scope
+   *  rather than this one.** The dialog's copy of a commit also carries
+   *  `.commitBodyLink` — the author and committer mailto links, which
+   *  {@link commitSummaryHtml} emits whether or not it is `interactive` — and
+   *  `tr.commit` rows of its own. The links are the panel's, so they bind
+   *  through here. The commit rows are the *graph's*, and the graph is a
+   *  different element: {@link addGraphListenerToClass} binds those within
+   *  `#commitTable`. Neither scope contains the other — a docked panel is
+   *  appended to `<body>`, outside the table entirely — so this is two
+   *  boundaries because there are two surfaces, not two rules. */
   private addCdvListenerToClass(className: string, event: string, listener: EventListener) {
     const panel = this.cdvPanel();
     if (panel === null) return;
-    panel
-      .querySelectorAll<HTMLElement>("." + className)
-      .forEach((elem) => elem.addEventListener(event, listener));
+    this.addScopedListenerToClass(panel, className, event, listener);
   }
 
-  /** The scoped counterpart of `addContextMenuListener`, wiring the same two
-   *  ways of raising a menu. Both, not just the pointer's: the keyboard's
-   *  `MENU_KEY_EVENT` is dispatched at whatever holds focus, and focus reaches
-   *  the dialog's rows the moment anything gives them a tab stop. */
+  /** {@link addCdvListenerToClass}'s context-menu pair, wiring both ways of
+   *  raising one within {@link cdvPanel}. */
   private addCdvContextMenuListener(className: string, listener: EventListener) {
-    this.addCdvListenerToClass(className, "contextmenu", listener);
-    this.addCdvListenerToClass(className, MENU_KEY_EVENT, listener);
+    const panel = this.cdvPanel();
+    if (panel === null) return;
+    this.addScopedContextMenuListener(panel, className, listener);
   }
 
   /** Wire up the file rows of the Commit Details View file tree/list. Called on
