@@ -17,12 +17,29 @@ import {
 // the mutations was already re-taken on the far side of that wait
 // (droppedLoadRequests pins it); the *plan* was not.
 //
-// The window can still grow while the dialog stands. The overlay blocks the
-// mouse and the keydown handler returns early, so neither Load More nor the
-// keyboard can reach it — but the scroll listener has no dialog gate at all
-// (issue #124), the overlay is not scrollable, and the wheel chains to the
-// document. So a user who keeps scrolling behind the dialog widens the window,
-// then presses Yes against a plan sized for the narrower one.
+// The loaded commit window still grows while the dialog stands, and there are
+// two doors onto it. The wheel was one: `#dialogBacking` is not scrollable, so
+// a wheel over it chained to the document and the scroll listener — which had
+// no dialog gate — loaded another page. Issue #124 shut that one, and the
+// first scenario keeps a hand on it: five turns of the wheel behind the
+// question now load nothing.
+//
+// The footer's Load More is the other, and it is still open. The overlay hides
+// that button but does not disable it: `showDialog` sets two class names and an
+// `innerHTML`, and provides no focus containment whatever — no `inert` on the
+// background, no focus trap, no focus move — so Tab reaches a real `<button>`
+// and Space activates it natively, the keydown handler's dialog branch
+// returning without `preventDefault` and an activation it never saw not being
+// its to stop. So the widening in the scenarios below is driven by that
+// button, which is not a workaround for the gate but the case the gate does
+// not cover.
+//
+// That missing containment is #141, and it is wider than this file: it leaves
+// *every* background control tabbable and pressable behind a dialog, of which
+// Load More is the one that happens to move the loaded commit window. When
+// #141 lands, this door shuts too and these scenarios need a driver again —
+// the background reload is the candidate, since it moves the plan's other
+// input, the match, on the file watcher's schedule rather than the user's.
 //
 // `maxCommits` is assigned, not raised: the stale plan sets the window *back*,
 // and every commit past the older number is dropped from a graph that had
@@ -202,12 +219,38 @@ function raiseFindLoadConfirmation(back = false) {
   expect(document.getElementById("dialogAction"), "the confirmation dialog").not.toBeNull();
 }
 
-/** One turn of automatic loading behind the dialog: near the bottom, a scroll,
- *  and the page it asks for. Returns whether a request actually went out. */
-function scrollLoadsAnotherPage(page: GitCommitNode[] = [tip, base]) {
+/** One turn of the wheel over the overlay, which chains to the document and
+ *  fires `scroll` at the near-the-bottom threshold. Returns whether automatic
+ *  loading asked for anything — it may not, the dialog being up (#124).
+ *
+ *  A page that was asked for is answered before returning, so that the turns
+ *  after it are turns of the wheel rather than the in-flight guard: without
+ *  that, a regression would be counted once and the four turns behind it would
+ *  be swallowed by a load nobody had settled. */
+function scrollAsksForAPage(page: GitCommitNode[] = [tip, base]) {
   parkViewportAt(NEAR_BOTTOM);
   mock.clearMessages();
   document.dispatchEvent(new Event("scroll"));
+  const asked = loadCommitsRequests().length > 0;
+  if (asked) receive(commitsResponse(page));
+  return asked;
+}
+
+/** One press of the footer's Load More from the keyboard, behind the standing
+ *  dialog, and the page it asks for.
+ *
+ *  Focused first, because that is the whole point: the button is under the
+ *  overlay and no mouse can reach it, but nothing has taken it out of the tab
+ *  order. The press itself is dispatched as a click because that is what a
+ *  browser's activation behaviour does with Space on a focused `<button>`, and
+ *  jsdom implements no activation behaviour of its own. */
+function loadMorePressLoadsAPage(page: GitCommitNode[] = [tip, base]) {
+  const button = document.getElementById("loadMoreCommitsBtn");
+  expect(button, "the footer's Load More, behind the dialog").not.toBeNull();
+  button!.focus();
+  expect(document.activeElement, "nothing traps focus inside the dialog").toBe(button);
+  mock.clearMessages();
+  button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   const asked = loadCommitsRequests().length > 0;
   if (asked) receive(commitsResponse(page));
   return asked;
@@ -225,8 +268,11 @@ describe("the size a confirmed Find load asks for", () => {
     click("findBtn");
   });
 
-  describe("when automatic loading widened the window while the question stood", () => {
+  // Both doors in one scenario, because they are two ways to the same place and
+  // splitting them would let a reader take the shut one for the whole story.
+  describe("when the window was widened while the question stood", () => {
     let planned = 0;
+    let loadedByWheel = 0;
     let windowBeforeYes = 0;
 
     beforeAll(() => {
@@ -236,14 +282,24 @@ describe("the size a confirmed Find load asks for", () => {
       // `git log` ruler `--max-count` counts on.
       planned = deepBranchLogDepth + 1;
 
-      // Five pages at loadMoreCount (100) each takes the window from the
-      // opening 300 to 800, which is past the 701 the plan was sized for.
+      // The wheel, five times over, at the near-the-bottom threshold. This is
+      // what used to widen the window here, and #124 is why it no longer does.
+      for (let i = 0; i < 5; i++) if (scrollAsksForAPage()) loadedByWheel++;
+
+      // The keyboard, five times over, on the button the overlay hides but does
+      // not disable. Five pages at loadMoreCount (100) each takes the window
+      // from the opening 300 to 800, which is past the 701 the plan was sized
+      // for.
       for (let i = 0; i < 5; i++) {
-        expect(scrollLoadsAnotherPage(), `automatic load ${i + 1} never went out`).toBe(true);
+        expect(loadMorePressLoadsAPage(), `press ${i + 1} never went out`).toBe(true);
       }
       windowBeforeYes = savedMaxCommits();
       mock.clearMessages();
       click("dialogAction");
+    });
+
+    it("no longer widens on the wheel, the dialog being up", () => {
+      expect(loadedByWheel).toBe(0);
     });
 
     it("really did overtake the plan while the dialog stood", () => {
@@ -274,10 +330,11 @@ describe("the size a confirmed Find load asks for", () => {
 
       // The page that lands brings the branch's own commit with it, so the
       // match Find is stepping onto is now drawn.
-      expect(scrollLoadsAnotherPage([tip, base, ancient])).toBe(true);
+      expect(loadMorePressLoadsAPage([tip, base, ancient])).toBe(true);
 
-      // An expanded Commit Details View, so the reload's cost is observable:
-      // the load path closes it to make room for a page that is not coming.
+      // An expanded Commit Details View, so the confirmed load's cost is
+      // observable: the load path closes it to make room for a page that is
+      // not coming.
       document
         .querySelector<HTMLElement>('tr.commit[data-hash="aaa111"]')!
         .dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -334,7 +391,7 @@ describe("the size a confirmed Find load asks for", () => {
       // a backwards direction.
       receive(commitsResponse([tip, base]));
       raiseFindLoadConfirmation(true);
-      expect(scrollLoadsAnotherPage([tip, base, ancUp, ancient, ancDn])).toBe(true);
+      expect(loadMorePressLoadsAPage([tip, base, ancUp, ancient, ancDn])).toBe(true);
       centred.length = 0;
       click("dialogAction");
       stepped = centred.filter((hash): hash is string => hash !== undefined);
