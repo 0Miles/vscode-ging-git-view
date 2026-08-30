@@ -4905,11 +4905,29 @@ class GitGraphView {
     return true;
   }
 
+  /** The open Commit Details View, or null when none is. **A class name is never
+   *  proof of the panel**, so this is where everything that has to tell the
+   *  panel's markup from a look-alike asks: the branch-redundancy dialog renders
+   *  a commit's files through the same `commitFilesHtml`, so `.gitFile`,
+   *  `.gitFolder` and every row action's class exist in the modal too, carrying
+   *  another commit's paths. The focus path (`cdvFileRows`, #113) and the
+   *  binding path ({@link addCdvListenerToClass}, #128) share this one answer
+   *  rather than each writing a selector.
+   *
+   *  Not every `getElementById("commitDetails")` in this class goes through it,
+   *  and the ones that don't are asking a different question: they want the
+   *  panel itself — to remove it, to replace it, or (in `renderGraph`) to
+   *  measure its height — not to decide whether some element already in hand
+   *  belongs to it. */
+  private cdvPanel(): HTMLElement | null {
+    return document.getElementById("commitDetails");
+  }
+
   /** The Commit Details View's file rows, in visual order. Files inside a
    *  collapsed folder are left out — `display: none` takes them out of the focus
    *  order, so stepping onto one would strand focus. */
   private cdvFileRows(): HTMLElement[] {
-    const panel = document.getElementById("commitDetails");
+    const panel = this.cdvPanel();
     if (panel === null) return [];
     return Array.from(panel.querySelectorAll<HTMLElement>(".gitFile")).filter(
       (file) => file.closest(".hidden") === null
@@ -5061,7 +5079,15 @@ class GitGraphView {
 
   /** Give the Commit Details View's file list a tab stop, so Tab can reach it
    *  at all. Re-run whenever the visible set changes — a fresh render leaves
-   *  every row at `-1`, and collapsing a folder can bury the row that held it. */
+   *  every row at `-1`, and collapsing a folder can bury the row that held it.
+   *
+   *  Only *this* list gets one. The branch-redundancy dialog's copy of a commit's
+   *  files is left with no tab stop of its own and so is unreachable by keyboard
+   *  — not a conclusion anyone reached, but a question that was asked and moved:
+   *  #128 was told to decide whether that list should be its own roving group and
+   *  the maintainer deferred it to **#145**, so that its own defect (the file
+   *  actions crossing between the two lists) could be fixed without a keyboard
+   *  design riding along. Read this as pending, not as settled. */
   private restoreCdvFileTabStop() {
     const held = this.cdvFileTabStop.current;
     if (held !== null && held.closest(".hidden") === null) return;
@@ -5087,9 +5113,12 @@ class GitGraphView {
    *  list stays unreachable until some *other* thing redraws it: a refresh, a
    *  page of commits, a layout toggle. The dialog's rows belong to no roving
    *  group, so there is no tab stop of theirs to keep and none to hand them:
-   *  leaving the panel's where it was is the whole of the fix. It claims nothing
-   *  about how those rows behave otherwise — see {@link commitFilesHtml}, where
-   *  they turn out not to be inert at all.
+   *  leaving the panel's where it was is the whole of the fix. It claimed
+   *  nothing about how those rows behave otherwise, and at the time they were
+   *  not inert at all; the binding path has since been scoped the same way this
+   *  one is (#128), so {@link commitFilesHtml} can now say they do nothing — on
+   *  three conditions it lists there, the third of which is not about the rows
+   *  and would be re-opened by #145 or #141.
    *
    *  The `.gitFile` match survives in front of the scope check as a cheap way
    *  in, not as a second scoping rule: `cdvFileRows` is the only thing that says
@@ -5472,12 +5501,72 @@ class GitGraphView {
     });
   }
 
+  /** The scoped counterpart of `addListenerToClass`, and the only one
+   *  {@link attachCdvFileListeners} may use: it binds within {@link cdvPanel}
+   *  instead of across the whole document.
+   *
+   *  Scoped here rather than by giving the shared helper a root parameter. A
+   *  root would have to default to `document` — nothing else could be added
+   *  without touching every call site at once — so the wrong scope would stay
+   *  the *default*, and the next class family rendered in two places would
+   *  repeat this bug while reading exactly like the calls around it. Scope
+   *  belongs to the caller that knows what it renders, and the one this caller
+   *  needs already exists: {@link cdvPanel}, drawn for the focus path by #113.
+   *  Not a third scoping rule — the same one.
+   *
+   *  Binding, unlike {@link cdvFileRows}, must reach rows inside a *collapsed*
+   *  folder as well: opening a folder unhides its rows without re-rendering
+   *  anything, and nothing re-binds afterwards.
+   *
+   *  No panel means nothing to bind — but that is unreachable today rather than
+   *  a case being handled: both callers of {@link attachCdvFileListeners} have
+   *  the panel in the document first, one having just inserted it.
+   *
+   *  Two differences from `addListenerToClass` that do not bite today and are
+   *  written down so they go on not biting: `querySelectorAll` never matches the
+   *  root itself, so a class on `#commitDetails` would not be bound; and
+   *  `className` is interpolated into a selector, so a space-separated pair would
+   *  read as a descendant combinator rather than as both classes.
+   *
+   *  **This covers the file rows and nothing else — see #144 for the rest.** The
+   *  dialog's copy of a commit also carries `.commitBodyLink` — the author and
+   *  committer mailto links, which {@link commitSummaryHtml} emits whether or not
+   *  it is `interactive` — and `tr.commit` rows of its own, and the handlers for
+   *  both are still bound document-wide, by `renderCommitDetailsPanel` and by the
+   *  graph's table render. Measured, not reasoned: after one redraw behind a
+   *  standing dialog, right-clicking one of its commit rows opens the graph's
+   *  full commit menu, Checkout and Reset among its items. Same root cause,
+   *  different class families, and a different scope (`#commitTable`), so #144
+   *  carries them rather than this. */
+  private addCdvListenerToClass(className: string, event: string, listener: EventListener) {
+    const panel = this.cdvPanel();
+    if (panel === null) return;
+    panel
+      .querySelectorAll<HTMLElement>("." + className)
+      .forEach((elem) => elem.addEventListener(event, listener));
+  }
+
+  /** The scoped counterpart of `addContextMenuListener`, wiring the same two
+   *  ways of raising a menu. Both, not just the pointer's: the keyboard's
+   *  `MENU_KEY_EVENT` is dispatched at whatever holds focus, and focus reaches
+   *  the dialog's rows the moment anything gives them a tab stop. */
+  private addCdvContextMenuListener(className: string, listener: EventListener) {
+    this.addCdvListenerToClass(className, "contextmenu", listener);
+    this.addCdvListenerToClass(className, MENU_KEY_EVENT, listener);
+  }
+
   /** Wire up the file rows of the Commit Details View file tree/list. Called on
    *  each render of the panel and again whenever the file section is re-rendered
-   *  by the tree/list layout toggle (the old rows are replaced wholesale). */
+   *  by the tree/list layout toggle (the old rows are replaced wholesale).
+   *
+   *  **Every binding here goes through {@link addCdvListenerToClass}, never
+   *  `addListenerToClass`.** Being called repeatedly is what makes that
+   *  load-bearing: an unscoped bind reaches rows that this function's callers do
+   *  not replace — the branch-redundancy dialog's — and leaves one more copy of
+   *  each handler on them every time (#128). */
   private attachCdvFileListeners() {
     this.restoreCdvFileTabStop();
-    addListenerToClass("gitFolder", "click", (e) => {
+    this.addCdvListenerToClass("gitFolder", "click", (e) => {
       let sourceElem = <HTMLElement>(<Element>e.target!).closest(".gitFolder");
       let parent = sourceElem.parentElement!;
       parent.classList.toggle("closed");
@@ -5486,6 +5575,12 @@ class GitGraphView {
         ? svgIcons.openFolder
         : svgIcons.closedFolder;
       parent.children[1].classList.toggle("hidden");
+      // Both `!`s rest on the scope, not on luck: this handler only exists on
+      // rows inside {@link cdvPanel}, and `clearExpandedCommit` removes that
+      // panel and nulls `expandedCommit` in the same breath. Unscoped, the
+      // dialog's rows kept the handler after the panel closed and this line
+      // threw for every redraw the dialog had lived through (#128) — which is
+      // why the fix is the scope rather than a null check here.
       alterGitFileTree(
         this.expandedCommit!.fileTree!,
         decodeURIComponent(sourceElem.dataset.folderpath!),
@@ -5495,7 +5590,7 @@ class GitGraphView {
       this.restoreCdvFileTabStop();
       this.saveState();
     });
-    addListenerToClass("gitFile", "click", (e) => {
+    this.addCdvListenerToClass("gitFile", "click", (e) => {
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFile")!;
       if (this.expandedCommit === null) return;
       // If the entry is a known sub-repository (e.g. a changed submodule gitlink),
@@ -5517,7 +5612,7 @@ class GitGraphView {
         type: <GitFileChangeType>sourceElem.dataset.type
       });
     });
-    addListenerToClass("gitFileCopyPath", "click", (e) => {
+    this.addCdvListenerToClass("gitFileCopyPath", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileCopyPath")!;
       sendMessage({
@@ -5526,7 +5621,7 @@ class GitGraphView {
         data: decodeURIComponent(sourceElem.dataset.filepath!)
       });
     });
-    addContextMenuListener("gitFile", (e: Event) => {
+    this.addCdvContextMenuListener("gitFile", (e: Event) => {
       e.stopPropagation();
       if (this.expandedCommit === null) return;
       const sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFile")!;
@@ -5626,7 +5721,7 @@ class GitGraphView {
       }
       showContextMenu(<MouseEvent>e, menu, sourceElem);
     });
-    addListenerToClass("gitFileOpen", "click", (e) => {
+    this.addCdvListenerToClass("gitFileOpen", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileOpen")!;
       sendMessage({
@@ -5636,7 +5731,7 @@ class GitGraphView {
         commitHash: this.cdvHash
       });
     });
-    addListenerToClass("gitFileViewRev", "click", (e) => {
+    this.addCdvListenerToClass("gitFileViewRev", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       if (this.expandedCommit === null) return;
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileViewRev")!;
@@ -5647,7 +5742,7 @@ class GitGraphView {
         filePath: decodeURIComponent(sourceElem.dataset.filepath!)
       });
     });
-    addListenerToClass("gitFileDiffWorking", "click", (e) => {
+    this.addCdvListenerToClass("gitFileDiffWorking", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       if (this.expandedCommit === null) return;
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileDiffWorking")!;
@@ -5686,17 +5781,34 @@ class GitGraphView {
    *  layout the repo is set to. Shared with the branch-redundancy dialog so a
    *  commit's files read the same wherever they are shown.
    *
-   *  **The dialog's copy is not inert**, though this comment said so for a long
-   *  time on the grounds that the diff actions are bound to the graph's expanded
-   *  row. They are bound through `addListenerToClass`, which is
-   *  `document.getElementsByClassName` and so has no scope at all: every call of
-   *  `attachCdvFileListeners` reaches every `.gitFile` on the page, the dialog's
-   *  included. Once any redraw of the panel has run while the dialog is open,
-   *  clicking one of its rows sends `viewDiff` carrying the path from *that* row
-   *  and the commit from the graph's expanded one, and each further redraw binds
-   *  another copy of the handler to the same rows. Pre-existing, and out of
-   *  scope for #113, which fixed the same unscoped-selector mistake on the focus
-   *  path only; see issue #128. */
+   *  **The dialog's copy is inert, and it rests on three legs, not one.** First,
+   *  nothing here binds a listener — the generator emits markup only. Second,
+   *  the panel's own binding stays out: {@link attachCdvFileListeners} goes
+   *  through {@link addCdvListenerToClass}, scoped to {@link cdvPanel}. Third —
+   *  and this leg is held up by something that is not about these rows at all —
+   *  the rows ship at `tabindex="-1"` and match both `MENU_SOURCES` and
+   *  `ACTIVATABLE`, whose handlers *are* still document-wide; what keeps them
+   *  off is that the one document `keydown` listener returns as soon as
+   *  `isDialogOpen()`, above every branch that reads either constant, and a
+   *  dialog row exists only while a dialog is open.
+   *
+   *  **So check the third leg when #145 or #141 lands.** #145 would give these
+   *  rows a tab stop, and #141 would contain focus in the dialog; either changes
+   *  what can be focused here, and the third leg survives only because that
+   *  early return outranks the branches — not because the rows are unreachable.
+   *  The first two legs are this ticket's and hold on their own.
+   *
+   *  This comment claimed inertness for years on a different ground that was never
+   *  true — that the row actions are bound to the graph's expanded row — while
+   *  the binding actually went through `addListenerToClass`, i.e.
+   *  `document.getElementsByClassName`, which has no scope at all. Every call of
+   *  `attachCdvFileListeners` reached every `.gitFile` on the page, the dialog's
+   *  included, so after one redraw a click here sent `viewDiff` carrying the
+   *  path from *that* row and the commit from the graph's expanded one, and each
+   *  further redraw bound another copy (#128). The claim is kept, its reason
+   *  replaced: an inert list is a property of who binds, not of who renders, and
+   *  the next person to render a commit's files somewhere new inherits the
+   *  claim only if they leave the scope alone. */
   public commitFilesHtml(fileChanges: GitFileChange[]): string {
     const fileTree = generateGitFileTree(fileChanges);
     if (this.config.fileTreeCompactFolders) compactGitFileTree(fileTree);
