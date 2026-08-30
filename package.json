@@ -1462,7 +1462,7 @@
         "ging-git-view.history.loadMoreCount": {
           "type": "number",
           "default": 100,
-          "description": "%config.loadMoreCommits%"
+          "description": "%config.loadMoreCount%"
         },
         "ging-git-view.renderMarkdown": {
           "type": "boolean",

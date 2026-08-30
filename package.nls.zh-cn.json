@@ -64,7 +64,7 @@
   "config.graphStyle.angular": "在图形中的 branch 之间过渡时使用直角线条",
   "config.includeCommitsMentionedByReflogs": "在 Git 图形视图中包含仅由 reflog 引用的 commit （例如被 reset 或 rebase 弃置的 commit）。默认值：false",
   "config.initialLoadCommits": "指定初始加载的 commit 数量。",
-  "config.loadMoreCommits": "指定按下“加载更多 commit ”按钮时要加载的 commit 数量（仅在有更多 commit 可用时显示）。",
+  "config.loadMoreCount": "指定每次要额外加载的 commit 数量。",
   "config.loadMoreAutomatically": "卷动到 Git 图形视图底部时自动加载下一页 commit，而非点击\"加载更多 commit \"。",
   "config.maxDepthOfRepoSearch": "指定在工作区中发现仓库时搜索的子文件夹最大深度。",
   "config.markdown": "在 commit 和 tag 讯息中渲染部分行内 Markdown（粗体、斜体、行内代码、删除线）。默认值：true",

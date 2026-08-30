@@ -188,6 +188,79 @@ function checkFileSet(baseDir, baseFileName, filePattern, sectionTitle) {
   return { hasIssues, coverageStats };
 }
 
+/**
+ * Collect the nls references out of a parsed package.json value.
+ *
+ * VS Code substitutes a string value that is *entirely* `%key%`; it does not
+ * interpolate `%name%` inside a longer string. Matching the whole value is
+ * therefore what the mechanism actually does, and it keeps a literal `%VAR%`
+ * inside a script command or a URL from being counted as a reference.
+ * @param {unknown} value - A parsed package.json value
+ * @param {Set<string>} found - Collects the referenced key names
+ */
+function collectNlsReferences(value, found) {
+  if (typeof value === "string") {
+    const match = value.match(/^%([A-Za-z0-9._-]+)%$/);
+    if (match) {
+      found.add(match[1]);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectNlsReferences(item, found));
+    return;
+  }
+
+  if (value !== null && typeof value === "object") {
+    Object.values(value).forEach((item) => collectNlsReferences(item, found));
+  }
+}
+
+/**
+ * Check that every nls reference in package.json resolves to a key in
+ * package.nls.json.
+ *
+ * VS Code renders the raw `%key%` text when it cannot resolve a reference, and
+ * a stale one survives every other check in this file: the locale files stay
+ * perfectly in sync with each other — 100% coverage, no missing keys — while
+ * the settings UI shows the user `%config.someKey%` where a description should
+ * be. Renaming a key in the locale files without renaming it in package.json is
+ * exactly that mistake.
+ * @param {string} sectionTitle
+ * @returns {boolean} - true when an issue was found
+ */
+function checkPackageJsonNlsReferences(sectionTitle) {
+  console.log(`\n${sectionTitle}`);
+
+  const packageJson = loadJson(path.join(ROOT_DIR, "package.json"));
+  const baseTranslations = loadJson(path.join(ROOT_DIR, PACKAGE_NLS_BASE));
+
+  if (!packageJson || !baseTranslations) {
+    return true;
+  }
+
+  const references = new Set();
+  collectNlsReferences(packageJson, references);
+
+  const dangling = [...references]
+    .filter((key) => !Object.hasOwn(baseTranslations, key))
+    .toSorted();
+
+  console.log(`🔗 package.json: ${references.size} nls reference(s)\n`);
+
+  if (dangling.length > 0) {
+    console.log(`  ⚠️  ${dangling.length} reference(s) with no ${PACKAGE_NLS_BASE} entry:`);
+    dangling.forEach((key) => console.log(`     - %${key}% (VS Code renders this raw)`));
+  } else {
+    console.log("  ✅ Complete");
+  }
+
+  console.log("");
+
+  return dangling.length > 0;
+}
+
 function printCoverageSummary(allStats) {
   if (allStats.length === 0) {
     return;
@@ -248,10 +321,15 @@ function checkTranslations() {
     allStats.push({ ...stat, type: "package" });
   });
 
+  // Check that package.json's nls references resolve to real translation keys
+  const referenceIssues = checkPackageJsonNlsReferences(
+    "=== Checking package.json nls references ==="
+  );
+
   // Print coverage summary
   printCoverageSummary(allStats);
 
-  const hasIssues = bundleResult.hasIssues || packageResult.hasIssues;
+  const hasIssues = bundleResult.hasIssues || packageResult.hasIssues || referenceIssues;
 
   if (hasIssues) {
     console.log("⚠️  Translation issues found\n");
