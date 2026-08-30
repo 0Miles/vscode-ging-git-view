@@ -3958,9 +3958,38 @@ class GitGraphView {
       // is not restated here. `{ passive: true }` is the other one — `scroll`
       // is not cancelable, so it has nothing to promise; the cost was always
       // the measurement below, never the listener's right to block.
+      //
+      // Not while a dialog is up. `#dialogBacking` is an unscrollable
+      // full-screen overlay, so a wheel over it chains to the document and
+      // this fires — but a user reading a modal question is not browsing the
+      // graph underneath it, which is the whole premise ADR-0019 keeps
+      // automatic loading on. Its condition fails here twice over: the loaded
+      // commit window would widen out of sight, and the footer carrying both
+      // the count and the only control that shrinks it is behind the overlay.
+      // A deferral, not a refusal — the next scroll after the dialog closes
+      // loads as it always did.
+      //
+      // This closes the wheel and *only* the wheel, which is worth saying
+      // plainly because the obvious reading of it is wrong. The footer's Load
+      // More is a real `<button>` with a tabindex, and `showDialog` sets two
+      // class names and an `innerHTML` — no `inert` on the background, no
+      // focus trap. So Tab still reaches that button behind the overlay and
+      // Space still activates it natively; the keydown handler's dialog branch
+      // returns without `preventDefault`, which cannot stop an activation it
+      // never saw. The window therefore still widens behind a dialog by
+      // keyboard, out of sight, and ADR-0019's condition is still only half
+      // restored.
+      //
+      // #141 is the other half, and it is deliberately not scoped to this
+      // window: the defect it names is that `showDialog` provides no focus
+      // containment at all, so *every* background control stays tabbable and
+      // pressable while a dialog is up. Load More is the symptom that reaches
+      // this listener's subject, not the size of the problem. Nothing here can
+      // fix that — a term in this condition cannot make a dialog modal.
       if (
         this.config.loadMoreAutomatically &&
         this.moreCommitsAvailable &&
+        !isDialogOpen() &&
         window.innerHeight + window.scrollY >= this.getPageHeight() - 250
       ) {
         this.loadMoreCommits();
@@ -3976,8 +4005,13 @@ class GitGraphView {
    *  on the scroll path — so the measurement is cached, and `pageHeight` is
    *  null exactly when something has happened that could have moved the bottom.
    *  The reflow window is therefore "once per change while more commits are
-   *  still loadable" rather than "once per tick", and the two booleans in front
-   *  still take it to nothing at all once the whole history is in. */
+   *  still loadable" rather than "once per tick", and the three booleans in
+   *  front still take it to nothing at all once the whole history is in.
+   *
+   *  Three since #124 added the dialog gate; two before it. Anything added to
+   *  that condition belongs in front of this call if it is cheap, and the count
+   *  here belongs in the same edit — ADR-0019 carries a bullet whose whole
+   *  subject is this number going stale. */
   private getPageHeight() {
     if (this.pageHeight === null) this.pageHeight = document.body.offsetHeight;
     return this.pageHeight;
@@ -4020,7 +4054,7 @@ class GitGraphView {
    *  still. Adding either would want a ResizeObserver alongside this, as the
    *  second source rather than the first.
    *
-   *  The watchers are a standing cost that the two booleans do *not* gate: they
+   *  The watchers are a standing cost that those booleans do *not* gate: they
    *  keep queueing records after `moreCommitsAvailable` goes false, for a cache
    *  nobody will read again. Accepted rather than fixed, because gating them
    *  means a connect/disconnect state machine around an assignment in
@@ -4532,14 +4566,22 @@ class GitGraphView {
       if (this.commitLoadInFlight) return;
       // And the plan is re-taken with it, for the same reason and on the same
       // terms (ADR-0019: when the change is deferred into a callback, so is the
-      // reading it rests on). The plan above was sized against the window as it
-      // stood when the question went up, and automatic loading widens that
-      // window while the dialog stands — its scroll listener has no dialog gate,
-      // and the overlay does not scroll, so the wheel chains to the document.
-      // Acting on the stale plan sets `maxCommits` *back* to the older, smaller
+      // reading it rests on). The plan above was sized against two things as
+      // they stood when the question went up, and both still move while the
+      // dialog stands.
+      // The loaded commit window: automatic loading no longer widens it there
+      // — #124 gated the scroll listener on the dialog — but the footer's Load
+      // More still does, because `showDialog` provides no focus containment
+      // (#141: no `inert`, no focus trap, no focus move, so every background
+      // control stays tabbable and pressable) and the overlay hides that
+      // button without disabling it. And the match: a background reload lands on the file
+      // watcher's schedule, not the user's, so a rebase or an amend in the
+      // terminal can redraw the very commit this plan was sized to go and
+      // fetch.
+      // Acting on a stale plan sets `maxCommits` *back* to the older, smaller
       // number, silently discarding commits already drawn; and if the target
-      // landed in one of those pages, it reloads the whole table and closes the
-      // Commit Details View to reach a row that is already on screen.
+      // came in on one of those pages, it reloads the whole table and closes
+      // the Commit Details View to reach a row that is already on screen.
       // Silent, unlike the stash drop's refusal a few hundred lines up, and the
       // difference is what there is left to do rather than how loud to be. That
       // one has a stash it could still act on and declines to; this one has no
@@ -7202,11 +7244,19 @@ function dismissDialog() {
   if (onDismiss !== null) onDismiss();
 }
 
+/** Whether a modal dialog is up. Three callers want quite different things of
+ *  it — one closes the dialog, one hands it the keyboard, one holds automatic
+ *  loading back (#124) — and what they share is the question, not the answer,
+ *  which is why this is the question rather than a third spelling of it. */
+function isDialogOpen() {
+  return dialog.classList.contains("active");
+}
+
 /** Escape, and the other places that close both overlays on the user's behalf.
  *  A dismissal, not a plain close: reaching here means the user walked away
  *  from the dialog rather than answering it. */
 function hideDialogAndContextMenu() {
-  if (dialog.classList.contains("active")) dismissDialog();
+  if (isDialogOpen()) dismissDialog();
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
@@ -7264,7 +7314,7 @@ function pageScrollStep() {
   return Math.max(window.innerHeight - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
 }
 document.addEventListener("keydown", (e) => {
-  if (dialog.classList.contains("active")) {
+  if (isDialogOpen()) {
     // Enter submits the dialog's primary (left) action, but not while an IME
     // composition is in progress (e.g. the Enter that confirms a CJK candidate
     // on macOS reports isComposing on keydown). The action's own click handler
