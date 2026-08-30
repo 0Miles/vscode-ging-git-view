@@ -334,7 +334,11 @@ class GitGraphView {
   private lastRefActionSeq = 0;
   // The one batch run in flight (at most): rounds, retry offer and summary all
   // live behind its interface — the adapters below only execute its commands.
-  private batchRun = new BatchRun();
+  private batchRun = new BatchRun<BatchActionKind>();
+  /** A summary an ended run could not show, because the dialog slot was taken
+   *  at the moment it ended. Held until there is a screen for it; see
+   *  {@link abandonBatchRun} and {@link deliverOwedBatchSummary}. */
+  private owedSummary: { results: BatchRefResult[]; action: BatchActionKind } | null = null;
 
   private graph: Graph;
   private config: Config;
@@ -3369,12 +3373,27 @@ class GitGraphView {
    *  and the retry confirmation between the rounds. `params` exists for exactly
    *  this — "no adapter state has to survive between rounds" — and the
    *  repository is adapter state that must (ADR-0019, and see
-   *  {@link confirmForRepo} for why it is carried rather than re-read). */
+   *  {@link confirmForRepo} for why it is carried rather than re-read).
+   *
+   *  There is deliberately no guard here for "a retry offer is still on
+   *  screen", though `BatchRun.start` treating a standing `offeringRetry` as an
+   *  ended run would otherwise make one look necessary — the reachability the
+   *  guard would answer is the reason #127 and #141 were raised, and it is real
+   *  as a *gesture*: the context menu sits above the dialog and stays
+   *  clickable, and background controls stay tabbable behind it, so the user
+   *  can absolutely reach for a second batch with the offer in front of them.
+   *  What they cannot do is arrive *here* that way. Every caller below is
+   *  inside a dialog's own action callback, because ADR-0009 sends exactly the
+   *  batch actions that ask through the webview, so each one raises its
+   *  question first — and raising it is what writes over the offer and
+   *  abandons the run (see {@link abandonBatchRun}). By the time a start is
+   *  reached the offer is gone and the run really is over, which is the state
+   *  `BatchRun.start` then reads. A guard here would never fire. */
   private startBatchRun(
     action: BatchActionKind,
     repo: string,
     targets: string[],
-    options: Omit<BatchRunOptions, "action" | "params"> & { params?: object } = {}
+    options: Omit<BatchRunOptions<BatchActionKind>, "action" | "params"> & { params?: object } = {}
   ) {
     this.runBatchCommand(
       this.batchRun.start(targets, { ...options, action, params: { ...options.params, repo } }),
@@ -3383,7 +3402,7 @@ class GitGraphView {
   }
   /** Execute one BatchRun command, re-entering as the retry dialog resolves.
    *  All round state lives in the run; this only performs its side effects. */
-  private runBatchCommand(command: BatchRunCommand, action: BatchActionKind) {
+  private runBatchCommand(command: BatchRunCommand<BatchActionKind>, action: BatchActionKind) {
     const spec = this.batchSpec(action);
     switch (command.kind) {
       case "send":
@@ -3394,7 +3413,13 @@ class GitGraphView {
         // No repo capture here: the run already carries the one its first round
         // was started for, and hands it back on the retry round's `send`.
         showConfirmationDialog(
-          spec.retryBody?.(command.refs) ?? "",
+          // `#batchRetryOffer` marks this dialog as an unanswered retry offer,
+          // the way `#actionRunning` marks a progress dialog. It is a mark in
+          // the dialog's own markup rather than a flag beside it because that
+          // is what makes it un-stale-able: `showDialog` and `hideDialog` both
+          // destroy it by destroying the dialog, so it is present exactly while
+          // the question is on screen with neither answer given.
+          '<span id="batchRetryOffer">' + (spec.retryBody?.(command.refs) ?? "") + "</span>",
           () => this.runBatchCommand(this.batchRun.onRetryConfirmed(), action),
           null,
           // Declining the retry round still ends a batch that did real work, so
@@ -3415,6 +3440,61 @@ class GitGraphView {
   /** Feed a batch action's response to the run in flight. */
   public handleBatchActionResponse(action: BatchActionKind, results: BatchRefResult[]) {
     this.runBatchCommand(this.batchRun.onResults(results, action), action);
+  }
+  /** End the run whose retry offer has just been written over, and keep what
+   *  its first round did until there is a screen to say it on.
+   *
+   *  Called from {@link showDialog} whenever a dialog is raised over a standing
+   *  `#batchRetryOffer` — the offer's two answers both close it themselves, so
+   *  arriving here means neither was given and nobody is going to give one.
+   *  Without this the run holds the single in-flight slot for the life of the
+   *  panel (`BatchRun.start`'s backstop then catches it, but only by dropping
+   *  these results on the floor).
+   *
+   *  The summary is *owed*, not shown. The dialog arriving over the offer keeps
+   *  the screen, because the route this exists for is `tryRunPendingRefAction`,
+   *  which has already taken its delegated action off `pendingRefAction` before
+   *  dispatching it — writing over that confirmation would lose a request the
+   *  user made outright, the same harm this ticket is about pointed the other
+   *  way. But a summary shown into a slot that is about to be overwritten is a
+   *  summary nobody reads, which is the silent drop this exists to prevent. So
+   *  it waits: {@link deliverOwedBatchSummary} raises it at the first moment
+   *  the slot is free. Only *why* each ref failed waits — the refresh below
+   *  happens now, because the graph is worth putting right at the moment the
+   *  run ends, and it can show which branches went but never why the rest
+   *  stayed. */
+  public abandonBatchRun() {
+    const command = this.batchRun.abandon();
+    // `none` is the ordinary case, not a defensive one: the offer's markup is
+    // still up while its own summary is raised, so this re-enters once.
+    if (command.kind !== "summarise" || command.action === null) return;
+    this.owedSummary = { results: command.results, action: command.action };
+    this.refresh(false);
+  }
+  /** Raise a summary that had nowhere to go when its run ended.
+   *
+   *  Queued from {@link hideDialog} — the one place the dialog slot is emptied
+   *  — and run as a microtask, so that whatever the closing route does *next*
+   *  has already had its turn: a Yes that fires off the next action and raises
+   *  its progress dialog, a dismissal hook that opens a dialog of its own. If
+   *  one of those claimed the slot, the summary stays owed and waits for the
+   *  next close.
+   *
+   *  It is deliberately not hung off `dialogDismissAction`. That hook cannot
+   *  tell a dialog the user dismissed from one the webview took away (#134),
+   *  and a summary owed is owed whichever of those happened. What this waits
+   *  for is the slot, not anyone's dismissal.
+   *
+   *  If the panel never frees the slot the summary is never shown, and it does
+   *  not survive a reload. That is the accepted floor: the run is already
+   *  ended, the graph was already refreshed, and what is lost is the reason
+   *  each remaining ref failed — the same thing that was lost unconditionally
+   *  before, now only in the case where the user never closes another dialog. */
+  public deliverOwedBatchSummary() {
+    const owed = this.owedSummary;
+    if (owed === null || isDialogOpen()) return;
+    this.owedSummary = null;
+    this.reportBatchResults(owed.results, this.batchSpec(owed.action).errorTitle);
   }
   private deleteBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     const inputs: DialogInput[] = [
@@ -7420,6 +7500,13 @@ function showDialog(
   sourceElem: HTMLElement | null,
   onDismiss?: () => void
 ) {
+  // Writing over the batch retry offer takes away a question with neither
+  // answer given, and the run behind it has no other way to hear about that
+  // (#125). This is the one funnel every dialog is raised through, so it is the
+  // one place that catches all of the offer's destruction routes rather than
+  // the eight-and-counting call sites that take it. Before the new markup, so
+  // the dialog arriving here keeps the screen — see `abandonBatchRun`.
+  if (document.getElementById("batchRetryOffer") !== null) gitGraph.abandonBatchRun();
   dialogBacking.className = "active";
   dialog.className = "active";
   dialog.innerHTML =
@@ -7452,6 +7539,12 @@ function hideDialog() {
     dialogMenuSource.classList.remove("dialogActive");
     dialogMenuSource = null;
   }
+  // The slot is empty; a batch summary owed one is now due. As a microtask
+  // rather than a call, because closing is rarely the last thing a route does
+  // — the Yes that closes this dialog goes on to raise the next one — and the
+  // summary is only due if the slot is *still* free once it has (see
+  // `deliverOwedBatchSummary`, which checks).
+  queueMicrotask(() => gitGraph.deliverOwedBatchSummary());
 }
 /** Close the dialog the way its own Dismiss button does, running whatever it
  *  declared for that. The hook is read before the close so that a hook which
