@@ -26,7 +26,7 @@ import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } fr
 import { Graph } from "./graph";
 import { menuFor, type RefMenuActions, type RefTarget } from "./refContextMenu";
 import { formatDate, pad2 } from "./utils/date";
-import { addListenerToClass, blinkHeadRow, insertAfter } from "./utils/dom";
+import { addListenerToClass, blinkRow, insertAfter } from "./utils/dom";
 import { replaceEmojiShortcodes } from "./utils/emoji";
 import {
   alterGitFileTree,
@@ -1565,24 +1565,10 @@ class GitGraphView {
    *  adding a call site is actually looking. `tr.commit` was on that list until
    *  the redundancy dialog started drawing commit rows.
    *
-   *  **And binding is only half of it: five *reads* of `tr.commit` are still
-   *  document-wide**, each of which would take the dialog's row instead of the
-   *  graph's if one ever came first in document order. `#dialog` follows
-   *  `#commitTable` in `buildWebviewMarkup`, which is what makes them agree
-   *  today — a fact about the markup, not about any of the five lines:
-   *
-   *  - `renderTable`'s re-attach of the expanded commit below (the heaviest: it
-   *    picks the row an inline Commit Details View is inserted after, so a dialog
-   *    row would put the panel inside the modal). #144 removed the only way its
-   *    hash could name a commit the graph has not loaded, which is what made that
-   *    reachable, but the read itself is unchanged;
-   *  - the `commitBodyHash` click in {@link renderCommitDetailsPanel};
-   *  - `applyFindHighlights`, and the stash scroll in `scrollToStash`;
-   *  - `blinkHeadRow` in `utils/dom.ts`.
-   *
-   *  Left alone on purpose: they are a different defect from this one — reading
-   *  the wrong element rather than binding to it — and none has a failing test
-   *  to drive it. Filed rather than folded in. */
+   *  **Binding was only half of it, and #150 took the other half.** The reads
+   *  that go looking for a commit row are scoped to the same `#commitTable`
+   *  now, through {@link graphRowByHash} and {@link graphRowById} — see there
+   *  for what each one was one markup change away from doing. */
   private addGraphListenerToClass(className: string, event: string, listener: EventListener) {
     this.addScopedListenerToClass(this.tableElem, className, event, listener);
   }
@@ -1591,6 +1577,82 @@ class GitGraphView {
    *  raising one within `#commitTable`. */
   private addGraphContextMenuListener(className: string, listener: EventListener) {
     this.addScopedContextMenuListener(this.tableElem, className, listener);
+  }
+
+  /** The graph's commit row carrying `hash`, or `null` when the graph has not
+   *  drawn one — the read side of {@link addGraphListenerToClass}'s boundary,
+   *  and the reason no lookup that *means the graph's row* starts at `document`
+   *  any more. Lookups that mean the dialog's still do, and say so in the
+   *  selector; see the last paragraph.
+   *
+   *  **A class name is no more proof of the graph when reading than when
+   *  binding.** `redundancyCommitRow` emits `<tr class="commit" data-hash="…">`
+   *  for the branch-redundancy dialog's own list, so `document.querySelector`
+   *  has had two candidates for every one of these lookups all along and
+   *  answered with whichever came first in the page. What made it answer with
+   *  the graph's is that `buildWebviewMarkup` writes `#commitTable` before
+   *  `#dialog` — a fact about the markup, not about any of the reads, and one
+   *  nothing records as load-bearing. Moving `#dialog` up, or drawing a future
+   *  dialog inside `#content`, would have turned every one of them over at once
+   *  (#150). Counted by what they do rather than by a total, because a total is
+   *  the one thing a later reader cannot check: the **row lookups** listed
+   *  below, all of which resolve one row and live in this file; the two
+   *  **class sweeps** in {@link clearFindHighlights}, which resolve no row and
+   *  carry their own note; and `blinkRow` in `utils/dom.ts`, which was neither —
+   *  it re-derived from the hash a row its caller had already resolved.
+   *
+   *  The row lookups, and what each was one markup change away from doing:
+   *
+   *  - `renderTable`'s re-attach picks the row an inline Commit Details View is
+   *    `insertAfter`'d onto, so a dialog row put the **panel inside the modal**,
+   *    and set `expandedCommit.id` to the `NaN` a row with no `data-id` parses
+   *    to. The worst of them. It resolves *two* rows, and the second is the
+   *    easiest of all of these to overlook: the panel only ever goes after the
+   *    primary, so where the panel lands says nothing about where the compared
+   *    row came from — it shows instead in which row the comparison anchors
+   *    itself to, and it wants a test of its own for exactly that reason;
+   *  - {@link commitDetailsNavigateGraph} (by id) and the `commitBodyHash` chip
+   *    both hand what they find to `loadCommitDetails`, which is the same wound
+   *    one step earlier: it takes the row as the panel's new source;
+   *  - {@link applyFindHighlights}, twice — the match and the current one —
+   *    would paint the mark, and the bring-into-view scroll, onto the dialog's
+   *    copy, leaving the graph's row unmarked while the counter went on saying a
+   *    match was current; {@link clearFindHighlights} is the other half of that
+   *    and carries its own note;
+   *  - {@link scrollToHead} and {@link scrollToStash} would centre and flash a
+   *    row inside the dialog, so the graph would not move at all — which reads
+   *    as a dead command rather than as one that found the wrong tree.
+   *
+   *  Scope belongs to the caller that knows what it renders, and this is the
+   *  same `this.tableElem` the binders and {@link graphRows} already name — not
+   *  a second scoping rule, the one rule named on the other side of the
+   *  read/write line. `tableElem` is read live for the reason given at
+   *  {@link addGraphListenerToClass}: `renderTable` replaces its `innerHTML`,
+   *  never the element.
+   *
+   *  Left document-wide on purpose, and correct there: the redundancy dialog's
+   *  own reads (`#dialog .commitList tr.commit`, `redundancyDetailsCell`), which
+   *  name their surface in the selector and want the rows this one refuses. */
+  private graphRowByHash(hash: string): HTMLElement | null {
+    return this.tableElem.querySelector<HTMLElement>('tr.commit[data-hash="' + hash + '"]');
+  }
+
+  /** The graph's row for the loaded-commit index `id`, or `null`.
+   *
+   *  {@link graphRowByHash}'s sibling rather than a delegation through some
+   *  `graphRowBy(attribute, value)`: the two selectors differ only in an
+   *  attribute name, and hiding that behind a parameter would cost the one
+   *  property this whole family exists for — that you can grep a selector and
+   *  see which tree it reads. Two one-line siblings that each name
+   *  `this.tableElem` are not two rules; a parameterised selector *is* a second
+   *  thing to get wrong.
+   *
+   *  Worth its own name because `data-id` is an index into `this.commits`, and
+   *  so means nothing at all on a row the graph did not draw — which is exactly
+   *  what the scope now guarantees and exactly what a document-wide read could
+   *  not. */
+  private graphRowById(id: number): HTMLElement | null {
+    return this.tableElem.querySelector<HTMLElement>('tr.commit[data-id="' + id + '"]');
   }
 
   /** Rebuilds the commit table and hands back the one write it deliberately did
@@ -1841,14 +1903,12 @@ class GitGraphView {
     const applyGraphColumnWidth = this.makeTableResizable();
 
     if (this.expandedCommit !== null) {
-      let elem = null,
-        elems = <HTMLCollectionOf<HTMLElement>>document.getElementsByClassName("commit");
-      for (i = 0; i < elems.length; i++) {
-        if (this.expandedCommit.hash === elems[i].dataset.hash) {
-          elem = elems[i];
-          break;
-        }
-      }
+      // The graph's row, and this is the read the dialog's copy hurt most:
+      // `elem` becomes the row an inline panel is `insertAfter`'d onto a few
+      // lines down, so answering with a dialog row moved the Commit Details View
+      // into the modal — and, the row carrying no `data-id`, set the expanded
+      // commit's id to `NaN` on the way. See {@link graphRowByHash}.
+      const elem = this.graphRowByHash(this.expandedCommit.hash);
       if (elem === null) {
         // The expanded commit is no longer loaded. An inline panel was already
         // discarded with the re-rendered table, but a docked panel lives in
@@ -1865,13 +1925,7 @@ class GitGraphView {
           // reopens a different CDV, so it does scroll into view. Appending
           // pages cannot reach it (nothing leaves the loaded set), but a soft
           // refresh that drops the compared commit can.
-          let compareElem: HTMLElement | null = null;
-          for (i = 0; i < elems.length; i++) {
-            if (this.expandedCommit.compareWithHash === elems[i].dataset.hash) {
-              compareElem = elems[i];
-              break;
-            }
-          }
+          const compareElem = this.graphRowByHash(this.expandedCommit.compareWithHash);
           this.expandedCommit.compareWithSrcElem = compareElem;
           this.saveState();
           if (compareElem === null) {
@@ -4930,15 +4984,45 @@ class GitGraphView {
     load();
     return "move";
   }
+  /** Take Find's marks off the graph. Scoped for the reason at
+   *  {@link graphRowByHash}, with one wrinkle of its own: a clear can only ever
+   *  reach *too far*, never too short, so document-wide it never lost a mark —
+   *  it went into the dialog and stripped classes off rows it had not marked.
+   *  Harmless while nothing else uses the names, which is the same argument that
+   *  held for the bindings right up until it didn't.
+   *
+   *  The selector tightened from `.commit` to `tr.commit` on the way, which is a
+   *  change and so is written down rather than left to be noticed: within
+   *  `#commitTable` the two select the same set, because `renderTable` puts the
+   *  class on `<tr>` and on nothing else. It is here so that every selector in
+   *  this family reads the same, and so that the one thing they have in common
+   *  is visible at a glance — they all name a row of a table.
+   *
+   *  The ref half is scoped with it rather than left behind. Nothing but
+   *  `renderTable` renders a `.gitRef` today, so there is no second `.gitRef` to
+   *  reach — but `findBranchMatch` is set, ten lines down, only on refs inside a
+   *  row this now cannot find outside the table, and a clear with a wider reach
+   *  than the paint it undoes is the asymmetry both #128 and #144 were. This is
+   *  the *read*; `gitRef`'s **binding** is still document-wide and is somebody
+   *  else's ticket — see the inventory beside `addListenerToClass`. */
   private clearFindHighlights() {
-    const rows = document.querySelectorAll(".commit.findMatch, .commit.findMatchCurrent");
-    rows.forEach((el) => el.classList.remove("findMatch", "findMatchCurrent"));
-    document
+    this.tableElem
+      .querySelectorAll("tr.commit.findMatch, tr.commit.findMatchCurrent")
+      .forEach((el) => el.classList.remove("findMatch", "findMatchCurrent"));
+    this.tableElem
       .querySelectorAll(".gitRef.findBranchMatch")
       .forEach((el) => el.classList.remove("findBranchMatch"));
   }
   /** Re-apply find styling to the current DOM. Pass scroll=true to bring the
-   *  current match into view (e.g. on a new search or step, not on re-render). */
+   *  current match into view (e.g. on a new search or step, not on re-render).
+   *
+   *  Every row here is {@link graphRowByHash}'s. The matches come from
+   *  `this.commits`, so the rows they mean are the graph's by construction —
+   *  what the scope adds is that the lookup can no longer answer with anything
+   *  else. Painting the dialog's copy of a hash left the graph's row unmarked
+   *  while the counter went on saying a match was current, and sent the
+   *  bring-into-view scroll into the modal: a search that reads as broken rather
+   *  than as looking in the wrong place. */
   private applyFindHighlights(scroll: boolean) {
     // Every pass claims the target it resolved, including the ones that move
     // nothing. `loadCommits` refreshes Find and then re-requests the branch
@@ -4951,7 +5035,7 @@ class GitGraphView {
     this.findSettledOn = this.findIdentity();
     this.clearFindHighlights();
     for (const match of this.findMatches) {
-      const row = document.querySelector<HTMLElement>('tr.commit[data-hash="' + match.hash + '"]');
+      const row = this.graphRowByHash(match.hash);
       row?.classList.add("findMatch");
       if (row !== null) {
         row.querySelectorAll<HTMLElement>(".gitRef").forEach((ref) => {
@@ -4971,9 +5055,7 @@ class GitGraphView {
               .replace("{1}", String(this.findMatches.length));
     }
     if (this.findCurrent >= 0) {
-      const currentRow = document.querySelector<HTMLElement>(
-        'tr.commit[data-hash="' + this.findMatches[this.findCurrent].hash + '"]'
-      );
+      const currentRow = this.graphRowByHash(this.findMatches[this.findCurrent].hash);
       if (currentRow !== null) {
         currentRow.classList.add("findMatchCurrent");
         if (scroll && typeof currentRow.scrollIntoView === "function") {
@@ -4992,19 +5074,25 @@ class GitGraphView {
       }
     }
   }
-  /** Scroll the view to centre the commit referenced by HEAD, optionally blinking it. */
+  /** Scroll the view to centre the commit referenced by HEAD, optionally blinking
+   *  it. The row is {@link graphRowByHash}'s, and the blink is handed that same
+   *  row rather than the hash: "Locate HEAD" that centres and flashes a copy of
+   *  the row inside a dialog moves the graph not at all, which reads as the
+   *  button being dead rather than as it having found the wrong tree. */
   public scrollToHead(blink = true) {
     if (this.commitHead === null) return;
-    const row = document.querySelector<HTMLElement>(
-      'tr.commit[data-hash="' + this.commitHead + '"]'
-    );
+    const row = this.graphRowByHash(this.commitHead);
     if (row !== null && typeof row.scrollIntoView === "function") {
       row.scrollIntoView({ block: "center" });
     }
-    if (blink) blinkHeadRow(this.commitHead);
+    if (blink) blinkRow(row);
   }
   /** Cycle the view to the next (or previous) stash on the graph, centring and
-   *  blinking it. No-op when no stashes are shown. */
+   *  blinking it. No-op when no stashes are shown.
+   *
+   *  The cycle is over `this.commits` — the graph's own loaded set — so the row
+   *  it then wants is the graph's by construction; {@link graphRowByHash} is
+   *  what makes the lookup say so. */
   public scrollToStash(forward: boolean) {
     const stashRows: number[] = [];
     for (let i = 0; i < this.commits.length; i++) {
@@ -5015,11 +5103,11 @@ class GitGraphView {
       ? (this.currentStashScroll + 1) % stashRows.length
       : (this.currentStashScroll - 1 + stashRows.length) % stashRows.length;
     const hash = this.commits[stashRows[this.currentStashScroll]].hash;
-    const row = document.querySelector<HTMLElement>('tr.commit[data-hash="' + hash + '"]');
+    const row = this.graphRowByHash(hash);
     if (row !== null && typeof row.scrollIntoView === "function") {
       row.scrollIntoView({ block: "center" });
     }
-    blinkHeadRow(hash);
+    blinkRow(row);
   }
 
   /* Keyboard Navigation */
@@ -5345,9 +5433,14 @@ class GitGraphView {
     if (current === undefined) return false;
     const targetHash = graphNavigationTarget(current, this.commits, direction, alternative);
     if (targetHash === undefined || this.commitLookup[targetHash] === undefined) return false;
-    const elem = document.querySelector('.commit[data-id="' + this.commitLookup[targetHash] + '"]');
+    // By id, and so only ever the graph's: `commitLookup` indexes `this.commits`,
+    // and `data-id` carries that index on rows `renderTable` wrote. Read
+    // document-wide the number would have been matched against whatever else
+    // happened to carry the attribute, and handed to `loadCommitDetails` as the
+    // panel's new source. See {@link graphRowById}.
+    const elem = this.graphRowById(this.commitLookup[targetHash]);
     if (elem === null) return false;
-    this.loadCommitDetails(<HTMLElement>elem);
+    this.loadCommitDetails(elem);
     return true;
   }
   public showCommitDetails(commitDetails: GitCommitDetails, fileTree: GitFolder) {
@@ -5683,15 +5776,12 @@ class GitGraphView {
     this.attachCdvFileListeners();
     this.addCdvListenerToClass("commitBodyHash", "click", (e) => {
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".commitBodyHash")!;
-      // Left document-wide deliberately, though the destination is a *graph*
-      // row and this therefore wants the table. It is one of five unscoped
-      // reads of `tr.commit` that #144 does not touch — see the list at
-      // {@link addGraphListenerToClass}. Scoping one of the five and not the
-      // rest would read as though the other four had been considered and
-      // cleared, which they have not; they want one ticket and one test each.
-      let row = document.querySelector<HTMLElement>(
-        'tr.commit[data-hash="' + sourceElem.dataset.hash + '"]'
-      );
+      // The chip is bound within the *panel*, but its destination is a *graph*
+      // row: the click means "show me that commit in the graph", and what it
+      // finds is handed to `loadCommitDetails` as the panel's next source. Two
+      // roots one line apart, and they are not the same one — a docked panel is
+      // not inside the table at all. See {@link graphRowByHash}.
+      let row = this.graphRowByHash(sourceElem.dataset.hash!);
       if (row !== null) {
         if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "center" });
         this.loadCommitDetails(row);
