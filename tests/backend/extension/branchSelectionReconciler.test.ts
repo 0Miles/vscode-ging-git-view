@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   createBranchSelectionReconciler,
+  createDirectFilterWriter,
+  type FilterWrite,
   SELECTION_WRITE_DEBOUNCE_MS
 } from "@/extension/branchSelectionReconciler";
 
@@ -217,5 +219,91 @@ describe("direct write (multi-pick search bypassing the tree)", () => {
       kind: "schedule",
       delayMs: SELECTION_WRITE_DEBOUNCE_MS
     });
+  });
+});
+
+describe("a direct write performs its own steps", () => {
+  /** A reconciler wired to recording stand-ins for the side view's four
+   *  effects, so a test can read back exactly what one direct write did. */
+  function recordingWriter(branchSelection: readonly string[]) {
+    const writes: FilterWrite[] = [];
+    const log: string[] = [];
+    const reconciler = createBranchSelectionReconciler();
+    const directWrite = createDirectFilterWriter(reconciler, {
+      branchSelection: () => branchSelection,
+      cancelPendingWrite: () => log.push("cancel"),
+      writeFilter: (write: FilterWrite) => {
+        writes.push(write);
+        log.push("write");
+      },
+      clearVisualSelection: () => log.push("clear")
+    });
+    return { reconciler, directWrite, writes, log };
+  }
+
+  // The acceptance of #43: "Show All" is a filter write with no tree gesture
+  // behind it, so the empty selection its own clearing emits is an artefact.
+  // Writing the store outside the reconciler let that artefact through as a
+  // second, identical show-all write.
+  it("show all writes the empty filter once; the clear's empty event adds no second write", () => {
+    const { reconciler, directWrite, writes, log } = recordingWriter(["main"]);
+    reconciler.onSelection("/repo", ["main"]);
+    reconciler.onDebounceElapsed();
+
+    directWrite("/repo", []);
+
+    expect(writes).toEqual([{ repo: "/repo", branches: [] }]);
+    // The store is written before the highlight goes, so the graph reloads once
+    // rather than once per step.
+    expect(log).toEqual(["cancel", "write", "clear"]);
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "ignore",
+      reason: "suppressed-empty"
+    });
+    expect(reconciler.onDebounceElapsed()).toBeNull();
+  });
+
+  it("the multi-pick search's chosen set takes the very same route", () => {
+    const { reconciler, directWrite, writes } = recordingWriter(["main"]);
+    reconciler.onSelection("/repo", ["main"]);
+    reconciler.onDebounceElapsed();
+
+    directWrite("/repo", ["dev", "feat"]);
+
+    expect(writes).toEqual([{ repo: "/repo", branches: ["dev", "feat"] }]);
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "ignore",
+      reason: "suppressed-empty"
+    });
+  });
+
+  // The sibling case above, one level out: the #42 rule is already pinned on
+  // `onDirectWrite`, and what this adds is that the writer is where the branch
+  // selection gets read, so no call site is left to answer "which set?" for
+  // itself — answering it wrong is what #42 was.
+  it("reads the branch selection itself, so a folder-only highlight arms nothing", () => {
+    const { reconciler, directWrite } = recordingWriter([]);
+    reconciler.onSelection("/repo", []);
+
+    directWrite("/repo", ["dev"]);
+
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "schedule",
+      delayMs: SELECTION_WRITE_DEBOUNCE_MS
+    });
+    expect(reconciler.onDebounceElapsed()).toEqual({ repo: "/repo", branches: [] });
+  });
+
+  // Show All is one click away from a branch row, so it lands inside the
+  // selection debounce often. The click's write must not arrive afterwards and
+  // put the filter back to that one branch.
+  it("a tree click still inside its debounce window cannot land after the write", () => {
+    const { reconciler, directWrite, log } = recordingWriter(["main"]);
+    reconciler.onSelection("/repo", ["main"]);
+
+    directWrite("/repo", []);
+
+    expect(log[0]).toBe("cancel");
+    expect(reconciler.onDebounceElapsed()).toBeNull();
   });
 });

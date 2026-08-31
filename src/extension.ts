@@ -684,12 +684,12 @@ export function activate(context: vscode.ExtensionContext) {
       // Explicitly asked for by the user, so it bypasses the coalescing window.
       branchesView.refresh({ hard: true })
     ),
-    vscode.commands.registerCommand("ging-git-view.branches.showAll", () => {
-      const repo = branchesView.getActiveRepo();
-      if (repo === null) return;
-      branchFilterStore.set(repo, []); // graph: show all
-      branchesView.clearSelection(); // side-view: clear the visual selection
-    }),
+    // Both halves — the empty filter and the cleared highlight — belong to the
+    // view, which reaches the store through the same reconciler every other
+    // side-view filter update goes through. Doing the two writes from here
+    // instead made the empty selection the clearing emits look like a fresh
+    // "show all" gesture, so the same value was written twice (#43).
+    vscode.commands.registerCommand("ging-git-view.branches.showAll", () => branchesView.showAll()),
     // The title button shows whichever of these matches the current state.
     vscode.commands.registerCommand(
       "ging-git-view.branches.showRemoteBranches",

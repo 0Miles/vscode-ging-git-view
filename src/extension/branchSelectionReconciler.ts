@@ -11,6 +11,21 @@
  * clobber a filter that was just written. This module owns the rules that tell
  * the gestures apart; `branchesView.ts` stays a thin adapter that pipes VS Code
  * events in and interprets the decisions.
+ *
+ * Not every filter write starts as a tree gesture, though. A **direct write**
+ * — the multi-pick search's chosen set, "Show All"'s empty one — writes the
+ * filter and clears the highlight itself. The steps it must take around
+ * {@link BranchSelectionReconciler.onDirectWrite} are the same whichever
+ * gesture asked for it, and getting one of them wrong (arming the suppression
+ * off the raw TreeView selection instead of the branch selection) was a real
+ * bug (#42), so they live here too, as {@link createDirectFilterWriter},
+ * rather than once per caller in the adapter.
+ *
+ * That does mean this module performs effects as well as deciding — through
+ * ports, so it stays vscode-free and the backend test project can hold every
+ * side-view filter update to the sequence (ADR-0018). The alternative was a
+ * second copy of the sequence in `branchesView.ts`, which is exactly the split
+ * that let "Show All" write the store on its own (#43).
  */
 
 /** How long selection events coalesce before the filter is written, so a rapid
@@ -64,11 +79,12 @@ export function createBranchSelectionReconciler() {
       return { kind: "schedule", delayMs: SELECTION_WRITE_DEBOUNCE_MS };
     },
 
-    /** The filter is being written around the tree (the multi-pick search:
-     *  there is no API to set a TreeView multi-selection, so the adapter writes
-     *  the store directly and clears the visual selection instead). Drops any
-     *  pending debounced write and arms the one-shot suppression of the empty
-     *  event the clearing will emit. Returns the write to perform, immediately.
+    /** The filter is being written around the tree — no tree gesture produced
+     *  it, so the adapter writes the store and clears the visual selection
+     *  itself. Drops any pending debounced write and arms the one-shot
+     *  suppression of the empty event the clearing will emit. Returns the write
+     *  to perform, immediately. Reached through {@link createDirectFilterWriter},
+     *  which is what makes the steps around it the same for every caller.
      *
      *  `selectionBeingCleared` is the branch selection that clearing is about to
      *  drop — the same set `onSelection` receives, so folders and group headings
@@ -105,5 +121,54 @@ export function createBranchSelectionReconciler() {
     onRepoSwitch(): void {
       pending = null;
     }
+  };
+}
+
+/** What the side view has to lend a direct write. Ports rather than a direct
+ *  dependency on the view: every one of them is a VS Code call, and this module
+ *  stays vscode-free so the sequence below can be exercised in the backend test
+ *  project (ADR-0018). */
+export type DirectWriteEffects = {
+  /** The branch selection the clear is about to drop — *not* the raw TreeView
+   *  selection, which counts folders and group headings the clear cannot touch
+   *  (CONTEXT.md, "Branch selection"). It is a port rather than an argument so
+   *  that *which set* gets measured is settled once, where the effects are
+   *  bound, instead of at each call site; a call site answering that question
+   *  for itself, and answering it wrong, is what #42 was. */
+  branchSelection: () => readonly string[];
+  /** Cancel the adapter's debounce timer. The reconciler drops the pending
+   *  write regardless, so the timer would fire into nothing — this only spares
+   *  the wakeup, and keeps the adapter's timer and the reconciler's `pending`
+   *  from disagreeing about whether a write is still coming. */
+  cancelPendingWrite: () => void;
+  writeFilter: (write: FilterWrite) => void;
+  /** Drop the tree's highlight, which is what emits the empty selection event
+   *  the suppression is armed against. */
+  clearVisualSelection: () => void;
+};
+
+/**
+ * Bind a reconciler to the view's effects, yielding the one function that
+ * performs a direct write: the multi-pick search's chosen set, or "Show All"'s
+ * empty one. Bound once, so the adapter holds a function taking nothing but the
+ * repo and the refs — there is then no call site left that could reach the
+ * store any other way, which is the property #43 was about.
+ *
+ * The order is load-bearing in one direction only — the filter is written
+ * before the highlight goes, so the graph reloads once instead of reacting to
+ * an intermediate state. The suppression is armed before either, so it cannot
+ * matter how quickly VS Code delivers the clear's event.
+ */
+export function createDirectFilterWriter(
+  reconciler: BranchSelectionReconciler,
+  effects: DirectWriteEffects
+): (repo: string, refs: readonly string[]) => void {
+  return (repo, refs) => {
+    effects.cancelPendingWrite();
+    const write = reconciler.onDirectWrite(repo, refs, {
+      selectionBeingCleared: effects.branchSelection()
+    });
+    effects.writeFilter(write);
+    effects.clearVisualSelection();
   };
 }
