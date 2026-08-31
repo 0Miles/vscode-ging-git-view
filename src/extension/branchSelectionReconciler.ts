@@ -55,6 +55,12 @@ export function createBranchSelectionReconciler() {
    *  not clobber the filter just written with "show all". Consumed by the first
    *  empty event; a non-empty event passes through and leaves it armed. */
   let suppressEmptySelectionOnce = false;
+  /** The repo the view is pointed at, as last stated by `onRepoSwitch`. Kept
+   *  apart from `lastSelectionRepo`, which is the repo of the last selection
+   *  *event*: the two answer different questions and lag each other (a switch
+   *  is stated before the new repo's first selection event arrives), and only
+   *  this one can say whether a call to `onRepoSwitch` moved anything. */
+  let activeRepo: string | null = null;
 
   return {
     /** A TreeView selection event: `refs` are the selected leaf branches.
@@ -117,18 +123,36 @@ export function createBranchSelectionReconciler() {
       return write;
     },
 
-    /** The view is being pointed at another repo: drop any pending write so it
-     *  cannot land on the previous repo after the switch, and disarm any
-     *  suppression still waiting for an event from the repo being left. The
-     *  suppression is one-shot and armed before its event exists, so a hidden
-     *  side view that never delivered the clear's empty selection would leave
-     *  it to be spent on the next repo's genuine deselect-all — silently
-     *  keeping a filter the user just asked to drop. Past the switch that
-     *  event can no longer be coming, which makes this the honest place to
-     *  give up on it. */
-    onRepoSwitch(): void {
+    /** The view is being pointed at `repo`. The pending write is dropped
+     *  whether or not that moved anything, so it cannot land on the previous
+     *  repo after a switch — and dropping it on a re-point is this method's
+     *  long-standing behaviour, which the guard below deliberately leaves
+     *  alone.
+     *
+     *  A waiting suppression, though, is only given up on a *real* switch. It
+     *  is one-shot and armed before the event it awaits exists (`clearSelection`
+     *  re-keys the leaves, and VS Code emits the resulting empty selection when
+     *  it next renders the tree), so a hidden or collapsed side view can strand
+     *  it — and stranded it is spent on whatever empty event comes next, which
+     *  after a switch is a genuine deselect-all in the repo just arrived at:
+     *  the user asks for all branches and silently keeps the filter. Past a
+     *  real switch the awaited event can no longer be coming, so this is the
+     *  honest place to give up on it.
+     *
+     *  Which is why the repo is a parameter. The adapter re-points the view at
+     *  the repo it is already on far more often than it switches — opening the
+     *  graph does it, and so does an SCM selection growing while its first entry
+     *  stays put — and `BranchesProvider.setRepo` already ignores those. That
+     *  guard cannot be left there: it runs after this call, so the reconciler
+     *  would give up on an event that is still coming, and the unsuppressed
+     *  empty selection would land between a direct write and its own clear,
+     *  writing "show all" over the non-empty filter the multi-pick search just
+     *  set. Asking here means the rule is testable rather than inferred from
+     *  two call sites in `extension.ts` (ADR-0018). */
+    onRepoSwitch(repo: string | null): void {
       pending = null;
-      suppressEmptySelectionOnce = false;
+      if (repo !== activeRepo) suppressEmptySelectionOnce = false;
+      activeRepo = repo;
     }
   };
 }

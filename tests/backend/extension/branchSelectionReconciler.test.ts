@@ -107,9 +107,42 @@ describe("debounce coalescing", () => {
 describe("repo switch", () => {
   it("drops the previous repo's pending write", () => {
     const reconciler = createBranchSelectionReconciler();
+    reconciler.onRepoSwitch("/repo-a");
     reconciler.onSelection("/repo-a", ["main"]);
-    reconciler.onRepoSwitch();
+    reconciler.onRepoSwitch("/repo-b");
     expect(reconciler.onDebounceElapsed()).toBeNull();
+  });
+
+  // The adapter re-points the view at the repo it is already on more often than
+  // it switches: opening the graph does it, and so does an SCM selection growing
+  // while its first entry stays put. Dropping the pending write there is the
+  // behaviour this method has always had, and the guard below must not take it
+  // away — hence a guard on the one step rather than an early return.
+  it("drops the pending write even when the repo is unchanged", () => {
+    const reconciler = createBranchSelectionReconciler();
+    reconciler.onRepoSwitch("/repo");
+    reconciler.onSelection("/repo", ["main"]);
+    reconciler.onRepoSwitch("/repo");
+    expect(reconciler.onDebounceElapsed()).toBeNull();
+  });
+
+  // Disarming on those same re-points would be a regression of its own: the
+  // clear's empty event is still coming, and unsuppressed it lands in the window
+  // between a direct write and its own clear — writing "show all" over the
+  // non-empty filter the multi-pick search just set.
+  it("a re-point at the same repo keeps a suppression that is still waiting", () => {
+    const reconciler = createBranchSelectionReconciler();
+    reconciler.onRepoSwitch("/repo");
+    reconciler.onSelection("/repo", ["main"]);
+    reconciler.onDebounceElapsed();
+    reconciler.onDirectWrite("/repo", ["dev", "feat"], { selectionBeingCleared: ["main"] });
+
+    reconciler.onRepoSwitch("/repo");
+
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "ignore",
+      reason: "suppressed-empty"
+    });
   });
 
   // A direct write arms the suppression against an event the clear has not
@@ -120,11 +153,12 @@ describe("repo switch", () => {
   // the awaited event can no longer be coming.
   it("disarms a suppression whose event never arrived, so the next repo's deselect-all still shows all", () => {
     const reconciler = createBranchSelectionReconciler();
+    reconciler.onRepoSwitch("/repo-a");
     reconciler.onSelection("/repo-a", ["main"]);
     reconciler.onDebounceElapsed();
     reconciler.onDirectWrite("/repo-a", [], { selectionBeingCleared: ["main"] });
 
-    reconciler.onRepoSwitch();
+    reconciler.onRepoSwitch("/repo-b");
 
     // The user picks a branch in the new repo, then deselects everything: that
     // last event is the user's "show all" and has to reach the store.

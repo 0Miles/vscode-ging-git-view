@@ -606,9 +606,13 @@ export function createBranchesView(deps: BranchesProviderDeps) {
   return {
     actionTargetsForSelection,
     setActiveRepo: (repo: string | null): void => {
-      // Drop any pending write from the previous repo before switching.
+      // Drop any pending write from the previous repo before switching, and let
+      // the reconciler see which repo this is: several callers re-point the view
+      // at the repo it is already on, and what it gives up on depends on whether
+      // this one moved anything. `provider.setRepo` ignores a re-point too, but
+      // that guard runs last and so cannot stand in for this one.
       cancelDebounce();
-      reconciler.onRepoSwitch();
+      reconciler.onRepoSwitch(repo);
       provider.setRepo(repo);
     },
     getActiveRepo: (): string | null => provider.getRepo(),
