@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickItem, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // The ref context menu, end to end: right-clicking a rendered ref chip must
 // yield exactly the items the ref's kind calls for, in order, dividers
@@ -64,14 +64,6 @@ function menuEntries() {
   return Array.from(document.getElementById("contextMenu")!.children).map((li) =>
     li.classList.contains("contextMenuDivider") ? DIVIDER : (li.textContent ?? "").trim()
   );
-}
-
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).not.toBeNull();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 describe("ref context menus raised from the graph", () => {

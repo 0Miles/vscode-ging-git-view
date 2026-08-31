@@ -3,7 +3,14 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // `rebase --onto` from the graph, end to end: the entry only exists while two
 // commits are CTRL-compared, and the range it sends is resolved from ancestry
@@ -55,14 +62,6 @@ function menuEntries(hash: string) {
   return Array.from(document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")).map(
     (li) => (li.textContent ?? "").trim()
   );
-}
-
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).not.toBeNull();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 describe("rebase --onto from the commit context menu", () => {

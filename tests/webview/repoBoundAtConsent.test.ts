@@ -4,7 +4,14 @@ import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A confirmation dialog asks about one repository, and `currentRepo` can move
 // underneath it: the host posts `setRepo` whenever the native Source Control
@@ -109,14 +116,6 @@ function openMenuOn(selector: string) {
   const elem = document.querySelector<HTMLElement>(selector);
   expect(elem, selector).not.toBeNull();
   elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).not.toBeNull();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 function dialogIsOpen() {
