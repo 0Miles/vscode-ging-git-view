@@ -9,7 +9,10 @@ import { relativeAge } from "./branchActivity";
 import { resolveCleanupCandidates } from "./branchCleanup";
 import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
-import { createBranchSelectionReconciler } from "./branchSelectionReconciler";
+import {
+  createBranchSelectionReconciler,
+  createDirectFilterWriter
+} from "./branchSelectionReconciler";
 import {
   branchSelectionOf,
   type BranchTreeLeaf,
@@ -495,13 +498,24 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     }, decision.delayMs);
   });
 
+  // The view's half of a direct write, bound once. `provider.clearSelection()`
+  // appearing nowhere else is the point (see `branchSelectionReconciler.ts`).
+  const directWrite = createDirectFilterWriter(reconciler, {
+    branchSelection: () => selectedBranchRefs([...treeView.selection]),
+    cancelPendingWrite: cancelDebounce,
+    writeFilter: (write) => {
+      deps.filterStore.set(write.repo, write.branches);
+    },
+    clearVisualSelection: () => provider.clearSelection()
+  });
+
   /** QuickPick over the branches currently in the tree, with one checkbox per
    *  branch (the current filter pre-checked) — confirming makes the checked set
    *  the graph filter. A single checked branch additionally reveals + selects
    *  it in the tree (the normal selection pipeline); checking none shows all.
    *  TreeView offers no API to set a multi-selection programmatically, so the
-   *  multi case writes the filter store directly and clears the tree's visual
-   *  selection instead. */
+   *  multi case goes through `directWrite`, which clears the tree's visual
+   *  selection instead of setting it. */
   const searchBranch = async (): Promise<void> => {
     const repo = provider.getRepo();
     if (repo === null) return;
@@ -548,22 +562,24 @@ export function createBranchesView(deps: BranchesProviderDeps) {
         return;
       }
     }
-    // Zero (= show all) or several branches: write the filter directly and
-    // clear the visual selection. The reconciler swallows the empty-selection
-    // event the clearing emits, so it can't overwrite the filter just written.
-    // What arms that suppression is the *branch* selection, not the raw
-    // TreeView one: `clearSelection` re-keys leaves only, so a highlight on
-    // nothing but folders survives it and emits nothing to consume the flag.
-    cancelDebounce();
-    const write = reconciler.onDirectWrite(repo, refs, {
-      selectionBeingCleared: selectedBranchRefs([...treeView.selection])
-    });
-    deps.filterStore.set(write.repo, write.branches);
-    provider.clearSelection();
+    // Zero (= show all) or several branches: no tree gesture can carry this, so
+    // it is a direct write, which swallows the empty-selection event its own
+    // clearing emits.
+    directWrite(repo, refs);
     if (refs.length > 0) {
       const first = provider.findLeafItem(refs[0]);
       if (first !== null) await treeView.reveal(first, { select: false, focus: false });
     }
+  };
+
+  /** "Show All": the empty branch filter, plus the tree highlight going away so
+   *  the two agree. Reached from the side-view title button, the command
+   *  palette and the graph's filter chip. The emptiness of the set is all that
+   *  separates it from the multi-pick search, so it is the same direct write. */
+  const showAll = (): void => {
+    const repo = provider.getRepo();
+    if (repo === null) return;
+    directWrite(repo, []);
   };
 
   /** Resolve a batch action's targets from a tree-view multi-selection. VSCode
@@ -590,16 +606,20 @@ export function createBranchesView(deps: BranchesProviderDeps) {
   return {
     actionTargetsForSelection,
     setActiveRepo: (repo: string | null): void => {
-      // Drop any pending write from the previous repo before switching.
+      // Drop any pending write from the previous repo before switching, and let
+      // the reconciler see which repo this is: several callers re-point the view
+      // at the repo it is already on, and what it gives up on depends on whether
+      // this one moved anything. `provider.setRepo` ignores a re-point too, but
+      // that guard runs last and so cannot stand in for this one.
       cancelDebounce();
-      reconciler.onRepoSwitch();
+      reconciler.onRepoSwitch(repo);
       provider.setRepo(repo);
     },
     getActiveRepo: (): string | null => provider.getRepo(),
     refresh: (opts?: { hard?: boolean }): void => provider.refresh(opts),
-    clearSelection: (): void => provider.clearSelection(),
     collapseFolders: (): void => provider.collapseFolders(),
     searchBranch,
+    showAll,
     dispose: (): void => {
       cancelDebounce();
       selectionSub.dispose();
