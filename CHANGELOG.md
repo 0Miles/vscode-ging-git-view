@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.5.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.4.0...v0.5.0) (2026-08-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* **webview:** load-more-on-scroll, fixed and on by default ([#90](https://github.com/0Miles/vscode-ging-git-view/issues/90))
+
+### Features
+
+* rebase a selected commit range onto another commit, and configurable pull request providers ([#62](https://github.com/0Miles/vscode-ging-git-view/issues/62)) ([d654f19](https://github.com/0Miles/vscode-ging-git-view/commit/d654f19bd872b8b9dc13771948c1863822fd21f6))
+* **webview:** load-more-on-scroll, fixed and on by default ([#90](https://github.com/0Miles/vscode-ging-git-view/issues/90)) ([b58af65](https://github.com/0Miles/vscode-ging-git-view/commit/b58af65cd39ab947d56800783c4e57bb6c5ebe20))
+
+
+### Bug Fixes
+
+* **adr:** fail the check on an ADR reference written as a path ([5814725](https://github.com/0Miles/vscode-ging-git-view/commit/5814725ff8886069b0debf3c3dea894dd1b726de))
+* **adr:** fail the check on an ADR reference written as a path ([b803f95](https://github.com/0Miles/vscode-ging-git-view/commit/b803f9577dc0983ed153228d5cd7866b2c94d630)), closes [#59](https://github.com/0Miles/vscode-ging-git-view/issues/59)
+* **branches:** arm the selection suppression only when a branch is cleared ([#66](https://github.com/0Miles/vscode-ging-git-view/issues/66)) ([2fc3f43](https://github.com/0Miles/vscode-ging-git-view/commit/2fc3f4364b323ea3bb00a36ad78924679a4562b6))
+* **extension:** a repo switch gives up on the suppression's missing event ([4b4ca16](https://github.com/0Miles/vscode-ging-git-view/commit/4b4ca1666a3c503372c1efdb70f5735ae31f6e9c)), closes [#43](https://github.com/0Miles/vscode-ging-git-view/issues/43)
+* **extension:** only a real repo switch gives up on the awaited event ([f6f4221](https://github.com/0Miles/vscode-ging-git-view/commit/f6f422188f85b6e9bcd0b0da461eee0785c540a7)), closes [#43](https://github.com/0Miles/vscode-ging-git-view/issues/43)
+* **l10n:** say it the way a zh-CN reader would ([4df0616](https://github.com/0Miles/vscode-ging-git-view/commit/4df06161e073cb17d77aac7758b277faf74ebf04))
+* **l10n:** say it the way a zh-CN reader would ([9b6b987](https://github.com/0Miles/vscode-ging-git-view/commit/9b6b987e74b7df94bdca9d110be91d559409b4c0))
+* **l10n:** the load-more count is an increment, not a button's payload ([27427bc](https://github.com/0Miles/vscode-ging-git-view/commit/27427bc50fc635ca7828b7e446fb9b089cb92adc))
+* **l10n:** the load-more count is an increment, not a button's payload ([3dc0cc7](https://github.com/0Miles/vscode-ging-git-view/commit/3dc0cc77c5461f6bbf3fe1599424a7a982039a4c)), closes [#75](https://github.com/0Miles/vscode-ging-git-view/issues/75)
+* **tests:** the guard on a missing menu item never fired ([2153419](https://github.com/0Miles/vscode-ging-git-view/commit/215341951cd59b638ffac307f0eba3c05c51431e))
+* **tests:** the guard on a missing menu item never fired ([5024091](https://github.com/0Miles/vscode-ging-git-view/commit/502409139f1e4a6a6978c612eeb0f01641217e8c)), closes [#131](https://github.com/0Miles/vscode-ging-git-view/issues/131)
+* **webview:** a batch run survives losing the dialog that held its question ([#125](https://github.com/0Miles/vscode-ging-git-view/issues/125)) ([68078d2](https://github.com/0Miles/vscode-ging-git-view/commit/68078d22b952c467374119a60383b8e3b467727e))
+* **webview:** close the last two ways a redraw moves the reader ([#114](https://github.com/0Miles/vscode-ging-git-view/issues/114)) ([6bfd3b1](https://github.com/0Miles/vscode-ging-git-view/commit/6bfd3b12f6ad9d11546929fd7d0262a9c2306bfa))
+* **webview:** four ways the graph acted on something the user was not looking at ([9fd2a77](https://github.com/0Miles/vscode-ging-git-view/commit/9fd2a7780ed0706cd9364157b573c655adf8f07d))
+* **webview:** reach the footer by keyboard, and stop the redraw laying out twice ([#123](https://github.com/0Miles/vscode-ging-git-view/issues/123)) ([69ff854](https://github.com/0Miles/vscode-ging-git-view/commit/69ff8541057db8e4d0d2be3511d14ebbc5b8cf13))
+* **webview:** say the four refusals that were said in silence ([f25f55a](https://github.com/0Miles/vscode-ging-git-view/commit/f25f55a21d54e91d5f40b08266bbcf5e0bb12190)), closes [#137](https://github.com/0Miles/vscode-ging-git-view/issues/137)
+* **webview:** stop the wheel widening the graph behind a dialog ([5f2f0c4](https://github.com/0Miles/vscode-ging-git-view/commit/5f2f0c48cfbe20dd034391b7cff25ad9ee4d58c0)), closes [#124](https://github.com/0Miles/vscode-ging-git-view/issues/124)
+* **webview:** the dialog's commit rows are not the graph's to act on ([49ea6c6](https://github.com/0Miles/vscode-ging-git-view/commit/49ea6c6de4c2435fdf96a3a135c1918340b94ebf)), closes [#144](https://github.com/0Miles/vscode-ging-git-view/issues/144)
+* **webview:** the dialog's file rows are not the panel's to act on ([bb31994](https://github.com/0Miles/vscode-ging-git-view/commit/bb31994d59f0c846c1d25a329f21699843d59a5f)), closes [#128](https://github.com/0Miles/vscode-ging-git-view/issues/128)
+* **webview:** the graph's commit rows are the graph's to read as well ([faa70ba](https://github.com/0Miles/vscode-ging-git-view/commit/faa70ba0ac2464492c2ac64c071d7bd710cacd6e))
+* **webview:** the graph's commit rows are the graph's to read as well ([690179c](https://github.com/0Miles/vscode-ging-git-view/commit/690179c47927bf30bff91355629d908258c2a896)), closes [#150](https://github.com/0Miles/vscode-ging-git-view/issues/150)
+* **webview:** what the dialog asked about may not be what Yes acts on ([#139](https://github.com/0Miles/vscode-ging-git-view/issues/139)) ([cc6b893](https://github.com/0Miles/vscode-ging-git-view/commit/cc6b89304b6964608efc95aad2166e1f13de0b2c))
+
 ## [0.4.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.3.2...v0.4.0) (2026-08-15)
 
 
