@@ -71,7 +71,7 @@ _Avoid_: short name, ref label, 顯示名稱
 ### Pull request 的落點
 
 **Pull request provider**:
-一台 host 上跑的是哪一種 forge —— GitHub、GitLab、Bitbucket、Gitea/Forgejo,或一段自訂 URL 樣板。它是 **host 的性質,不是 repo 的、也不是 remote 的**:同一台自架主機上的所有 repo 共用一筆。「建立 pull request」據此決定要開哪個 URL;查不到就據實回報並提議設定那個 host,不猜。五個公開 host 內建,同名 host 的設定整筆取代內建那筆(ADR-0018)。
+一台 host 上跑的是哪一種 forge —— GitHub、GitLab、Bitbucket、Gitea/Forgejo,或一段自訂 URL 樣板。它是 **host 的性質,不是 repo 的、也不是 remote 的**:同一台自架主機上的所有 repo 共用一筆。「建立 pull request」據此決定要開哪個 URL;查不到就據實回報並提議設定那個 host,不猜。五個公開 host 內建,同名 host 的設定整筆取代內建那筆(ADR-0021)。
 _Avoid_: PR host, git host, remote provider, PR 服務
 
 ### 側檢視的選取
