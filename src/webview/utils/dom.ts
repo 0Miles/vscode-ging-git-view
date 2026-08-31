@@ -47,10 +47,26 @@ export function addListenerToClass(className: string, event: string, eventListen
 export function insertAfter(newNode: HTMLElement, referenceNode: HTMLElement) {
   referenceNode.parentNode!.insertBefore(newNode, referenceNode.nextSibling);
 }
-export function blinkHeadRow(headHash: string | null) {
-  if (!headHash) return;
-  const row = document.querySelector(`tr.commit[data-hash="${headHash}"]`) as HTMLElement | null;
-  if (!row) return;
+/** Flash `row` for the length of the CSS animation, or do nothing when there is
+ *  no row to flash.
+ *
+ *  **It takes the row, not a hash, and that is the whole of what #150 changed
+ *  here.** As `blinkHeadRow(hash)` it ran `document.querySelector` on
+ *  `tr.commit[data-hash=…]`, which the branch-redundancy dialog also renders —
+ *  so it flashed whichever copy came first in the page, and only the order
+ *  `buildWebviewMarkup` happens to write its children in made that the graph's.
+ *  Both callers had *already* resolved the row they meant, scoped to
+ *  `#commitTable`, on the line above; re-deriving it from the hash down here
+ *  discarded that scope and asked the question a second time in a wider place.
+ *  Passing the answer instead leaves no query to get wrong, which is why this
+ *  needs no root parameter of its own — see `GitGraphView.graphRowByHash` for
+ *  the scope its callers now use.
+ *
+ *  Named for what it does rather than for HEAD: `scrollToStash` has always
+ *  called it too, and a name that says HEAD is how the stash caller reads like a
+ *  mistake. */
+export function blinkRow(row: HTMLElement | null) {
+  if (row === null) return;
   row.classList.add("blinking");
   // Matches CSS animation: 320ms * 2 iterations = 640ms, add small buffer
   window.setTimeout(() => row.classList.remove("blinking"), 700);
