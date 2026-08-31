@@ -4,7 +4,14 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // Pull, merge-style rebase and friends bake the checked-out branch into their
 // own question — "pull origin/feature into **main**" — but git is handed HEAD,
@@ -95,14 +102,6 @@ function openMenuOn(selector: string) {
   const elem = document.querySelector<HTMLElement>(selector);
   expect(elem, selector).not.toBeNull();
   elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).not.toBeNull();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 function dialogText() {

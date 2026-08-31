@@ -4,7 +4,7 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickItem, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // The single-remote push-tag confirmation reads `this.remotes[0]` only once the
 // user has answered. Removing the remote in that window empties the list, and
@@ -41,14 +41,6 @@ const branchesResponse: GG.ResponseMessage = {
   isRepo: true,
   filter: []
 };
-
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).not.toBeNull();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
 
 describe("the remote a push-tag dialog resolved", () => {
   let mock: ReturnType<typeof createVscodeMock>;
