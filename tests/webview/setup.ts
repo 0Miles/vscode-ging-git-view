@@ -1,3 +1,5 @@
+import { expect } from "vitest";
+
 import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import { buildWebviewMarkup } from "@/extension/webviewMarkup";
@@ -184,4 +186,41 @@ export function setupHtml(viewState: GG.GitGraphViewState) {
 
 export function receive(msg: GG.ResponseMessage) {
   window.dispatchEvent(new MessageEvent("message", { data: msg }));
+}
+
+/** Activate a context-menu item by its label.
+ *
+ *  `toBeDefined`, not `not.toBeNull`: `find` yields `undefined` when nothing
+ *  matches, and a null check waves that straight through — leaving the miss to
+ *  surface a line later on `dispatchEvent`, as a TypeError naming neither the
+ *  label nor the fact that the menu simply did not carry it (issue #131). A
+ *  fixture that has drifted then reads like a listener that stopped working.
+ *
+ *  It is here for the reason `makeViewState` is: five suites held byte-identical
+ *  copies, so one wrong assertion was wrong in five places and had to be
+ *  corrected in five.
+ *
+ *  Six local copies remain, and this is not the finished inventory — issue #154
+ *  is where the whole set gets settled, including whether the guard should throw
+ *  rather than assert. Three of them are byte-identical to this one
+ *  (`dialogSurvivesBackgroundReload`, `loadMoreOnScroll`,
+ *  `stashSelectorBoundAtConsent`); nothing distinguishes them, and they are out
+ *  of this change only because #131 named a different six files. The other three
+ *  (`cdvFileListenerScope`, `graphCommitListenerScope`,
+ *  `graphCommitListenerScopeDocked`) end differently, handing the element to a
+ *  local `click(elem)` rather than dispatching here, so folding them in means
+ *  first deciding whether that indirection survives. `droppedLoadRequests` is a
+ *  fourth shape rather than a copy: `chooseCommitOrder` opens the menu itself and
+ *  matches on `.contextMenuItemLabel` instead of the whole row, and its assertion
+ *  was already right before #131 was filed.
+ *
+ *  No suite reaches the guard: every label they pass is one their menu really
+ *  carries. `missingMenuItem` is what exercises the miss, and without it a green
+ *  run cannot tell an assertion that fires from one that only looks like it. */
+export function clickItem(label: string) {
+  const item = Array.from(
+    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
+  ).find((li) => (li.textContent ?? "").trim() === label);
+  expect(item, label).toBeDefined();
+  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
