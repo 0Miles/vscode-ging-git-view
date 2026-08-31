@@ -1,7 +1,8 @@
 /**
- * Pure (vscode-free) reconciliation of the Branches side-view selection into
- * branch-filter writes, unit-tested in the fast backend test project like its
- * neighbours in this directory.
+ * Reconciliation of the Branches side-view selection into branch-filter writes.
+ * Free of any `vscode` import, so it is unit-tested in the fast backend test
+ * project like its neighbours in this directory — but not pure: it performs the
+ * writes too, through ports (see the foot of the file).
  *
  * A branch selection is the one set that serves both the graph filter and the
  * batch actions (ADR-0008), and an empty selection is the user's explicit
@@ -12,20 +13,20 @@
  * the gestures apart; `branchesView.ts` stays a thin adapter that pipes VS Code
  * events in and interprets the decisions.
  *
- * Not every filter write starts as a tree gesture, though. A **direct write**
- * — the multi-pick search's chosen set, "Show All"'s empty one — writes the
- * filter and clears the highlight itself. The steps it must take around
- * {@link BranchSelectionReconciler.onDirectWrite} are the same whichever
- * gesture asked for it, and getting one of them wrong (arming the suppression
- * off the raw TreeView selection instead of the branch selection) was a real
- * bug (#42), so they live here too, as {@link createDirectFilterWriter},
- * rather than once per caller in the adapter.
+ * Not every filter write starts as a tree gesture, though. A **direct write** —
+ * the multi-pick search's chosen set, "Show All"'s empty one — writes the filter
+ * and clears the highlight itself, and the steps it takes around
+ * {@link BranchSelectionReconciler.onDirectWrite} are the same whichever gesture
+ * asked for it. They live here, as {@link createDirectFilterWriter}, and not
+ * once per caller in the adapter, because a caller holding its own copy of the
+ * sequence *is* a second place deciding how a side-view gesture becomes a filter
+ * update. That is what let "Show All" write the store on its own (#43), and
+ * before it what let one caller arm the suppression off the wrong set (#42; the
+ * rule itself is stated on `onDirectWrite` below).
  *
- * That does mean this module performs effects as well as deciding — through
- * ports, so it stays vscode-free and the backend test project can hold every
- * side-view filter update to the sequence (ADR-0018). The alternative was a
- * second copy of the sequence in `branchesView.ts`, which is exactly the split
- * that let "Show All" write the store on its own (#43).
+ * Owning the sequence is what makes this module perform effects as well as
+ * decide. They arrive as ports, so it stays vscode-free and the backend test
+ * project can hold every side-view filter update to the sequence (ADR-0018).
  */
 
 /** How long selection events coalesce before the filter is written, so a rapid
@@ -117,9 +118,17 @@ export function createBranchSelectionReconciler() {
     },
 
     /** The view is being pointed at another repo: drop any pending write so it
-     *  cannot land on the previous repo after the switch. */
+     *  cannot land on the previous repo after the switch, and disarm any
+     *  suppression still waiting for an event from the repo being left. The
+     *  suppression is one-shot and armed before its event exists, so a hidden
+     *  side view that never delivered the clear's empty selection would leave
+     *  it to be spent on the next repo's genuine deselect-all — silently
+     *  keeping a filter the user just asked to drop. Past the switch that
+     *  event can no longer be coming, which makes this the honest place to
+     *  give up on it. */
     onRepoSwitch(): void {
       pending = null;
+      suppressEmptySelectionOnce = false;
     }
   };
 }
@@ -129,12 +138,10 @@ export function createBranchSelectionReconciler() {
  *  stays vscode-free so the sequence below can be exercised in the backend test
  *  project (ADR-0018). */
 export type DirectWriteEffects = {
-  /** The branch selection the clear is about to drop — *not* the raw TreeView
-   *  selection, which counts folders and group headings the clear cannot touch
-   *  (CONTEXT.md, "Branch selection"). It is a port rather than an argument so
-   *  that *which set* gets measured is settled once, where the effects are
-   *  bound, instead of at each call site; a call site answering that question
-   *  for itself, and answering it wrong, is what #42 was. */
+  /** The branch selection the clear is about to drop, per the arming rule on
+   *  `onDirectWrite` above. A port rather than an argument so that *which set*
+   *  gets measured is settled once, where the effects are bound, and no call
+   *  site is left to answer it. */
   branchSelection: () => readonly string[];
   /** Cancel the adapter's debounce timer. The reconciler drops the pending
    *  write regardless, so the timer would fire into nothing — this only spares
@@ -149,10 +156,8 @@ export type DirectWriteEffects = {
 
 /**
  * Bind a reconciler to the view's effects, yielding the one function that
- * performs a direct write: the multi-pick search's chosen set, or "Show All"'s
- * empty one. Bound once, so the adapter holds a function taking nothing but the
- * repo and the refs — there is then no call site left that could reach the
- * store any other way, which is the property #43 was about.
+ * performs a direct write. Bound once, so the adapter is left holding a function
+ * that takes nothing but the repo and the refs.
  *
  * The order is load-bearing in one direction only — the filter is written
  * before the highlight goes, so the graph reloads once instead of reacting to

@@ -111,6 +111,31 @@ describe("repo switch", () => {
     reconciler.onRepoSwitch();
     expect(reconciler.onDebounceElapsed()).toBeNull();
   });
+
+  // A direct write arms the suppression against an event the clear has not
+  // emitted yet, and a hidden side view may never deliver it. The flag is
+  // one-shot, so a stranded one is spent on whatever empty event comes next —
+  // and after a repo switch that is a genuine deselect-all in another repo,
+  // which would silently keep the old filter. The switch is the point where
+  // the awaited event can no longer be coming.
+  it("disarms a suppression whose event never arrived, so the next repo's deselect-all still shows all", () => {
+    const reconciler = createBranchSelectionReconciler();
+    reconciler.onSelection("/repo-a", ["main"]);
+    reconciler.onDebounceElapsed();
+    reconciler.onDirectWrite("/repo-a", [], { selectionBeingCleared: ["main"] });
+
+    reconciler.onRepoSwitch();
+
+    // The user picks a branch in the new repo, then deselects everything: that
+    // last event is the user's "show all" and has to reach the store.
+    reconciler.onSelection("/repo-b", ["dev"]);
+    reconciler.onDebounceElapsed();
+    expect(reconciler.onSelection("/repo-b", [])).toEqual({
+      kind: "schedule",
+      delayMs: SELECTION_WRITE_DEBOUNCE_MS
+    });
+    expect(reconciler.onDebounceElapsed()).toEqual({ repo: "/repo-b", branches: [] });
+  });
 });
 
 describe("direct write (multi-pick search bypassing the tree)", () => {
@@ -241,10 +266,9 @@ describe("a direct write performs its own steps", () => {
     return { reconciler, directWrite, writes, log };
   }
 
-  // The acceptance of #43: "Show All" is a filter write with no tree gesture
-  // behind it, so the empty selection its own clearing emits is an artefact.
-  // Writing the store outside the reconciler let that artefact through as a
-  // second, identical show-all write.
+  // The acceptance of #43: the empty selection show-all's own clearing emits is
+  // an artefact, and writing the store outside the reconciler let it through as
+  // a second, identical show-all write.
   it("show all writes the empty filter once; the clear's empty event adds no second write", () => {
     const { reconciler, directWrite, writes, log } = recordingWriter(["main"]);
     reconciler.onSelection("/repo", ["main"]);
@@ -277,10 +301,9 @@ describe("a direct write performs its own steps", () => {
     });
   });
 
-  // The sibling case above, one level out: the #42 rule is already pinned on
-  // `onDirectWrite`, and what this adds is that the writer is where the branch
-  // selection gets read, so no call site is left to answer "which set?" for
-  // itself — answering it wrong is what #42 was.
+  // The #42 rule is pinned on `onDirectWrite` above; what this adds is that the
+  // writer is where the branch selection gets read, so no call site is left to
+  // answer "which set?" for itself.
   it("reads the branch selection itself, so a folder-only highlight arms nothing", () => {
     const { reconciler, directWrite } = recordingWriter([]);
     reconciler.onSelection("/repo", []);

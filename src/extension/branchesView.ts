@@ -498,10 +498,8 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     }, decision.delayMs);
   });
 
-  // The two gestures that write the filter without a tree gesture behind them —
-  // the multi-pick search and "Show All" — share this one bound writer. That it
-  // is bound here, and that `provider.clearSelection()` appears nowhere else, is
-  // what leaves the view no second way to reach the store (#43).
+  // The view's half of a direct write, bound once. `provider.clearSelection()`
+  // appearing nowhere else is the point (see `branchSelectionReconciler.ts`).
   const directWrite = createDirectFilterWriter(reconciler, {
     branchSelection: () => selectedBranchRefs([...treeView.selection]),
     cancelPendingWrite: cancelDebounce,
@@ -576,9 +574,8 @@ export function createBranchesView(deps: BranchesProviderDeps) {
 
   /** "Show All": the empty branch filter, plus the tree highlight going away so
    *  the two agree. Reached from the side-view title button, the command
-   *  palette and the graph's filter chip, and it is the same direct write the
-   *  multi-pick search makes — the emptiness of the set is the only difference,
-   *  so it must not be a second way to reach the store. */
+   *  palette and the graph's filter chip. The emptiness of the set is all that
+   *  separates it from the multi-pick search, so it is the same direct write. */
   const showAll = (): void => {
     const repo = provider.getRepo();
     if (repo === null) return;
