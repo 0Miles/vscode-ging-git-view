@@ -1,0 +1,46 @@
+Sample file bodies for checkAdr.test.ts, one per `== name` heading.
+
+They live out here, in a `.txt`, for one reason: proving the checker rejects a
+bad ADR reference means writing bad ADR references down, and every extension
+the checker reads would make these count as the real thing. Keeping them in a
+file it does not read costs one level of indirection and buys an exemption
+list with nothing on it — no file gets to opt out of the rule, so no file can
+quietly stop being checked.
+
+That does couple this file to `SEARCH_EXTENSIONS` in scripts/check-adr.js: add
+".txt" there and these samples light up as violations. The failure is loud and
+lands here, which is the right place for it.
+
+== path-only
+const a = 1;
+// why this is safe: see docs/adr/0001.
+
+== labelled-path
+See ADR-0001 (docs/adr/0001-first.md) for the reasoning.
+
+== sibling-link-unlabelled
+# 0002
+
+This replaces [the older call](0001-first.md).
+
+== dangling-citation
+The host decides, not the repo (ADR-0099).
+
+== link-into-another-directory
+# 0001
+
+Measured in [the note](../perf/2026-08-window.md).
+
+== sibling-link-outside-adr
+See [the note](2026-08-window.md).
+
+== sibling-link-inside-adr
+# 0001
+
+See [the note](2026-08-window.md).
+
+== relative-path-reference
+Recorded in [the call](../adr/0001-first.md).
+
+== path-to-missing-adr
+// background: docs/adr/0099-gone.md

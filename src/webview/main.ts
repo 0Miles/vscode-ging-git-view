@@ -7752,7 +7752,7 @@ document.addEventListener("keyup", (e) => {
 });
 // Rows of overlap kept when Page Up/Down jumps a screenful, so the user has
 // something to re-orient against on the far side of the jump. Up/Down no longer
-// scroll at all — they move focus between rows (see docs/adr/0014).
+// scroll at all — they move focus between rows (see ADR-0014).
 const PAGE_SCROLL_OVERLAP = 48;
 function pageScrollStep() {
   return Math.max(window.innerHeight - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
