@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   createBranchSelectionReconciler,
+  createDirectFilterWriter,
+  type FilterWrite,
   SELECTION_WRITE_DEBOUNCE_MS
 } from "@/extension/branchSelectionReconciler";
 
@@ -105,9 +107,68 @@ describe("debounce coalescing", () => {
 describe("repo switch", () => {
   it("drops the previous repo's pending write", () => {
     const reconciler = createBranchSelectionReconciler();
+    reconciler.onRepoSwitch("/repo-a");
     reconciler.onSelection("/repo-a", ["main"]);
-    reconciler.onRepoSwitch();
+    reconciler.onRepoSwitch("/repo-b");
     expect(reconciler.onDebounceElapsed()).toBeNull();
+  });
+
+  // The adapter re-points the view at the repo it is already on more often than
+  // it switches: opening the graph does it, and so does an SCM selection growing
+  // while its first entry stays put. Dropping the pending write there is the
+  // behaviour this method has always had, and the guard below must not take it
+  // away — hence a guard on the one step rather than an early return.
+  it("drops the pending write even when the repo is unchanged", () => {
+    const reconciler = createBranchSelectionReconciler();
+    reconciler.onRepoSwitch("/repo");
+    reconciler.onSelection("/repo", ["main"]);
+    reconciler.onRepoSwitch("/repo");
+    expect(reconciler.onDebounceElapsed()).toBeNull();
+  });
+
+  // Disarming on those same re-points would be a regression of its own: the
+  // clear's empty event is still coming, and unsuppressed it lands in the window
+  // between a direct write and its own clear — writing "show all" over the
+  // non-empty filter the multi-pick search just set.
+  it("a re-point at the same repo keeps a suppression that is still waiting", () => {
+    const reconciler = createBranchSelectionReconciler();
+    reconciler.onRepoSwitch("/repo");
+    reconciler.onSelection("/repo", ["main"]);
+    reconciler.onDebounceElapsed();
+    reconciler.onDirectWrite("/repo", ["dev", "feat"], { selectionBeingCleared: ["main"] });
+
+    reconciler.onRepoSwitch("/repo");
+
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "ignore",
+      reason: "suppressed-empty"
+    });
+  });
+
+  // A direct write arms the suppression against an event the clear has not
+  // emitted yet, and a hidden side view may never deliver it. The flag is
+  // one-shot, so a stranded one is spent on whatever empty event comes next —
+  // and after a repo switch that is a genuine deselect-all in another repo,
+  // which would silently keep the old filter. The switch is the point where
+  // the awaited event can no longer be coming.
+  it("disarms a suppression whose event never arrived, so the next repo's deselect-all still shows all", () => {
+    const reconciler = createBranchSelectionReconciler();
+    reconciler.onRepoSwitch("/repo-a");
+    reconciler.onSelection("/repo-a", ["main"]);
+    reconciler.onDebounceElapsed();
+    reconciler.onDirectWrite("/repo-a", [], { selectionBeingCleared: ["main"] });
+
+    reconciler.onRepoSwitch("/repo-b");
+
+    // The user picks a branch in the new repo, then deselects everything: that
+    // last event is the user's "show all" and has to reach the store.
+    reconciler.onSelection("/repo-b", ["dev"]);
+    reconciler.onDebounceElapsed();
+    expect(reconciler.onSelection("/repo-b", [])).toEqual({
+      kind: "schedule",
+      delayMs: SELECTION_WRITE_DEBOUNCE_MS
+    });
+    expect(reconciler.onDebounceElapsed()).toEqual({ repo: "/repo-b", branches: [] });
   });
 });
 
@@ -217,5 +278,89 @@ describe("direct write (multi-pick search bypassing the tree)", () => {
       kind: "schedule",
       delayMs: SELECTION_WRITE_DEBOUNCE_MS
     });
+  });
+});
+
+describe("a direct write performs its own steps", () => {
+  /** A reconciler wired to recording stand-ins for the side view's four
+   *  effects, so a test can read back exactly what one direct write did. */
+  function recordingWriter(branchSelection: readonly string[]) {
+    const writes: FilterWrite[] = [];
+    const log: string[] = [];
+    const reconciler = createBranchSelectionReconciler();
+    const directWrite = createDirectFilterWriter(reconciler, {
+      branchSelection: () => branchSelection,
+      cancelPendingWrite: () => log.push("cancel"),
+      writeFilter: (write: FilterWrite) => {
+        writes.push(write);
+        log.push("write");
+      },
+      clearVisualSelection: () => log.push("clear")
+    });
+    return { reconciler, directWrite, writes, log };
+  }
+
+  // The acceptance of #43: the empty selection show-all's own clearing emits is
+  // an artefact, and writing the store outside the reconciler let it through as
+  // a second, identical show-all write.
+  it("show all writes the empty filter once; the clear's empty event adds no second write", () => {
+    const { reconciler, directWrite, writes, log } = recordingWriter(["main"]);
+    reconciler.onSelection("/repo", ["main"]);
+    reconciler.onDebounceElapsed();
+
+    directWrite("/repo", []);
+
+    expect(writes).toEqual([{ repo: "/repo", branches: [] }]);
+    // The store is written before the highlight goes, so the graph reloads once
+    // rather than once per step.
+    expect(log).toEqual(["cancel", "write", "clear"]);
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "ignore",
+      reason: "suppressed-empty"
+    });
+    expect(reconciler.onDebounceElapsed()).toBeNull();
+  });
+
+  it("the multi-pick search's chosen set takes the very same route", () => {
+    const { reconciler, directWrite, writes } = recordingWriter(["main"]);
+    reconciler.onSelection("/repo", ["main"]);
+    reconciler.onDebounceElapsed();
+
+    directWrite("/repo", ["dev", "feat"]);
+
+    expect(writes).toEqual([{ repo: "/repo", branches: ["dev", "feat"] }]);
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "ignore",
+      reason: "suppressed-empty"
+    });
+  });
+
+  // The #42 rule is pinned on `onDirectWrite` above; what this adds is that the
+  // writer is where the branch selection gets read, so no call site is left to
+  // answer "which set?" for itself.
+  it("reads the branch selection itself, so a folder-only highlight arms nothing", () => {
+    const { reconciler, directWrite } = recordingWriter([]);
+    reconciler.onSelection("/repo", []);
+
+    directWrite("/repo", ["dev"]);
+
+    expect(reconciler.onSelection("/repo", [])).toEqual({
+      kind: "schedule",
+      delayMs: SELECTION_WRITE_DEBOUNCE_MS
+    });
+    expect(reconciler.onDebounceElapsed()).toEqual({ repo: "/repo", branches: [] });
+  });
+
+  // Show All is one click away from a branch row, so it lands inside the
+  // selection debounce often. The click's write must not arrive afterwards and
+  // put the filter back to that one branch.
+  it("a tree click still inside its debounce window cannot land after the write", () => {
+    const { reconciler, directWrite, log } = recordingWriter(["main"]);
+    reconciler.onSelection("/repo", ["main"]);
+
+    directWrite("/repo", []);
+
+    expect(log[0]).toBe("cancel");
+    expect(reconciler.onDebounceElapsed()).toBeNull();
   });
 });
