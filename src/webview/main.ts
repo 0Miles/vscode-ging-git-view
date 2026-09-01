@@ -16,6 +16,12 @@ import type {
   RedundancyCommit
 } from "@/backend/types";
 import { displayRef, REMOTE_PREFIX } from "@/backend/utils/branchRef";
+import {
+  planRebase,
+  type RebaseCommit,
+  type RebasePlan,
+  rebaseTodo
+} from "@/backend/utils/rebasePlan";
 import { REF_ACTION_CATALOGUE } from "@/backend/utils/refActionCatalogue";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
@@ -24,6 +30,7 @@ import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
 import { createErrorReporter } from "./errorReporting";
 import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } from "./find";
 import { Graph } from "./graph";
+import { type RebaseReplay, rebaseReplay } from "./rebaseReplay";
 import { menuFor, type RefMenuActions, type RefTarget } from "./refContextMenu";
 import { formatDate, pad2 } from "./utils/date";
 import { addListenerToClass, blinkRow, insertAfter } from "./utils/dom";
@@ -2430,18 +2437,7 @@ class GitGraphView {
             visible: cmv.rebase,
             title: l10n.rebaseOnCommit + ELLIPSIS,
             icon: "rebase",
-            onClick: () => {
-              this.confirmForRepoAndHead(
-                l10n.dialogRebaseConfirm
-                  .replace("{0}", "<b><i>" + abbrevCommit(hash) + "</i></b>")
-                  .replace("{1}", this.currentBranchLabel()),
-                (repo) => {
-                  sendMessage({ command: "rebaseOn", repo, obj: hash });
-                  showActionRunningDialog(l10n.rebasing);
-                },
-                sourceElem
-              );
-            }
+            onClick: () => this.rebaseOnAction(hash, abbrevCommit(hash), hash, sourceElem)
           },
           ...(ontoRange !== null
             ? <ContextMenuElement[]>[
@@ -3125,16 +3121,77 @@ class GitGraphView {
     }
   }
   private rebaseOnBranchAction(refName: string) {
+    this.rebaseOnAction(refName, escapeHtml(refName), this.commitOfRef(refName), null);
+  }
+
+  /**
+   * `git rebase <obj>` — replay the current branch onto `obj`, a commit the user
+   * right-clicked or a branch whose label they did.
+   *
+   * The dialog lists `obj..HEAD`, the commits git would replay, and lets each be
+   * unticked (#172). Untick nothing and the message sent is the one this action
+   * always sent, field for field; untick some and the ticks pick the command
+   * ({@link sendRebasePick}).
+   *
+   * `objHash` is where `obj` sits among the loaded commits, and null when it is
+   * outside them — a branch the graph is not showing. The range is then unknown
+   * rather than empty, which is what {@link RebaseReplay.incomplete} carries and
+   * why a range that cannot be read leaves the rebase exactly as it was.
+   */
+  private rebaseOnAction(
+    obj: string,
+    objLabel: string,
+    objHash: string | null,
+    sourceElem: HTMLElement | null
+  ) {
+    const tipHash = this.commitHead;
+    const replay: RebaseReplay =
+      objHash === null || tipHash === null
+        ? { commits: [], mergesSquashed: 0, strandedBranches: [], incomplete: true }
+        : rebaseReplay(objHash, tipHash, this.commits, this.commitLookup);
+    // `git rebase <obj>` replays `obj..HEAD` onto `obj`, so the range's lower
+    // bound and its landing point are the same commit. The tip is the branch git
+    // will move: the plain command names no branch and lets git use HEAD, but
+    // the narrowed form has to name one, so it is resolved here and a detached
+    // HEAD falls through to the interactive form.
+    const range: RebasePickRange = { newBase: obj, upstream: obj, tip: this.gitBranchHead };
     this.confirmForRepoAndHead(
       l10n.dialogRebaseConfirm
-        .replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>")
-        .replace("{1}", this.currentBranchLabel()),
+        .replace("{0}", "<b><i>" + objLabel + "</i></b>")
+        .replace("{1}", this.currentBranchLabel()) + openRebasePick(replay, null),
       (repo) => {
-        sendMessage({ command: "rebaseOn", repo, obj: refName });
-        showActionRunningDialog(l10n.rebasing);
+        const commits = rebasePickCommits();
+        const plan = rebasePickPlan(commits);
+        // The list stands on a reading of `obj..HEAD` taken when the dialog
+        // opened. Only a plan that writes that range into the command depends on
+        // it still holding — `unchanged` sends `git rebase <obj>`, which git
+        // resolves for itself — so only that plan re-takes the reading, and
+        // refuses out loud when it has changed (ADR-0019).
+        if (plan.kind !== "unchanged" && this.commitHead !== tipHash) {
+          showErrorDialog(
+            l10n.dialogHeadMoved.replace("{0}", this.currentBranchLabel()),
+            null,
+            null
+          );
+          return;
+        }
+        sendRebasePick(repo, range, commits, plan, () => {
+          sendMessage({ command: "rebaseOn", repo, obj });
+        });
       },
-      null
+      sourceElem
     );
+    bindRebasePickHandlers();
+  }
+
+  /** The loaded commit a branch label points at, or null when that branch is
+   *  outside the loaded commits — which the side view's actions can reach, since
+   *  its refs are not restricted to what the graph is showing. */
+  private commitOfRef(refName: string): string | null {
+    const commit = this.commits.find((c) =>
+      c.refs.some((r) => r.name === refName && (r.type === "head" || r.type === "remote"))
+    );
+    return commit?.hash ?? null;
   }
 
   /**
@@ -3154,15 +3211,24 @@ class GitGraphView {
     range: RebaseOntoRange,
     sourceElem: HTMLElement | null
   ) {
+    const replay = rebaseReplay(range.upstream, range.tip, this.commits, this.commitLookup);
     const run = (repo: string, tip: string) => {
-      sendMessage({
-        command: "rebaseOnto",
+      const commits = rebasePickCommits();
+      sendRebasePick(
         repo,
-        newBase,
-        upstream: range.upstream,
-        tip
-      });
-      showActionRunningDialog(l10n.rebasing);
+        { newBase, upstream: range.upstream, tip },
+        commits,
+        rebasePickPlan(commits),
+        () => {
+          sendMessage({
+            command: "rebaseOnto",
+            repo,
+            newBase,
+            upstream: range.upstream,
+            tip
+          });
+        }
+      );
     };
     const confirmMsg = (tipLabel: string) =>
       fillTemplate(
@@ -3171,26 +3237,33 @@ class GitGraphView {
         "<b><i>" + tipLabel + "</i></b>",
         "<b><i>" + abbrevCommit(newBase) + "</i></b>"
       );
-    const commandPreview = (tip: string) =>
-      '<span class="commandPreview">' +
-      escapeHtml(
-        "git rebase " +
-          (this.config.signCommits ? "-S " : "") +
-          "--onto " +
-          abbrevCommit(newBase) +
-          " " +
-          abbrevCommit(range.upstream) +
-          " " +
-          tip
-      ) +
-      "</span>";
+    // The printed command is the whole of what is agreed to (ADR-0022), so it
+    // is a function of the plan the ticks make rather than a fixed line: an
+    // interactive rebase and a moved lower bound are different commands, and an
+    // emptied list is no command at all.
+    const commandPreview = (tip: string) => (plan: RebasePlan) =>
+      plan.kind === "empty"
+        ? ""
+        : '<span class="commandPreview">' +
+          escapeHtml(
+            "git rebase " +
+              (this.config.signCommits ? "-S " : "") +
+              (plan.kind === "interactive" ? "--interactive " : "") +
+              "--onto " +
+              abbrevCommit(newBase) +
+              " " +
+              abbrevCommit(plan.kind === "narrowed" ? plan.upstream : range.upstream) +
+              " " +
+              tip
+          ) +
+          "</span>";
 
     if (range.tipBranches.length > 1) {
       // Several local branches sit on the tip commit and only one of them can be
       // the branch git moves, so the preview carries git's own `<branch>`
       // placeholder — the select below is what fills it.
       showSelectDialog(
-        confirmMsg(abbrevCommit(range.tip)) + commandPreview("<branch>"),
+        confirmMsg(abbrevCommit(range.tip)) + openRebasePick(replay, commandPreview("<branch>")),
         range.tipBranches[0],
         [
           ...range.tipBranches.map((branch) => ({ name: branch, value: branch })),
@@ -3200,13 +3273,17 @@ class GitGraphView {
         (branch) => run(this.currentRepo!, branch === "" ? range.tip : branch),
         sourceElem
       );
+      bindRebasePickHandlers();
       return;
     }
     const branch = range.tipBranches[0];
     const tip = branch ?? range.tip;
     this.confirmForRepo(
       confirmMsg(branch !== undefined ? escapeHtml(branch) : abbrevCommit(range.tip)) +
-        commandPreview(branch !== undefined ? branch : abbrevCommit(range.tip)) +
+        openRebasePick(
+          replay,
+          commandPreview(branch !== undefined ? branch : abbrevCommit(range.tip))
+        ) +
         (branch === undefined
           ? '<span class="dialogNote">' +
             escapeHtml(fillTemplate(l10n.dialogRebaseOntoDetached, abbrevCommit(range.tip))) +
@@ -3235,6 +3312,7 @@ class GitGraphView {
       },
       sourceElem
     );
+    bindRebasePickHandlers();
   }
 
   /** Whether `branch` still points at `hash`, read off the loaded commits the
@@ -6306,6 +6384,224 @@ function showBranchRedundancy(branch: string, result: BranchRedundancy, token: n
   });
 }
 
+/* The rebase dialogs' replay checklist (#172) */
+/**
+ * The open rebase dialog's replay list and its ticks.
+ *
+ * Module-level for the same reason `cleanupState` is: the checkboxes live in
+ * the dialog's markup, and the handlers that read them are re-bound whenever
+ * that markup is rewritten.
+ */
+let rebasePickState: {
+  replay: RebaseReplay;
+  /** Hashes still ticked. Opens as every commit on the list — the list is a
+   *  filter on what git would replay, not a selection to be made. */
+  checked: Set<string>;
+  /** Rebuilds the command line the dialog prints, for a given plan. Null on the
+   *  dialogs that print no command. */
+  preview: ((plan: RebasePlan) => string) | null;
+} | null = null;
+
+/** The replay list with the current ticks on it — what both the plan and the
+ *  todo are worked out from. */
+function rebasePickCommits(): RebaseCommit[] {
+  const state = rebasePickState;
+  if (state === null) return [];
+  return state.replay.commits.map((commit) => ({
+    hash: commit.hash,
+    message: commit.message,
+    keep: state.checked.has(commit.hash)
+  }));
+}
+
+/**
+ * The plan a set of ticks makes.
+ *
+ * The untouched case is answered here rather than handed to `planRebase`, and
+ * that is the whole point of the wrapper: a dialog nobody has touched must run
+ * exactly the command it always ran, and `planRebase` reads an *empty* list as
+ * "everything was unticked". An empty list is not that — a range with nothing
+ * to replay is a fast-forward, which git performs. Written this way, "unticking
+ * nothing cannot change what runs" is structural rather than derived.
+ */
+function rebasePickPlan(commits: readonly RebaseCommit[]): RebasePlan {
+  if (commits.every((commit) => commit.keep)) return { kind: "unchanged" };
+  return planRebase(commits);
+}
+
+/** The list, newest first — the graph's own order, so the rows read against the
+ *  graph behind the dialog rather than against git's todo. */
+function rebasePickList(state: NonNullable<typeof rebasePickState>): string {
+  // A list that may be short cannot be edited: the ticks would then drop
+  // commits the user was never shown. The rows are still worth showing, so they
+  // are shown and disabled, and the notice above says why.
+  const disabled = state.replay.incomplete ? " disabled" : "";
+  return (
+    '<div class="rebasePickList"><table>' +
+    state.replay.commits
+      .toReversed()
+      .map(
+        (commit) =>
+          '<tr class="rebasePickRow"><td><label><input type="checkbox" data-hash="' +
+          escapeHtml(commit.hash) +
+          '"' +
+          (state.checked.has(commit.hash) ? " checked" : "") +
+          disabled +
+          "/><span>" +
+          escapeHtml(
+            replaceEmojiShortcodes(commit.message, viewState.customEmojiShortcodeMappings)
+          ) +
+          '</span></label></td><td class="rebasePickHash" title="' +
+          escapeHtml(commit.hash) +
+          '">' +
+          abbrevCommit(commit.hash) +
+          "</td></tr>"
+      )
+      .join("") +
+    "</table></div>"
+  );
+}
+
+/** What the list cannot say for itself: the merges git drops on the way, and
+ *  the ticks having emptied it. Rebuilt on its own when a tick changes, because
+ *  re-rendering the whole dialog mid-click would steal focus. */
+function rebasePickNotices(state: NonNullable<typeof rebasePickState>, plan: RebasePlan): string {
+  const lines: string[] = [];
+  if (state.replay.incomplete) lines.push(l10n.dialogRebasePickIncomplete);
+  if (state.replay.mergesSquashed > 0) {
+    lines.push(
+      fillTemplate(l10n.dialogRebasePickMergesSquashed, String(state.replay.mergesSquashed))
+    );
+    // The flattening's other half: the side branch's commits are copied onto
+    // the new base while its labels stay on the originals. Said only when there
+    // are labels to name, since without them nothing is left behind to find.
+    if (state.replay.strandedBranches.length > 0) {
+      lines.push(
+        fillTemplate(l10n.dialogRebasePickStranded, state.replay.strandedBranches.join(", "))
+      );
+    }
+  }
+  if (plan.kind === "empty") lines.push(l10n.dialogRebasePickNothingChecked);
+  return lines
+    .map((line) => '<div class="rebasePickNotice">' + escapeHtml(line) + "</div>")
+    .join("");
+}
+
+/**
+ * Open a checklist over `replay` and return the markup for it.
+ *
+ * The caller puts it under the dialog's own question and then calls
+ * {@link bindRebasePickHandlers}; the dialog helpers render synchronously, so
+ * the rows exist by the time they return.
+ *
+ * `preview` is the command line the dialog prints, taken as a function of the
+ * plan because the ticks change which command that is — and the printed command
+ * is the whole of what the user agrees to (ADR-0022), so it has to follow them.
+ */
+function openRebasePick(
+  replay: RebaseReplay,
+  preview: ((plan: RebasePlan) => string) | null
+): string {
+  const state = {
+    replay,
+    checked: new Set(replay.commits.map((commit) => commit.hash)),
+    preview
+  };
+  rebasePickState = state;
+  const plan = rebasePickPlan(rebasePickCommits());
+  return (
+    '<div class="rebasePick">' +
+    (preview === null ? "" : '<div id="rebasePickCommand">' + preview(plan) + "</div>") +
+    '<span class="rebasePickIntro">' +
+    escapeHtml(
+      replay.commits.length === 0
+        ? l10n.dialogRebasePickNothingToReplay
+        : fillTemplate(l10n.dialogRebasePickIntro, String(replay.commits.length))
+    ) +
+    '</span><div id="rebasePickNotices">' +
+    rebasePickNotices(state, plan) +
+    "</div>" +
+    (replay.commits.length === 0 ? "" : rebasePickList(state)) +
+    "</div>"
+  );
+}
+
+/** Wire the row ticks. Re-bound after every render, since each replaces the
+ *  markup they hang off. */
+function bindRebasePickHandlers() {
+  document.querySelectorAll<HTMLInputElement>("#dialog .rebasePickRow input").forEach((box) => {
+    box.addEventListener("change", () => {
+      const state = rebasePickState;
+      if (state === null) return;
+      const hash = box.dataset.hash!;
+      if (box.checked) state.checked.add(hash);
+      else state.checked.delete(hash);
+      const plan = rebasePickPlan(rebasePickCommits());
+      const notices = document.getElementById("rebasePickNotices");
+      if (notices !== null) notices.innerHTML = rebasePickNotices(state, plan);
+      const command = document.getElementById("rebasePickCommand");
+      if (command !== null && state.preview !== null) command.innerHTML = state.preview(plan);
+    });
+  });
+}
+
+/** The range a rebase replays, in the three spellings the messages need. */
+interface RebasePickRange {
+  /** Where the commits land — git's `<newBase>`. */
+  newBase: string;
+  /** The exclusive lower bound of the range — git's `<upstream>`. */
+  upstream: string;
+  /** How the tip is spelled to git — git's `<branch>`. A branch name whenever
+   *  one is on the tip, so git moves the branch; null leaves the argument off
+   *  and lets git use HEAD, which is what the plain rebase does. */
+  tip: string | null;
+}
+
+/**
+ * Run the rebase the ticks chose, or say why there is none to run.
+ *
+ * `sendUnchanged` is a closure rather than a message shape so that the
+ * untouched path stays the caller's *existing* message, field for field.
+ */
+function sendRebasePick(
+  repo: string,
+  range: RebasePickRange,
+  commits: readonly RebaseCommit[],
+  plan: RebasePlan,
+  sendUnchanged: () => void
+) {
+  if (plan.kind === "empty") {
+    showErrorDialog(l10n.dialogRebasePickNothingChecked, null, null);
+    return;
+  }
+  if (plan.kind === "unchanged") {
+    sendUnchanged();
+  } else if (plan.kind === "narrowed" && range.tip !== null) {
+    sendMessage({
+      command: "rebaseOnto",
+      repo,
+      newBase: range.newBase,
+      upstream: plan.upstream,
+      tip: range.tip
+    });
+  } else {
+    // `narrowed` with no branch to name lands here too: `rebaseOnto` must be
+    // given git's `<branch>`, and a rebase aimed at a detached HEAD has none.
+    // The interactive form replays the same commits — the dropped ones are the
+    // same commits spelled as `drop` lines — so it is the same rebase written
+    // the other way rather than a different one.
+    sendMessage({
+      command: "rebaseInteractive",
+      repo,
+      newBase: range.newBase,
+      upstream: range.upstream,
+      tip: range.tip,
+      todo: plan.kind === "interactive" ? plan.todo : rebaseTodo(commits)
+    });
+  }
+  showActionRunningDialog(l10n.rebasing);
+}
+
 /* Branch cleanup (the candidate dialog) */
 /**
  * The open cleanup dialog's state.
@@ -7105,6 +7401,10 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "rebaseOn":
     case "rebaseOnto":
+    case "rebaseInteractive":
+      // All three are the same rebase to the user — which one ran was decided
+      // by the dialog's ticks, not by them — so they share one failure report
+      // (ADR-0022).
       refreshGraphOrDisplayError(msg.status, l10n.unableToRebase);
       break;
     case "revertCommit":
