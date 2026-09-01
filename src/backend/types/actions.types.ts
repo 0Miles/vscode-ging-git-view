@@ -53,6 +53,10 @@ type ActionPayloads = {
   pushTag: { tagName: string; remotes: string[] };
   rebaseOn: { obj: string };
   rebaseOnto: { newBase: string; upstream: string; tip: string };
+  /** A chosen subset of `upstream..tip`, replayed via an interactive rebase
+   *  whose todo the extension writes. `tip` is null when the range ends at the
+   *  checked-out HEAD, which is git's own default for the argument. */
+  rebaseInteractive: { newBase: string; upstream: string; tip: string | null; todo: string };
   renameBranch: { oldName: string; newName: string };
   resetToCommit: { commitHash: string; resetMode: GitResetMode };
   revertCommit: { commitHash: string; parentIndex: number };
