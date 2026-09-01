@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { rebaseInteractive, type RebaseTodoStager } from "@/backend/actions/rebase";
 import { gitClientFactory } from "@/backend/gitClient";
@@ -13,11 +13,25 @@ import { shellCommandPath } from "@/backend/utils/shellPath";
 import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 // Drives the real helper git runs as GIT_SEQUENCE_EDITOR — the shell script and
-// the node bundle from out/, not a stand-in. The mechanism is the part of this
-// feature most likely to break silently (a todo that never reaches git keeps
-// every commit and still exits 0), so it is tested end to end against git.
+// the node bundle, not a stand-in. The mechanism is the part of this feature
+// most likely to break silently (a todo that never reaches git keeps every
+// commit and still exits 0), so it is tested end to end against git.
 
-const OUT = path.resolve(__dirname, "../../../../out");
+const REPO_ROOT = path.resolve(__dirname, "../../../..");
+const OUT = path.join(REPO_ROOT, "out");
+
+/**
+ * Run the project's own build so the helper exists.
+ *
+ * CI runs `pnpm run test` on a fresh checkout with nothing built before it, so
+ * reading out/ directly made these fail for a reason unrelated to the code they
+ * cover. Building here rather than reusing whatever is lying in out/ also keeps
+ * the test honest about the source, and makes it notice if the helper ever
+ * stops being built at all.
+ */
+beforeAll(() => {
+  cp.execFileSync(process.execPath, ["esbuild.js"], { cwd: REPO_ROOT, stdio: "pipe" });
+}, 120_000);
 
 let repo: string;
 let todoPath: string;
