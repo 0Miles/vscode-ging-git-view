@@ -3329,7 +3329,7 @@ class GitGraphView {
     const confirmMsg = (tipLabel: string) =>
       fillTemplate(
         l10n.dialogRebaseOntoConfirm,
-        "<b><i>" + abbrevCommit(range.upstream) + "</i></b>",
+        "<b><i>" + abbrevCommit(range.from) + "</i></b>",
         "<b><i>" + tipLabel + "</i></b>",
         "<b><i>" + escapeHtml(newBase.label) + "</i></b>"
       );

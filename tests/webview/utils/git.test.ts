@@ -228,28 +228,51 @@ describe("rebaseOntoRange", () => {
   // HEAD=c → b → a → root, with branch "feature" on c.
   const linear = build({ c: ["b"], b: ["a"], a: ["root"], root: [] }, { c: ["feature"] });
 
-  it("makes the ancestor the upstream whichever commit was clicked first", () => {
+  it("reads the same range whichever commit was clicked first", () => {
     const forwards = rebaseOntoRange("a", "c", linear.commits, linear.lookup);
     const backwards = rebaseOntoRange("c", "a", linear.commits, linear.lookup);
     expect(forwards).toEqual(backwards);
-    expect(forwards.upstream).toBe("a");
-    expect(forwards.tip).toBe("c");
+    expect(forwards!.from).toBe("a");
+    expect(forwards!.tip).toBe("c");
+  });
+
+  it("bounds the range below the older selection, so both ends are replayed", () => {
+    // git excludes `<upstream>`, so naming "a" there would leave behind one of
+    // the two commits the user compared. Its parent is the bound instead.
+    expect(rebaseOntoRange("a", "c", linear.commits, linear.lookup)!.upstream).toBe("root");
+  });
+
+  it("declines a range whose older end is a root commit", () => {
+    // Nothing to name as the lower bound, and `--onto` cannot spell a range
+    // without one. The caller falls back to the plain rebase.
+    expect(rebaseOntoRange("root", "b", linear.commits, linear.lookup)).toBeNull();
+  });
+
+  it("takes the first parent of a merge as the bound", () => {
+    // The first parent is the line the range was read along.
+    const { commits, lookup } = build({
+      m: ["main1", "side1"],
+      main1: ["base"],
+      side1: ["base"],
+      base: []
+    });
+    expect(rebaseOntoRange("m", "main1", commits, lookup)).toMatchObject({ upstream: "base" });
   });
 
   it("reports the local branches sitting on the tip", () => {
-    expect(rebaseOntoRange("a", "c", linear.commits, linear.lookup).tipBranches).toEqual([
+    expect(rebaseOntoRange("a", "c", linear.commits, linear.lookup)!.tipBranches).toEqual([
       "feature"
     ]);
     // Nothing points at b, so a range ending there can only be spelled as a hash.
-    expect(rebaseOntoRange("a", "b", linear.commits, linear.lookup).tipBranches).toEqual([]);
+    expect(rebaseOntoRange("a", "b", linear.commits, linear.lookup)!.tipBranches).toEqual([]);
   });
 
   it("ignores tags and remote branches when naming the tip", () => {
     const commits = [
       { hash: "b", parentHashes: ["a"], refs: [{ name: "v1", type: "tag" }] },
-      { hash: "a", parentHashes: [], refs: [] }
+      { hash: "a", parentHashes: ["root"], refs: [] }
     ];
-    expect(rebaseOntoRange("a", "b", commits, { b: 0, a: 1 }).tipBranches).toEqual([]);
+    expect(rebaseOntoRange("a", "b", commits, { b: 0, a: 1 })!.tipBranches).toEqual([]);
   });
 
   it("falls back to graph order for two commits on divergent branches", () => {
@@ -257,7 +280,8 @@ describe("rebaseOntoRange", () => {
     // (older in graph order), so it becomes the upstream.
     const { commits, lookup } = build({ x: ["base"], y: ["base"], base: [] });
     expect(rebaseOntoRange("x", "y", commits, lookup)).toMatchObject({
-      upstream: "y",
+      upstream: "base",
+      from: "y",
       tip: "x"
     });
   });
@@ -265,8 +289,11 @@ describe("rebaseOntoRange", () => {
   it("falls back to graph order when the ancestry runs past the loaded commits", () => {
     // b's parent was never loaded, so walking parents from b never reaches a.
     const { commits, lookup } = build({ b: ["unloaded"], a: ["alsoUnloaded"] });
+    // The bound is the older selection's parent even when that parent was never
+    // loaded: its hash is known from the child, and git resolves it for itself.
     expect(rebaseOntoRange("a", "b", commits, lookup)).toMatchObject({
-      upstream: "a",
+      upstream: "alsoUnloaded",
+      from: "a",
       tip: "b"
     });
   });
