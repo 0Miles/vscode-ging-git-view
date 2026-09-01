@@ -31,6 +31,12 @@ const OUT = path.join(REPO_ROOT, "out");
  */
 beforeAll(() => {
   cp.execFileSync(process.execPath, ["esbuild.js"], { cwd: REPO_ROOT, stdio: "pipe" });
+  // The build copies the script without an executable bit, and git runs the
+  // sequence editor through a shell that will not run a file it cannot execute.
+  // At runtime SequenceEditorManager chmods it on construction (as the askpass
+  // manager does for its own scripts); this test reaches the file directly, so
+  // it has to do the same. Invisible on Windows, where there is no such bit.
+  fs.chmodSync(path.join(OUT, "sequenceEditor.sh"), 0o755);
 }, 120_000);
 
 let repo: string;
