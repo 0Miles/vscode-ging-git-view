@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.6.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.5.0...v0.6.0) (2026-09-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **rebase:** replay both commits the compared range names
+* **rebase:** the `ging-git-view.contextMenuActions.commit.rebaseOnto` setting key is removed. The range rebase is now the same menu entry as the plain one and is hidden by `contextMenuActions.commit.rebase`. A `rebaseOnto` key left in user settings is ignored. Removing it also resolves the contradiction #172 left behind, where the plain entry could emit `rebaseOnto` while `commit.rebaseOnto` was switched off.
+
+### Features
+
+* **rebase:** choose the git command from which commits are kept ([84be267](https://github.com/0Miles/vscode-ging-git-view/commit/84be267a49640af8b476eadc8ef6bcb0a6d35e2e))
+* **rebase:** list the commits a rebase will replay, each tickable ([5ae24ca](https://github.com/0Miles/vscode-ging-git-view/commit/5ae24ca6ec59df6103f521149889373668699c01))
+* **rebase:** replay both commits the compared range names ([90b46ad](https://github.com/0Miles/vscode-ging-git-view/commit/90b46add7c9a7e4f7f5d94c4112dc60d1ff62cf1))
+* **rebase:** the compared range takes over the existing rebase entries ([1a94e02](https://github.com/0Miles/vscode-ging-git-view/commit/1a94e022ffbd5778d6a622ff48d936c04d3d0675))
+
+
+### Bug Fixes
+
+* **l10n:** translate the View Diff actions in zh-tw and zh-cn ([6e8dace](https://github.com/0Miles/vscode-ging-git-view/commit/6e8dace70cf07d4a907e82f922201c0878623542))
+* **l10n:** translate the View Diff actions in zh-tw and zh-cn ([8dec46e](https://github.com/0Miles/vscode-ging-git-view/commit/8dec46e8b0eefb91f712746a03f151d70682911e))
+* **rebase:** keep the replay checklist's promises when the range holds a merge ([48c8122](https://github.com/0Miles/vscode-ging-git-view/commit/48c81221fbf22d3954614c9943cedaf1ee90d8bb))
+* **rebase:** let the command preview speak for the dialog ([a29252e](https://github.com/0Miles/vscode-ging-git-view/commit/a29252ef3564d864739d6bce951d712dcea91338))
+* **rebase:** print the ref name the rebase runs against, not its HTML ([83189a4](https://github.com/0Miles/vscode-ging-git-view/commit/83189a46a19f40d641be80663220df81b94d431a))
+
 ## [0.5.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.4.0...v0.5.0) (2026-08-31)
 
 
