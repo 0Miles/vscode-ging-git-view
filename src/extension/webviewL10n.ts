@@ -306,6 +306,7 @@ export function getWebviewLocalizedStrings() {
     dialogRebasePickMergesSquashed: l10n.t("dialog.rebase.pickMergesSquashed"),
     dialogRebasePickStranded: l10n.t("dialog.rebase.pickStranded"),
     dialogRebasePickIncomplete: l10n.t("dialog.rebase.pickIncomplete"),
+    dialogRebasePickUnknownRange: l10n.t("dialog.rebase.pickUnknownRange"),
     dialogDropConfirm: l10n.t("dialog.drop.confirm"),
     dialogResetFileConfirm: l10n.t("dialog.resetFile.confirm"),
     dialogCancel: l10n.t("dialog.cancel"),

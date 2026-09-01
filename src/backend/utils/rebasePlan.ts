@@ -25,6 +25,11 @@ export type RebaseCommit = {
    *  ends up looking at the file mid-conflict. */
   message: string;
   keep: boolean;
+  /** The commit's parents. Read for one question only — whether the list is a
+   *  single chain — because the answer decides whether a range may stand in for
+   *  it (see {@link listIsChain}). Carried per commit rather than asserted once
+   *  by the caller so the plan derives the fact instead of trusting it. */
+  parentHashes: readonly string[];
 };
 
 export type RebasePlan =
@@ -47,6 +52,11 @@ export type RebasePlan =
  * uses, and the same order the dialog shows. Merge commits must not be in it: a
  * rebase without `--rebase-merges` never replays them, so listing one would
  * promise something git will not do.
+ *
+ * Dropping the merges is what makes {@link listIsChain} necessary. The list is
+ * then the merge's two sides laid end to end, and the `narrowed` shortcut —
+ * "name the last dropped commit as the new lower bound" — is only the same set
+ * as "drop this prefix" when there is one strand to walk back along.
  */
 export function planRebase(commits: readonly RebaseCommit[]): RebasePlan {
   // `every` is true of an empty list, so this is also the "nothing to replay" case.
@@ -56,11 +66,30 @@ export function planRebase(commits: readonly RebaseCommit[]): RebasePlan {
   // Kept commits form a suffix (they run to the newest with no gap) exactly when
   // nothing after the first kept one was dropped.
   const firstKept = commits.findIndex((commit) => commit.keep);
-  if (commits.slice(firstKept).every((commit) => commit.keep)) {
+  if (commits.slice(firstKept).every((commit) => commit.keep) && listIsChain(commits)) {
     // The last dropped commit becomes the new exclusive lower bound.
     return { kind: "narrowed", upstream: commits[firstKept - 1].hash };
   }
   return { kind: "interactive", todo: rebaseTodo(commits) };
+}
+
+/**
+ * Whether the list is a single chain — every commit the child of the one before
+ * it.
+ *
+ * This is the precondition on `narrowed`, and the reason it exists is the merge
+ * commits that are *not* on the list. `git rebase --onto X <bound> <tip>`
+ * excludes `<bound>` **and everything `<bound>` can reach**, which equals "the
+ * commits listed before it" only on one strand. Where a merge was flattened
+ * away the list holds both of its sides: name a side-branch commit as the bound
+ * and the mainline commits beside it are not its ancestors, so git replays them
+ * — commits the user had unticked, dropped from the list's promise without a
+ * word. A list that is not a chain therefore falls through to the interactive
+ * form, which spells every commit out as `pick` or `drop` and cannot be read
+ * two ways.
+ */
+function listIsChain(commits: readonly RebaseCommit[]): boolean {
+  return commits.every((commit, i) => i === 0 || commit.parentHashes.includes(commits[i - 1].hash));
 }
 
 /**
@@ -71,8 +100,14 @@ export function planRebase(commits: readonly RebaseCommit[]): RebasePlan {
  * against the commits it expected (`rebase.missingCommitsCheck`), and a line it
  * can see is a line it will not complain about — an omitted one leaves the
  * outcome depending on a setting we do not control.
+ *
+ * Takes less than a whole {@link RebaseCommit} because it needs less: a todo
+ * names every commit explicitly, so ancestry has nothing to decide here. That
+ * is the same reason it is always safe where `narrowed` is not.
  */
-export function rebaseTodo(commits: readonly RebaseCommit[]): string {
+export function rebaseTodo(
+  commits: readonly Pick<RebaseCommit, "hash" | "message" | "keep">[]
+): string {
   return (
     commits
       .map(

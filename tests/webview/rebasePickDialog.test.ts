@@ -42,7 +42,7 @@ function node(
 
 // Three lines, in graph order (newest first):
 //   topic (HEAD): base ← keep ← w1 ← w2
-//   feature:      base ← f1, base ← s1 (`side`), merged at fmerge
+//   feature:      base ← f1, base ← s1 (`side`), merged at fmerge, then f2
 //   main:         base ← target
 //   stray:        hangs off a commit outside the loaded window
 const commits: GitCommitNode[] = [
@@ -52,9 +52,8 @@ const commits: GitCommitNode[] = [
   node("w2", ["w1"], "wanted 2", [{ hash: "w2", name: "topic", type: "head" }]),
   node("w1", ["keep"], "wanted 1"),
   node("keep", ["base"], "keep"),
-  node("fmerge", ["f1", "s1"], "Merge branch 'side' into feature", [
-    { hash: "fmerge", name: "feature", type: "head" }
-  ]),
+  node("f2", ["fmerge"], "feature two", [{ hash: "f2", name: "feature", type: "head" }]),
+  node("fmerge", ["f1", "s1"], "Merge branch 'side' into feature"),
   node("s1", ["base"], "side one", [{ hash: "s1", name: "side", type: "head" }]),
   node("f1", ["base"], "feature one"),
   node("target", ["base"], "target", [{ hash: "target", name: "main", type: "head" }]),
@@ -90,6 +89,11 @@ function untick(hash: string) {
 
 function confirm() {
   document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+}
+
+/** The sentence the dialog puts over the list. */
+function introSentence() {
+  return document.querySelector("#dialog .rebasePickIntro")!.textContent;
 }
 
 /** The command line the dialog is printing. */
@@ -331,20 +335,20 @@ describe("the rebase dialog's replay checklist", () => {
 
   describe("a range that crosses a merge", () => {
     it("leaves the merge off the list and says what that costs", () => {
-      compare("base", "fmerge");
+      compare("base", "f2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
       // `fmerge` is absent: a rebase without `--rebase-merges` never replays a
       // merge commit, so listing it would promise a move git will not make.
-      expect(listedHashes()).toEqual(["s1", "f1"]);
+      expect(listedHashes()).toEqual(["f2", "s1", "f1"]);
       expect(dialogText()).toContain(L.dialogRebasePickMergesSquashed.replace("{0}", "1"));
       // `side` is left pointing at the original s1, which the replay copies.
       expect(dialogText()).toContain(L.dialogRebasePickStranded.replace("{0}", "side"));
     });
 
     it("still sends the untouched command", () => {
-      compare("base", "fmerge");
+      compare("base", "f2");
       openMenu("target");
       clickItem(REBASE_ONTO);
       confirm();
@@ -355,6 +359,73 @@ describe("the rebase dialog's replay checklist", () => {
         newBase: "target",
         upstream: "base",
         tip: "feature"
+      });
+    });
+
+    it("never narrows a list the flattened merge left in two strands", () => {
+      compare("base", "f2");
+      openMenu("target");
+      clickItem(REBASE_ONTO);
+
+      // Unticking the oldest two looks like a narrowing — the kept commits run
+      // to the newest with no gap — but `f1` and `s1` are on different sides of
+      // the merge that was flattened away. Naming `s1` as the new lower bound
+      // would exclude only `s1` and its ancestors, and `f1` is not among them,
+      // so git would replay a commit that had just been unticked. Only the
+      // interactive form spells every drop out.
+      untick("f1");
+      untick("s1");
+      expect(printedCommand()).toBe("git rebase --interactive --onto target base feature");
+
+      confirm();
+      expect(mock.sentMessages).toContainEqual({
+        command: "rebaseInteractive",
+        repo: DEFAULT_REPO,
+        newBase: "target",
+        upstream: "base",
+        tip: "feature",
+        todo: "drop f1 feature one\ndrop s1 side one\npick f2 feature two\n"
+      });
+      expect(mock.sentMessages.some((m) => m.command === "rebaseOnto")).toBe(false);
+    });
+  });
+
+  describe("what the dialog says about itself", () => {
+    it("keeps the count over the list agreeing with the ticks", () => {
+      openMenu("target");
+      clickItem(REBASE_ON);
+
+      expect(introSentence()).toBe(L.dialogRebasePickIntro.replace("{0}", "3"));
+
+      // The list is what says which commits move; the sentence introducing it
+      // must not go on claiming a number the ticks have already changed.
+      untick("w1");
+      expect(introSentence()).toBe(L.dialogRebasePickIntro.replace("{0}", "2"));
+    });
+
+    it("says the range is unreadable rather than that it is empty", () => {
+      // The side view can act on a branch the graph is not showing, and then
+      // there is no range to read at all. Reporting "nothing to replay" would
+      // be a different claim, and a false one.
+      receive({
+        command: "runRefAction",
+        repo: DEFAULT_REPO,
+        ref: "off-screen",
+        action: "rebase",
+        seq: 172
+      });
+
+      expect(dialogText()).toContain(L.dialogRebasePickUnknownRange);
+      expect(dialogText()).not.toContain(L.dialogRebasePickNothingToReplay);
+      expect(dialogText()).not.toContain(L.dialogRebasePickIncomplete);
+      expect(document.querySelectorAll("#dialog .rebasePickRow")).toHaveLength(0);
+
+      // And it still runs the command it always ran.
+      confirm();
+      expect(mock.sentMessages).toContainEqual({
+        command: "rebaseOn",
+        repo: DEFAULT_REPO,
+        obj: "off-screen"
       });
     });
   });

@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import { planRebase, rebaseTodo, type RebaseCommit } from "@/backend/utils/rebasePlan";
 
 /** Build a replay list oldest-first from a keep/drop mask: "kkd" = oldest and
- *  middle kept, newest dropped. */
+ *  middle kept, newest dropped. Each commit is the child of the one before it,
+ *  which is the shape a range can stand in for. */
 function list(mask: string): RebaseCommit[] {
   return [...mask].map((flag, i) => ({
     hash: `c${i + 1}`,
     message: `commit ${i + 1}`,
-    keep: flag === "k"
+    keep: flag === "k",
+    parentHashes: i === 0 ? ["base"] : [`c${i}`]
   }));
 }
 
@@ -44,6 +46,26 @@ describe("planRebase", () => {
     expect(planRebase(list("ddk"))).toEqual({ kind: "narrowed", upstream: "c2" }); // newest kept
     expect(planRebase(list("kdd"))).toMatchObject({ kind: "interactive" }); // oldest kept
   });
+
+  it("refuses to narrow a list that is not one chain", () => {
+    // What a range whose merge was flattened away leaves behind: `a1` and `a2`
+    // on the mainline, `s1` on the side branch that was merged in — two strands
+    // laid end to end, both starting from the commit before the range.
+    const forked: RebaseCommit[] = [
+      { hash: "a1", message: "mainline one", keep: false, parentHashes: ["base"] },
+      { hash: "s1", message: "side one", keep: false, parentHashes: ["base"] },
+      { hash: "a2", message: "mainline two", keep: true, parentHashes: ["a1"] }
+    ];
+
+    // The dropped prefix is `a1, s1`, so narrowing would name `s1` as the new
+    // lower bound — and `s1` excludes only itself and its ancestors, which `a1`
+    // is not. git would replay `a1` after the user unticked it, silently. The
+    // interactive form spells the drop out instead.
+    expect(planRebase(forked)).toEqual({
+      kind: "interactive",
+      todo: "drop a1 mainline one\ndrop s1 side one\npick a2 mainline two\n"
+    });
+  });
 });
 
 describe("rebaseTodo", () => {
@@ -52,7 +74,9 @@ describe("rebaseTodo", () => {
   });
 
   it("keeps a subject on one line so it cannot become a second todo command", () => {
-    const commits: RebaseCommit[] = [{ hash: "c1", message: "subject\nexec rm -rf /", keep: true }];
+    const commits: RebaseCommit[] = [
+      { hash: "c1", message: "subject\nexec rm -rf /", keep: true, parentHashes: ["base"] }
+    ];
     expect(rebaseTodo(commits)).toBe("pick c1 subject exec rm -rf /\n");
   });
 });

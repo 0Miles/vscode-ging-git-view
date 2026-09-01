@@ -20,10 +20,13 @@ import type { GitCommitNode } from "@/backend/types";
 
 import { commitsReachableFrom } from "./utils/git";
 
-/** One row of the list: what the dialog shows, and what the todo needs. */
+/** One row of the list: what the dialog shows, what the todo needs, and the
+ *  parents `planRebase` reads to decide whether the list is one chain — which
+ *  it is not once a flattened merge has put both of its sides on the list. */
 export interface RebaseReplayCommit {
   hash: string;
   message: string;
+  parentHashes: string[];
 }
 
 export interface RebaseReplay {
@@ -82,7 +85,11 @@ export function rebaseReplay(
   const replayed = members.filter((commit) => commit.parentHashes.length <= 1);
   return {
     commits: replayed
-      .map((commit) => ({ hash: commit.hash, message: commit.message }))
+      .map((commit) => ({
+        hash: commit.hash,
+        message: commit.message,
+        parentHashes: commit.parentHashes
+      }))
       .toReversed(),
     mergesSquashed: members.length - replayed.length,
     strandedBranches: members

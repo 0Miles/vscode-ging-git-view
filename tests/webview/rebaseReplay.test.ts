@@ -46,8 +46,8 @@ describe("rebaseReplay", () => {
     // `upstream..tip` excludes the lower bound and includes the tip; oldest
     // first is git's own todo order, which is what `planRebase` reads.
     expect(replay.commits).toEqual([
-      { hash: "b", message: "second" },
-      { hash: "c", message: "third" }
+      { hash: "b", message: "second", parentHashes: ["a"] },
+      { hash: "c", message: "third", parentHashes: ["b"] }
     ]);
     expect(replay.mergesSquashed).toBe(0);
     expect(replay.strandedBranches).toEqual([]);
