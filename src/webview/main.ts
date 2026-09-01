@@ -2052,12 +2052,8 @@ class GitGraphView {
       // Drop is only offered when the topological check passes.
       const canDrop = dropCommitPossible(hash, this.commits, this.commitLookup, this.commitHead);
       // Two CTRL-selected commits bound the range `rebase --onto` replays, and
-      // the right-clicked commit is the new base — so it cannot be one of them.
-      const compared = this.comparedCommitPair();
-      const ontoRange =
-        compared !== null && compared[0] !== hash && compared[1] !== hash
-          ? rebaseOntoRange(compared[0], compared[1], this.commits, this.commitLookup)
-          : null;
+      // the right-clicked commit is the new base.
+      const ontoRange = this.comparedRangeOnto(hash);
       const cmv = viewState.contextMenuActionsVisibility.commit; // per-action visibility
       showContextMenu(
         <MouseEvent>e,
@@ -2433,22 +2429,20 @@ class GitGraphView {
               );
             }
           },
+          // One rebase entry, whichever rebase is on offer (#173): with a range
+          // to replay it says so and replays it, otherwise it replays the
+          // current branch. Two entries would have asked the user to pick
+          // between them, and the gesture that decides it — CTRL-comparing two
+          // commits — is already made by the time the menu opens.
           {
             visible: cmv.rebase,
-            title: l10n.rebaseOnCommit + ELLIPSIS,
+            title: (ontoRange === null ? l10n.rebaseOnCommit : l10n.rebaseRangeOnCommit) + ELLIPSIS,
             icon: "rebase",
-            onClick: () => this.rebaseOnAction(hash, abbrevCommit(hash), hash, sourceElem)
+            onClick: () =>
+              ontoRange === null
+                ? this.rebaseOnAction(hash, abbrevCommit(hash), hash, sourceElem)
+                : this.rebaseOntoAction(hash, abbrevCommit(hash), ontoRange, sourceElem)
           },
-          ...(ontoRange !== null
-            ? <ContextMenuElement[]>[
-                {
-                  visible: cmv.rebaseOnto,
-                  title: l10n.rebaseOntoCommit + ELLIPSIS,
-                  icon: "rebase",
-                  onClick: () => this.rebaseOntoAction(hash, ontoRange, sourceElem)
-                }
-              ]
-            : []),
           ...(canDrop
             ? <ContextMenuElement[]>[
                 {
@@ -2606,6 +2600,13 @@ class GitGraphView {
             ? { kind: "branch", name: refName, isHead: this.gitBranchHead === refName }
             : { kind: "remoteBranch", name: refName };
       const isRemote = target.kind === "remoteBranch";
+      // The range this branch's rebase entry would replay onto it, or null for
+      // the plain "rebase the current branch onto this branch" the entry
+      // always was (#173). Only local branches can be a `--onto` target here;
+      // rebase is a `refKinds: "local"` action, so no other kind of chip
+      // carries the entry at all.
+      const ontoRange =
+        target.kind === "branch" ? this.comparedRangeOnto(this.commitOfRef(refName)) : null;
       const issueUrl = firstIssueUrl(
         refName,
         this.config.issueLinkingRegex,
@@ -2751,7 +2752,16 @@ class GitGraphView {
         },
         delete: () => this.deleteBranchAction(refName),
         merge: () => this.mergeBranchAction(refName),
-        rebase: () => this.rebaseOnBranchAction(refName),
+        // `refName` stands as the new base as well as its label. A display ref
+        // is normally barred from flowing back as an identity (CONTEXT.md,
+        // "Ref 的兩種形"), but `kind: "branch"` has already carried that
+        // identity: this is a local branch, whose two forms are the same
+        // string. It is the spelling `rebaseOn` has always sent for the same
+        // chip.
+        rebase: () =>
+          ontoRange === null
+            ? this.rebaseOnBranchAction(refName)
+            : this.rebaseOntoAction(refName, refName, ontoRange, sourceElem),
         fastForward: () => this.fastForwardBranchAction(refName),
         pull: () => this.pullRemoteBranchAction(refName),
         fetchIntoLocal: () => this.fetchIntoLocalBranchAction(refName, sourceElem),
@@ -2771,6 +2781,7 @@ class GitGraphView {
           hasRemotes: this.remotes.length > 0,
           isCleanupCandidate: this.cleanupCandidateRefs.has(refName),
           issueUrl,
+          rebaseReplaysRange: ontoRange !== null,
           actions
         }),
         sourceElem
@@ -3125,6 +3136,28 @@ class GitGraphView {
   }
 
   /**
+   * The range a `rebase --onto` would replay onto `newBaseHash`, or null when
+   * there is no such rebase to offer and the plain one stands (#173).
+   *
+   * Null on three counts: no two commits are being compared, so there is no
+   * range; the new base is one of the two bounding it, and `--onto` aimed at
+   * an end of its own range is a no-op or a self-copy (ADR-0022); or the new
+   * base could not be placed among the loaded commits at all, so whether it is
+   * one of the two cannot be told. Each leaves the menu entry saying and doing
+   * what it always did, which is the answer a rebase menu owes when the range
+   * is in doubt.
+   *
+   * The range's direction is the ancestry {@link rebaseOntoRange} reads, never
+   * the order the two were CTRL-clicked.
+   */
+  private comparedRangeOnto(newBaseHash: string | null): RebaseOntoRange | null {
+    const compared = this.comparedCommitPair();
+    if (compared === null || newBaseHash === null) return null;
+    if (compared[0] === newBaseHash || compared[1] === newBaseHash) return null;
+    return rebaseOntoRange(compared[0], compared[1], this.commits, this.commitLookup);
+  }
+
+  /**
    * `git rebase <obj>` — replay the current branch onto `obj`, a commit the user
    * right-clicked or a branch whose label they did.
    *
@@ -3229,9 +3262,15 @@ class GitGraphView {
    * says so — git leaves HEAD detached in that case. The command is shown on
    * every path, since the range's direction was resolved for the user; while
    * the branch is still being picked it stands as a literal `<branch>`.
+   *
+   * `newBase` is what git is given and `newBaseLabel` how it is written for the
+   * user — an abbreviated hash for a right-clicked commit, the branch's own
+   * name for a right-clicked ref. Raw text, not HTML: the command line escapes
+   * itself, and the confirmation escapes it where it interpolates.
    */
   private rebaseOntoAction(
     newBase: string,
+    newBaseLabel: string,
     range: RebaseOntoRange,
     sourceElem: HTMLElement | null
   ) {
@@ -3261,7 +3300,7 @@ class GitGraphView {
         l10n.dialogRebaseOntoConfirm,
         "<b><i>" + abbrevCommit(range.upstream) + "</i></b>",
         "<b><i>" + tipLabel + "</i></b>",
-        "<b><i>" + abbrevCommit(newBase) + "</i></b>"
+        "<b><i>" + escapeHtml(newBaseLabel) + "</i></b>"
       );
     // The printed command is the whole of what is agreed to (ADR-0022), so it
     // is a function of the command the ticks make rather than a fixed line: an
@@ -3277,7 +3316,7 @@ class GitGraphView {
               (this.config.signCommits ? "-S " : "") +
               (command.kind === "interactive" ? "--interactive " : "") +
               "--onto " +
-              abbrevCommit(newBase) +
+              newBaseLabel +
               " " +
               abbrevCommit(command.kind === "onto" ? command.upstream : range.upstream) +
               " " +
@@ -3516,6 +3555,12 @@ class GitGraphView {
     delete: (ref, isRemote) =>
       isRemote ? this.deleteRemoteBranchAction(ref) : this.deleteBranchAction(ref),
     merge: (ref) => this.mergeBranchAction(ref),
+    // Always the plain rebase, even while the graph has two commits compared
+    // (#173). The side-view's own label is a static package.json title and
+    // cannot change with the graph's selection, and the gesture that turns the
+    // in-graph entry into a range replay — CTRL-comparing two rows — is only
+    // visible in the graph. A menu raised where neither the label nor the
+    // selection can be seen must do what its label says.
     rebase: (ref) => this.rebaseOnBranchAction(ref),
     fastForward: (ref) => this.fastForwardBranchAction(ref),
     push: (ref) => this.pushBranchAction(ref),

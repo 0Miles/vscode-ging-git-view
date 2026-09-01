@@ -62,6 +62,7 @@ function ctxWith(overrides: Partial<RefMenuContext> = {}): RefMenuContext {
     hasRemotes: true,
     isCleanupCandidate: false,
     issueUrl: null,
+    rebaseReplaysRange: false,
     actions: stubActions(),
     ...overrides
   };
@@ -144,6 +145,32 @@ describe("menuFor: which items each kind of ref gets", () => {
       "divider",
       { title: L.copyBranchName, icon: undefined, visible: true }
     ]);
+  });
+
+  it("relabels the rebase item when it would replay the compared range, changing nothing else", () => {
+    // #173: the range rebase is not a second item — it is what this one item
+    // becomes while two commits are compared, so the menu's shape must be
+    // identical either way and only the one title may move.
+    const plain = shape(menuFor(localBranch("feature"), ctxWith()));
+    const ranged = shape(menuFor(localBranch("feature"), ctxWith({ rebaseReplaysRange: true })));
+    const at = plain.findIndex(
+      (entry) => typeof entry === "object" && entry.title === L.rebaseOnBranch + E
+    );
+    expect(at, "the plain menu has a rebase item to relabel").toBeGreaterThanOrEqual(0);
+    // The item keeps its icon, its gate and its place; only the title moves.
+    expect(ranged[at]).toEqual({ title: L.rebaseRangeOnBranch + E, icon: "rebase", visible: true });
+    expect(ranged.filter((_, i) => i !== at)).toEqual(plain.filter((_, i) => i !== at));
+    expect(ranged.length).toBe(plain.length);
+  });
+
+  it("keeps the range label off the checked-out branch, which has no rebase item at all", () => {
+    // The catalogue's head guard, unchanged by #173: what is not offered
+    // plainly is not offered ranged either.
+    const titles = menuFor(localBranch("main", true), ctxWith({ rebaseReplaysRange: true })).map(
+      (entry) => entry?.title ?? "divider"
+    );
+    expect(titles).not.toContain(L.rebaseRangeOnBranch + E);
+    expect(titles).not.toContain(L.rebaseOnBranch + E);
   });
 
   it("drops push and create-pull-request when the repo has no remotes", () => {

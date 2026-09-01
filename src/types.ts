@@ -29,7 +29,6 @@ export type ContextMenuActionsVisibility = {
     merge: boolean;
     reset: boolean;
     rebase: boolean;
-    rebaseOnto: boolean;
     drop: boolean;
     copyHash: boolean;
     copySubject: boolean;

@@ -21,7 +21,7 @@ import {
 const L = getWebviewLocalizedStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 const REBASE_ON = L.rebaseOnCommit + E;
-const REBASE_ONTO = L.rebaseOntoCommit + E;
+const REBASE_ONTO = L.rebaseRangeOnCommit + E;
 
 function node(
   hash: string,
@@ -124,6 +124,19 @@ describe("the rebase dialog's replay checklist", () => {
     if (!opened()) click(hash);
     expect(opened(), `details never opened on ${hash}`).toBe(true);
     click(compareWith, true);
+  }
+
+  /** Leave any comparison a previous test set up behind, so the rebase entries
+   *  read and behave as the plain rebase again (#173). Expanding one commit's
+   *  details is what clears the compared row; the retry is `compare`'s, for
+   *  the same reason — a click on the already-anchored row closes the view. */
+  function noComparison() {
+    const click = () => row("base").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const opened = () =>
+      mock.sentMessages.some((m) => m.command === "commitDetails" && m.commitHash === "base");
+    click();
+    if (!opened()) click();
+    expect(opened(), "details never opened on base").toBe(true);
   }
 
   beforeAll(async () => {
@@ -288,6 +301,7 @@ describe("the rebase dialog's replay checklist", () => {
 
   describe("rebasing the current branch onto a branch", () => {
     it("lists the same range the commit entry would", () => {
+      noComparison();
       const chip = document.querySelector<HTMLElement>('.gitRef[data-name="main"]');
       expect(chip, "the main ref chip").not.toBeNull();
       chip!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
@@ -392,6 +406,7 @@ describe("the rebase dialog's replay checklist", () => {
 
   describe("what the dialog says about itself", () => {
     it("keeps the count over the list agreeing with the ticks", () => {
+      noComparison();
       openMenu("target");
       clickItem(REBASE_ON);
 
@@ -439,6 +454,7 @@ describe("the rebase dialog's replay checklist", () => {
   // different one from the range that would run — the case ADR-0019 rules out —
   // so the guard is re-taken at consent and refuses out loud.
   it("refuses a narrowed rebase when HEAD moved while the dialog was open", () => {
+    noComparison();
     openMenu("target");
     clickItem(REBASE_ON);
     untick("keep");

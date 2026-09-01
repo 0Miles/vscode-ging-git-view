@@ -90,6 +90,12 @@ export interface RefMenuContext {
   isCleanupCandidate: boolean;
   /** First issue URL matched in the ref's name (`firstIssueUrl`), or null. */
   issueUrl: string | null;
+  /** Whether this ref's rebase item replays the CTRL-compared range onto the
+   *  ref, rather than replaying the current branch onto it (#173). It is one
+   *  item either way — the comparison changes what it says and does, it does
+   *  not add a second row — so this only picks the label. The caller owns the
+   *  comparison state and must wire `actions.rebase` from the same fact. */
+  rebaseReplaysRange: boolean;
   actions: RefMenuActions;
 }
 
@@ -201,7 +207,8 @@ export function menuFor(target: RefTarget, ctx: RefMenuContext): ContextMenuElem
             onClick: actions.merge
           },
           {
-            title: l10n.rebaseOnBranch + ELLIPSIS,
+            title:
+              (ctx.rebaseReplaysRange ? l10n.rebaseRangeOnBranch : l10n.rebaseOnBranch) + ELLIPSIS,
             icon: "rebase",
             visible: visible("rebase"),
             onClick: actions.rebase
