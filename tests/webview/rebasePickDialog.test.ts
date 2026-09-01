@@ -57,7 +57,8 @@ const commits: GitCommitNode[] = [
   node("s1", ["base"], "side one", [{ hash: "s1", name: "side", type: "head" }]),
   node("f1", ["base"], "feature one"),
   node("target", ["base"], "target", [{ hash: "target", name: "main", type: "head" }]),
-  node("base", [], "base")
+  node("base", ["init"], "base"),
+  node("init", [], "init")
 ];
 
 function row(hash: string) {
@@ -89,11 +90,6 @@ function untick(hash: string) {
 
 function confirm() {
   document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
-}
-
-/** The sentence the dialog puts over the list. */
-function introSentence() {
-  return document.querySelector("#dialog .rebasePickIntro")!.textContent;
 }
 
 /** The command line the dialog is printing. */
@@ -242,13 +238,46 @@ describe("the rebase dialog's replay checklist", () => {
   });
 
   describe("rebasing a selected range onto a commit", () => {
+    it("replays both commits the user compared, not just the newer one", () => {
+      // The gesture picks two commits and the label calls them a compared
+      // range, so both ends move. git excludes `<upstream>`, which is why the
+      // bound sent is the older selection's parent and never the selection.
+      compare("keep", "w2");
+      openMenu("target");
+      clickItem(REBASE_ONTO);
+
+      expect(listedHashes()).toContain("keep");
+      expect(listedHashes()).toContain("w2");
+      expect(printedCommand()).toBe("git rebase --onto target base topic");
+
+      confirm(); // leave no dialog open for the next test
+    });
+
     it("sends the command it always sent when no commit was unticked", () => {
       compare("keep", "w2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
-      expect(listedHashes()).toEqual(["w2", "w1"]);
+      // Both commits the user compared are replayed, so the bound git is given
+      // is `keep`'s parent rather than `keep` — naming `keep` would drop it.
+      expect(listedHashes()).toEqual(["w2", "w1", "keep"]);
       confirm();
+      expect(mock.sentMessages).toContainEqual({
+        command: "rebaseOnto",
+        repo: DEFAULT_REPO,
+        newBase: "target",
+        upstream: "base",
+        tip: "topic"
+      });
+    });
+
+    it("moves the lower bound forward when only the oldest commits are dropped", () => {
+      compare("keep", "w2");
+      openMenu("target");
+      clickItem(REBASE_ONTO);
+      untick("keep");
+      confirm();
+
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseOnto",
         repo: DEFAULT_REPO,
@@ -258,43 +287,27 @@ describe("the rebase dialog's replay checklist", () => {
       });
     });
 
-    it("moves the lower bound forward when only the oldest commits are dropped", () => {
-      compare("keep", "w2");
-      openMenu("target");
-      clickItem(REBASE_ONTO);
-      untick("w1");
-      confirm();
-
-      expect(mock.sentMessages).toContainEqual({
-        command: "rebaseOnto",
-        repo: DEFAULT_REPO,
-        newBase: "target",
-        upstream: "w1",
-        tip: "topic"
-      });
-    });
-
     it("keeps the printed command honest about the form it will run", () => {
       compare("base", "w2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
-      expect(printedCommand()).toBe("git rebase --onto target base topic");
+      expect(printedCommand()).toBe("git rebase --onto target init topic");
 
       // Dropping the newest commit cannot be spelled as a range at all, so the
       // command changes — and the dialog prints the one that will run
       // (ADR-0022), not the one it opened with.
       untick("w2");
-      expect(printedCommand()).toBe("git rebase --interactive --onto target base topic");
+      expect(printedCommand()).toBe("git rebase --interactive --onto target init topic");
 
       confirm();
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseInteractive",
         repo: DEFAULT_REPO,
         newBase: "target",
-        upstream: "base",
+        upstream: "init",
         tip: "topic",
-        todo: "pick keep keep\npick w1 wanted 1\ndrop w2 wanted 2\n"
+        todo: "pick base base\npick keep keep\npick w1 wanted 1\ndrop w2 wanted 2\n"
       });
     });
   });
@@ -329,7 +342,6 @@ describe("the rebase dialog's replay checklist", () => {
       // `stray`'s parent was never loaded, so how much further the range goes is
       // unknown. An editable list here would drop commits the user was never
       // shown, which is the one direction that is dangerous.
-      expect(dialogText()).toContain(L.dialogRebasePickIncomplete);
       const boxes = Array.from(
         document.querySelectorAll<HTMLInputElement>("#dialog .rebasePickRow input")
       );
@@ -341,24 +353,23 @@ describe("the rebase dialog's replay checklist", () => {
         command: "rebaseOnto",
         repo: DEFAULT_REPO,
         newBase: "target",
-        upstream: "base",
+        upstream: "init",
         tip: "stray"
       });
     });
   });
 
   describe("a range that crosses a merge", () => {
-    it("leaves the merge off the list and says what that costs", () => {
+    it("leaves the merge off the list", () => {
       compare("base", "f2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
       // `fmerge` is absent: a rebase without `--rebase-merges` never replays a
       // merge commit, so listing it would promise a move git will not make.
-      expect(listedHashes()).toEqual(["f2", "s1", "f1"]);
-      expect(dialogText()).toContain(L.dialogRebasePickMergesSquashed.replace("{0}", "1"));
-      // `side` is left pointing at the original s1, which the replay copies.
-      expect(dialogText()).toContain(L.dialogRebasePickStranded.replace("{0}", "side"));
+      // The list is the whole of what the dialog claims — the flattening and
+      // the branches it strands are no longer stated in words.
+      expect(listedHashes()).toEqual(["f2", "s1", "f1", "base"]);
     });
 
     it("still sends the untouched command", () => {
@@ -371,7 +382,7 @@ describe("the rebase dialog's replay checklist", () => {
         command: "rebaseOnto",
         repo: DEFAULT_REPO,
         newBase: "target",
-        upstream: "base",
+        upstream: "init",
         tip: "feature"
       });
     });
@@ -389,36 +400,39 @@ describe("the rebase dialog's replay checklist", () => {
       // interactive form spells every drop out.
       untick("f1");
       untick("s1");
-      expect(printedCommand()).toBe("git rebase --interactive --onto target base feature");
+      expect(printedCommand()).toBe("git rebase --interactive --onto target init feature");
 
       confirm();
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseInteractive",
         repo: DEFAULT_REPO,
         newBase: "target",
-        upstream: "base",
+        upstream: "init",
         tip: "feature",
-        todo: "drop f1 feature one\ndrop s1 side one\npick f2 feature two\n"
+        todo: "pick base base\ndrop f1 feature one\ndrop s1 side one\npick f2 feature two\n"
       });
       expect(mock.sentMessages.some((m) => m.command === "rebaseOnto")).toBe(false);
     });
   });
 
   describe("what the dialog says about itself", () => {
-    it("keeps the count over the list agreeing with the ticks", () => {
+    it("introduces the list with nothing but the command", () => {
       noComparison();
       openMenu("target");
       clickItem(REBASE_ON);
 
-      expect(introSentence()).toBe(L.dialogRebasePickIntro.replace("{0}", "3"));
+      // The rows say which commits move and the command says what will run, so
+      // there is no sentence between them — one that counted the ticks would
+      // only restate the list, and would have to be kept from contradicting it.
+      expect(document.querySelector("#dialog .rebasePickIntro")).toBeNull();
+      expect(document.querySelector("#dialog #rebasePickCommand")).not.toBeNull();
+      expect(document.querySelectorAll("#dialog .rebasePickRow").length).toBe(3);
 
-      // The list is what says which commits move; the sentence introducing it
-      // must not go on claiming a number the ticks have already changed.
       untick("w1");
-      expect(introSentence()).toBe(L.dialogRebasePickIntro.replace("{0}", "2"));
+      expect(document.querySelector("#dialog .rebasePickIntro")).toBeNull();
     });
 
-    it("says the range is unreadable rather than that it is empty", () => {
+    it("lists nothing when the range cannot be read, and still runs", () => {
       // The side view can act on a branch the graph is not showing, and then
       // there is no range to read at all. Reporting "nothing to replay" would
       // be a different claim, and a false one.
@@ -430,9 +444,6 @@ describe("the rebase dialog's replay checklist", () => {
         seq: 172
       });
 
-      expect(dialogText()).toContain(L.dialogRebasePickUnknownRange);
-      expect(dialogText()).not.toContain(L.dialogRebasePickNothingToReplay);
-      expect(dialogText()).not.toContain(L.dialogRebasePickIncomplete);
       expect(document.querySelectorAll("#dialog .rebasePickRow")).toHaveLength(0);
 
       // And it still runs the command it always ran.

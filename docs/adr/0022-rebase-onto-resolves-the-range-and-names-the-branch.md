@@ -9,7 +9,7 @@ status: accepted
 圖形上 CTRL/CMD 點選兩個 commit(那個原本用來看兩者 diff 的操作)之後,對第三個 commit 按右鍵~~會多出一項 `rebase --onto`~~。**#173 起:不再多出一項 —— 既有的那一項 rebase 改變標籤與行為,改跑 `rebase --onto`;ref 選單的那一項同理。** 送出的三個參數都不是使用者直接給的:
 
 - `<newBase>` 是按右鍵的那個 commit —— 這一個是。
-- `<upstream>` 與 `<branch>` 由 [`rebaseOntoRange`](../../src/webview/utils/git.ts) 從那兩個 CTRL 選取的 commit **推導**出來:走 parent 鏈判斷誰是誰的祖先,祖先當 `<upstream>`。兩條各自分岔、或祖先關係跑出已載入的 commit 之外時,退回用圖形順序(排得比較下面的比較舊)。
+- `<upstream>` 與 `<branch>` 由 [`rebaseOntoRange`](../../src/webview/utils/git.ts) 從那兩個 CTRL 選取的 commit **推導**出來:走 parent 鏈判斷誰是誰的祖先,~~祖先當 `<upstream>`~~ **(ADR-0023 起:祖先那個的 _parent_ 當 `<upstream>`,見下)**。兩條各自分岔、或祖先關係跑出已載入的 commit 之外時,退回用圖形順序(排得比較下面的比較舊)。
 - `<branch>` 若有**本地分支**正好指在那個 commit 上,送出的是**分支名**而不是 hash;有多個時對話框問要哪一個,一個都沒有時才送 hash,並在對話框寫明 HEAD 會進入 detached 狀態。
 
 對話框把最終要跑的那行 `git rebase --onto …` 原樣印出來 —— 分支還在選的時候,印的是 git 自己的 `<branch>` 佔位符,下方的選單就是填它的地方。`signing.commits` 開著時 `-S` 也會出現在那行裡,所以印出來的與跑下去的是同一件事。

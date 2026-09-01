@@ -3329,7 +3329,7 @@ class GitGraphView {
     const confirmMsg = (tipLabel: string) =>
       fillTemplate(
         l10n.dialogRebaseOntoConfirm,
-        "<b><i>" + abbrevCommit(range.upstream) + "</i></b>",
+        "<b><i>" + abbrevCommit(range.from) + "</i></b>",
         "<b><i>" + tipLabel + "</i></b>",
         "<b><i>" + escapeHtml(newBase.label) + "</i></b>"
       );
@@ -6634,60 +6634,6 @@ function rebasePickList(state: NonNullable<typeof rebasePickState>): string {
 }
 
 /**
- * The sentence introducing the list, and the caveats that qualify it.
- *
- * Rebuilt in place on every tick — the count has to keep agreeing with the
- * ticks, or the sentence contradicts the list it introduces — rather than by
- * re-rendering the dialog, which would steal focus mid-click.
- */
-function rebasePickStatus(
-  state: NonNullable<typeof rebasePickState>,
-  command: RebasePickCommand
-): string {
-  const lines: string[] = [];
-  if (state.replay.incomplete) {
-    // Two different admissions, and saying the wrong one is worse than saying
-    // nothing: a list that came back short is not the same as a range that
-    // could not be read at all, and only the second has no rows under it.
-    lines.push(
-      state.replay.commits.length === 0
-        ? l10n.dialogRebasePickUnknownRange
-        : l10n.dialogRebasePickIncomplete
-    );
-  }
-  if (state.replay.mergesSquashed > 0) {
-    lines.push(
-      fillTemplate(l10n.dialogRebasePickMergesSquashed, String(state.replay.mergesSquashed))
-    );
-    // The flattening's other half: the side branch's commits are copied onto
-    // the new base while its labels stay on the originals. Said only when there
-    // are labels to name, since without them nothing is left behind to find.
-    if (state.replay.strandedBranches.length > 0) {
-      lines.push(
-        fillTemplate(l10n.dialogRebasePickStranded, state.replay.strandedBranches.join(", "))
-      );
-    }
-  }
-  if (command.kind === "none") lines.push(l10n.dialogRebasePickNothingChecked);
-  // The count, and the invitation to untick, belong only over a list that is
-  // both complete and editable. Over one that may be short each would be a
-  // claim this side of the dialog cannot make.
-  const intro = state.replay.incomplete
-    ? ""
-    : '<span class="rebasePickIntro">' +
-      escapeHtml(
-        state.replay.commits.length === 0
-          ? l10n.dialogRebasePickNothingToReplay
-          : fillTemplate(l10n.dialogRebasePickIntro, String(state.checked.size))
-      ) +
-      "</span>";
-  return (
-    intro +
-    lines.map((line) => '<div class="rebasePickNotice">' + escapeHtml(line) + "</div>").join("")
-  );
-}
-
-/**
  * Open a checklist over `replay` and return the markup for it.
  *
  * The caller puts it under the dialog's own question and then calls
@@ -6710,8 +6656,6 @@ function openRebasePick(
   return (
     '<div class="rebasePick"><div id="rebasePickCommand">' +
     preview(command) +
-    '</div><div id="rebasePickStatus">' +
-    rebasePickStatus(state, command) +
     "</div>" +
     (replay.commits.length === 0 ? "" : rebasePickList(state)) +
     "</div>"
@@ -6729,8 +6673,6 @@ function bindRebasePickHandlers() {
       if (box.checked) state.checked.add(hash);
       else state.checked.delete(hash);
       const command = rebasePickCommand(state.range.tip);
-      const status = document.getElementById("rebasePickStatus");
-      if (status !== null) status.innerHTML = rebasePickStatus(state, command);
       const printed = document.getElementById("rebasePickCommand");
       if (printed !== null) printed.innerHTML = state.preview(command);
     });

@@ -222,7 +222,7 @@ describe("rebase --onto from the commit context menu", () => {
     clickItem(REBASE_ONTO_BRANCH);
 
     expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
-      "git rebase --onto fix&bug keep topic"
+      "git rebase --onto fix&bug base topic"
     );
     expect(document.getElementById("dialog")!.innerHTML).not.toContain("&amp;amp;");
   });
@@ -235,7 +235,7 @@ describe("rebase --onto from the commit context menu", () => {
     // The new base is the branch the user clicked, not the hash under it: git
     // resolves the name, and the printed line is what will run (ADR-0022).
     expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
-      "git rebase --onto main keep topic"
+      "git rebase --onto main base topic"
     );
 
     document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
@@ -243,7 +243,7 @@ describe("rebase --onto from the commit context menu", () => {
       command: "rebaseOnto",
       repo: DEFAULT_REPO,
       newBase: "main",
-      upstream: "keep",
+      upstream: "base",
       tip: "topic"
     });
   });
@@ -259,7 +259,7 @@ describe("rebase --onto from the commit context menu", () => {
       command: "rebaseOnto",
       repo: DEFAULT_REPO,
       newBase: "target",
-      upstream: "keep",
+      upstream: "base",
       tip: "topic" // the local branch on the tip commit, so the branch moves
     });
   });
@@ -271,7 +271,7 @@ describe("rebase --onto from the commit context menu", () => {
 
     const dialog = document.getElementById("dialog")!;
     expect(dialog.querySelector(".commandPreview")!.textContent).toBe(
-      "git rebase --onto target keep w1"
+      "git rebase --onto target base w1"
     );
     // The detached-HEAD consequence is spelled out rather than left to be found.
     expect(dialog.querySelector(".dialogNote")!.textContent).toContain("detached");
@@ -281,7 +281,7 @@ describe("rebase --onto from the commit context menu", () => {
       command: "rebaseOnto",
       repo: DEFAULT_REPO,
       newBase: "target",
-      upstream: "keep",
+      upstream: "base",
       tip: "w1"
     });
   });
@@ -294,7 +294,7 @@ describe("rebase --onto from the commit context menu", () => {
 
     // git's own placeholder stands in for the branch the select below supplies.
     expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
-      "git rebase --onto target keep <branch>"
+      "git rebase --onto target base <branch>"
     );
     const options = Array.from(
       document.querySelectorAll<HTMLOptionElement>("#dialog select option")
@@ -318,7 +318,7 @@ describe("rebase --onto from the commit context menu", () => {
     menuEntries("target");
     clickItem(REBASE_ONTO);
     expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
-      "git rebase --onto target keep topic"
+      "git rebase --onto target base topic"
     );
 
     // `git reset --hard w1` on topic, reaching the webview through the file

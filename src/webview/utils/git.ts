@@ -234,9 +234,16 @@ export function arraysEqual<T>(a: T[], b: T[], equalElements: (a: T, b: T) => bo
  *  two commits the user CTRL-selected, plus the local branches that can stand
  *  in for the tip. */
 export interface RebaseOntoRange {
-  /** Exclusive lower bound of the replayed range — git's `<upstream>`. Always
-   *  the ancestor of the pair. */
+  /** Exclusive lower bound of the replayed range — git's `<upstream>`. This is
+   *  the *parent* of the older selected commit, not that commit itself, so that
+   *  both commits the user compared are replayed: `<upstream>` is excluded by
+   *  git, and excluding the older selection would leave one end of what they
+   *  compared behind. */
   upstream: string;
+  /** The older of the two commits the user compared. It *is* replayed — it is
+   *  named only so the dialog can say which pair this range came from, since
+   *  `upstream` is its parent and a commit the user never picked. */
+  from: string;
   /** The commit whose history is replayed — git's `<branch>`. Always the
    *  descendant. */
   tip: string;
@@ -259,15 +266,26 @@ export function rebaseOntoRange(
   hashB: string,
   commits: { hash: string; parentHashes: string[]; refs: { name: string; type: string }[] }[],
   commitLookup: { [hash: string]: number }
-): RebaseOntoRange {
+): RebaseOntoRange | null {
   const parentsOf = (hash: string) => {
     const index = commitLookup[hash];
     return index === undefined ? undefined : commits[index].parentHashes;
   };
-  const withTip = (upstream: string, tip: string): RebaseOntoRange => {
+  const withTip = (older: string, tip: string): RebaseOntoRange | null => {
+    // git excludes `<upstream>`, so the bound is the older selection's parent.
+    // First parent on a merge: that is the line the range was read along.
+    // A root commit has none, and a range with no lower bound is not something
+    // `--onto` can spell — the caller falls back to the plain rebase.
+    const upstream = parentsOf(older)?.[0];
+    if (upstream === undefined) return null;
     const index = commitLookup[tip];
     const refs = index === undefined ? [] : commits[index].refs;
-    return { upstream, tip, tipBranches: refs.filter((r) => r.type === "head").map((r) => r.name) };
+    return {
+      upstream,
+      from: older,
+      tip,
+      tipBranches: refs.filter((r) => r.type === "head").map((r) => r.name)
+    };
   };
   if (commitsReachableFrom([hashA], parentsOf).has(hashB)) return withTip(hashB, hashA);
   if (commitsReachableFrom([hashB], parentsOf).has(hashA)) return withTip(hashA, hashB);
