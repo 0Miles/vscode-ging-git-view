@@ -51,6 +51,7 @@ import {
 import { createRepoGitClients } from "./extension/repoGitClients";
 import { createRepoManager } from "./extension/repoManager";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
+import { SequenceEditorManager } from "./extension/sequenceEditor/sequenceEditorManager";
 import { showStatistics } from "./extension/statisticsPanel";
 import { WebviewBridge, webviewBridgeFactory } from "./extension/webviewBridge";
 import { createWebviewPanel, WebviewPanel } from "./extension/webviewPanel";
@@ -99,11 +100,15 @@ export function activate(context: vscode.ExtensionContext) {
   // passed only to this client's git children, never onto the shared host env.
   const askpassManager = new AskpassManager();
   context.subscriptions.push(askpassManager);
+  // Lets a rebase run a todo the extension wrote — see sequenceEditorManager.
+  const sequenceEditor = new SequenceEditorManager();
+  context.subscriptions.push(sequenceEditor);
+  const gitEnv = () => ({ ...askpassManager.getEnv(), ...sequenceEditor.getEnv() });
   const gitClient = gitClientFactory(
     extensionState.getLastActiveRepo() ?? "",
     config.gitPath(),
     logger.logCmd,
-    askpassManager.getEnv()
+    gitEnv()
   );
   const repoManager = createRepoManager(extensionState, statusBarItem, config);
   const repoSearch = createRepoSearch(repoManager, config);
@@ -120,7 +125,7 @@ export function activate(context: vscode.ExtensionContext) {
   const branchFilterStore = createBranchFilterStore();
   const repoGitClients = createRepoGitClients({
     gitPath: config.gitPath,
-    gitEnv: askpassManager.getEnv(),
+    gitEnv: gitEnv(),
     // Reads made outside the graph panel used to be invisible in the Output
     // Channel; now that the panel's branch load comes through here too, they
     // all have to be logged or the graph's would disappear from it.
@@ -366,6 +371,7 @@ export function activate(context: vscode.ExtensionContext) {
       branchCleanup,
       resolveShowRemote,
       logger,
+      sequenceEditor,
       onSelectRepo: (repo) => {
         branchesView.setActiveRepo(repo);
         remotesView.setActiveRepo(repo);

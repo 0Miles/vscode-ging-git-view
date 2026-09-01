@@ -894,9 +894,6 @@
                 "rebase": {
                   "type": "boolean"
                 },
-                "rebaseOnto": {
-                  "type": "boolean"
-                },
                 "drop": {
                   "type": "boolean"
                 },

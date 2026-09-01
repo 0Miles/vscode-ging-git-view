@@ -76,17 +76,41 @@ async function main() {
     plugins: [aliasPlugin, esbuildProblemMatcherPlugin]
   });
 
-  // The askpass shell scripts are loaded by git at runtime from out/.
+  // Standalone helper git runs as GIT_SEQUENCE_EDITOR; another node bundle.
+  const sequenceEditor = await esbuild.context({
+    entryPoints: ["src/extension/sequenceEditor/sequenceEditorMain.ts"],
+    bundle: true,
+    format: "cjs",
+    minify: production,
+    sourcemap: !production,
+    sourcesContent: false,
+    platform: "node",
+    target: "es6",
+    outfile: "out/sequenceEditorMain.js",
+    logLevel: "silent",
+    plugins: [aliasPlugin, esbuildProblemMatcherPlugin]
+  });
+
+  // The shell scripts git loads at runtime from out/.
   const copyAskpassScripts = () => {
     fs.mkdirSync("out", { recursive: true });
     for (const f of ["askpass.sh", "askpass-empty.sh"]) {
       fs.copyFileSync(path.join("src/extension/askpass", f), path.join("out", f));
     }
+    fs.copyFileSync(
+      path.join("src/extension/sequenceEditor", "sequenceEditor.sh"),
+      path.join("out", "sequenceEditor.sh")
+    );
   };
 
   if (watch) {
     copyAskpassScripts();
-    await Promise.all([extension.watch(), webview.watch(), askpass.watch()]);
+    await Promise.all([
+      extension.watch(),
+      webview.watch(),
+      askpass.watch(),
+      sequenceEditor.watch()
+    ]);
   } else {
     await extension.rebuild();
     await extension.dispose();
@@ -94,6 +118,8 @@ async function main() {
     await webview.dispose();
     await askpass.rebuild();
     await askpass.dispose();
+    await sequenceEditor.rebuild();
+    await sequenceEditor.dispose();
     copyAskpassScripts();
   }
 }

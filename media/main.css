@@ -1490,6 +1490,75 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
 #dialog .cleanupTools .roundedBtn {
   margin: 0;
 }
+/* Rebase dialogs: the tickable list of commits the rebase would replay. Shares
+   the cleanup dialog's left-aligned, definite-width shell, and for the same
+   reason — a table of nowrap cells has nothing to size itself against. */
+#dialog.active:has(.rebasePick) {
+  text-align: left;
+  width: min(680px, 90vw);
+  max-width: none;
+}
+#dialog .rebasePick {
+  margin-top: 10px;
+}
+#dialog .rebasePickIntro {
+  display: block;
+}
+/* What the list cannot say for itself — the merges git drops, an emptied list.
+   Plain and above the rows, because they qualify every row below them. */
+#dialog .rebasePickNotice {
+  margin-top: 6px;
+  font-size: 0.9em;
+  line-height: 1.45;
+  color: var(--vscode-descriptionForeground);
+}
+#dialog .rebasePickList {
+  margin-top: 12px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+#dialog .rebasePickList table {
+  width: 100%;
+  border-spacing: 0;
+}
+#dialog .rebasePickList td {
+  padding: 3px 4px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+/* The subject column absorbs the width the hash column leaves, and ellipsises
+   rather than pushing the dialog wider. */
+#dialog .rebasePickRow td:nth-child(1) {
+  width: 100%;
+  max-width: 0;
+}
+#dialog .rebasePickRow label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+#dialog .rebasePickRow label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#dialog .rebasePickRow input {
+  flex: none;
+  margin: 0;
+}
+/* A list that may be short cannot be edited, so its rows read as information
+   rather than as controls. */
+#dialog .rebasePickRow input:disabled,
+#dialog .rebasePickRow input:disabled + span {
+  cursor: default;
+  opacity: 0.6;
+}
+#dialog .rebasePickHash {
+  padding-left: 10px;
+  text-align: right;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
 #dialogBacking.active {
   display: block;
   position: fixed;

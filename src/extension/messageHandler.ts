@@ -30,7 +30,12 @@ import { fetchFromRemotes } from "@/backend/actions/fetch";
 import { mergeBranch, mergeCommit } from "@/backend/actions/merge";
 import { abortOperation, continueOperation, markResolved } from "@/backend/actions/operation";
 import { exportPatch } from "@/backend/actions/patch";
-import { rebaseOn, rebaseOnto } from "@/backend/actions/rebase";
+import {
+  rebaseInteractive,
+  rebaseOn,
+  rebaseOnto,
+  type RebaseTodoStager
+} from "@/backend/actions/rebase";
 import { getRemoteUrl } from "@/backend/actions/remote";
 import { applyStash, dropStash, popStash, renameStash } from "@/backend/actions/stash";
 import { addTag, deleteTag, pushTag } from "@/backend/actions/tag";
@@ -127,6 +132,9 @@ export function registerMessageHandlers(
     /** The shared classification facts, consumed by `loadBranches` and by the
      *  Branches side-view alike. */
     branchFacts: BranchFacts;
+    /** Stages the todo an interactive rebase runs with, and reports whether git
+     *  actually took it. */
+    sequenceEditor: RebaseTodoStager;
     /** Builds the cleanup dialog's payload. Shared with the side-view command,
      *  which opens the same dialog from the other direction (ADR-0017). */
     branchCleanup: BranchCleanup;
@@ -268,6 +276,12 @@ export function registerMessageHandlers(
   registerAction("rebaseOn", (msg) => rebaseOn(gitClient.getInstance(), msg, config.signCommits()));
   registerAction("rebaseOnto", (msg) =>
     rebaseOnto(gitClient.getInstance(), msg, config.signCommits())
+  );
+  registerAction("rebaseInteractive", (msg) =>
+    rebaseInteractive(gitClient.getInstance(), msg, {
+      signCommits: config.signCommits(),
+      stager: deps.sequenceEditor
+    })
   );
   registerAction("applyStash", (msg) => applyStash(gitClient.getInstance(), msg));
   registerAction("popStash", (msg) => popStash(gitClient.getInstance(), msg));

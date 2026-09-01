@@ -12,13 +12,18 @@ import {
   setupHtml
 } from "./setup";
 
-// `rebase --onto` from the graph, end to end: the entry only exists while two
-// commits are CTRL-compared, and the range it sends is resolved from ancestry
-// rather than from the order the two were clicked.
+// `rebase --onto` from the graph, end to end. There is no separate menu entry
+// for it (#173): while two commits are CTRL-compared, the rebase entry the
+// commit and ref menus already carry changes label and replays the compared
+// range instead of the current branch. The range it sends is resolved from
+// ancestry rather than from the order the two were clicked.
 
 const L = getWebviewLocalizedStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
-const REBASE_ONTO = L.rebaseOntoCommit + E;
+const REBASE_ON = L.rebaseOnCommit + E;
+const REBASE_ONTO = L.rebaseRangeOnCommit + E;
+const REBASE_ON_BRANCH = L.rebaseOnBranch + E;
+const REBASE_ONTO_BRANCH = L.rebaseRangeOnBranch + E;
 
 function node(
   hash: string,
@@ -39,6 +44,8 @@ function node(
 
 // topic: base ← keep ← w1 ← w2, main: base ← target, and `dup` hanging off keep
 // with two branches on it. Graph order is newest first — the array order below.
+// `fix&bug` shares `target` with `main`: a legal branch name whose HTML and raw
+// spellings differ, which is what tells single escaping from double.
 const commits: GitCommitNode[] = [
   node("w2", ["w1"], "wanted 2", [{ hash: "w2", name: "topic", type: "head" }]),
   node("w1", ["keep"], "wanted 1"),
@@ -46,7 +53,10 @@ const commits: GitCommitNode[] = [
     { hash: "dup", name: "dup-a", type: "head" },
     { hash: "dup", name: "dup-b", type: "head" }
   ]),
-  node("target", ["base"], "target", [{ hash: "target", name: "main", type: "head" }]),
+  node("target", ["base"], "target", [
+    { hash: "target", name: "main", type: "head" },
+    { hash: "target", name: "fix&bug", type: "head" }
+  ]),
   node("keep", ["base"], "keep"),
   node("base", [], "base")
 ];
@@ -59,9 +69,34 @@ function row(hash: string) {
 
 function menuEntries(hash: string) {
   row(hash).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  return openMenuEntries();
+}
+
+/** The same, for the ref chip carrying `name`. The chip writes the name
+ *  HTML-escaped and the parser decodes it straight back, so `data-name` holds
+ *  the branch's own spelling — matched by reading the property rather than
+ *  through an attribute selector, which cannot carry every legal branch name. */
+function refMenuEntries(name: string) {
+  const chip = Array.from(document.querySelectorAll<HTMLElement>(".gitRef")).find(
+    (elem) => elem.dataset.name === name
+  );
+  expect(chip, name).toBeDefined();
+  chip!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  return openMenuEntries();
+}
+
+function openMenuEntries() {
   return Array.from(document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")).map(
     (li) => (li.textContent ?? "").trim()
   );
+}
+
+/** How many of the open menu's entries are a rebase — one, always: the range
+ *  rebase replaces the plain one rather than joining it (#173). */
+function rebaseEntryCount(entries: string[]) {
+  return entries.filter((title) =>
+    [REBASE_ON, REBASE_ONTO, REBASE_ON_BRANCH, REBASE_ONTO_BRANCH].includes(title)
+  ).length;
 }
 
 describe("rebase --onto from the commit context menu", () => {
@@ -92,7 +127,7 @@ describe("rebase --onto from the commit context menu", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
-      branches: ["main", "topic", "dup-a", "dup-b"],
+      branches: ["main", "topic", "dup-a", "dup-b", "fix&bug"],
       head: "topic",
       hard: true,
       isRepo: true,
@@ -111,16 +146,106 @@ describe("rebase --onto from the commit context menu", () => {
     mock.clearMessages();
   });
 
-  it("is absent while a single commit is expanded", () => {
+  it("leaves both menus reading as the plain rebase while a single commit is expanded", () => {
     row("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(menuEntries("target")).not.toContain(REBASE_ONTO);
+    const commitMenu = menuEntries("target");
+    expect(commitMenu).toContain(REBASE_ON);
+    expect(commitMenu).not.toContain(REBASE_ONTO);
+    expect(rebaseEntryCount(commitMenu)).toBe(1);
+
+    const refMenu = refMenuEntries("main");
+    expect(refMenu).toContain(REBASE_ON_BRANCH);
+    expect(refMenu).not.toContain(REBASE_ONTO_BRANCH);
+    expect(rebaseEntryCount(refMenu)).toBe(1);
   });
 
-  it("is absent on the two commits that form the range", () => {
+  it("runs the plain rebase from a menu that reads as the plain rebase", () => {
+    row("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    menuEntries("target");
+    clickItem(REBASE_ON);
+    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+
+    expect(mock.sentMessages).toContainEqual({
+      command: "rebaseOn",
+      repo: DEFAULT_REPO,
+      obj: "target"
+    });
+  });
+
+  it("replaces the plain entry rather than adding a second one", () => {
     compare("keep", "w2");
-    expect(menuEntries("keep")).not.toContain(REBASE_ONTO);
+    const commitMenu = menuEntries("target");
+    expect(commitMenu).toContain(REBASE_ONTO);
+    expect(commitMenu).not.toContain(REBASE_ON);
+    expect(rebaseEntryCount(commitMenu)).toBe(1);
+
+    const refMenu = refMenuEntries("main");
+    expect(refMenu).toContain(REBASE_ONTO_BRANCH);
+    expect(refMenu).not.toContain(REBASE_ON_BRANCH);
+    expect(rebaseEntryCount(refMenu)).toBe(1);
+  });
+
+  it("stays the plain rebase on the two commits that form the range", () => {
+    // `--onto` aimed at an end of its own range is a no-op or a self-copy
+    // (ADR-0022), so these two keep the entry they always had rather than
+    // losing it.
     compare("keep", "w2");
-    expect(menuEntries("w2")).not.toContain(REBASE_ONTO);
+    expect(menuEntries("keep")).toContain(REBASE_ON);
+    compare("keep", "w2");
+    expect(menuEntries("w2")).toContain(REBASE_ON);
+    // Same rule read off a branch: `dup-a` sits on an end of the range.
+    compare("keep", "dup");
+    expect(refMenuEntries("dup-a")).toContain(REBASE_ON_BRANCH);
+  });
+
+  // The printed command is the whole of what is agreed to (ADR-0022), so it has
+  // to be the string git will actually receive. A branch name is raw text all
+  // the way to `rebasePickCommandHtml`, which escapes the line it built once;
+  // handing that line a name already escaped for HTML printed `fix&amp;bug` for
+  // a branch called `fix&bug` — a command that would not run.
+  it("prints a branch name that needs escaping exactly once, plain rebase", () => {
+    row("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    refMenuEntries("fix&bug");
+    clickItem(REBASE_ON_BRANCH);
+
+    expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
+      "git rebase fix&bug"
+    );
+    // The confirmation names it once too, and as text rather than as markup.
+    expect(document.getElementById("dialog")!.textContent).toContain("fix&bug");
+    expect(document.getElementById("dialog")!.innerHTML).not.toContain("&amp;amp;");
+  });
+
+  it("prints a branch name that needs escaping exactly once, range rebase", () => {
+    compare("keep", "w2");
+    refMenuEntries("fix&bug");
+    clickItem(REBASE_ONTO_BRANCH);
+
+    expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
+      "git rebase --onto fix&bug keep topic"
+    );
+    expect(document.getElementById("dialog")!.innerHTML).not.toContain("&amp;amp;");
+  });
+
+  it("replays the range onto a branch, naming the branch in both command and message", () => {
+    compare("keep", "w2");
+    refMenuEntries("main");
+    clickItem(REBASE_ONTO_BRANCH);
+
+    // The new base is the branch the user clicked, not the hash under it: git
+    // resolves the name, and the printed line is what will run (ADR-0022).
+    expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
+      "git rebase --onto main keep topic"
+    );
+
+    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    expect(mock.sentMessages).toContainEqual({
+      command: "rebaseOnto",
+      repo: DEFAULT_REPO,
+      newBase: "main",
+      upstream: "keep",
+      tip: "topic"
+    });
   });
 
   it("sends the ancestor as upstream regardless of which commit was clicked first", () => {
