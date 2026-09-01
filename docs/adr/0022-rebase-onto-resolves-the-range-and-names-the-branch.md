@@ -4,6 +4,8 @@ status: accepted
 
 # rebase --onto 自己決定範圍方向,並把 tip 換成分支名
 
+**[ADR-0023](0023-the-replay-list-decides-which-commits-move.md) 起:「哪些 commit 會被搬」不再由這個手勢表達,改由對話框的重放清單表達。** 這篇的其餘部分 —— 方向由 ancestry 判定而非點選順序、tip 送分支名所以被搬的是分支、以及那行指令要原樣印出來(`-S` 含在內)—— 一條都沒有被推翻;失效的那一條在下面「後果」裡原地標記。
+
 圖形上 CTRL/CMD 點選兩個 commit(那個原本用來看兩者 diff 的操作)之後,對第三個 commit 按右鍵~~會多出一項 `rebase --onto`~~。**#173 起:不再多出一項 —— 既有的那一項 rebase 改變標籤與行為,改跑 `rebase --onto`;ref 選單的那一項同理。** 送出的三個參數都不是使用者直接給的:
 
 - `<newBase>` 是按右鍵的那個 commit —— 這一個是。
@@ -11,6 +13,8 @@ status: accepted
 - `<branch>` 若有**本地分支**正好指在那個 commit 上,送出的是**分支名**而不是 hash;有多個時對話框問要哪一個,一個都沒有時才送 hash,並在對話框寫明 HEAD 會進入 detached 狀態。
 
 對話框把最終要跑的那行 `git rebase --onto …` 原樣印出來 —— 分支還在選的時候,印的是 git 自己的 `<branch>` 佔位符,下方的選單就是填它的地方。`signing.commits` 開著時 `-S` 也會出現在那行裡,所以印出來的與跑下去的是同一件事。
+
+**ADR-0023 起這一段仍然有效,而且變成勾選結果的函數。** 重放清單**不取代**它:清單答的是「哪些 commit」,這一行答的是「哪一個 git 指令、哪些參數、哪條分支會被搬」,兩者互補。勾選一改,印出來的那行就跟著改(`--interactive` 冒出來、下界換人、全不勾時整行消失),而印出來的與跑下去的仍然讀自同一個值。
 
 ## 為什麼未來的讀者會困惑
 
@@ -36,7 +40,8 @@ status: accepted
 
 - **這一項只在「正在比較兩個 commit」時存在。** 它的範圍來自 Commit Details View 的比較狀態(`comparedCommitPair`),所以關掉比較、或只展開單一 commit 時,選單上不會有它。這是把一個既有的選取手勢再用一次,不是新增一種選取模式。
   **#173 起改為:它不再是自己一項。** 比較兩個 commit 時,commit 選單與 ref 選單**既有的**那一項 rebase 改變標籤與行為去重放這個範圍;沒有比較時兩項照舊。獨立的「Rebase the Selected Commits onto this Commit」已移除 —— 手勢已經做完了,不必再讓使用者在兩個選單項之間挑一個。ref 選單那一項的新基底是使用者按的那條 branch(送出的是分支名,不是它底下的 hash)。側檢視的 rebase 一律維持普通那個:它的標籤寫死在 package.json 裡跟不動,而決定範圍的手勢只在圖形上看得見。
-- **範圍可能不是一條直線。** 兩個 commit 不互為祖先時仍會送出 —— `upstream..branch` 對分岔的兩條一樣是合法的 rev range,只是使用者要自己看懂算出來的是什麼。對話框印出的那行指令就是為此存在。
+- **範圍可能不是一條直線。** 兩個 commit 不互為祖先時仍會送出 —— `upstream..branch` 對分岔的兩條一樣是合法的 rev range,~~只是使用者要自己看懂算出來的是什麼。對話框印出的那行指令就是為此存在。~~
+  **ADR-0023 起:「使用者要自己看懂」失效。** 實測顯示它不成立 —— 範圍跨 merge 時 git 靜默丟掉 merge、把菱形壓成直線、把側枝的 commit 複製一份重放,而側枝的分支標籤留在原地,那行指令對這幾件事一個字都沒有說。對話框現在把 git 真的會重放的每一筆列出來、逐筆可勾,壓平的後果與會留在原地的分支另外用文字講明。**那行指令本身沒有被取代**,見上方開頭的補記。
 - **`rebaseOnto` 與既有的 `rebaseOn` 是兩個 action,不共用。** `rebaseOn` 搬的是**目前 checked-out 的分支**,`rebaseOnto` 搬的是使用者指定的那一段,兩者的參數與後果都不一樣。錯誤回報共用 `error.unableToRebase`。
 - ~~**`contextMenuActions.commit.rebaseOnto` 可以單獨關掉**,與 `rebase` 分開 —— 覺得這項太危險的人不必連帶失去一般的 rebase。~~
   **#173 移除了這個設定鍵。** 兩種 rebase 合成同一個選單項之後,「只關掉其中一種」已經沒有東西可以指:能關的是那一項,而它由 `contextMenuActions.commit.rebase` 控制。留著這個鍵只會承諾一件沒有任何程式碼會做的事。

@@ -57,7 +57,8 @@ tradeoffs, and release process clearer.
 - **Branch actions**: Create, checkout, rename, delete, merge, rebase, and push
 - **Tag actions**: Create, delete, and push tags
 - **Commit actions**: Checkout, cherry-pick, revert, and reset
-- **Rebase a range**: CTRL/CMD-click two commits to bound a range, then right-click a third to replay that range onto it (`git rebase --onto`)
+- **Rebase**: The dialog lists the commits git will actually replay and lets you untick any of them, with the command that will run printed above the list
+- **Rebase a range**: CTRL/CMD-click two commits to bound a range, and the rebase entry on a third commit — or on a branch — replays that range onto it instead of the whole branch (`git rebase --onto`)
 - **Pull requests**: Open a pre-filled "create pull request" page for a branch on GitHub, GitLab, Bitbucket, Gitea/Forgejo, or a self-hosted host you configure
 - **Avatar support**: Optional avatars from GitHub, GitLab, or Gravatar
 - **Devcontainer ready**: Works in remote and container environments
