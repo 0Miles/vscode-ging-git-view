@@ -1501,17 +1501,6 @@ body.vscode-high-contrast-light #dialog > table.dialogForm select {
 #dialog .rebasePick {
   margin-top: 10px;
 }
-#dialog .rebasePickIntro {
-  display: block;
-}
-/* What the list cannot say for itself — the merges git drops, an emptied list.
-   Plain and above the rows, because they qualify every row below them. */
-#dialog .rebasePickNotice {
-  margin-top: 6px;
-  font-size: 0.9em;
-  line-height: 1.45;
-  color: var(--vscode-descriptionForeground);
-}
 #dialog .rebasePickList {
   margin-top: 12px;
   max-height: 50vh;

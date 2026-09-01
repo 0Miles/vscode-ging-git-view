@@ -91,11 +91,6 @@ function confirm() {
   document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
 }
 
-/** The sentence the dialog puts over the list. */
-function introSentence() {
-  return document.querySelector("#dialog .rebasePickIntro")!.textContent;
-}
-
 /** The command line the dialog is printing. */
 function printedCommand() {
   return document.querySelector("#dialog .commandPreview")!.textContent;
@@ -329,7 +324,6 @@ describe("the rebase dialog's replay checklist", () => {
       // `stray`'s parent was never loaded, so how much further the range goes is
       // unknown. An editable list here would drop commits the user was never
       // shown, which is the one direction that is dangerous.
-      expect(dialogText()).toContain(L.dialogRebasePickIncomplete);
       const boxes = Array.from(
         document.querySelectorAll<HTMLInputElement>("#dialog .rebasePickRow input")
       );
@@ -348,17 +342,16 @@ describe("the rebase dialog's replay checklist", () => {
   });
 
   describe("a range that crosses a merge", () => {
-    it("leaves the merge off the list and says what that costs", () => {
+    it("leaves the merge off the list", () => {
       compare("base", "f2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
       // `fmerge` is absent: a rebase without `--rebase-merges` never replays a
       // merge commit, so listing it would promise a move git will not make.
+      // The list is the whole of what the dialog claims — the flattening and
+      // the branches it strands are no longer stated in words.
       expect(listedHashes()).toEqual(["f2", "s1", "f1"]);
-      expect(dialogText()).toContain(L.dialogRebasePickMergesSquashed.replace("{0}", "1"));
-      // `side` is left pointing at the original s1, which the replay copies.
-      expect(dialogText()).toContain(L.dialogRebasePickStranded.replace("{0}", "side"));
     });
 
     it("still sends the untouched command", () => {
@@ -405,20 +398,23 @@ describe("the rebase dialog's replay checklist", () => {
   });
 
   describe("what the dialog says about itself", () => {
-    it("keeps the count over the list agreeing with the ticks", () => {
+    it("introduces the list with nothing but the command", () => {
       noComparison();
       openMenu("target");
       clickItem(REBASE_ON);
 
-      expect(introSentence()).toBe(L.dialogRebasePickIntro.replace("{0}", "3"));
+      // The rows say which commits move and the command says what will run, so
+      // there is no sentence between them — one that counted the ticks would
+      // only restate the list, and would have to be kept from contradicting it.
+      expect(document.querySelector("#dialog .rebasePickIntro")).toBeNull();
+      expect(document.querySelector("#dialog #rebasePickCommand")).not.toBeNull();
+      expect(document.querySelectorAll("#dialog .rebasePickRow").length).toBe(3);
 
-      // The list is what says which commits move; the sentence introducing it
-      // must not go on claiming a number the ticks have already changed.
       untick("w1");
-      expect(introSentence()).toBe(L.dialogRebasePickIntro.replace("{0}", "2"));
+      expect(document.querySelector("#dialog .rebasePickIntro")).toBeNull();
     });
 
-    it("says the range is unreadable rather than that it is empty", () => {
+    it("lists nothing when the range cannot be read, and still runs", () => {
       // The side view can act on a branch the graph is not showing, and then
       // there is no range to read at all. Reporting "nothing to replay" would
       // be a different claim, and a false one.
@@ -430,9 +426,6 @@ describe("the rebase dialog's replay checklist", () => {
         seq: 172
       });
 
-      expect(dialogText()).toContain(L.dialogRebasePickUnknownRange);
-      expect(dialogText()).not.toContain(L.dialogRebasePickNothingToReplay);
-      expect(dialogText()).not.toContain(L.dialogRebasePickIncomplete);
       expect(document.querySelectorAll("#dialog .rebasePickRow")).toHaveLength(0);
 
       // And it still runs the command it always ran.
