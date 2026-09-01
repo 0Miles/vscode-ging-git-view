@@ -4,7 +4,7 @@ status: accepted
 
 # rebase --onto 自己決定範圍方向,並把 tip 換成分支名
 
-圖形上 CTRL/CMD 點選兩個 commit(那個原本用來看兩者 diff 的操作)之後,對第三個 commit 按右鍵會多出一項 `rebase --onto`。送出的三個參數都不是使用者直接給的:
+圖形上 CTRL/CMD 點選兩個 commit(那個原本用來看兩者 diff 的操作)之後,對第三個 commit 按右鍵~~會多出一項 `rebase --onto`~~。**#173 起:不再多出一項 —— 既有的那一項 rebase 改變標籤與行為,改跑 `rebase --onto`;ref 選單的那一項同理。** 送出的三個參數都不是使用者直接給的:
 
 - `<newBase>` 是按右鍵的那個 commit —— 這一個是。
 - `<upstream>` 與 `<branch>` 由 [`rebaseOntoRange`](../../src/webview/utils/git.ts) 從那兩個 CTRL 選取的 commit **推導**出來:走 parent 鏈判斷誰是誰的祖先,祖先當 `<upstream>`。兩條各自分岔、或祖先關係跑出已載入的 commit 之外時,退回用圖形順序(排得比較下面的比較舊)。
@@ -28,14 +28,16 @@ status: accepted
 
 **一律用對話框問「要移動哪條分支」,即使只有一條。** 一致,但為唯一答案多按一次。改成:只有一條就直接用、多條才問、沒有就講清楚後果 —— 問的時機對齊「真的有選擇要做」。
 
-**把按右鍵的 commit 也允許是那兩個之一。** `--onto` 的目標若正是範圍的兩端之一,得到的是空操作或自我複製。這種情況直接不顯示選單項,而不是讓它跑出一個看不懂的結果。
+**把按右鍵的 commit 也允許是那兩個之一。** `--onto` 的目標若正是範圍的兩端之一,得到的是空操作或自我複製。~~這種情況直接不顯示選單項~~,而不是讓它跑出一個看不懂的結果。**#173 起:選單項不會消失 —— 它退回成普通的 rebase(那一項本來就一直在)。否決的理由沒有變:不讓 `--onto` 指向自己範圍的端點。**
 
 **用 `git merge-base --is-ancestor` 去問 git,而不是走已載入的 commit。** 準確,但要多跑一趟行程才能決定一個選單項該長什麼樣。已載入的 commit 圖已經在手上,而它答不出來時的退路(圖形順序)本來就存在。
 
 ## 後果
 
 - **這一項只在「正在比較兩個 commit」時存在。** 它的範圍來自 Commit Details View 的比較狀態(`comparedCommitPair`),所以關掉比較、或只展開單一 commit 時,選單上不會有它。這是把一個既有的選取手勢再用一次,不是新增一種選取模式。
+  **#173 起改為:它不再是自己一項。** 比較兩個 commit 時,commit 選單與 ref 選單**既有的**那一項 rebase 改變標籤與行為去重放這個範圍;沒有比較時兩項照舊。獨立的「Rebase the Selected Commits onto this Commit」已移除 —— 手勢已經做完了,不必再讓使用者在兩個選單項之間挑一個。ref 選單那一項的新基底是使用者按的那條 branch(送出的是分支名,不是它底下的 hash)。側檢視的 rebase 一律維持普通那個:它的標籤寫死在 package.json 裡跟不動,而決定範圍的手勢只在圖形上看得見。
 - **範圍可能不是一條直線。** 兩個 commit 不互為祖先時仍會送出 —— `upstream..branch` 對分岔的兩條一樣是合法的 rev range,只是使用者要自己看懂算出來的是什麼。對話框印出的那行指令就是為此存在。
 - **`rebaseOnto` 與既有的 `rebaseOn` 是兩個 action,不共用。** `rebaseOn` 搬的是**目前 checked-out 的分支**,`rebaseOnto` 搬的是使用者指定的那一段,兩者的參數與後果都不一樣。錯誤回報共用 `error.unableToRebase`。
-- **`contextMenuActions.commit.rebaseOnto` 可以單獨關掉**,與 `rebase` 分開 —— 覺得這項太危險的人不必連帶失去一般的 rebase。
+- ~~**`contextMenuActions.commit.rebaseOnto` 可以單獨關掉**,與 `rebase` 分開 —— 覺得這項太危險的人不必連帶失去一般的 rebase。~~
+  **#173 移除了這個設定鍵。** 兩種 rebase 合成同一個選單項之後,「只關掉其中一種」已經沒有東西可以指:能關的是那一項,而它由 `contextMenuActions.commit.rebase` 控制。留著這個鍵只會承諾一件沒有任何程式碼會做的事。
 - **簽章設定照舊生效,而且看得見。** `signing.commits` 開著時帶 `-S`,和其他會產生新 commit 的 action 一致;為了讓預覽不說謊,這個設定被加進 `viewState`,webview 才知道要不要印那個旗標。
