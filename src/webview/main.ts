@@ -272,6 +272,33 @@ type FindLoadOutcome = "move" | "hold";
  *  boolean, so the next reader sees a claim rather than a flag. */
 type LoadMoreTrigger = "operation" | "browsing";
 
+/**
+ * A commit or branch a rebase is aimed at, in the two spellings its dialog
+ * needs: `value` is what git is handed and what travels on the wire, `label`
+ * how that same object is written for the user — an abbreviated hash for a
+ * commit, its own name for a branch.
+ *
+ * They are two values, not one: an abbreviated hash is not the hash the
+ * message carries. Keeping them apart is also what makes the escaping
+ * decidable — **both are raw text**. The printed command escapes the whole
+ * line it builds (`rebasePickCommandHtml`), and the confirmation escapes
+ * `label` at the point it interpolates it, so no caller has to remember which
+ * form it owes. Passing pre-escaped HTML in here is the bug this shape exists
+ * to prevent: it printed `fix&amp;bug` in a command line that runs against
+ * `fix&bug`, which ADR-0022 requires to be the same string.
+ */
+type RebaseTarget = { value: string; label: string };
+
+/** The rebase target a commit is: git takes the full hash, the user reads the
+ *  abbreviated one. */
+const commitTarget = (hash: string): RebaseTarget => ({ value: hash, label: abbrevCommit(hash) });
+
+/** The rebase target a local branch is — git and the user read the same name.
+ *  Only local branches reach this: rebase is a `refKinds: "local"` action, so
+ *  the display ref and the canonical ref are the one string (CONTEXT.md,
+ *  "Ref 的兩種形"). */
+const branchTarget = (refName: string): RebaseTarget => ({ value: refName, label: refName });
+
 class GitGraphView {
   private gitRepos: GG.GitRepoSet;
   // Whether the Source Control view is in multi-select mode. Only then does the
@@ -2440,8 +2467,8 @@ class GitGraphView {
             icon: "rebase",
             onClick: () =>
               ontoRange === null
-                ? this.rebaseOnAction(hash, abbrevCommit(hash), hash, sourceElem)
-                : this.rebaseOntoAction(hash, abbrevCommit(hash), ontoRange, sourceElem)
+                ? this.rebaseOnAction(commitTarget(hash), hash, sourceElem)
+                : this.rebaseOntoAction(commitTarget(hash), ontoRange, sourceElem)
           },
           ...(canDrop
             ? <ContextMenuElement[]>[
@@ -2761,7 +2788,7 @@ class GitGraphView {
         rebase: () =>
           ontoRange === null
             ? this.rebaseOnBranchAction(refName)
-            : this.rebaseOntoAction(refName, refName, ontoRange, sourceElem),
+            : this.rebaseOntoAction(branchTarget(refName), ontoRange, sourceElem),
         fastForward: () => this.fastForwardBranchAction(refName),
         pull: () => this.pullRemoteBranchAction(refName),
         fetchIntoLocal: () => this.fetchIntoLocalBranchAction(refName, sourceElem),
@@ -3132,7 +3159,7 @@ class GitGraphView {
     }
   }
   private rebaseOnBranchAction(refName: string) {
-    this.rebaseOnAction(refName, escapeHtml(refName), this.commitOfRef(refName), null);
+    this.rebaseOnAction(branchTarget(refName), this.commitOfRef(refName), null);
   }
 
   /**
@@ -3170,10 +3197,12 @@ class GitGraphView {
    * outside them — a branch the graph is not showing. The range is then unknown
    * rather than empty, which is what {@link RebaseReplay.incomplete} carries and
    * why a range that cannot be read leaves the rebase exactly as it was.
+   *
+   * `obj` arrives as raw text on both spellings ({@link RebaseTarget}); the
+   * escaping each site needs is applied here.
    */
   private rebaseOnAction(
-    obj: string,
-    objLabel: string,
+    obj: RebaseTarget,
     objHash: string | null,
     sourceElem: HTMLElement | null
   ) {
@@ -3187,7 +3216,11 @@ class GitGraphView {
     // will move: the plain command names no branch and lets git use HEAD, but
     // the narrowed form has to name one, so it is resolved here and a detached
     // HEAD falls through to the interactive form.
-    const range: RebasePickRange = { newBase: obj, upstream: obj, tip: this.gitBranchHead };
+    const range: RebasePickRange = {
+      newBase: obj.value,
+      upstream: obj.value,
+      tip: this.gitBranchHead
+    };
     // What the dialog prints, for whichever command the ticks make (ADR-0022).
     // Untouched, that is the one-argument `git rebase <obj>` this action has
     // always run; anything else is the `--onto` form, whose lower bound is
@@ -3199,17 +3232,17 @@ class GitGraphView {
           : "git rebase " +
               (this.config.signCommits ? "-S " : "") +
               (command.kind === "unchanged"
-                ? objLabel
+                ? obj.label
                 : (command.kind === "interactive" ? "--interactive " : "") +
                   "--onto " +
-                  objLabel +
+                  obj.label +
                   " " +
-                  (command.kind === "interactive" ? objLabel : abbrevCommit(command.upstream)) +
+                  (command.kind === "interactive" ? obj.label : abbrevCommit(command.upstream)) +
                   (command.tip === null ? "" : " " + command.tip))
       );
     this.confirmForRepoAndHead(
       l10n.dialogRebaseConfirm
-        .replace("{0}", "<b><i>" + objLabel + "</i></b>")
+        .replace("{0}", "<b><i>" + escapeHtml(obj.label) + "</i></b>")
         .replace("{1}", this.currentBranchLabel()) + openRebasePick(replay, range, preview),
       (repo) => {
         const command = rebasePickCommand(range.tip);
@@ -3227,7 +3260,7 @@ class GitGraphView {
           return;
         }
         sendRebasePick(repo, command, () => {
-          sendMessage({ command: "rebaseOn", repo, obj });
+          sendMessage({ command: "rebaseOn", repo, obj: obj.value });
         });
       },
       sourceElem
@@ -3263,14 +3296,12 @@ class GitGraphView {
    * every path, since the range's direction was resolved for the user; while
    * the branch is still being picked it stands as a literal `<branch>`.
    *
-   * `newBase` is what git is given and `newBaseLabel` how it is written for the
-   * user — an abbreviated hash for a right-clicked commit, the branch's own
-   * name for a right-clicked ref. Raw text, not HTML: the command line escapes
-   * itself, and the confirmation escapes it where it interpolates.
+   * `newBase` carries both spellings ({@link RebaseTarget}): an abbreviated
+   * hash for a right-clicked commit, the branch's own name for a right-clicked
+   * ref. Raw text on both, escaped here where a site needs HTML.
    */
   private rebaseOntoAction(
-    newBase: string,
-    newBaseLabel: string,
+    newBase: RebaseTarget,
     range: RebaseOntoRange,
     sourceElem: HTMLElement | null
   ) {
@@ -3280,7 +3311,7 @@ class GitGraphView {
     // the tip stored here only has to be the same *kind* of tip as the one the
     // select settles on, which it is.
     const pickRange: RebasePickRange = {
-      newBase,
+      newBase: newBase.value,
       upstream: range.upstream,
       tip: range.tipBranches[0] ?? range.tip
     };
@@ -3289,7 +3320,7 @@ class GitGraphView {
         sendMessage({
           command: "rebaseOnto",
           repo,
-          newBase,
+          newBase: newBase.value,
           upstream: range.upstream,
           tip
         });
@@ -3300,7 +3331,7 @@ class GitGraphView {
         l10n.dialogRebaseOntoConfirm,
         "<b><i>" + abbrevCommit(range.upstream) + "</i></b>",
         "<b><i>" + tipLabel + "</i></b>",
-        "<b><i>" + escapeHtml(newBaseLabel) + "</i></b>"
+        "<b><i>" + escapeHtml(newBase.label) + "</i></b>"
       );
     // The printed command is the whole of what is agreed to (ADR-0022), so it
     // is a function of the command the ticks make rather than a fixed line: an
@@ -3316,7 +3347,7 @@ class GitGraphView {
               (this.config.signCommits ? "-S " : "") +
               (command.kind === "interactive" ? "--interactive " : "") +
               "--onto " +
-              newBaseLabel +
+              newBase.label +
               " " +
               abbrevCommit(command.kind === "onto" ? command.upstream : range.upstream) +
               " " +
