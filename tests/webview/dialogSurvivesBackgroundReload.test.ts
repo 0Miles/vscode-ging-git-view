@@ -401,7 +401,8 @@ describe("every progress dialog carries the mark that says a reload owns it", ()
     openCleanupDialog();
     click("cleanupRefetch");
     expect(document.getElementById("actionRunning")).not.toBeNull();
-    expect(dialogText()).toContain(L.cleanupRefetch);
+    expect(document.getElementById("actionRunning")!.textContent).toBe(L.loading);
+    expect(dialogText()).not.toContain(L.cleanupRefetch);
   });
 
   it("the cleanup scan's, which relabels Dismiss as Stop and used to be hand-built", () => {
