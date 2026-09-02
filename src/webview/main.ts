@@ -7042,7 +7042,7 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
     // itself cannot be recalled, but the answer must not reopen a dialog the
     // user has closed — unlike the scan's Stop, which exists precisely to come
     // back with what it found.
-    showActionRunningDialogDismissable(l10n.cleanupRefetch, () => {
+    showActionRunningDialogWith(l10n.loading, l10n.dialogDismiss, () => {
       cleanupState = null;
     });
     sendMessage({
@@ -8123,11 +8123,6 @@ function showActionRunningDialogWith(content: string, dismissName: string, onDis
 }
 function showActionRunningDialog(command: string) {
   showActionRunningDialogWith(command + " ...", l10n.dialogDismiss);
-}
-/** {@link showActionRunningDialog} plus a hook for dismissal, for the waits that
- *  own state a late answer would otherwise resurrect. */
-function showActionRunningDialogDismissable(command: string, onDismiss: () => void) {
-  showActionRunningDialogWith(command + " ...", l10n.dialogDismiss, onDismiss);
 }
 function showDialog(
   html: string,
