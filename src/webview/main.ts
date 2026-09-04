@@ -1581,17 +1581,17 @@ class GitGraphView {
     // the near side of the same refusal, and it is the one that also keeps the
     // ledger straight.
     //
-    // The dismissal is the same debt {@link abandonLoadsInFlight} settles, and
-    // for the same reason: the close-out that takes down an action's progress
-    // dialog is built inside the branch callback, and a load that never goes
-    // out has no callback. Every action closes out through
-    // `refreshGraphOrDisplayError`, which is a hard refresh — so without this,
-    // an action dispatched from a graph the panel has since lost its repository
-    // for completes and leaves its dialog standing.
-    if (!this.currentRepo) {
-      if (hard) hideReloadOwnedOverlays();
-      return;
-    }
+    // No dismissal debt is taken over here, unlike {@link abandonLoadsInFlight},
+    // and that is a claim about reachability rather than about the rule. A
+    // dialog standing when the repository goes away is taken down on the
+    // transition, by {@link renderNoRepo}; and once the panel is repo-less
+    // nothing can raise another — the Fetch button is guarded on the repo, the
+    // graph has no rows to open a context menu on, and a delegated ref action
+    // will not run for a repo that is not the current one
+    // ({@link tryRunPendingRefAction}). Paying it here anyway would be a line
+    // no test could ever turn red. If a dialog source that survives this state
+    // is added, this is where it comes back.
+    if (!this.currentRepo) return;
     this.beginBusyLoad();
     // Refresh the conflict banner alongside every (re)load so it tracks the
     // repo's operation state (.git changes trigger a refresh via the watcher).
