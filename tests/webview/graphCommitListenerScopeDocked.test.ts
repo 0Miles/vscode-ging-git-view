@@ -53,6 +53,7 @@ const commits: GitCommitNode[] = [
 
 const commitsResponse: GG.ResponseMessage = {
   command: "loadCommits",
+  token: 0,
   commits,
   head: "aaa111",
   moreCommitsAvailable: false,
@@ -160,6 +161,7 @@ describe("the docked Commit Details View's body links, with a dialog standing", 
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "feature"],
       head: "main",
       hard: true,

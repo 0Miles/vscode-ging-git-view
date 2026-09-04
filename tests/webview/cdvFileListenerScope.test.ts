@@ -61,6 +61,7 @@ const commits: GitCommitNode[] = [
 
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
+  token: 0,
   branches: ["main", "feature"],
   head: "main",
   hard: true,
@@ -72,6 +73,7 @@ const branchesResponse: GG.ResponseMessage = {
  *  each one is a real redraw, which is the only thing that rebinds. */
 const commitsResponse: GG.ResponseMessage = {
   command: "loadCommits",
+  token: 0,
   commits,
   head: "aaa111",
   moreCommitsAvailable: false,

@@ -125,6 +125,7 @@ const tipDetails: GitCommitDetails = {
 
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
+  token: 0,
   branches: ["main"],
   head: "main",
   hard: true,
@@ -135,6 +136,7 @@ const branchesResponse: GG.ResponseMessage = {
 function commitsResponse(commits: GitCommitNode[] = [tip, base]): GG.ResponseMessage {
   return {
     command: "loadCommits",
+    token: 0,
     commits,
     head: "aaa111",
     moreCommitsAvailable: true,

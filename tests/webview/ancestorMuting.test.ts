@@ -51,6 +51,7 @@ describe("muteCommitsNotAncestorsOfHead", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,
@@ -59,6 +60,7 @@ describe("muteCommitsNotAncestorsOfHead", () => {
     });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "abc123",
       moreCommitsAvailable: false,
@@ -86,6 +88,7 @@ describe("muteCommitsNotAncestorsOfHead", () => {
     // commit should be muted on that basis.
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "notloaded000",
       moreCommitsAvailable: false,

@@ -58,6 +58,7 @@ describe("'Remember my choice' checkbox visibility", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "feature"],
       head: "main",
       hard: true,
@@ -67,6 +68,7 @@ describe("'Remember my choice' checkbox visibility", () => {
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "child1",
       moreCommitsAvailable: false,

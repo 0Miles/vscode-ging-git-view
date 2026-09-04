@@ -142,6 +142,7 @@ describe("the rebase dialog's replay checklist", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "topic", "feature", "side", "stray"],
       head: "topic",
       hard: true,
@@ -150,6 +151,7 @@ describe("the rebase dialog's replay checklist", () => {
     });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "w2",
       moreCommitsAvailable: false,
@@ -474,6 +476,7 @@ describe("the rebase dialog's replay checklist", () => {
     // watcher: the range the list was built from is no longer the range.
     receive({
       command: "loadCommits",
+      token: 0,
       commits: commits.map((c) =>
         c.hash === "w2"
           ? node("w2", ["w1"], "wanted 2")

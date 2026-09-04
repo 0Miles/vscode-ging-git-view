@@ -35,6 +35,7 @@ const commits: GitCommitNode[] = [
 
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
+  token: 0,
   branches: ["main"],
   head: "main",
   hard: true,
@@ -54,6 +55,7 @@ describe("the remote a push-tag dialog resolved", () => {
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "aaa111",
       moreCommitsAvailable: false,

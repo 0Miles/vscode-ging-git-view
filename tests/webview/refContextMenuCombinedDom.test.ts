@@ -50,6 +50,7 @@ describe("ref context menu on a combined local+remote label", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,
@@ -59,6 +60,7 @@ describe("ref context menu on a combined local+remote label", () => {
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "aaa111",
       moreCommitsAvailable: false,

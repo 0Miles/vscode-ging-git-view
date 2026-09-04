@@ -76,6 +76,7 @@ describe("ref context menus raised from the graph", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "feature", "fix-#12"],
       head: "main",
       hard: true,
@@ -86,6 +87,7 @@ describe("ref context menus raised from the graph", () => {
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "aaa111",
       moreCommitsAvailable: false,

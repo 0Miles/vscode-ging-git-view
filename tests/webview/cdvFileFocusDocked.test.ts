@@ -72,6 +72,7 @@ const nextPage: GitCommitNode[] = [
 function commitsResponse(loaded: GitCommitNode[]): GG.ResponseMessage {
   return {
     command: "loadCommits",
+    token: 0,
     commits: loaded,
     head: "aaa111",
     moreCommitsAvailable: true,
@@ -125,6 +126,7 @@ describe("file-list focus with the Commit Details View docked to the bottom", ()
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,

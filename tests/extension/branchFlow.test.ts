@@ -93,7 +93,8 @@ suite("branch loading flow (integration)", () => {
     await handlers.get("selectRepo")!({ command: "selectRepo", repo: repoPath } as RequestMessage);
     await handlers.get("loadBranches")!({
       command: "loadBranches",
-      hard: true
+      hard: true,
+      token: 0
     } as RequestMessage);
 
     const res = posted.find((m) => m.command === "loadBranches") as

@@ -54,6 +54,7 @@ function dismissDialog() {
 function settleRefresh() {
   receive({
     command: "loadBranches",
+    token: 0,
     branches: ["main", "feature-a", "feature-b"],
     head: "main",
     hard: true,
@@ -62,6 +63,7 @@ function settleRefresh() {
   });
   receive({
     command: "loadCommits",
+    token: 0,
     commits,
     head: "head1",
     moreCommitsAvailable: false,
@@ -91,6 +93,7 @@ describe("batch delete delegated from the Branches side-view", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "feature-a", "feature-b"],
       head: "main",
       hard: true,
@@ -100,6 +103,7 @@ describe("batch delete delegated from the Branches side-view", () => {
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "head1",
       moreCommitsAvailable: false,

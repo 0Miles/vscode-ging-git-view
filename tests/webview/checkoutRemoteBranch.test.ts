@@ -29,6 +29,7 @@ describe("checking out a remote branch whose name contains slashes", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,
@@ -38,6 +39,7 @@ describe("checking out a remote branch whose name contains slashes", () => {
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "abc123",
       moreCommitsAvailable: false,

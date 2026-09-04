@@ -77,6 +77,7 @@ const commits: GitCommitNode[] = [
 // response union, which no longer knows it has a `head` to override.
 const branchesResponse = {
   command: "loadBranches",
+  token: 0,
   branches: ["main", "feature", "release"],
   head: "main",
   hard: true,
@@ -86,6 +87,7 @@ const branchesResponse = {
 
 const commitsResponse: GG.ResponseMessage = {
   command: "loadCommits",
+  token: 0,
   commits,
   head: "aaa111",
   moreCommitsAvailable: false,

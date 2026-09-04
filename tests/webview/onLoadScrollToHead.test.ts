@@ -39,6 +39,7 @@ describe("onLoad.scrollToHead", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,
@@ -47,6 +48,7 @@ describe("onLoad.scrollToHead", () => {
     });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "head111",
       moreCommitsAvailable: false,
@@ -61,6 +63,7 @@ describe("onLoad.scrollToHead", () => {
   it("does not scroll again on a subsequent load", () => {
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "head111",
       moreCommitsAvailable: false,

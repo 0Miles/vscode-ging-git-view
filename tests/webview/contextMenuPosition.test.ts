@@ -73,6 +73,7 @@ describe("context menu positioning", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,
@@ -81,6 +82,7 @@ describe("context menu positioning", () => {
     });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "abc123",
       moreCommitsAvailable: false,

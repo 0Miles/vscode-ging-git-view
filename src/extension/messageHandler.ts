@@ -354,7 +354,10 @@ export function registerMessageHandlers(
         // response it belongs to can be told apart from the ones it does not
         // (see the request type). Deliberately after the spread, so a future
         // query that starts returning `hard` cannot quietly overwrite the echo.
-        hard: msg.hard
+        hard: msg.hard,
+        // The other pure echo, and the one the webview drops stale answers by
+        // (#84). Same placement, for the same reason.
+        token: msg.token
       });
     },
     { mutatesRepo: false }
@@ -374,6 +377,10 @@ export function registerMessageHandlers(
         branches: [...facts.branches],
         head: facts.head,
         hard: msg.hard,
+        // Echoed, not acted on: it names the navigation the webview was on when
+        // it asked, which is how it recognises an answer it has moved on from
+        // (#84).
+        token: msg.token,
         isRepo: facts.isRepo,
         filter: facts.filter,
         // Only the merged half of `hidable` reaches the graph: inactivity is a

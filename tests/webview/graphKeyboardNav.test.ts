@@ -83,6 +83,7 @@ function fileRows() {
 function loadGraph() {
   receive({
     command: "loadBranches",
+    token: 0,
     branches: ["main"],
     head: "main",
     hard: true,
@@ -91,6 +92,7 @@ function loadGraph() {
   });
   receive({
     command: "loadCommits",
+    token: 0,
     commits,
     head: "abc123",
     moreCommitsAvailable: false,

@@ -163,15 +163,32 @@ function jsonRoundTrip<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+/** The navigation token on the last load request the webview under test sent —
+ *  either kind, because the token counts navigations, not requests: a filter
+ *  change reloads only the commits, and a branch answer arriving after it still
+ *  belongs to the navigation that change started.
+ *
+ *  Kept apart from `sentMessages` because suites clear that between scenarios,
+ *  and the token an answer belongs to outlives the clearing — answering off an
+ *  emptied log would post the fixture's own token and read as the panel having
+ *  stopped listening. Rebound by every `createVscodeMock`, one per suite. */
+let lastLoadToken: number | null = null;
+
 export function createVscodeMock(initialState: WebViewState | null = null) {
   const sent: GG.RequestMessage[] = [];
+  lastLoadToken = null;
   // The real getState() yields undefined (not null) when nothing was saved —
   // model that exactly, so a boot path that only handles null fails here too.
   let state: WebViewState | undefined =
     initialState === null ? undefined : jsonRoundTrip(initialState);
 
   const mock = {
-    postMessage: (msg: GG.RequestMessage) => sent.push(msg),
+    postMessage: (msg: GG.RequestMessage) => {
+      if (msg.command === "loadBranches" || msg.command === "loadCommits") {
+        lastLoadToken = msg.token;
+      }
+      return sent.push(msg);
+    },
     getState: () => state,
     setState: (s: WebViewState) => {
       state = jsonRoundTrip(s);
@@ -182,6 +199,13 @@ export function createVscodeMock(initialState: WebViewState | null = null) {
 
   return {
     sentMessages: sent,
+    /** The messages of one command the webview has sent since the last clear.
+     *  Eight suites hold a byte-identical local copy of this, split across two
+     *  incompatible parameter types (`string` and the command union), and one
+     *  of them wraps it again just to cast the result back. It belongs here for
+     *  the same reason `makeViewState` does — the mock is its only dependency. */
+    sentOf: <T extends GG.RequestMessage["command"]>(command: T) =>
+      sent.filter((m): m is Extract<GG.RequestMessage, { command: T }> => m.command === command),
     clearMessages: () => sent.splice(0),
     getState: () => state
   };
@@ -199,8 +223,27 @@ export function setupHtml(viewState: GG.GitGraphViewState) {
   global["l10n"] = l10nStrings;
 }
 
-export function receive(msg: GG.ResponseMessage) {
-  window.dispatchEvent(new MessageEvent("message", { data: msg }));
+/**
+ * Deliver a response to the webview, as the host would post it.
+ *
+ * A `loadBranches` / `loadCommits` answer gets the navigation token of the
+ * request it is answering, overriding whatever the fixture declared — which is
+ * precisely what the host does with it (it echoes; it never originates one).
+ * Without this every suite would have to track a number that belongs to the
+ * plumbing rather than to anything it is about: the token only moves when a
+ * navigation abandons a load in flight (#84), so a suite that happens to switch
+ * repo mid-load would silently start posting answers the panel is right to
+ * drop, and would read as the panel having stopped listening.
+ *
+ * `keepToken` opts out, for the suites that are about the plumbing: answering
+ * with a token the panel has left is the whole scenario there.
+ */
+export function receive(msg: GG.ResponseMessage, opts: { keepToken?: boolean } = {}) {
+  let data = msg;
+  if (!opts.keepToken && (msg.command === "loadBranches" || msg.command === "loadCommits")) {
+    if (lastLoadToken !== null) data = { ...msg, token: lastLoadToken };
+  }
+  window.dispatchEvent(new MessageEvent("message", { data }));
 }
 
 /** Activate a context-menu item by its label.

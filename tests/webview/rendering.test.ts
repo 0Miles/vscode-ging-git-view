@@ -53,6 +53,7 @@ describe("webview rendering", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,
@@ -61,6 +62,7 @@ describe("webview rendering", () => {
     });
     receive({
       command: "loadCommits",
+      token: 0,
       commits: twoCommits,
       head: "merge789",
       moreCommitsAvailable: true,
@@ -172,6 +174,7 @@ describe("webview rendering", () => {
 
     receive({
       command: "loadCommits",
+      token: 0,
       commits: [
         ...twoCommits,
         {
@@ -315,6 +318,7 @@ describe("webview rendering", () => {
 
     receive({
       command: "loadCommits",
+      token: 0,
       commits: [
         ...twoCommits,
         {
@@ -393,6 +397,7 @@ describe("webview rendering", () => {
   it("refreshes the branch index even when the loaded commits are unchanged", () => {
     receive({
       command: "loadCommits",
+      token: 0,
       commits: twoCommits,
       head: "merge789",
       moreCommitsAvailable: true,
@@ -403,6 +408,7 @@ describe("webview rendering", () => {
 
     receive({
       command: "loadCommits",
+      token: 0,
       commits: twoCommits,
       head: "merge789",
       moreCommitsAvailable: true,
@@ -424,6 +430,7 @@ describe("webview rendering", () => {
     receive({ command: "setShowRemoteBranches", value: false });
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,
@@ -437,6 +444,7 @@ describe("webview rendering", () => {
 
     receive({
       command: "loadCommits",
+      token: 0,
       commits: twoCommits,
       head: "merge789",
       moreCommitsAvailable: true,

@@ -83,6 +83,7 @@ function flushMicrotasks() {
 function loadBranches() {
   receive({
     command: "loadBranches",
+    token: 0,
     branches: ["main", "feature-a", "feature-b"],
     head: "main",
     hard: true,
@@ -94,6 +95,7 @@ function loadBranches() {
 function loadCommits() {
   receive({
     command: "loadCommits",
+    token: 0,
     commits,
     head: "head1",
     moreCommitsAvailable: false,

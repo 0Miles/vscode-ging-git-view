@@ -41,6 +41,7 @@ describe("contextMenuActionsVisibility gating", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,
@@ -49,6 +50,7 @@ describe("contextMenuActionsVisibility gating", () => {
     });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "abc123",
       moreCommitsAvailable: false,

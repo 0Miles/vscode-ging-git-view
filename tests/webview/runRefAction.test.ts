@@ -50,6 +50,7 @@ describe("runRefAction delegated from the Branches side-view", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "feature"],
       head: "main",
       hard: true,
@@ -59,6 +60,7 @@ describe("runRefAction delegated from the Branches side-view", () => {
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "head1",
       moreCommitsAvailable: false,

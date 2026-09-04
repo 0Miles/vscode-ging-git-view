@@ -25,6 +25,7 @@ const chipShown = () => chip().classList.contains("active");
 function loadWithFilter(filter: string[]) {
   receive({
     command: "loadBranches",
+    token: 0,
     branches: BRANCHES,
     head: "main",
     hard: true,

@@ -425,6 +425,11 @@ class GitGraphView {
 
   private loadBranchesCallback: ((changes: boolean, isRepo: boolean) => void) | null = null;
   private loadCommitsCallback: ((changes: boolean) => void) | null = null;
+  /** Which navigation the panel is on. Stamped onto every branch/commit request
+   *  and echoed back on the response, so an answer that belongs to a navigation
+   *  the user has left is recognisable on arrival — see
+   *  {@link abandonLoadsInFlight}, which is what puts two of them in the air. */
+  private loadToken = 0;
 
   constructor(
     repos: GG.GitRepoSet,
@@ -608,7 +613,7 @@ class GitGraphView {
     this.updateRepoTitle();
     this.saveState();
     sendMessage({ command: "selectRepo", repo });
-    this.refresh(true);
+    this.navigateReload();
   }
 
   /** The absolute path of the known sub-repository at `filePath` within the
@@ -834,7 +839,7 @@ class GitGraphView {
     }
     this.shrinkLoadedCommitWindow();
     this.saveState();
-    this.refresh(true);
+    this.navigateReload();
   }
 
   /** Send a branch-deletion request, remembering its parameters so a failed
@@ -893,7 +898,7 @@ class GitGraphView {
     this.updateRepoTitle();
     this.saveState();
     sendMessage({ command: "selectRepo", repo: this.currentRepo });
-    this.refresh(true);
+    this.navigateReload();
   }
 
   /* Loading Data */
@@ -923,7 +928,13 @@ class GitGraphView {
 
     if (changedRepo) {
       this.applyShowRemoteBranchesForRepo();
-      this.refresh(true);
+      // The repo moved without anyone navigating to it — it vanished from the
+      // set — so this reload cannot be dropped either. It is the one navigation
+      // that does not also reset the panel around the switch (no shrunken
+      // window, no cleared filter, no closed details): the three that do are
+      // acting on a repo the user chose, and can say what the new repo starts
+      // from; this one is landing somewhere by elimination.
+      this.navigateReload();
     }
     // Unconditional: a repo's customName may have changed without a repo switch.
     this.updateRepoTitle();
@@ -932,12 +943,21 @@ class GitGraphView {
   /** Reload commits after the branch selection changed: reset paging, close any
    *  open details, show the loading state, and request the new commit set.
    *
-   *  Guarded before any of that, because none of it survives a dropped request:
-   *  the loaded commit window would sit silently back at the opening count, the
-   *  search index would be gone and the busy indicator would spin, for a graph
-   *  that never reloaded (ADR-0019). */
+   *  A filter change is a navigation, so the request must go out — none of the
+   *  state reset below survives a dropped one: the loaded commit window would
+   *  sit silently back at the opening count, the search index would be gone and
+   *  the busy indicator would spin, for a graph that never reloaded (ADR-0019).
+   *  It used to refuse the whole thing when a load was already out, which left
+   *  the graph showing commits from a filter the user had replaced (#84).
+   *
+   *  The branch half is abandoned along with the commit half, and it is the
+   *  half worth naming: its answer carries the filter the host resolved
+   *  *before* this change, and applying it would push the old selection back
+   *  over the new one. The branch list itself has not moved — a filter decides
+   *  which branches are drawn, not which exist — so nothing is lost by letting
+   *  that read go. */
   private reloadForBranchChange() {
-    if (this.commitLoadInFlight) return;
+    this.abandonLoadsInFlight();
     this.shrinkLoadedCommitWindow();
     this.clearExpandedCommit();
     this.saveState();
@@ -1004,8 +1024,9 @@ class GitGraphView {
     // No guard ahead of this one, deliberately. Unlike the webview's own
     // gestures, this is a fire-and-forget push from the host with no follow-up
     // and no retry: refusing it would leave the side-view showing a filter the
-    // graph has never heard of, and nothing would ever correct that. The
-    // filter is applied; only the reload can be dropped.
+    // graph has never heard of, and nothing would ever correct that. Neither
+    // half can be dropped now — the reload abandons whatever is out rather than
+    // standing down for it (#84).
     this.setCurrentBranches(branches);
     this.reloadForBranchChange();
   }
@@ -1160,6 +1181,76 @@ class GitGraphView {
     this.requestLoadBranchesAndCommits(hard);
   }
 
+  /** Whether an answer stamped with `token` is still wanted — i.e. whether it
+   *  belongs to the navigation the panel is on, rather than to one abandoned
+   *  under it ({@link abandonLoadsInFlight}). Asked at the wire, which is the
+   *  only place a token arrives from outside. */
+  public isCurrentNavigation(token: number): boolean {
+    return token === this.loadToken;
+  }
+
+  /** Reload because the user changed *which* commits belong on screen — the
+   *  repository, whether remote branches count, the branch filter.
+   *
+   *  A navigation cannot be dropped, which is what separates it from
+   *  {@link refresh}. A refresh that loses its race has nothing to correct:
+   *  the load it was dropped onto is asking the same question and its answer
+   *  will be right. A navigation dropped onto that same load is left with the
+   *  *previous* repo's graph under the new repo's title, and nothing is coming
+   *  to fix it — the load in flight has never heard of the repo the user is now
+   *  looking at, and the panel's own gate refuses every later attempt to ask.
+   *  That is the freeze that only closing the tab could clear (#84): a worktree
+   *  switch mid-load, then a graph that never reloads again.
+   *
+   *  So the loads out are abandoned rather than waited for. Their answers still
+   *  arrive — nothing here can stop a git read already running — and are
+   *  dropped on the doorstep by {@link loadToken}. */
+  private navigateReload() {
+    this.abandonLoadsInFlight();
+    this.refresh(true);
+  }
+
+  /** Give up on the loads in flight, so the next request is not refused by the
+   *  panel's one-load-at-a-time gate (ADR-0019).
+   *
+   *  The two halves are given up differently, and the asymmetry is the whole
+   *  of this function.
+   *
+   *  The commit half's callback is **run**, with no changes to report — the
+   *  same "a load that never ran brought no changes with it" this file already
+   *  uses for a dropped request. Running it is what settles the busy ledger
+   *  without anyone tracking it: a callback releases exactly the claim its own
+   *  caller raised, and the callers that raise none pass one that does nothing
+   *  ({@link beginBusyLoad}). It also discharges what that reload owed the
+   *  action behind it — the progress dialog it was going to dismiss is
+   *  dismissed now rather than waiting on a load the user has walked away from.
+   *
+   *  The branch half's callback is **dropped**, because running it would send
+   *  the commit request for the repo the user just left: its tail is the other
+   *  half of the load, not a close-out. Dropping it means taking over what it
+   *  owed, which is one busy claim — the only caller that asks for branches
+   *  always raises one.
+   *
+   *  Deliberately not routed through {@link triggerLoadCommitsCallback}: that
+   *  one also retries a delegated ref action, and here the gate is about to be
+   *  taken again by the navigation's own load, so the action must go on waiting.
+   *
+   *  Bumping the token here rather than in {@link navigateReload} keeps the two
+   *  halves of the same fact together: the loads are abandoned, and the token
+   *  is how their answers are recognised as abandoned when they land. */
+  private abandonLoadsInFlight() {
+    this.loadToken++;
+    if (this.branchLoadInFlight) {
+      this.loadBranchesCallback = null;
+      this.endBusyLoad();
+    }
+    if (this.commitLoadInFlight) {
+      const abandoned = this.loadCommitsCallback!;
+      this.loadCommitsCallback = null;
+      abandoned(false);
+    }
+  }
+
   /** How many loads are currently claiming the busy indicator on the Refresh
    *  button.
    *
@@ -1226,7 +1317,7 @@ class GitGraphView {
     sendMessage({ command: "loadRemotes" });
     // No showRemoteBranches: the host resolves the repo's own state, which is
     // what this copy echoes anyway (ADR-0013).
-    sendMessage({ command: "loadBranches", hard: hard });
+    sendMessage({ command: "loadBranches", hard: hard, token: this.loadToken });
     return true;
   }
   public loadRemotes(remotes: string[], pushDefault: string | null) {
@@ -1324,7 +1415,13 @@ class GitGraphView {
    *  queueing the extra one, because delegated ref actions schedule themselves
    *  off that single fact. It is therefore also the answer to "would a request
    *  sent now be dropped?", which is how every caller that must not act on a
-   *  dropped request decides whether to act at all. */
+   *  dropped request decides whether to act at all.
+   *
+   *  Every caller *that can be dropped*, which is no longer all of them: a
+   *  navigation abandons the load in flight rather than standing down for it
+   *  (ADR-0024), so it reads false by the time it asks. The invariant is
+   *  untouched — the abandonment comes first, so one is still the most that is
+   *  ever out. */
   private get commitLoadInFlight(): boolean {
     return this.loadCommitsCallback !== null;
   }
@@ -1347,6 +1444,7 @@ class GitGraphView {
       branchNames: this.currentBranches !== null ? this.currentBranches : [""],
       maxCommits: this.maxCommits,
       hard: hard,
+      token: this.loadToken,
       commitOrder: this.gitRepos[this.currentRepo!]?.commitOrdering ?? undefined,
       hiddenRemotes: this.gitRepos[this.currentRepo!]?.hiddenRemotes ?? undefined
     });
@@ -4560,9 +4658,13 @@ class GitGraphView {
    *  turning up next to each other.
    *
    *  The state change only — every caller pairs it with a reload of its own.
-   *  Three of them (switchToRepo, setRepo, setShowRemoteBranches) still run it
-   *  before knowing whether that reload can go out at all (#84); naming the
-   *  pair is what makes that fix one edit rather than three. */
+   *  Three of them (switchToRepo, setRepo, setShowRemoteBranches) used to run
+   *  it before knowing whether that reload could go out at all, and the window
+   *  then sat back at the opening count for a graph that never reloaded (#84).
+   *  They go through {@link navigateReload} now, which cannot be refused, so
+   *  the shrink and the reload can no longer come apart. The fourth
+   *  (the commit-ordering menu) never could: it refuses out loud, ahead of any
+   *  state change (ADR-0024). */
   private shrinkLoadedCommitWindow() {
     this.maxCommits = this.config.initialLoadCommits;
     this.invalidateBranchSearchIndex();
@@ -7280,6 +7382,23 @@ window.addEventListener("message", (event) => {
 });
 
 function applyResponseMessage(msg: GG.ResponseMessage) {
+  // An answer belonging to a navigation the panel has left, dropped before it
+  // reaches anything. Applying one would put the previous repo's branches under
+  // this repo's title, or draw its history as this one's; and its callback
+  // belongs to a reload abandoned along with it, so running that would send the
+  // current repo a commit request built from the filter it just left (#84).
+  //
+  // Here rather than inside the two handlers because this is where staleness
+  // enters — the boot path replays saved state through the very same methods,
+  // and it cannot be stale: it is this panel's own state, restored. Guarding
+  // inside would have made both of them take a token that path could only
+  // satisfy by handing back the field it was about to be compared against.
+  if (
+    (msg.command === "loadBranches" || msg.command === "loadCommits") &&
+    !gitGraph.isCurrentNavigation(msg.token)
+  ) {
+    return;
+  }
   switch (msg.command) {
     case "addTag":
       refreshGraphOrDisplayError(msg.status, l10n.unableToAddTag);

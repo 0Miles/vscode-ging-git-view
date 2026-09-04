@@ -54,6 +54,7 @@ describe("the branch cleanup dialog delivered by the host", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "merged", "old", "remotes/origin/squashed"],
       head: "main",
       hard: true,
@@ -63,6 +64,7 @@ describe("the branch cleanup dialog delivered by the host", () => {
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive({
       command: "loadCommits",
+      token: 0,
       commits: [],
       head: null,
       moreCommitsAvailable: false,

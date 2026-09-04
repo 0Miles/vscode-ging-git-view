@@ -15,9 +15,9 @@ import { type GraphStash, loadStashes } from "./loadStashes";
 const eolRegex = /\r\n|\r|\n/g;
 const gitLogSeparator = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
 
-/** Everything here is read. The webview's `hard` flag is deliberately absent:
- *  it steers nothing about which commits get read, and the message handler
- *  echoes it back on its own (see `messageHandler.ts`). */
+/** Everything here is read. The webview's `hard` flag and its navigation
+ *  `token` are deliberately absent: neither steers which commits get read, and
+ *  the message handler echoes both back on its own (see `messageHandler.ts`). */
 type LoadCommitsInput = {
   /** Branch refs to show commits from; see the request type. */
   branchNames: string[];
@@ -214,7 +214,7 @@ function stashInsertIndex(
 export async function loadCommits(
   git: SimpleGit,
   input: LoadCommitsInput
-): Promise<Omit<QueryResult<"loadCommits">, "hard">> {
+): Promise<Omit<QueryResult<"loadCommits">, "hard" | "token">> {
   const {
     branchNames,
     maxCommits,
