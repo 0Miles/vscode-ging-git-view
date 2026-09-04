@@ -1,4 +1,3 @@
-import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as https from "node:https";
@@ -290,7 +289,12 @@ export class AvatarManager {
   }
 
   private async downloadAvatarImage(email: string, imageUrl: string): Promise<string | null> {
-    let hash: string = crypto.createHash("md5").update(email).digest("hex"),
+    // The shared helper, not a second md5: `gravatarHash` trims and
+    // lower-cases first, and its whole point is that two spellings of one
+    // address resolve to one avatar *and one cache entry*. Hashing the raw
+    // address here gave `Alice@Example.com` a cache file of its own,
+    // holding a byte-identical copy of what `alice@example.com` had.
+    let hash: string = gravatarHash(email),
       imgUrl = url.parse(imageUrl);
     return new Promise((resolve) => {
       https

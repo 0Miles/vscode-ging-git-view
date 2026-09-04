@@ -1,4 +1,5 @@
 import type {
+  ActionRequest,
   BatchActionRequest,
   BatchDeleteResult,
   BatchRefResult,
@@ -23,6 +24,7 @@ import {
   rebaseTodo
 } from "@/backend/utils/rebasePlan";
 import { REF_ACTION_CATALOGUE } from "@/backend/utils/refActionCatalogue";
+import type { LocalizedStrings } from "@/extension/webviewL10n";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
 import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "./branchCleanup";
@@ -338,11 +340,14 @@ class GitGraphView {
   // Write it only through `setCurrentBranches`, which redraws the toolbar chip.
   private currentBranches: string[] | null = null;
   // Refs the host says to render dimmed: merged into the default branch and not
-  // exempt. Sent in `loadBranches` format (`main`, `remotes/origin/main`) and
-  // kept verbatim for change detection and state persistence; `dimmedRefs` holds
-  // the same set normalised to the names the graph's chips carry (`origin/main`).
+  // exempt. Kept verbatim, in the `loadBranches` format the host sends
+  // (`main`, `remotes/origin/main`), because that is what change detection and
+  // state persistence compare. The graph's chips carry the other spelling
+  // (`origin/main`), so the lookup set is built where it is read — in
+  // {@link renderTable} — rather than stored beside this one. It was stored,
+  // and the pair then had to be written together by hand; the write that
+  // clears the graph for a repo-less panel updated only this half.
   private dimmedBranches: string[] = [];
-  private dimmedRefs = new Set<string>();
   // Refs the cleanup dialog would propose, normalised to the chips' names. Not
   // the same set as `dimmedRefs` — the exemptions differ by the branch filter —
   // and it affects nothing that is drawn: it gates one context-menu item, which
@@ -1087,7 +1092,7 @@ class GitGraphView {
 
     this.gitBranches = branchOptions;
     this.gitBranchHead = branchHead;
-    this.setDimmedBranches(dimmedBranches);
+    this.dimmedBranches = dimmedBranches;
     this.updateRepoTitle();
     // The branch filter is owned by the extension host (the Branches side-view);
     // apply whatever it resolved for this repo. An empty list means "show all".
@@ -1095,14 +1100,6 @@ class GitGraphView {
     this.saveState();
 
     this.triggerLoadBranchesCallback(true, isRepo);
-  }
-
-  /** Store the dimmed-branch set, normalising the host's `remotes/origin/x` to
-   *  the `origin/x` form the graph's ref chips carry. Without this the remote
-   *  chips would silently never match and never dim. */
-  private setDimmedBranches(dimmedBranches: string[]) {
-    this.dimmedBranches = dimmedBranches;
-    this.dimmedRefs = new Set(dimmedBranches.map(displayRef));
   }
 
   /** Apply a branch filter pushed from the extension host — a selection change
@@ -1979,8 +1976,11 @@ class GitGraphView {
     // Whether a branch ref chip should read as dimmed. The host has already
     // applied the exemptions (head, filter selection, "always show" patterns),
     // so this is a plain lookup — replicating that rule here is exactly how the
-    // two surfaces would drift apart.
-    const isDimmedRef = (name: string) => this.dimmedRefs.has(name);
+    // two surfaces would drift apart. `displayRef` normalises the host's
+    // `remotes/origin/x` to the `origin/x` the chips carry; without it the
+    // remote chips would silently never match and never dim.
+    const dimmedRefs = new Set(this.dimmedBranches.map(displayRef));
+    const isDimmedRef = (name: string) => dimmedRefs.has(name);
     // A bare `<span class="gitRef …">`; `dataName`/`label` are pre-escaped.
     const refSpan = (
       type: string,
@@ -5519,16 +5519,24 @@ class GitGraphView {
     // settle are different things, and only the first one was ever wanted.
     this.findSettledOn = this.findIdentity();
     this.clearFindHighlights();
-    for (const match of this.findMatches) {
-      const row = this.graphRowByHash(match.hash);
-      row?.classList.add("findMatch");
-      if (row !== null) {
+    // One walk of the rows, not one attribute-selector query per match.
+    // `data-hash` is not indexed, so each `graphRowByHash` walks the subtree
+    // linearly — and this runs on every keystroke in the Find box, where a
+    // loose query matches most of the graph. A thousand matches over a
+    // thousand rows was a million node visits per character typed; the string
+    // matching that produced the matches is not what costs.
+    const byHash = new Map(this.findMatches.map((match) => [match.hash, match]));
+    if (byHash.size > 0) {
+      this.tableElem.querySelectorAll<HTMLElement>("tr.commit").forEach((row) => {
+        const match = byHash.get(row.dataset.hash ?? "");
+        if (match === undefined) return;
+        row.classList.add("findMatch");
         row.querySelectorAll<HTMLElement>(".gitRef").forEach((ref) => {
           if (match.branches.some((branch) => branch.name === (ref.dataset.name ?? ""))) {
             ref.classList.add("findBranchMatch");
           }
         });
-      }
+      });
     }
     const countElem = document.getElementById("findCount");
     if (countElem !== null) {
@@ -7612,49 +7620,48 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
   }
   switch (msg.command) {
     case "addTag":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToAddTag);
-      break;
     case "checkoutBranch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToCheckoutBranch);
-      break;
     case "checkoutCommit":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToCheckoutCommit);
-      break;
     case "dropCommit":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToDrop);
-      break;
     case "applyStash":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToApplyStash);
-      break;
     case "popStash":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToPopStash);
-      break;
     case "dropStash":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToDropStash);
-      break;
     case "resetUncommittedChanges":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToResetUncommitted);
-      break;
     case "cleanUntrackedFiles":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToCleanUntracked);
+    case "continueOperation":
+    case "abortOperation":
+    case "markResolved":
+    case "resetFileToRevision":
+    case "cherrypickCommit":
+    case "createBranch":
+    case "deleteRemoteBranch":
+    case "deleteTag":
+    case "fetchIntoLocalBranch":
+    case "renameStash":
+    case "fastForwardBranch":
+    case "mergeBranch":
+    case "mergeCommit":
+    case "pullBranch":
+    case "pushBranch":
+    case "pushTag":
+    case "renameBranch":
+    case "resetToCommit":
+    case "rebaseOn":
+    case "rebaseOnto":
+    case "rebaseInteractive":
+    case "revertCommit":
+    case "fetch":
+      // Every action whose only report is "git refused it, and this is
+      // which one". The message comes from {@link ACTION_FAILURE} rather
+      // than from an arm of its own, so the next action is a missing entry
+      // in a `Record` — a compile error — instead of a `case` nobody wrote.
+      // A dropped response is not silent for long: the success half of
+      // `refreshGraphOrDisplayError` is what closes the action's progress
+      // dialog, so the omission strands the user behind it.
+      refreshGraphOrDisplayError(msg.status, l10n[ACTION_FAILURE[msg.command]]);
       break;
     case "operationState":
       gitGraph.showConflictBanner(msg.operation, msg.conflictedFiles);
-      break;
-    case "continueOperation":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToContinueOperation);
-      break;
-    case "abortOperation":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToAbortOperation);
-      break;
-    case "markResolved":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToMarkResolved);
-      break;
-    case "resetFileToRevision":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToResetFile);
-      break;
-    case "cherrypickCommit":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToCherryPick);
       break;
     case "commitDetails":
       if (msg.commitDetails === null) {
@@ -7729,20 +7736,8 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
         );
       }
       break;
-    case "createBranch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToCreateBranch);
-      break;
     case "deleteBranch":
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
-      break;
-    case "deleteRemoteBranch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToDeleteRemoteBranch);
-      break;
-    case "deleteTag":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToDeleteTag);
-      break;
-    case "fetchIntoLocalBranch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToFetchIntoLocalBranch);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -7786,12 +7781,6 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "exportPatch":
       if (msg.success === false) showErrorDialog(l10n.unableToExportPatch, null, null);
       break;
-    case "renameStash":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToRenameStash);
-      break;
-    case "fastForwardBranch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToFastForward);
-      break;
     case "loadRepos":
       gitGraph.loadRepos(msg.repos, msg.lastActiveRepo);
       break;
@@ -7828,46 +7817,11 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "fastForwardBranches":
       gitGraph.handleBatchActionResponse("fastForwardBranches", msg.results);
       break;
-    case "mergeBranch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToMergeBranch);
-      break;
-    case "mergeCommit":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToMergeCommit);
-      break;
-    case "pullBranch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToPullBranch);
-      break;
-    case "pushBranch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToPushBranch);
-      break;
-    case "pushTag":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToPushTag);
-      break;
-    case "renameBranch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToRenameBranch);
-      break;
     case "refresh":
       gitGraph.refresh(false);
       break;
-    case "resetToCommit":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToReset);
-      break;
-    case "rebaseOn":
-    case "rebaseOnto":
-    case "rebaseInteractive":
-      // All three are the same rebase to the user — which one ran was decided
-      // by the dialog's ticks, not by them — so they share one failure report
-      // (ADR-0022).
-      refreshGraphOrDisplayError(msg.status, l10n.unableToRebase);
-      break;
-    case "revertCommit":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToRevert);
-      break;
     case "viewDiff":
       if (msg.success === false) showErrorDialog(l10n.unableToViewDiff, null, null);
-      break;
-    case "fetch":
-      refreshGraphOrDisplayError(msg.status, l10n.unableToFetch);
       break;
     case "openFile":
       if (msg.success === false) showErrorDialog(l10n.unableToOpenFile, null, null);
@@ -7878,8 +7832,84 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "viewDiffWithWorking":
       if (msg.success === false) showErrorDialog(l10n.unableToViewDiff, null, null);
       break;
+    default: {
+      // The floor under the whole dispatch. Without it a response command with
+      // no arm compiles clean and is dropped on arrival — and for the action
+      // half that is worse than silent, because the arm is also what closes the
+      // progress dialog the action raised. `never` makes the omission a
+      // compile error at the point the command is added to `ResponseMessage`.
+      //
+      // The same discipline the ref-action catalogue already uses a few
+      // thousand lines up ("a new catalogue entry fails compilation here until
+      // it is handled"), applied to the one dispatch that was missing it.
+      const unhandled: never = msg;
+      return unhandled;
+    }
   }
 }
+/**
+ * What to tell the user when git refuses an action, keyed by the action.
+ *
+ * A `Record` over the action commands rather than a `case` each: the arms were
+ * 93 lines that differed only in the string, and — the part that matters —
+ * nothing made a missing one an error. `ActionResponse` is a mapped type and
+ * the dispatch has no `default`, so an action added without an arm compiled
+ * clean and its response was dropped. Not quietly, either: the success half of
+ * {@link refreshGraphOrDisplayError} is what closes the progress dialog the
+ * action raised, so the user is left behind an overlay whose only exit is
+ * Escape. The `Record` moves that from a review question to a compile error.
+ *
+ * The l10n *key*, not the string: this is module scope, and `l10n` is a global
+ * the host injects into the page — read at load time it would be read too
+ * early. Keying by `keyof LocalizedStrings` also type-checks the other side.
+ *
+ * `deleteBranch` is excluded because it does not belong here: it reports
+ * `notFullyMerged` as well, and the offer to force the delete is built from
+ * that. `fetch` is included though it is not an action — its response carries
+ * `status` and reports failure exactly the same way.
+ *
+ * The three rebases share one message deliberately: which of them ran was
+ * decided by the dialog's ticks, not by the user, so they are one operation to
+ * the person reading the error (ADR-0022).
+ */
+const ACTION_FAILURE: Record<
+  Exclude<ActionRequest["command"], "deleteBranch"> | "fetch",
+  keyof LocalizedStrings
+> = {
+  addTag: "unableToAddTag",
+  checkoutBranch: "unableToCheckoutBranch",
+  checkoutCommit: "unableToCheckoutCommit",
+  dropCommit: "unableToDrop",
+  applyStash: "unableToApplyStash",
+  popStash: "unableToPopStash",
+  dropStash: "unableToDropStash",
+  resetUncommittedChanges: "unableToResetUncommitted",
+  cleanUntrackedFiles: "unableToCleanUntracked",
+  continueOperation: "unableToContinueOperation",
+  abortOperation: "unableToAbortOperation",
+  markResolved: "unableToMarkResolved",
+  resetFileToRevision: "unableToResetFile",
+  cherrypickCommit: "unableToCherryPick",
+  createBranch: "unableToCreateBranch",
+  deleteRemoteBranch: "unableToDeleteRemoteBranch",
+  deleteTag: "unableToDeleteTag",
+  fetchIntoLocalBranch: "unableToFetchIntoLocalBranch",
+  renameStash: "unableToRenameStash",
+  fastForwardBranch: "unableToFastForward",
+  mergeBranch: "unableToMergeBranch",
+  mergeCommit: "unableToMergeCommit",
+  pullBranch: "unableToPullBranch",
+  pushBranch: "unableToPushBranch",
+  pushTag: "unableToPushTag",
+  renameBranch: "unableToRenameBranch",
+  resetToCommit: "unableToReset",
+  rebaseOn: "unableToRebase",
+  rebaseOnto: "unableToRebase",
+  rebaseInteractive: "unableToRebase",
+  revertCommit: "unableToRevert",
+  fetch: "unableToFetch"
+};
+
 function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: string) {
   if (status === null) {
     gitGraph.refresh(true, true); // keep the user's scroll position after an action
