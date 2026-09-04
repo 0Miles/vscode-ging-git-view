@@ -12,10 +12,23 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 2000) {
   }
 }
 
+// 本 suite 的綠燈**不代表**「current repository 跨工作階段保存」那條路徑的缺陷已修。
+// CI 跑在乾淨的 runner 上,`@vscode/test-cli` 的 user-data 目錄是全新的 →
+// `workspaceState` 空 → `getLastActiveRepo()` 回 `null` → `?? ""` → simple-git
+// fallback 到 `process.cwd()` → activation 一路不 throw。另一層靜默來自 VS Code
+// 自己:正式建置對 activation 失敗不給使用者任何訊息(只有 telemetry、extension
+// host log 與 renderer DevTools console),所以「沒人回報」同樣不是沒壞的證據。
+// 兩層靜默疊起來,就是那個缺陷活到今天的機制。
 suite("GitGraphPanel", () => {
+  /** 不要把下面那句換成 `assert.ok(ext.isActive)`:activation 失敗時 VS Code 放進
+   *  activator 的 `FailedExtension` 也是一個 value,而 `isActivated()` 讀的是
+   *  `Boolean(op && op.value)` —— `isActive` 照樣為 `true`,斷言它只會拿到假綠燈。
+   *  失敗那一半本來就由 `await` 覆蓋:`Extension.activate()` 每次都會 reject。
+   *  (兩者都是 VS Code 內部實作,而 `.vscode-test.mjs` 釘的是浮動的 `stable`。) */
   suiteSetup(async () => {
     const ext = vscode.extensions.getExtension("0miles.ging-git-view");
-    await ext?.activate();
+    assert.ok(ext, "extension not found — check publisher.name and the packaged bundle");
+    await ext.activate();
   });
 
   setup(async () => {
