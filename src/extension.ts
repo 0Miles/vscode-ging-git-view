@@ -1044,7 +1044,17 @@ export function activate(context: vscode.ExtensionContext) {
       if (picked === undefined) return; // cancelled
       const visible = new Set(picked.map((p) => p.label));
       const newHidden = remotes.filter((r) => !visible.has(r));
-      repoManager.setRepoState(repo, { ...repos[repo], hiddenRemotes: newHidden });
+      // Re-read rather than spreading `repos[repo]`, which was captured two
+      // awaits ago — before `listRemoteNames` and before the user answered the
+      // quick pick, a wait with no upper bound. Anything the webview persisted
+      // in between (a column drag, a details-panel resize, the commit ordering)
+      // is in the manager's copy and not in that snapshot, so spreading it
+      // writes those back to their old values *and* broadcasts the result as
+      // the current state. The repo can also have left the set while the pick
+      // was open, and there is nothing to update then.
+      const current = repoManager.getRepos()[repo];
+      if (current === undefined) return;
+      repoManager.setRepoState(repo, { ...current, hiddenRemotes: newHidden });
       // The reload rides on the state, not on the refresh below. `hiddenRemotes`
       // becomes `--exclude=<remote>/*`, which makes this a navigation, and the
       // graph recognises it by comparing the set it receives here against the
@@ -1079,8 +1089,13 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (name === undefined) return; // cancelled
       const trimmed = name.trim();
+      // Re-read: `repos` was captured before the quick pick and the input box,
+      // and spreading it would write back whatever the webview persisted while
+      // they were open. Same reason as `toggleRemoteVisibility` above.
+      const current = repoManager.getRepos()[repo];
+      if (current === undefined) return;
       repoManager.setRepoState(repo, {
-        ...repos[repo],
+        ...current,
         customName: trimmed === "" ? null : trimmed
       });
       repoManager.sendRepos();

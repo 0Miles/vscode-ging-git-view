@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
+import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
@@ -85,6 +86,19 @@ function click(id: string) {
   const elem = document.getElementById(id);
   expect(elem, id).not.toBeNull();
   elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+/** Pick a commit ordering from the column-header context menu — the panel's own
+ *  entrance to it, as opposed to an ordering arriving already decided. */
+function chooseCommitOrder(label: string) {
+  document
+    .querySelector<HTMLElement>('th[data-col="date"]')!
+    .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  const item = Array.from(
+    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
+  ).find((li) => li.querySelector(".contextMenuItemLabel")?.textContent?.trim() === label);
+  expect(item, label).toBeDefined();
+  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 /** Put a repo state for REPO_A on the wire, the way the host re-sends the set
@@ -356,5 +370,124 @@ describe("a commit ordering changed outside this panel", () => {
     mock.clearMessages();
     receive(branchesResponse);
     expect(sentOf("loadCommits")).toMatchObject([{ commitOrder: "author-date" }]);
+  });
+});
+
+// Everything above navigates while the *commit* half is in flight, which is the
+// half #84 was about. The branch half is the other one a navigation can land
+// on, and it is abandoned differently: its callback cannot be run — its tail is
+// the commit request for the repo the user just left — so whatever it owed has
+// to be taken over by hand. It owes two things.
+
+describe("a branch filter pushed while only the branch half is in flight", () => {
+  beforeAll(async () => {
+    await bootSettled();
+    // An action the user took, with its progress dialog standing. The reload
+    // that follows an action is what takes that dialog down.
+    click("fetchBtn");
+    // A hard reload caught in its branch phase: the commit half does not exist
+    // yet, so the abandonment below has only the branch half to settle.
+    click("refreshBtn");
+    mock.clearMessages();
+    // The Branches side-view pushes a filter in from outside the panel — it can
+    // reach the extension while a modal dialog is up in here.
+    receive({ command: "setBranchFilter", branches: ["main"] });
+  });
+
+  it("asks for the new filter's commits over the branch load already out", () => {
+    expect(sentOf("loadCommits")).toHaveLength(1);
+  });
+
+  it("takes down the progress dialog the abandoned reload was going to dismiss", () => {
+    // The dismissal is built inside the branch callback's close-out and nowhere
+    // else, so dropping that callback dropped the dismissal with it. Left
+    // unpaid, the dialog sat there with Escape as its only exit while the graph
+    // reloaded correctly underneath it and the indicator went out.
+    expect(document.getElementById("actionRunning")).toBeNull();
+  });
+
+  it("releases the busy claim that abandoned branch load held", () => {
+    // The other debt. Counted, not set: the reload below raises its own claim,
+    // and the indicator must go out on that one rather than on a claim nobody
+    // is left holding.
+    receive(commitsResponse("a"));
+    expect(refreshing()).toBe(false);
+  });
+});
+
+describe("a repo state that predates this panel's own ordering change", () => {
+  beforeAll(async () => {
+    await bootSettled();
+    // The user picks an ordering from the column-header menu. It writes into
+    // this panel's own copy first and tells the host after, so for one round
+    // trip the two disagree about what the ordering is.
+    chooseCommitOrder(getWebviewLocalizedStrings().commitOrderAuthorDate);
+    receive(commitsResponse("a"));
+    mock.clearMessages();
+    // A `loadRepos` the host built before it applied that write. Any
+    // `sendRepos()` produces one — a repo added or removed by the workspace
+    // watcher, a rename, `checkReposExist` — and it carries the old ordering.
+    sendRepoState({ columnWidths: null });
+  });
+
+  it("does not reload the graph back into the ordering the user just left", () => {
+    // Adopted as it stands, the payload rolls the local copy back and the
+    // comparison then reads a change — in the wrong direction. The graph
+    // re-sorted itself to the old ordering, the menu's tick followed, and
+    // nothing was sent to correct the host, which had already persisted the
+    // new one; the choice then reappeared unasked on the next panel reload.
+    expect(sentOf("loadBranches")).toHaveLength(0);
+    expect(sentOf("loadCommits")).toHaveLength(0);
+  });
+
+  it("goes on loading under the ordering the user picked", () => {
+    mock.clearMessages();
+    click("refreshBtn");
+    receive(branchesResponse);
+    expect(sentOf("loadCommits")).toMatchObject([{ commitOrder: "author-date" }]);
+    receive(commitsResponse("a")); // settle it: a load left in flight outlives this suite
+  });
+});
+
+describe("a repo set the host found no live repository in", () => {
+  beforeAll(async () => {
+    await bootSettled();
+    mock.clearMessages();
+    // The repo on screen has left the set, and `null` is the host saying it has
+    // nothing to put in its place: `pickBootRepo` falls through to the first
+    // known repository whose directory is still there, so it only comes back
+    // empty-handed when none of them is.
+    receive({
+      command: "loadRepos",
+      repos: { [REPO_B]: { columnWidths: null } },
+      lastActiveRepo: null
+    });
+  });
+
+  it("selects nothing rather than a repository nobody offered", () => {
+    // The panel used to take the first key of the set here. The set is
+    // persisted and can name directories that are gone — which is why the seed
+    // moved host-side — so picking out of it is picking blind.
+    expect(sentOf("selectRepo")).toEqual([]);
+  });
+
+  it("asks for nothing at all", () => {
+    // Not merely "asks for the right repo": with no repository there is nothing
+    // to ask about, and an empty path is not a path. Sent anyway, it reaches
+    // simple-git as an absent `baseDir` and falls back to the extension host's
+    // own working directory.
+    expect(sentOf("loadBranches")).toEqual([]);
+    expect(sentOf("loadCommits")).toEqual([]);
+  });
+
+  it("leaves the busy indicator out", () => {
+    // The claim is not raised at all, rather than raised and dropped: there is
+    // no load, so there is nothing for the indicator to report.
+    expect(refreshing()).toBe(false);
+  });
+
+  it("clears the repo title rather than leaving the last repo's branch under it", () => {
+    expect(document.getElementById("repoTitleName")!.textContent).toBe("");
+    expect(document.getElementById("repoTitleBranch")!.textContent).toBe("");
   });
 });

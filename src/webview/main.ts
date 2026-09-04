@@ -430,6 +430,32 @@ class GitGraphView {
    *  the user has left is recognisable on arrival — see
    *  {@link abandonLoadsInFlight}, which is what puts two of them in the air. */
   private loadToken = 0;
+  /** The `commitOrdering` this panel has written and not yet seen come back.
+   *
+   *  `saveRepoState` gets no reply, and `loadRepos` is not one: the host builds
+   *  each payload from what it has persisted *at that moment*, so one posted
+   *  before the write landed still carries the value the user moved away from.
+   *  Adopted as it stands, that payload rolls the local copy back — and, since
+   *  the scope comparison went in, is also read as a navigation, so the graph
+   *  reloads *and* re-sorts itself to the old ordering with the menu's tick
+   *  following it, while the host keeps the new one. The two copies then stay
+   *  apart until the next panel reload puts the user's choice back unasked.
+   *
+   *  Held until a payload agrees with it, then dropped. That bounds it to the
+   *  round trip it exists to cover: host→webview posts are ordered, so every
+   *  payload built after the write landed agrees, and there is nothing left to
+   *  hold. What it cannot tell apart is a *second* panel writing a different
+   *  ordering inside that same window — this one would restore its own value
+   *  over the other's. Separating those needs a stamp on `saveRepoState`
+   *  echoed back on `loadRepos`, which is a protocol change and not this fix.
+   *
+   *  Only `commitOrdering`, because it is the only field of the comparison the
+   *  webview writes: `hiddenRemotes` is the host's, and always arrives already
+   *  applied. */
+  private pendingCommitOrdering: { repo: string; ordering: CommitOrdering | null } | null = null;
+  /** Whether the branch load in flight belongs to a hard reload. Meaningful
+   *  only while {@link branchLoadInFlight}; see {@link requestLoadBranches}. */
+  private branchLoadWasHard = false;
 
   constructor(
     repos: GG.GitRepoSet,
@@ -908,6 +934,11 @@ class GitGraphView {
 
   /* Loading Data */
   public loadRepos(repos: GG.GitRepoSet, lastActiveRepo: string | null) {
+    // Before anything reads the incoming set: a payload built before the host
+    // applied this panel's last `saveRepoState` still carries the value the
+    // panel wrote away from, and both the adoption below and the comparison at
+    // the end would take it at face value.
+    this.reconcilePendingRepoState(repos);
     // Captured before the incoming set replaces it. The comparison at the end
     // asks whether the state this panel has been loading under has moved, and
     // `this.gitRepos` stops being that state on the very next line.
@@ -1010,6 +1041,31 @@ class GitGraphView {
     const hiddenBefore = (before.hiddenRemotes ?? []).toSorted();
     const hiddenAfter = (after.hiddenRemotes ?? []).toSorted();
     return !arraysEqual(hiddenBefore, hiddenAfter, (a, b) => a === b);
+  }
+
+  /** Put back onto an arriving repo set the ordering this panel has written and
+   *  the host has not echoed yet, so the set is adopted — and compared — as of
+   *  the panel's own last word rather than as of a payload that predates it.
+   *  See {@link pendingCommitOrdering} for why one can predate it at all.
+   *
+   *  Writes into `repos` rather than correcting afterwards: this is the object
+   *  that becomes `this.gitRepos`, and every reader downstream — the adoption,
+   *  the scope comparison, the menu's tick — should see one consistent set. */
+  private reconcilePendingRepoState(repos: GG.GitRepoSet) {
+    const pending = this.pendingCommitOrdering;
+    if (pending === null) return;
+    const state = repos[pending.repo];
+    // The repo left the set while the write was out. There is nothing to hold
+    // the value against any more, and the panel is about to move off it.
+    if (state === undefined) {
+      this.pendingCommitOrdering = null;
+      return;
+    }
+    if ((state.commitOrdering ?? null) === pending.ordering) {
+      this.pendingCommitOrdering = null;
+      return;
+    }
+    state.commitOrdering = pending.ordering;
   }
 
   /** Reload commits after the branch selection changed: reset paging, close any
@@ -1300,8 +1356,22 @@ class GitGraphView {
    *  The branch half's callback is **dropped**, because running it would send
    *  the commit request for the repo the user just left: its tail is the other
    *  half of the load, not a close-out. Dropping it means taking over what it
-   *  owed, which is one busy claim — the only caller that asks for branches
-   *  always raises one.
+   *  owed, and it owes two things, not one. The busy claim is the obvious one —
+   *  the only caller that asks for branches always raises one. The other is the
+   *  dismissal: the close-out the branch callback would have built is where
+   *  {@link hideReloadOwnedOverlays} is called from, and nothing else builds
+   *  one, so dropping the callback silently dropped that too. A checkout's
+   *  progress dialog then sat on screen with Escape as its only exit, while the
+   *  graph reloaded correctly underneath it and the indicator went out. `hard`
+   *  is the half of the close-out's rule that survives the callback ("hard
+   *  refreshes follow an action so always close"); the other half asks whether
+   *  anything changed, which an abandoned load cannot say and does not claim.
+   *
+   *  That dismissal can reach a dialog the reload does not own — the existence
+   *  check in {@link hideReloadOwnedOverlays} cannot tell them apart, which is
+   *  tracked on #127 and predates this. Abandoning is one more way in, not a
+   *  new defect; leaving the debt unpaid to avoid it would trade a dialog that
+   *  closes early for one that never closes at all.
    *
    *  Deliberately not routed through {@link triggerLoadCommitsCallback}: that
    *  one also retries a delegated ref action, and here the gate is about to be
@@ -1313,8 +1383,10 @@ class GitGraphView {
   private abandonLoadsInFlight() {
     this.loadToken++;
     if (this.branchLoadInFlight) {
+      const wasHard = this.branchLoadWasHard;
       this.loadBranchesCallback = null;
       this.endBusyLoad();
+      if (wasHard) hideReloadOwnedOverlays();
     }
     if (this.commitLoadInFlight) {
       const abandoned = this.loadCommitsCallback!;
@@ -1385,6 +1457,10 @@ class GitGraphView {
   ): boolean {
     if (this.branchLoadInFlight) return false;
     this.loadBranchesCallback = loadedCallback;
+    // Kept beside the callback because {@link abandonLoadsInFlight} has to
+    // settle what that callback owed without being able to run it, and `hard`
+    // is the half of the dismissal rule it can still know.
+    this.branchLoadWasHard = hard;
     sendMessage({ command: "selectRepo", repo: this.currentRepo });
     sendMessage({ command: "loadRemotes" });
     // No showRemoteBranches: the host resolves the repo's own state, which is
@@ -2231,11 +2307,17 @@ class GitGraphView {
           showErrorDialog(l10n.dialogCommitOrderBusy, null, null);
           return;
         }
-        this.gitRepos[this.currentRepo!].commitOrdering = order;
+        const repoState = this.gitRepos[this.currentRepo!];
+        if (repoState === undefined) return;
+        repoState.commitOrdering = order;
+        // Remembered until the host echoes it: `saveRepoState` gets no reply,
+        // and a `loadRepos` already on its way still carries the old ordering.
+        // See {@link pendingCommitOrdering}.
+        this.pendingCommitOrdering = { repo: this.currentRepo!, ordering: order };
         sendMessage({
           command: "saveRepoState",
           repo: this.currentRepo!,
-          state: this.gitRepos[this.currentRepo!]
+          state: repoState
         });
         this.shrinkLoadedCommitWindow();
         this.requestLoadCommits(true, () => {});
