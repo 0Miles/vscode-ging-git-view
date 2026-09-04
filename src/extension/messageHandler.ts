@@ -629,6 +629,15 @@ export function registerMessageHandlers(
     "selectRepo",
     (msg) => {
       if (msg.repo === currentRepo) return;
+      // A falsy path is not a selection, and it is the one input that fails
+      // *quietly*: simple-git treats an empty `baseDir` as absent and falls
+      // back to `process.cwd()`, which reads as a repository whenever VS Code
+      // was started from one (`code .`). Bound to it, the panel would draw an
+      // unrelated repository's branches and history under an empty title, with
+      // `isRepo: true` keeping every self-healing path from firing. Refused
+      // here rather than at each sender, because this is the boundary the path
+      // crosses into git.
+      if (!msg.repo) return;
       // Bind the client first: it is the only step here that can fail, and it
       // fails synchronously — simple-git validates baseDir at construction, so
       // a repo deleted since it was last seen throws. Ordered the other way,
@@ -637,7 +646,29 @@ export function registerMessageHandlers(
       // `currentRepo!` — so every later branch load aimed at the dead repo and
       // threw again, unhandled, with the webview's spinner never cleared.
       // Once setRepo returns, none of the remaining four steps can fail.
-      gitClient.setRepo(msg.repo);
+      try {
+        gitClient.setRepo(msg.repo);
+      } catch {
+        // Ordering alone only moves the damage, it does not end it. Unhandled,
+        // the throw leaves the host on the repo it already had while the
+        // webview has committed to the new one — and the host then answers
+        // `loadBranches` and `loadCommits` for the *old* repo, with a
+        // navigation token that matches, so the guard passes and the old
+        // repo's branches and history render under the new repo's title. Every
+        // action dispatched from that graph runs against the old repo too. The
+        // token cannot catch it: it counts navigations, and this is a
+        // disagreement about which repository, which no counter encodes.
+        //
+        // So end it here. Drop the repo that is gone and re-seed the panel:
+        // the webview finds it missing from the set and moves off it on its
+        // own, which is the same route `checkReposExist` would have taken
+        // later. Saying it out loud matters as much as the pruning — this line
+        // is the only record that a repo the user picked was not there.
+        logger.log(`Cannot open a repository that is gone, dropping it: ${msg.repo}`);
+        repoManager.removeRepo(msg.repo);
+        repoManager.sendRepos();
+        return;
+      }
       currentRepo = msg.repo;
       extensionState.setLastActiveRepo(msg.repo);
       repoFileWatcher.start(msg.repo);

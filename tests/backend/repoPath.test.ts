@@ -60,16 +60,27 @@ describe("resolveCurrentRepo", () => {
 });
 
 describe("pickBootRepo", () => {
-  it("keeps the Current repository when it resolved", () => {
+  it("keeps the Current repository when it resolved and is still known", () => {
     const probed: string[] = [];
     expect(
-      pickBootRepo("/a", ["/b", "/c"], (p) => {
+      pickBootRepo("/a", ["/a", "/b"], (p) => {
         probed.push(p);
         return true;
       })
     ).toBe("/a");
     // Costs nothing when the Current repository is already good.
     expect(probed).toEqual([]);
+  });
+
+  it("passes over a Current repository that has left the known set", () => {
+    // It can leave the set without leaving the disk — `checkReposExist` drops a
+    // directory that is no longer a repository, `removeReposNotInWorkspace` one
+    // that is no longer in the workspace — and neither clears the stored path.
+    // The seed only means anything alongside the set it travels with: the
+    // webview keys straight into that set, so a seed that is not a key of it
+    // lands the panel on no repository at all while live ones sit in the very
+    // set it was handed.
+    expect(pickBootRepo("/gone", ["/b", "/c"], () => true)).toBe("/b");
   });
 
   it("falls back to the first known repository that is still there", () => {

@@ -23,6 +23,10 @@ export function getWebviewLocalizedStrings() {
     findCount: l10n.t("ui.findCount"),
     dialogFindLoadMoreConfirm: l10n.t("dialog.find.loadMoreConfirm"),
     loading: l10n.t("ui.loading"),
+    // What the graph shows in place of commits when the host has no live
+    // repository to offer it. The same sentence the host's own commands use
+    // for the same fact, rather than a second wording for it.
+    noRepos: l10n.t("repoName.noRepos"),
     loadMore: l10n.t("ui.loadMore"),
     loadedCommitWindow: l10n.t("ui.loadedCommitWindow"),
     resetLoadedCommitWindow: l10n.t("ui.resetLoadedCommitWindow"),

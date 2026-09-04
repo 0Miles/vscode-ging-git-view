@@ -714,8 +714,13 @@ class GitGraphView {
       // A repo may have vanished while the list was open (loadRepos).
       this.closeRepoDropdown();
     }
+    // Falsy, not `undefined`: "none selected" arrives as the empty string when
+    // the host had no live repo to offer ({@link loadRepos}), and as
+    // `undefined` only in the moment before the first handshake. Tested for
+    // `undefined` alone, the empty string walked past and left the *previous*
+    // repo's branch name standing next to an empty repo name.
     const repo: string | undefined = this.currentRepo;
-    if (repo === undefined) {
+    if (!repo) {
       nameElem.textContent = "";
       branchElem.textContent = "";
       return;
@@ -920,8 +925,16 @@ class GitGraphView {
       // `<root>/.claude/worktrees/…` sorts ahead of every alphanumeric sibling
       // once the workspace root is not itself a repo. Selecting it threw in the
       // host, unhandled, with the spinner never cleared.
-      // Empty string when the host has no live repo to offer: falsy, so the
-      // existing `!this.currentRepo` guards read it as "none selected".
+      //
+      // Empty string when the host has no live repo to offer — and *only*
+      // then, which is why `pickBootRepo` requires the seed to be a member of
+      // this very set. Without that, a seed that had merely stayed on disk
+      // after leaving the set landed the panel here with live repos sitting in
+      // `repos`: blank title, no graph, and no way back short of closing the
+      // tab. The empty string says "none selected" and nothing else — the
+      // guards that must read it that way are in {@link updateRepoTitle} and
+      // {@link requestLoadBranchesAndCommits}, both of which take a falsy repo
+      // as an answer rather than as a path.
       this.currentRepo =
         lastActiveRepo !== null && typeof repos[lastActiveRepo] !== "undefined"
           ? lastActiveRepo
@@ -939,6 +952,12 @@ class GitGraphView {
       // acting on a repo the user chose, and can say what the new repo starts
       // from; this one is landing somewhere by elimination.
       this.navigateReload();
+      // Landing nowhere, in fact — the host had no live repository to offer.
+      // {@link navigateReload} still runs: the loads out belong to the repo
+      // that vanished and have to be abandoned. What it does not do is send
+      // anything, so nothing is coming to replace the graph on screen. See
+      // {@link renderNoRepo} for why that has to be said rather than left.
+      if (!this.currentRepo) this.renderNoRepo();
     } else if (this.commitScopeChanged(previousState, repos[this.currentRepo])) {
       // Same repository, different question — the fifth navigation, and the
       // only one that arrives as a fact rather than as a call. Hiding a remote
@@ -952,13 +971,19 @@ class GitGraphView {
       // covered the day it is named in {@link commitScopeChanged}, by whoever
       // adds it.
       //
-      // The loaded commit window is left where the user put it, alone among
-      // the navigations (ADR-0024). Nothing here is a new repository or a
-      // longer read — excluding a remote can only make the `git log` cheaper —
-      // and this path also fires for changes made outside this panel (the
+      // The loaded commit window is left where the user put it — by *this
+      // route*, whichever field moved, and not by the navigation's identity
+      // (ADR-0024). The commit ordering shrinks it when the panel's own menu
+      // changes it and does not when it arrives here already decided, and that
+      // is deliberate rather than an oversight: the reason is the route, not
+      // the field. This path fires for changes made outside this panel (the
       // shareable config file, a second graph panel), where collapsing a
       // widened graph would be a loss the user cannot account for and can only
-      // undo one Load More at a time.
+      // undo one Load More at a time — and "navigate, do not shrink" is the
+      // only safe default for a generalisation, because the alternative hands
+      // every field added to {@link commitScopeChanged} a destructive side
+      // effect nobody chose for it. Hiding a remote is not a new repository or
+      // a longer read either, so it has no cost argument to answer.
       this.navigateReload();
     }
     // Unconditional: a repo's customName may have changed without a repo switch.
@@ -1016,6 +1041,11 @@ class GitGraphView {
    *  which branches are drawn, not which exist — so nothing is lost by letting
    *  that read go. */
   private reloadForBranchChange() {
+    // No repository, no reload. This one does not go through
+    // {@link requestLoadBranchesAndCommits}, so it needs the guard of its own —
+    // without it the filter push arrived, the reset below ran, and a
+    // `loadCommits` went out naming a repository that is the empty string.
+    if (!this.currentRepo) return;
     this.abandonLoadsInFlight();
     this.shrinkLoadedCommitWindow();
     this.clearExpandedCommit();
@@ -1287,8 +1317,34 @@ class GitGraphView {
    *  The branch half's callback is **dropped**, because running it would send
    *  the commit request for the repo the user just left: its tail is the other
    *  half of the load, not a close-out. Dropping it means taking over what it
-   *  owed, which is one busy claim — the only caller that asks for branches
-   *  always raises one.
+   *  owed, and it owes two things, not one. The busy claim is the obvious one —
+   *  the only caller that asks for branches always raises one. The other is the
+   *  dismissal: the close-out the branch callback would have built is where
+   *  {@link hideReloadOwnedOverlays} is called from, and nothing else builds
+   *  one, so dropping the callback silently dropped that too. A checkout's
+   *  progress dialog then sat on screen with Escape as its only exit, while the
+   *  graph reloaded correctly underneath it and the indicator went out.
+   *
+   *  Unconditionally, and not only for an abandoned *hard* reload. The
+   *  close-out's rule is "hard, or something changed", and the tempting reading
+   *  is that a soft reload's dismissal was never owed — but the rule belongs to
+   *  the load that finishes, and here that is the navigation's own reload,
+   *  which is always hard (both callers reload with `hard: true`). The soft
+   *  case is not hypothetical either: the host's `refresh` push is soft, and it
+   *  is sent by the auto-fetch timer, the Fetch command, a remote change and an
+   *  error dialog's dismissal — none of them muted while a progress dialog
+   *  stands. Testing `hard` left exactly that case stranded.
+   *
+   *  This dismissal can reach a dialog the reload does not own — the existence
+   *  check in {@link hideReloadOwnedOverlays} cannot tell them apart, which is
+   *  tracked on #127 and predates this — and through {@link reloadForBranchChange}
+   *  that is a way in the panel did not have before: a filter pushed from the
+   *  side-view can now take down a Branch Cleanup deep scan (its dismissal hook
+   *  sends `branchCleanupScanCancel`) or a "Check for Unmerged Changes" whose
+   *  answer is then dropped on arrival. It is the same trade #127 already
+   *  names, made once more: a dialog that closes early beats one that never
+   *  closes at all, and both end when the dialog is correlated with the reload
+   *  that owns it.
    *
    *  Deliberately not routed through {@link triggerLoadCommitsCallback}: that
    *  one also retries a delegated ref action, and here the gate is about to be
@@ -1302,6 +1358,7 @@ class GitGraphView {
     if (this.branchLoadInFlight) {
       this.loadBranchesCallback = null;
       this.endBusyLoad();
+      hideReloadOwnedOverlays();
     }
     if (this.commitLoadInFlight) {
       const abandoned = this.loadCommitsCallback!;
@@ -1510,12 +1567,35 @@ class GitGraphView {
     return true;
   }
   private requestLoadBranchesAndCommits(hard: boolean) {
+    // No repository, so no load — the panel is not waiting on anything and
+    // nothing that came back could be about it. Ahead of the busy claim
+    // deliberately: a load that was never started has no claim to drop, and the
+    // indicator would otherwise spin for a panel with nothing in flight.
+    //
+    // `currentRepo` is falsy exactly when the host offered no live repository
+    // ({@link loadRepos}), plus the moment before the first handshake lands.
+    // Sending regardless is what put `selectRepo` with an empty path on the
+    // wire, and simple-git reads an empty `baseDir` as absent and falls back to
+    // the extension host's own working directory — so the panel could end up
+    // drawing an unrelated repository. The host refuses that path too; this is
+    // the near side of the same refusal, and it is the one that also keeps the
+    // ledger straight.
+    //
+    // No dismissal debt is taken over here, unlike {@link abandonLoadsInFlight},
+    // and that is a claim about reachability rather than about the rule. A
+    // dialog standing when the repository goes away is taken down on the
+    // transition, by {@link renderNoRepo}; and once the panel is repo-less
+    // nothing can raise another — the Fetch button is guarded on the repo, the
+    // graph has no rows to open a context menu on, and a delegated ref action
+    // will not run for a repo that is not the current one
+    // ({@link tryRunPendingRefAction}). Paying it here anyway would be a line
+    // no test could ever turn red. If a dialog source that survives this state
+    // is added, this is where it comes back.
+    if (!this.currentRepo) return;
     this.beginBusyLoad();
     // Refresh the conflict banner alongside every (re)load so it tracks the
     // repo's operation state (.git changes trigger a refresh via the watcher).
-    if (this.currentRepo) {
-      sendMessage({ command: "operationState", repo: this.currentRepo });
-    }
+    sendMessage({ command: "operationState", repo: this.currentRepo });
     const branchesSent = this.requestLoadBranches(
       hard,
       (branchChanges: boolean, isRepo: boolean) => {
@@ -2206,11 +2286,13 @@ class GitGraphView {
           showErrorDialog(l10n.dialogCommitOrderBusy, null, null);
           return;
         }
-        this.gitRepos[this.currentRepo!].commitOrdering = order;
+        const repoState = this.gitRepos[this.currentRepo!];
+        if (repoState === undefined) return;
+        repoState.commitOrdering = order;
         sendMessage({
           command: "saveRepoState",
           repo: this.currentRepo!,
-          state: this.gitRepos[this.currentRepo!]
+          state: repoState
         });
         this.shrinkLoadedCommitWindow();
         this.requestLoadCommits(true, () => {});
@@ -3158,6 +3240,35 @@ class GitGraphView {
     if (back !== null) this.footerFocusId = null;
     else if (!loading) this.footerFocusId = null;
     (back ?? this.footerElem).focus({ preventScroll: true });
+  }
+  /** Replace the graph with "no repositories", and drop the commits behind it.
+   *
+   *  Not cosmetic. {@link refresh} deliberately keeps the current graph on
+   *  screen rather than blanking — it is reloading, and a blank flickers — but
+   *  a panel that has just lost its repository is not reloading: nothing was
+   *  requested, so nothing is coming to replace what is up. Left there, the
+   *  previous repository's rows keep their listeners, and every context-menu
+   *  action on them is dispatched with `repo: ""` against a host that resolves
+   *  actions from its own binding rather than from the message — a live action
+   *  surface aimed at a repository the panel says it is not on.
+   *
+   *  The state goes with the rows for the same reason: any later redraw (a
+   *  remote list arriving, a column toggled) would put them straight back. */
+  private renderNoRepo() {
+    hideDialogAndContextMenu();
+    this.commits = [];
+    this.commitLookup = {};
+    this.commitHead = null;
+    this.moreCommitsAvailable = false;
+    this.gitBranches = [];
+    this.gitBranchHead = null;
+    this.dimmedBranches = [];
+    this.setCurrentBranches(null);
+    this.invalidateBranchSearchIndex();
+    this.saveState();
+    this.graph.clear();
+    this.tableElem.innerHTML = '<h2 id="loadingHeader">' + escapeHtml(l10n.noRepos) + "</h2>";
+    this.renderFooter();
   }
   private renderShowLoading() {
     hideDialogAndContextMenu();
@@ -4428,7 +4539,14 @@ class GitGraphView {
   private makeTableResizable(): () => void {
     let colHeadersElem = document.getElementById("tableColHeaders")!,
       cols = <HTMLCollectionOf<HTMLElement>>document.getElementsByClassName("tableColHeader");
-    let columnWidths = this.gitRepos[this.currentRepo].columnWidths,
+    // `?.`, because this runs on a redraw and a redraw does not imply a
+    // repository: a panel the host could offer no live repo to keeps the graph
+    // it had on screen ({@link refresh} does not blank), and there is then no
+    // state to read widths from. Unguarded this threw here — inside
+    // `renderTable`, *after* `innerHTML` had already been replaced — so the
+    // rows were on screen with none of the listeners below this line attached,
+    // and clicking one did nothing at all.
+    let columnWidths = this.gitRepos[this.currentRepo]?.columnWidths ?? null,
       mouseX = -1,
       col = -1;
 
@@ -4444,17 +4562,21 @@ class GitGraphView {
       }
     };
     const stopResizing = () => {
-      if (col > -1 && columnWidths !== null) {
-        col = -1;
-        mouseX = -1;
-        colHeadersElem.classList.remove("resizing");
-        this.gitRepos[this.currentRepo].columnWidths = columnWidths;
-        sendMessage({
-          command: "saveRepoState",
-          repo: this.currentRepo,
-          state: this.gitRepos[this.currentRepo]
-        });
-      }
+      if (col === -1 || columnWidths === null) return;
+      // The drag ends either way — releasing the mouse must always put the
+      // header back — and only the persistence depends on there being a repo
+      // to persist against.
+      col = -1;
+      mouseX = -1;
+      colHeadersElem.classList.remove("resizing");
+      const repoState = this.gitRepos[this.currentRepo];
+      if (repoState === undefined) return;
+      repoState.columnWidths = columnWidths;
+      sendMessage({
+        command: "saveRepoState",
+        repo: this.currentRepo,
+        state: repoState
+      });
     };
 
     for (let i = 0; i < cols.length; i++) {
@@ -4777,10 +4899,13 @@ class GitGraphView {
    *  something else, so a user who only wants the window back has to go and
    *  change something they did not want changed (ADR-0019).
    *
-   *  Four of the five navigations, not all five: hiding a remote deliberately
-   *  leaves the window alone, so that the generalisation it arrives through
-   *  ({@link commitScopeChanged}) does not hand every future field a side
-   *  effect nobody chose for it (ADR-0024).
+   *  Not every navigation, and the line is drawn by route rather than by
+   *  kind: a change recognised through {@link commitScopeChanged} — hiding a
+   *  remote, or an ordering arriving already decided from outside this panel —
+   *  deliberately leaves the window alone, so that the generalisation does not
+   *  hand every future field a side effect nobody chose for it (ADR-0024). The
+   *  commit ordering therefore shrinks it from the column-header menu and not
+   *  from that comparison, which is the same field on two routes.
    *
    *  Guarded before any state changes, on the same terms as Load More and the
    *  commit-ordering menu: a request sent while a load is in flight is dropped,
@@ -4982,7 +5107,10 @@ class GitGraphView {
     this.requestBranchSearchIndex();
   }
   private requestBranchSearchIndex() {
-    if (this.currentRepo === null) return;
+    // Falsy, not `=== null`: "none selected" is the empty string when the host
+    // had no live repository to offer ({@link loadRepos}), and `=== null` waved
+    // it through — Ctrl+F then asked the host to index a repository named "".
+    if (!this.currentRepo) return;
     sendMessage({
       command: "branchSearch",
       repo: this.currentRepo,
@@ -5967,7 +6095,20 @@ class GitGraphView {
     const files = document.getElementById("commitDetailsFiles");
     const divider = document.getElementById("detailsDivider");
     const heightGrip = document.getElementById("detailsResizeGrip");
-    if (summary === null || files === null || divider === null || heightGrip === null) return;
+    // `repoState` joins the DOM lookups rather than being asserted: everything
+    // below reads a per-repo size or writes one back, and a panel with no
+    // repository selected has neither. Both halves are the same kind of
+    // absence — the pieces this needs are not there — and both leave the view
+    // at its CSS defaults rather than throwing mid-render.
+    if (
+      repoState === undefined ||
+      summary === null ||
+      files === null ||
+      divider === null ||
+      heightGrip === null
+    ) {
+      return;
+    }
 
     if (typeof repoState.detailsPanelHeight === "number")
       row.style.height = repoState.detailsPanelHeight + "px";
@@ -5990,7 +6131,7 @@ class GitGraphView {
         sendMessage({
           command: "saveRepoState",
           repo: this.currentRepo!,
-          state: this.gitRepos[this.currentRepo]
+          state: repoState
         });
       };
       document.addEventListener("mousemove", move);
@@ -6491,12 +6632,18 @@ class GitGraphView {
   private setFileViewType(fileViewType: GG.FileViewType) {
     if (fileViewType !== "File Tree" && fileViewType !== "File List") return;
     if (fileViewType === this.getFileViewType()) return;
-    this.gitRepos[this.currentRepo].fileViewType = fileViewType;
+    // Nowhere to persist the choice to, so there is no choice to make. Reached
+    // only through a Commit Details View left open over a panel that has since
+    // lost its repository; {@link getFileViewType} already falls back to the
+    // setting on the read side.
+    const repoState = this.gitRepos[this.currentRepo];
+    if (repoState === undefined) return;
+    repoState.fileViewType = fileViewType;
     this.saveState();
     sendMessage({
       command: "saveRepoState",
       repo: this.currentRepo,
-      state: this.gitRepos[this.currentRepo]
+      state: repoState
     });
 
     const expanded = this.expandedCommit;

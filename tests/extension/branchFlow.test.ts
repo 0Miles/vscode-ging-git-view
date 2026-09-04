@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import * as cp from "node:child_process";
+import * as path from "node:path";
 
 import * as vscode from "vscode";
 
@@ -20,10 +21,17 @@ const noop = () => {};
 
 const resolveShowRemote = () => true;
 
+/** Dependency slices a test may want to *observe* rather than ignore. Both are
+ *  inert stubs in the base wiring below. */
+type DepOverrides = {
+  repoManager?: unknown;
+  extensionState?: unknown;
+};
+
 /** The real handler dependencies, wired the way extension.ts wires them: a real
  *  git client, real config, and a real BranchFacts over both — so the flow this
  *  suite exercises is the production one, not a stub of it. */
-function makeDeps() {
+function makeDeps(overrides: DepOverrides = {}) {
   // Inject an askpass-style env like the real extension. simple-git
   // (>=3.36) rejects GIT_ASKPASS in an explicitly-passed env unless we opt in
   // and merge it correctly — a regression that silently emptied every repo.
@@ -44,8 +52,11 @@ function makeDeps() {
   return {
     config,
     gitClient,
-    repoManager: { getRepos: () => ({}), setRepoState: noop } as never,
-    extensionState: { setLastActiveRepo: noop, getLastActiveRepo: () => null } as never,
+    repoManager: (overrides.repoManager ?? { getRepos: () => ({}), setRepoState: noop }) as never,
+    extensionState: (overrides.extensionState ?? {
+      setLastActiveRepo: noop,
+      getLastActiveRepo: () => null
+    }) as never,
     avatarManager: { fetchAvatarImage: noop } as never,
     repoFileWatcher: { start: noop, mute: noop, unmute: noop } as never,
     branchFilterStore: {
@@ -148,5 +159,170 @@ suite("branch loading flow (integration)", () => {
     assert.ok(res, "a commitDetails response should be posted");
     assert.ok(res!.commitDetails !== null, "commitDetails should be non-null for a real commit");
     assert.strictEqual(res!.commitDetails!.hash, head);
+  });
+});
+
+/** The host's half of ADR-0024. The webview stamps a navigation token on every
+ *  load request and drops any answer that comes back carrying a different one;
+ *  the host's whole contribution is to copy it back untouched. Nothing else can
+ *  test that: the webview suites fabricate the echo from the request they saw
+ *  the webview send, so an echo the host never wrote still reads as correct
+ *  there. Get it wrong in production and *every* answer is dropped — an empty
+ *  graph and a Refresh button that spins forever, which is a worse #84 than the
+ *  one the token exists to fix.
+ *
+ *  Non-zero tokens throughout, and different ones per case: a hard-coded `0`,
+ *  or one handler's token reaching the other, would pass against zeros. */
+suite("navigation token echo (integration)", () => {
+  function makeBridge() {
+    const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
+    const posted: ResponseMessage[] = [];
+    const bridge = {
+      post: (m: ResponseMessage) => posted.push(m),
+      onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) =>
+        handlers.set(cmd, h)
+    } as unknown as WebviewBridge;
+    return { handlers, posted, bridge };
+  }
+
+  test("loadBranches echoes the request's token verbatim", async () => {
+    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
+    const { handlers, posted, bridge } = makeBridge();
+    registerMessageHandlers(bridge, makeDeps());
+
+    await handlers.get("selectRepo")!({ command: "selectRepo", repo: repoPath } as RequestMessage);
+    await handlers.get("loadBranches")!({
+      command: "loadBranches",
+      hard: true,
+      token: 7
+    } as RequestMessage);
+
+    const res = posted.find((m) => m.command === "loadBranches") as
+      | Extract<ResponseMessage, { command: "loadBranches" }>
+      | undefined;
+    assert.ok(res, "a loadBranches response should be posted");
+    assert.strictEqual(res!.token, 7, "the token must come back as it was sent");
+  });
+
+  test("loadCommits echoes the request's token verbatim", async () => {
+    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
+    const { handlers, posted, bridge } = makeBridge();
+    registerMessageHandlers(bridge, makeDeps());
+
+    await handlers.get("selectRepo")!({ command: "selectRepo", repo: repoPath } as RequestMessage);
+    await handlers.get("loadCommits")!({
+      command: "loadCommits",
+      repo: repoPath,
+      branchNames: ["HEAD"],
+      maxCommits: 1,
+      hard: false,
+      token: 12
+    } as RequestMessage);
+
+    const res = posted.find((m) => m.command === "loadCommits") as
+      | Extract<ResponseMessage, { command: "loadCommits" }>
+      | undefined;
+    assert.ok(res, "a loadCommits response should be posted");
+    assert.strictEqual(res!.token, 12, "the token must come back as it was sent");
+  });
+});
+
+/** `selectRepo` is where the host commits to a repository, and it is the one
+ *  step in the handshake that can fail: simple-git validates `baseDir` at
+ *  construction, so a repo deleted since it was last seen throws. Both cases
+ *  below are about the same invariant — the host and the webview must not be
+ *  left holding different answers to "which repository is this panel on",
+ *  because the load responses carry a navigation token and no repo, so nothing
+ *  downstream can notice the disagreement. */
+suite("selectRepo failures (integration)", () => {
+  function makeBridge() {
+    const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
+    const posted: ResponseMessage[] = [];
+    const bridge = {
+      post: (m: ResponseMessage) => posted.push(m),
+      onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) =>
+        handlers.set(cmd, h)
+    } as unknown as WebviewBridge;
+    return { handlers, posted, bridge };
+  }
+
+  test("a repository that is gone is dropped, not half-selected", async () => {
+    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
+    const gone = path.join(repoPath, `no-such-repo-${process.pid}`);
+    const removed: string[] = [];
+    let broadcasts = 0;
+    const persisted: (string | null)[] = [];
+
+    const { handlers, posted, bridge } = makeBridge();
+    registerMessageHandlers(
+      bridge,
+      makeDeps({
+        repoManager: {
+          getRepos: () => ({}),
+          setRepoState: noop,
+          removeRepo: (r: string) => removed.push(r),
+          sendRepos: () => broadcasts++
+        },
+        extensionState: {
+          setLastActiveRepo: (r: string | null) => persisted.push(r),
+          getLastActiveRepo: () => null
+        }
+      })
+    );
+
+    await handlers.get("selectRepo")!({ command: "selectRepo", repo: repoPath } as RequestMessage);
+    // Must not reject: the bridge has no catch, so a rejection here is an
+    // unhandled one and the webview is told nothing at all.
+    await handlers.get("selectRepo")!({ command: "selectRepo", repo: gone } as RequestMessage);
+
+    assert.deepStrictEqual(removed, [gone], "the repo that is gone should be dropped from the set");
+    assert.strictEqual(broadcasts, 1, "the panel should be re-seeded so it can move off it");
+    assert.deepStrictEqual(persisted, [repoPath], "the dead repo must not become the stored one");
+
+    // And the host is still on the repo it had — answering for it, rather than
+    // aiming every later read at the one that is gone.
+    await handlers.get("loadBranches")!({
+      command: "loadBranches",
+      hard: true,
+      token: 3
+    } as RequestMessage);
+    const res = posted.find((m) => m.command === "loadBranches") as
+      | Extract<ResponseMessage, { command: "loadBranches" }>
+      | undefined;
+    assert.ok(res, "a loadBranches response should be posted");
+    assert.strictEqual(res!.isRepo, true, "the previous repo should still answer");
+  });
+
+  test("an empty path is refused rather than bound to the host's cwd", async () => {
+    // simple-git reads an empty `baseDir` as absent and falls back to
+    // `process.cwd()` — no throw, so nothing downstream would notice. It reads
+    // as a repository whenever VS Code was started from one, which is how an
+    // unrelated repository's history ends up drawn under an empty title.
+    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
+    const persisted: (string | null)[] = [];
+    const removed: string[] = [];
+
+    const { handlers, bridge } = makeBridge();
+    registerMessageHandlers(
+      bridge,
+      makeDeps({
+        repoManager: {
+          getRepos: () => ({}),
+          setRepoState: noop,
+          removeRepo: (r: string) => removed.push(r),
+          sendRepos: noop
+        },
+        extensionState: {
+          setLastActiveRepo: (r: string | null) => persisted.push(r),
+          getLastActiveRepo: () => null
+        }
+      })
+    );
+
+    await handlers.get("selectRepo")!({ command: "selectRepo", repo: repoPath } as RequestMessage);
+    await handlers.get("selectRepo")!({ command: "selectRepo", repo: "" } as RequestMessage);
+
+    assert.deepStrictEqual(persisted, [repoPath], "an empty path must not be stored");
+    assert.deepStrictEqual(removed, [], "an empty path is not a repo to drop, just one to refuse");
   });
 });

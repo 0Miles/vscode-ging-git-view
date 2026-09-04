@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
+import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
@@ -356,5 +357,138 @@ describe("a commit ordering changed outside this panel", () => {
     mock.clearMessages();
     receive(branchesResponse);
     expect(sentOf("loadCommits")).toMatchObject([{ commitOrder: "author-date" }]);
+  });
+});
+
+// Everything above navigates while the *commit* half is in flight, which is the
+// half #84 was about. The branch half is the other one a navigation can land
+// on, and it is abandoned differently: its callback cannot be run — its tail is
+// the commit request for the repo the user just left — so whatever it owed has
+// to be taken over by hand. It owes two things.
+
+describe("a branch filter pushed while only the branch half is in flight", () => {
+  beforeAll(async () => {
+    await bootSettled();
+    // An action the user took, with its progress dialog standing. The reload
+    // that follows an action is what takes that dialog down.
+    click("fetchBtn");
+    // A hard reload caught in its branch phase: the commit half does not exist
+    // yet, so the abandonment below has only the branch half to settle.
+    click("refreshBtn");
+    mock.clearMessages();
+    // The Branches side-view pushes a filter in from outside the panel — it can
+    // reach the extension while a modal dialog is up in here.
+    receive({ command: "setBranchFilter", branches: ["main"] });
+  });
+
+  it("asks for the new filter's commits over the branch load already out", () => {
+    expect(sentOf("loadCommits")).toHaveLength(1);
+  });
+
+  it("takes down the progress dialog the abandoned reload was going to dismiss", () => {
+    // The dismissal is built inside the branch callback's close-out and nowhere
+    // else, so dropping that callback dropped the dismissal with it. Left
+    // unpaid, the dialog sat there with Escape as its only exit while the graph
+    // reloaded correctly underneath it and the indicator went out.
+    expect(document.getElementById("actionRunning")).toBeNull();
+  });
+
+  it("releases the busy claim that abandoned branch load held", () => {
+    // The other debt. Counted, not set: the reload below raises its own claim,
+    // and the indicator must go out on that one rather than on a claim nobody
+    // is left holding.
+    receive(commitsResponse("a"));
+    expect(refreshing()).toBe(false);
+  });
+});
+
+describe("a repo set the host found no live repository in", () => {
+  beforeAll(async () => {
+    await bootSettled();
+    mock.clearMessages();
+    // The repo on screen has left the set, and `null` is the host saying it has
+    // nothing to put in its place: `pickBootRepo` falls through to the first
+    // known repository whose directory is still there, so it only comes back
+    // empty-handed when none of them is.
+    receive({
+      command: "loadRepos",
+      repos: { [REPO_B]: { columnWidths: null } },
+      lastActiveRepo: null
+    });
+  });
+
+  it("selects nothing rather than a repository nobody offered", () => {
+    // The panel used to take the first key of the set here. The set is
+    // persisted and can name directories that are gone — which is why the seed
+    // moved host-side — so picking out of it is picking blind.
+    expect(sentOf("selectRepo")).toEqual([]);
+  });
+
+  it("asks for nothing at all", () => {
+    // Not merely "asks for the right repo": with no repository there is nothing
+    // to ask about, and an empty path is not a path. Sent anyway, it reaches
+    // simple-git as an absent `baseDir` and falls back to the extension host's
+    // own working directory.
+    expect(sentOf("loadBranches")).toEqual([]);
+    expect(sentOf("loadCommits")).toEqual([]);
+  });
+
+  it("leaves the busy indicator out", () => {
+    // The claim is not raised at all, rather than raised and dropped: there is
+    // no load, so there is nothing for the indicator to report.
+    expect(refreshing()).toBe(false);
+  });
+
+  it("clears the repo title rather than leaving the last repo's branch under it", () => {
+    expect(document.getElementById("repoTitleName")!.textContent).toBe("");
+    expect(document.getElementById("repoTitleBranch")!.textContent).toBe("");
+  });
+
+  it("says so in place of the graph, rather than leaving the last repo's rows up", () => {
+    // `refresh` deliberately does not blank — it is reloading, and a blank
+    // flickers — but nothing was requested here, so nothing is coming to
+    // replace what is on screen. Left up, those rows keep their listeners and
+    // every action on them goes out naming a repository that is the empty
+    // string, against a host that resolves actions from its own binding.
+    expect(graphText()).not.toContain("commit in repo A");
+    expect(graphText()).toContain(getWebviewLocalizedStrings().noRepos);
+  });
+
+  it("asks the host to index nothing when Find is opened", () => {
+    // The guard here read `=== null`, which the empty string walks past.
+    mock.clearMessages();
+    click("findBtn");
+    expect(sentOf("branchSearch")).toEqual([]);
+  });
+
+  it("sends nothing when the side-view pushes a branch filter in", () => {
+    // `reloadForBranchChange` does not go through the request funnel, so it
+    // needs a guard of its own.
+    mock.clearMessages();
+    receive({ command: "setBranchFilter", branches: ["main"] });
+    expect(sentOf("loadCommits")).toEqual([]);
+  });
+});
+
+describe("a progress dialog standing when the repository goes away", () => {
+  beforeAll(async () => {
+    await bootSettled();
+    // An action the user started while there was still a repository to start
+    // it on. Its progress dialog is taken down by the reload that follows.
+    click("fetchBtn");
+    receive({
+      command: "loadRepos",
+      repos: { [REPO_B]: { columnWidths: null } },
+      lastActiveRepo: null
+    });
+  });
+
+  it("is taken down even though the reload sends nothing", () => {
+    // The reload a lost repository triggers is hard, and a hard reload always
+    // owes the dismissal — but with no repository it sends no request, so
+    // there is no branch callback for the close-out that normally pays it to
+    // be built in. Unpaid, the dialog stands with Escape as its only exit over
+    // a graph that has already been replaced.
+    expect(document.getElementById("actionRunning")).toBeNull();
   });
 });
