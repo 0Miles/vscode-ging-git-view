@@ -88,7 +88,15 @@ export async function loadBranches(
 
   const result: LoadBranchesResult = { branches, head, hard, isRepo };
 
-  if (includeDates && !error) {
+  // The dates read and the default-branch detection ask git different questions
+  // and neither needs the other's answer, so they go out together rather than
+  // one after the other. A git spawn is tens of milliseconds on Windows and
+  // this runs on every `branchFacts` cache miss — each side-view reload, each
+  // graph branch load, each invalidation after a branch mutation — so the
+  // chain is what the user waits on. The merged read stays behind both: it
+  // needs the default branch to ask about.
+  const readDates = async () => {
+    if (!includeDates || error) return;
     try {
       const raw = await git.raw([
         "for-each-ref",
@@ -99,23 +107,35 @@ export async function loadBranches(
     } catch {
       /* best-effort: without dates nothing is classified inactive */
     }
-  }
+  };
 
-  if (includeMerged && !error) {
+  const readDefaultBranch = async () => {
+    if (!includeMerged || error) return null;
+    // Set before the read, not after: "we looked and found none" and "we did
+    // not look" are different states downstream, and the catch below must not
+    // leave the second one showing.
     result.defaultBranch = null;
     result.mergedBranches = [];
     try {
-      const defaultBranch = await detectDefaultBranch(git);
-      result.defaultBranch = defaultBranch;
-      if (defaultBranch !== null) {
-        const raw = await git.raw([
-          "for-each-ref",
-          "--merged=" + defaultBranch,
-          "--format=%(refname)",
-          ...refNamespaces(showRemoteBranches)
-        ]);
-        result.mergedBranches = parseRefnames(raw);
-      }
+      return await detectDefaultBranch(git);
+    } catch {
+      /* best-effort: without a default branch nothing is marked merged */
+      return null;
+    }
+  };
+
+  const [, defaultBranch] = await Promise.all([readDates(), readDefaultBranch()]);
+
+  if (defaultBranch !== null) {
+    result.defaultBranch = defaultBranch;
+    try {
+      const raw = await git.raw([
+        "for-each-ref",
+        "--merged=" + defaultBranch,
+        "--format=%(refname)",
+        ...refNamespaces(showRemoteBranches)
+      ]);
+      result.mergedBranches = parseRefnames(raw);
     } catch {
       /* best-effort: without the merged set nothing is marked merged */
     }
