@@ -99,8 +99,10 @@ export function gitClientFactory(
   // than process.env so it can't leak to other extensions sharing the host.
   gitEnv?: NodeJS.ProcessEnv
 ) {
-  const create = (): SimpleGit => {
-    const instance = simpleGit(gitOptions(repoPath, gitPath));
+  // 明確收下 baseDir 與 binary,而不是讀閉包變數:setter 因此能先建構、確定成功
+  // 之後才寫回狀態(見下方)。
+  const create = (forRepoPath: string, forGitPath: string): SimpleGit => {
+    const instance = simpleGit(gitOptions(forRepoPath, forGitPath));
     // Start from the (sanitised) parent environment so the child keeps
     // HOME/PATH/etc., then layer our own variables on top.
     const childEnv = inheritedGitEnv();
@@ -121,17 +123,27 @@ export function gitClientFactory(
     }
     return instance;
   };
-  let git: SimpleGit = create();
+  let git: SimpleGit = create(repoPath, gitPath);
 
+  // 兩個 setter 都是交易式的:先讓 create() 跑完,成功了才寫回 repoPath / gitPath
+  // / git,失敗則三者一律不動,呼叫端拿到的例外與先前完全相同。
+  //
+  // 這是必要的,因為 simple-git 的建構會同步驗證 baseDir:對不存在、或存在但不是
+  // 目錄的路徑,gitInstanceFactory 直接 throw GitConstructError。先寫欄位再建構的
+  // 話,一次失敗的 setRepo 會在閉包裡留下一個壞的 repoPath;之後任何一次 create()
+  // ——包括使用者改 ging-git-view.git.path 時觸發、而且沒有 try/catch 的
+  // setGitPath ——都會再炸一次。那不是一次失敗,是一個持續產出錯誤結果的損毀狀態。
   return {
     getInstance: (): SimpleGit => git,
     setRepo(newRepoPath: string) {
+      const next = create(newRepoPath, gitPath);
       repoPath = newRepoPath;
-      git = create();
+      git = next;
     },
     setGitPath(newGitPath: string) {
+      const next = create(repoPath, newGitPath);
       gitPath = newGitPath;
-      git = create();
+      git = next;
     }
   };
 }
