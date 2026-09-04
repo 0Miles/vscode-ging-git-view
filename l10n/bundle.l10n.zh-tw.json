@@ -425,7 +425,7 @@
   "dialog.cleanup.fetchFailed": "Fetch 失敗，清單仍顯示 fetch 前的狀態。",
   "dialog.cleanup.noDefaultBranch": "未偵測到 default branch，因此無法判斷 branch 是否已合併或仍有未合併的變更；清單中只會列出閒置的 branch。",
   "dialog.cleanup.remotesHidden": "目前已隱藏此存放庫的遠端 branch，因此清單中不會列出遠端 branch。",
-  "dialog.cleanup.forceNote": "git 可能會拒絕刪除未合併的 branch；完成後將統一詢問是否強制刪除。",
+  "dialog.cleanup.forceNote": "git 會拒絕刪除它不認為已合併的 branch；完成後將統一詢問是否強制刪除。",
   "dialog.cleanup.nothingChecked": "請至少勾選一個要刪除的 branch。",
   "branchView.cleanup.none": "此存放庫沒有建議清理的 branch。",
   "branchView.cleanup.failed": "無法檢查可清理的 branch",

@@ -425,7 +425,7 @@
   "dialog.cleanup.fetchFailed": "Fetch 失败，列表仍显示 fetch 前的状态。",
   "dialog.cleanup.noDefaultBranch": "未检测到 default branch，因此无法判断 branch 是否已合并或仍有未合并的更改；列表中只会列出闲置的 branch。",
   "dialog.cleanup.remotesHidden": "当前已隐藏此仓库的远程 branch，因此列表中不会列出远程 branch。",
-  "dialog.cleanup.forceNote": "git 可能会拒绝删除未合并的 branch；完成后将统一询问是否强制删除。",
+  "dialog.cleanup.forceNote": "git 会拒绝删除它不认为已合并的 branch；完成后将统一询问是否强制删除。",
   "dialog.cleanup.nothingChecked": "请至少勾选一个要删除的 branch。",
   "branchView.cleanup.none": "此仓库没有建议清理的 branch。",
   "branchView.cleanup.failed": "无法检查可清理的 branch",
