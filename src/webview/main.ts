@@ -340,11 +340,14 @@ class GitGraphView {
   // Write it only through `setCurrentBranches`, which redraws the toolbar chip.
   private currentBranches: string[] | null = null;
   // Refs the host says to render dimmed: merged into the default branch and not
-  // exempt. Sent in `loadBranches` format (`main`, `remotes/origin/main`) and
-  // kept verbatim for change detection and state persistence; `dimmedRefs` holds
-  // the same set normalised to the names the graph's chips carry (`origin/main`).
+  // exempt. Kept verbatim, in the `loadBranches` format the host sends
+  // (`main`, `remotes/origin/main`), because that is what change detection and
+  // state persistence compare. The graph's chips carry the other spelling
+  // (`origin/main`), so the lookup set is built where it is read — in
+  // {@link renderTable} — rather than stored beside this one. It was stored,
+  // and the pair then had to be written together by hand; the write that
+  // clears the graph for a repo-less panel updated only this half.
   private dimmedBranches: string[] = [];
-  private dimmedRefs = new Set<string>();
   // Refs the cleanup dialog would propose, normalised to the chips' names. Not
   // the same set as `dimmedRefs` — the exemptions differ by the branch filter —
   // and it affects nothing that is drawn: it gates one context-menu item, which
@@ -1089,7 +1092,7 @@ class GitGraphView {
 
     this.gitBranches = branchOptions;
     this.gitBranchHead = branchHead;
-    this.setDimmedBranches(dimmedBranches);
+    this.dimmedBranches = dimmedBranches;
     this.updateRepoTitle();
     // The branch filter is owned by the extension host (the Branches side-view);
     // apply whatever it resolved for this repo. An empty list means "show all".
@@ -1097,14 +1100,6 @@ class GitGraphView {
     this.saveState();
 
     this.triggerLoadBranchesCallback(true, isRepo);
-  }
-
-  /** Store the dimmed-branch set, normalising the host's `remotes/origin/x` to
-   *  the `origin/x` form the graph's ref chips carry. Without this the remote
-   *  chips would silently never match and never dim. */
-  private setDimmedBranches(dimmedBranches: string[]) {
-    this.dimmedBranches = dimmedBranches;
-    this.dimmedRefs = new Set(dimmedBranches.map(displayRef));
   }
 
   /** Apply a branch filter pushed from the extension host — a selection change
@@ -1981,8 +1976,11 @@ class GitGraphView {
     // Whether a branch ref chip should read as dimmed. The host has already
     // applied the exemptions (head, filter selection, "always show" patterns),
     // so this is a plain lookup — replicating that rule here is exactly how the
-    // two surfaces would drift apart.
-    const isDimmedRef = (name: string) => this.dimmedRefs.has(name);
+    // two surfaces would drift apart. `displayRef` normalises the host's
+    // `remotes/origin/x` to the `origin/x` the chips carry; without it the
+    // remote chips would silently never match and never dim.
+    const dimmedRefs = new Set(this.dimmedBranches.map(displayRef));
+    const isDimmedRef = (name: string) => dimmedRefs.has(name);
     // A bare `<span class="gitRef …">`; `dataName`/`label` are pre-escaped.
     const refSpan = (
       type: string,
@@ -5521,16 +5519,24 @@ class GitGraphView {
     // settle are different things, and only the first one was ever wanted.
     this.findSettledOn = this.findIdentity();
     this.clearFindHighlights();
-    for (const match of this.findMatches) {
-      const row = this.graphRowByHash(match.hash);
-      row?.classList.add("findMatch");
-      if (row !== null) {
+    // One walk of the rows, not one attribute-selector query per match.
+    // `data-hash` is not indexed, so each `graphRowByHash` walks the subtree
+    // linearly — and this runs on every keystroke in the Find box, where a
+    // loose query matches most of the graph. A thousand matches over a
+    // thousand rows was a million node visits per character typed; the string
+    // matching that produced the matches is not what costs.
+    const byHash = new Map(this.findMatches.map((match) => [match.hash, match]));
+    if (byHash.size > 0) {
+      this.tableElem.querySelectorAll<HTMLElement>("tr.commit").forEach((row) => {
+        const match = byHash.get(row.dataset.hash ?? "");
+        if (match === undefined) return;
+        row.classList.add("findMatch");
         row.querySelectorAll<HTMLElement>(".gitRef").forEach((ref) => {
           if (match.branches.some((branch) => branch.name === (ref.dataset.name ?? ""))) {
             ref.classList.add("findBranchMatch");
           }
         });
-      }
+      });
     }
     const countElem = document.getElementById("findCount");
     if (countElem !== null) {
