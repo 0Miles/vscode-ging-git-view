@@ -88,19 +88,6 @@ function click(id: string) {
   elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
-/** Pick a commit ordering from the column-header context menu — the panel's own
- *  entrance to it, as opposed to an ordering arriving already decided. */
-function chooseCommitOrder(label: string) {
-  document
-    .querySelector<HTMLElement>('th[data-col="date"]')!
-    .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => li.querySelector(".contextMenuItemLabel")?.textContent?.trim() === label);
-  expect(item, label).toBeDefined();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 /** Put a repo state for REPO_A on the wire, the way the host re-sends the set
  *  after writing to it. REPO_B rides along unchanged so the set never shrinks —
  *  a missing repo is the *other* navigation, and mixing the two would leave the
@@ -415,40 +402,6 @@ describe("a branch filter pushed while only the branch half is in flight", () =>
   });
 });
 
-describe("a repo state that predates this panel's own ordering change", () => {
-  beforeAll(async () => {
-    await bootSettled();
-    // The user picks an ordering from the column-header menu. It writes into
-    // this panel's own copy first and tells the host after, so for one round
-    // trip the two disagree about what the ordering is.
-    chooseCommitOrder(getWebviewLocalizedStrings().commitOrderAuthorDate);
-    receive(commitsResponse("a"));
-    mock.clearMessages();
-    // A `loadRepos` the host built before it applied that write. Any
-    // `sendRepos()` produces one — a repo added or removed by the workspace
-    // watcher, a rename, `checkReposExist` — and it carries the old ordering.
-    sendRepoState({ columnWidths: null });
-  });
-
-  it("does not reload the graph back into the ordering the user just left", () => {
-    // Adopted as it stands, the payload rolls the local copy back and the
-    // comparison then reads a change — in the wrong direction. The graph
-    // re-sorted itself to the old ordering, the menu's tick followed, and
-    // nothing was sent to correct the host, which had already persisted the
-    // new one; the choice then reappeared unasked on the next panel reload.
-    expect(sentOf("loadBranches")).toHaveLength(0);
-    expect(sentOf("loadCommits")).toHaveLength(0);
-  });
-
-  it("goes on loading under the ordering the user picked", () => {
-    mock.clearMessages();
-    click("refreshBtn");
-    receive(branchesResponse);
-    expect(sentOf("loadCommits")).toMatchObject([{ commitOrder: "author-date" }]);
-    receive(commitsResponse("a")); // settle it: a load left in flight outlives this suite
-  });
-});
-
 describe("a repo set the host found no live repository in", () => {
   beforeAll(async () => {
     await bootSettled();
@@ -489,5 +442,53 @@ describe("a repo set the host found no live repository in", () => {
   it("clears the repo title rather than leaving the last repo's branch under it", () => {
     expect(document.getElementById("repoTitleName")!.textContent).toBe("");
     expect(document.getElementById("repoTitleBranch")!.textContent).toBe("");
+  });
+
+  it("says so in place of the graph, rather than leaving the last repo's rows up", () => {
+    // `refresh` deliberately does not blank — it is reloading, and a blank
+    // flickers — but nothing was requested here, so nothing is coming to
+    // replace what is on screen. Left up, those rows keep their listeners and
+    // every action on them goes out naming a repository that is the empty
+    // string, against a host that resolves actions from its own binding.
+    expect(graphText()).not.toContain("commit in repo A");
+    expect(graphText()).toContain(getWebviewLocalizedStrings().noRepos);
+  });
+
+  it("asks the host to index nothing when Find is opened", () => {
+    // The guard here read `=== null`, which the empty string walks past.
+    mock.clearMessages();
+    click("findBtn");
+    expect(sentOf("branchSearch")).toEqual([]);
+  });
+
+  it("sends nothing when the side-view pushes a branch filter in", () => {
+    // `reloadForBranchChange` does not go through the request funnel, so it
+    // needs a guard of its own.
+    mock.clearMessages();
+    receive({ command: "setBranchFilter", branches: ["main"] });
+    expect(sentOf("loadCommits")).toEqual([]);
+  });
+});
+
+describe("a progress dialog standing when the repository goes away", () => {
+  beforeAll(async () => {
+    await bootSettled();
+    // An action the user started while there was still a repository to start
+    // it on. Its progress dialog is taken down by the reload that follows.
+    click("fetchBtn");
+    receive({
+      command: "loadRepos",
+      repos: { [REPO_B]: { columnWidths: null } },
+      lastActiveRepo: null
+    });
+  });
+
+  it("is taken down even though the reload sends nothing", () => {
+    // The reload a lost repository triggers is hard, and a hard reload always
+    // owes the dismissal — but with no repository it sends no request, so
+    // there is no branch callback for the close-out that normally pays it to
+    // be built in. Unpaid, the dialog stands with Escape as its only exit over
+    // a graph that has already been replaced.
+    expect(document.getElementById("actionRunning")).toBeNull();
   });
 });

@@ -61,10 +61,13 @@ export function resolveCurrentRepo(
  * that is merely *resolvable* sends the panel to no repository at all while
  * live ones sit in the very set it was handed.
  *
- * This narrows only the graph's boot seed. The side views take their repo from
- * `getLastActiveRepo` directly, so the promise that "an explicitly named path
- * can bypass the set and open directly" is untouched by this — the graph could
- * never honour such a path anyway, for the keying reason above.
+ * This narrows only the graph's *boot seed*, and the boot seed was never how an
+ * explicitly named path outside the set reached the graph: `openGraphView`
+ * follows its `loadRepos` with a `setRepo`, which swaps the panel's repo
+ * unconditionally and does not consult the set. The side views likewise take
+ * their repo from `getLastActiveRepo` directly. So the promise that "an
+ * explicitly named path can bypass the set and open directly" runs through
+ * routes this does not touch.
  */
 export function pickBootRepo(
   currentRepo: string | null,
