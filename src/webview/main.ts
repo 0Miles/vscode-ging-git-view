@@ -996,13 +996,19 @@ class GitGraphView {
       // covered the day it is named in {@link commitScopeChanged}, by whoever
       // adds it.
       //
-      // The loaded commit window is left where the user put it, alone among
-      // the navigations (ADR-0024). Nothing here is a new repository or a
-      // longer read — excluding a remote can only make the `git log` cheaper —
-      // and this path also fires for changes made outside this panel (the
+      // The loaded commit window is left where the user put it — by *this
+      // route*, whichever field moved, and not by the navigation's identity
+      // (ADR-0024). The commit ordering shrinks it when the panel's own menu
+      // changes it and does not when it arrives here already decided, and that
+      // is deliberate rather than an oversight: the reason is the route, not
+      // the field. This path fires for changes made outside this panel (the
       // shareable config file, a second graph panel), where collapsing a
       // widened graph would be a loss the user cannot account for and can only
-      // undo one Load More at a time.
+      // undo one Load More at a time — and "navigate, do not shrink" is the
+      // only safe default for a generalisation, because the alternative hands
+      // every field added to {@link commitScopeChanged} a destructive side
+      // effect nobody chose for it. Hiding a remote is not a new repository or
+      // a longer read either, so it has no cost argument to answer.
       this.navigateReload();
     }
     // Unconditional: a repo's customName may have changed without a repo switch.
@@ -4895,10 +4901,13 @@ class GitGraphView {
    *  something else, so a user who only wants the window back has to go and
    *  change something they did not want changed (ADR-0019).
    *
-   *  Four of the five navigations, not all five: hiding a remote deliberately
-   *  leaves the window alone, so that the generalisation it arrives through
-   *  ({@link commitScopeChanged}) does not hand every future field a side
-   *  effect nobody chose for it (ADR-0024).
+   *  Not every navigation, and the line is drawn by route rather than by
+   *  kind: a change recognised through {@link commitScopeChanged} — hiding a
+   *  remote, or an ordering arriving already decided from outside this panel —
+   *  deliberately leaves the window alone, so that the generalisation does not
+   *  hand every future field a side effect nobody chose for it (ADR-0024). The
+   *  commit ordering therefore shrinks it from the column-header menu and not
+   *  from that comparison, which is the same field on two routes.
    *
    *  Guarded before any state changes, on the same terms as Load More and the
    *  commit-ordering menu: a request sent while a load is in flight is dropped,

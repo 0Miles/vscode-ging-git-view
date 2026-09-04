@@ -66,12 +66,23 @@ export class ExtensionState {
   private resolveCurrentRepo() {
     this.currentRepo = resolveCurrentRepo(this.getPersistedRepoPath());
   }
-  /** Storage stops accepting paths it has no reason to believe in. Validating
-   *  only on read would mean conceding that the persisted layer may hold
-   *  rubbish and every reader must defend itself — two of the three writers
-   *  can supply it (a graph opened by explicit path persists the path verbatim
-   *  when it resolves to no known repo; the webview supplies whatever it has
-   *  selected).
+  /** Storage does not keep paths it has no reason to believe in: a rejected one
+   *  is written down as "none selected" rather than stored. Say it that way
+   *  round — this substitutes, it does not decline, and the difference shows up
+   *  in what a rejected write does to a *good* stored value: it replaces it.
+   *  Validating only on read would mean conceding that the persisted layer may
+   *  hold rubbish and every reader must defend itself — two of the three
+   *  writers can supply it (a graph opened by explicit path persists the path
+   *  verbatim when it resolves to no known repo; the webview supplies whatever
+   *  it has selected).
+   *
+   *  This is not the promise `resolveCurrentRepo` makes. That one is about
+   *  *resolution* — a stored path that will not resolve today is kept, because
+   *  no probe separates "deleted" from "not mounted right now" — and it is
+   *  honoured above, where a failed resolve touches the field and never
+   *  storage. Nothing here weakens it in practice: the predicate accepts every
+   *  path the UI can offer, so the substitution is reachable only for a value
+   *  no caller has any reason to send.
    *
    *  The predicate is membership *or* existence, not membership alone: a
    *  known repository is one this session already saw, so it needs no stat,
