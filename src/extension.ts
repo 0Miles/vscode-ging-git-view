@@ -1035,6 +1035,14 @@ export function activate(context: vscode.ExtensionContext) {
       const visible = new Set(picked.map((p) => p.label));
       const newHidden = remotes.filter((r) => !visible.has(r));
       repoManager.setRepoState(repo, { ...repos[repo], hiddenRemotes: newHidden });
+      // The reload rides on the state, not on the refresh below. `hiddenRemotes`
+      // becomes `--exclude=<remote>/*`, which makes this a navigation, and the
+      // graph recognises it by comparing the set it receives here against the
+      // one it has been loading under (ADR-0024). The refresh is kept because a
+      // repo the graph is not currently showing still wants one, and on the
+      // shown repo it now lands on the navigation's own load and is dropped —
+      // which is the whole reason it could not be trusted to do this job: a
+      // plain refresh is droppable, and a load already out swallowed it.
       repoManager.sendRepos();
       currentBridge?.post({ command: "refresh" });
     }),

@@ -903,6 +903,10 @@ class GitGraphView {
 
   /* Loading Data */
   public loadRepos(repos: GG.GitRepoSet, lastActiveRepo: string | null) {
+    // Captured before the incoming set replaces it. The comparison at the end
+    // asks whether the state this panel has been loading under has moved, and
+    // `this.gitRepos` stops being that state on the very next line.
+    const previousState = this.gitRepos[this.currentRepo];
     this.gitRepos = repos;
     this.saveState();
 
@@ -926,9 +930,64 @@ class GitGraphView {
       // acting on a repo the user chose, and can say what the new repo starts
       // from; this one is landing somewhere by elimination.
       this.navigateReload();
+    } else if (this.commitScopeChanged(previousState, repos[this.currentRepo])) {
+      // Same repository, different question — the fifth navigation, and the
+      // only one that arrives as a fact rather than as a call. Hiding a remote
+      // becomes `--exclude=<remote>/*` on the `git log`, so the commits on
+      // screen stop being the ones that belong there; but the command that
+      // does it (`toggleRemoteVisibility`) only writes the repo state and asks
+      // for a plain refresh, and a plain refresh is droppable. Recognising the
+      // change in the state that arrives is what makes it a navigation without
+      // the host having to say so — and it is why this is a comparison rather
+      // than a fifth kind of message: the next field that steers the query is
+      // covered the day it is named in {@link commitScopeChanged}, by whoever
+      // adds it.
+      //
+      // The loaded commit window is left where the user put it, alone among
+      // the navigations (ADR-0024). Nothing here is a new repository or a
+      // longer read — excluding a remote can only make the `git log` cheaper —
+      // and this path also fires for changes made outside this panel (the
+      // shareable config file, a second graph panel), where collapsing a
+      // widened graph would be a loss the user cannot account for and can only
+      // undo one Load More at a time.
+      this.navigateReload();
     }
     // Unconditional: a repo's customName may have changed without a repo switch.
     this.updateRepoTitle();
+  }
+
+  /** Whether a repo's state moved in a way that changes *which* commits a
+   *  `loadCommits` request brings back. Compared field by field and normalised
+   *  the way {@link requestLoadCommits} reads them, so a difference here is
+   *  exactly a difference in the request that would go out; the graph never
+   *  reloads over a field the host would have ignored anyway.
+   *
+   *  `before` is undefined when the panel held no state for this repo yet — a
+   *  boot, or a repo that has just appeared. There is nothing to have moved
+   *  away from then, and whatever arrived is what the opening load is already
+   *  asking with, so it is not a change.
+   *
+   *  Only the fields the request carries. `showRemoteBranches` steers the same
+   *  query, but the host resolves it from the repo's own state and it never
+   *  rides on the request (ADR-0013); catching it here would also mean
+   *  re-syncing the copy the side-view's toggle draws itself from, which is a
+   *  different fix from this one. */
+  private commitScopeChanged(
+    before: GG.GitRepoState | undefined,
+    after: GG.GitRepoState | undefined
+  ): boolean {
+    if (before === undefined || after === undefined) return false;
+    // A missing `commitOrdering` and an explicit null both mean "use the global
+    // setting", which is the `?? undefined` the request sends.
+    if ((before.commitOrdering ?? null) !== (after.commitOrdering ?? null)) return true;
+    // Sorted, because these names become `--exclude` arguments and `git log`
+    // does not care what order they arrive in. The one writer that can reorder
+    // them without adding or removing any is the shareable config file, which
+    // a user edits by hand; reloading the graph over a reordered line would be
+    // work nobody asked for.
+    const hiddenBefore = (before.hiddenRemotes ?? []).toSorted();
+    const hiddenAfter = (after.hiddenRemotes ?? []).toSorted();
+    return !arraysEqual(hiddenBefore, hiddenAfter, (a, b) => a === b);
   }
 
   /** Reload commits after the branch selection changed: reset paging, close any
@@ -4708,6 +4767,11 @@ class GitGraphView {
    *  branches, changing the commit ordering — do it as a side effect of doing
    *  something else, so a user who only wants the window back has to go and
    *  change something they did not want changed (ADR-0019).
+   *
+   *  Four of the five navigations, not all five: hiding a remote deliberately
+   *  leaves the window alone, so that the generalisation it arrives through
+   *  ({@link commitScopeChanged}) does not hand every future field a side
+   *  effect nobody chose for it (ADR-0024).
    *
    *  Guarded before any state changes, on the same terms as Load More and the
    *  commit-ordering menu: a request sent while a load is in flight is dropped,
