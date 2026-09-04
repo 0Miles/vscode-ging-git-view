@@ -646,7 +646,7 @@ export function registerMessageHandlers(
         bridge.post({
           command: "loadRepos",
           repos: repoManager.getRepos(),
-          lastActiveRepo: extensionState.getLastActiveRepo()
+          lastActiveRepo: repoManager.getBootRepo()
         });
       }
     },

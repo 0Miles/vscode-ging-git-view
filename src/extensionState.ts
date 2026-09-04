@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { ExtensionContext, Memento } from "vscode";
 
 import { getPathFromStr } from "./backend/utils/path";
+import { isUsableRepoPath, resolveCurrentRepo } from "./backend/utils/repoPath";
 import { Avatar, AvatarCache, DialogMemoryStore, GitRepoSet } from "./types";
 
 const AVATAR_STORAGE_FOLDER = "/avatars";
@@ -17,10 +18,12 @@ export class ExtensionState {
   private workspaceState: Memento;
   private globalStoragePath: string;
   private avatarStorageAvailable: boolean = false;
+  private currentRepo: string | null = null;
 
   constructor(context: ExtensionContext) {
     this.globalState = context.globalState;
     this.workspaceState = context.workspaceState;
+    this.resolveCurrentRepo();
 
     this.globalStoragePath = getPathFromStr(context.globalStoragePath);
     fs.stat(this.globalStoragePath + AVATAR_STORAGE_FOLDER, (err) => {
@@ -44,12 +47,44 @@ export class ExtensionState {
     this.workspaceState.update(REPO_STATES, gitRepoSet);
   }
 
-  /* Last Active Repo */
-  public getLastActiveRepo() {
+  /* Current repository — see `resolveCurrentRepo` for why the stored string is
+     not the answer, and why a stale one is kept rather than deleted. */
+
+  /** The stored path as written, resolved or not. Only for reporting which
+   *  path was dropped: nothing may select a repo from this. */
+  public getPersistedRepoPath() {
     return this.workspaceState.get<string | null>(LAST_ACTIVE_REPO, null);
   }
+  public getLastActiveRepo() {
+    return this.currentRepo;
+  }
+  /** Resolved once per activation, not per read: `getLastActiveRepo` has nine
+   *  callers, and a path on an unreachable network share costs seconds per
+   *  stat. Resolution is synchronous because the webview's HTML is built
+   *  synchronously — `avatarStorageAvailable` above resolves asynchronously and
+   *  an early build reads it before it lands, a race not worth inheriting. */
+  private resolveCurrentRepo() {
+    this.currentRepo = resolveCurrentRepo(this.getPersistedRepoPath());
+  }
+  /** Storage stops accepting paths it has no reason to believe in. Validating
+   *  only on read would mean conceding that the persisted layer may hold
+   *  rubbish and every reader must defend itself — two of the three writers
+   *  can supply it (a graph opened by explicit path persists the path verbatim
+   *  when it resolves to no known repo; the webview supplies whatever it has
+   *  selected).
+   *
+   *  The predicate is membership *or* existence, not membership alone: a
+   *  known repository is one this session already saw, so it needs no stat,
+   *  while `CONTEXT.md` promises that "an explicitly named path can bypass the
+   *  set and open directly" — which membership alone would break. */
   public setLastActiveRepo(repo: string | null) {
-    this.workspaceState.update(LAST_ACTIVE_REPO, repo);
+    const accepted =
+      repo === null || this.isKnownRepo(repo) || isUsableRepoPath(repo) ? repo : null;
+    this.currentRepo = accepted;
+    this.workspaceState.update(LAST_ACTIVE_REPO, accepted);
+  }
+  private isKnownRepo(repo: string) {
+    return Object.prototype.hasOwnProperty.call(this.getRepos(), repo);
   }
 
   /* Dialog "Remember my choice" values (global, shared across repos) */

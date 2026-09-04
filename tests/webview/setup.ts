@@ -17,6 +17,21 @@ export const DEFAULT_REPO = "/workspace/my-repo";
  * GitGraphViewState field lands here once instead of in every test file.
  */
 export function makeViewState(overrides: Partial<GG.GitGraphViewState> = {}): GG.GitGraphViewState {
+  const state = buildViewState(overrides);
+  // The host now resolves which repo the graph boots on and sends it as
+  // `lastActiveRepo` — the webview no longer picks one out of `repos` itself,
+  // because `repos` is persisted state that can name directories that are gone
+  // and only the host can tell. Suites that don't care which repo boots get
+  // the seed the host would send for a workspace whose repos are all present.
+  // A suite that passes `lastActiveRepo` explicitly — including `null`, which
+  // now means "the host found no live repo" — keeps what it asked for.
+  if (!("lastActiveRepo" in overrides)) {
+    state.lastActiveRepo = Object.keys(state.repos)[0] ?? null;
+  }
+  return state;
+}
+
+function buildViewState(overrides: Partial<GG.GitGraphViewState>): GG.GitGraphViewState {
   return {
     autoCenterCommitDetailsView: true,
     commitDetailsViewLocation: "Inline",

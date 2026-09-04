@@ -68,7 +68,7 @@ export function createWebviewPanel(opts: {
       bridge.post({
         command: "loadRepos",
         repos,
-        lastActiveRepo: extensionState.getLastActiveRepo()
+        lastActiveRepo: repoManager.getBootRepo()
       });
     }
   };

@@ -69,6 +69,16 @@ export function activate(context: vscode.ExtensionContext) {
   const outputChannel = vscode.window.createOutputChannel(l10n.t("outputChannel.text"));
   const logger = createLogger(outputChannel);
   const extensionState = new ExtensionState(context);
+  // The Current repository is resolved when the state is constructed. Say which
+  // path was dropped: nothing else will. The side views show their ordinary
+  // "no repository selected" state, which is now true but says nothing about
+  // what it used to be, and VS Code reports a failed activation to the user not
+  // at all. This line is the only record that the graph once pointed at, say,
+  // a `.claude/worktrees/<name>` that a tool has since removed.
+  const persistedRepoPath = extensionState.getPersistedRepoPath();
+  if (persistedRepoPath !== null && extensionState.getLastActiveRepo() === null) {
+    logger.log(`Persisted repository is gone, starting with none selected: ${persistedRepoPath}`);
+  }
   // One-off, before anything can fetch: `fetch.prune` now defaults on, which
   // would arm a `fetch.pruneTags` that had been inert and start deleting local
   // tags for a user who changed nothing. Turn it back off for them (ADR-0012).
