@@ -901,13 +901,22 @@ class GitGraphView {
     this.gitRepos = repos;
     this.saveState();
 
-    let repoPaths = Object.keys(repos),
-      changedRepo = false;
+    let changedRepo = false;
     if (typeof repos[this.currentRepo] === "undefined") {
+      // `lastActiveRepo` is the host's seed, already resolved against the file
+      // system — the webview no longer picks one itself. It used to fall back
+      // to `repoPaths[0]`, and `repos` is persisted state that can still name
+      // directories that are gone; the webview cannot tell, and the host can.
+      // The old fallback selected a deleted repo whenever it sorted first, and
+      // `<root>/.claude/worktrees/…` sorts ahead of every alphanumeric sibling
+      // once the workspace root is not itself a repo. Selecting it threw in the
+      // host, unhandled, with the spinner never cleared.
+      // Empty string when the host has no live repo to offer: falsy, so the
+      // existing `!this.currentRepo` guards read it as "none selected".
       this.currentRepo =
         lastActiveRepo !== null && typeof repos[lastActiveRepo] !== "undefined"
           ? lastActiveRepo
-          : repoPaths[0];
+          : "";
       this.saveState();
       changedRepo = true;
     }

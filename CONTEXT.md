@@ -18,10 +18,12 @@ _Avoid_: current repository, focused repository
 
 **Current repository**:
 GING 正在處理的存放庫 —— 圖形顯示它,分支與 remote 側檢視也一併跟隨它。它會跨工作階段保存,所以重新開啟的面板會回到同一個存放庫。它與 focused repository 各自獨立:通常同步,但在圖形內自行切換存放庫時就會分岔,而 GING 無法把 focused repository 拉回來對齊。
+跨工作階段保存下來的是一個**路徑字串**,不是一個保證仍然成立的存放庫 —— 目錄可能在兩次工作階段之間被刪除,或不再掛載。字串到 current repository 的解析由 `resolveCurrentRepo` 負責;問「現在的 current repository 是誰」一律以它的結果為準,不是 `workspaceState` 裡存著的東西。解析不通過時它是 `null`,而那個字串**留著不刪** —— 沒有任何探測能把「已被刪除」與「現在連不上」分開。
 _Avoid_: graph repository, active repo, last active repo
 
 **Known repository**:
 GING 已探索並納入管理的存放庫。來源有二:工作區搜尋,以及內建 git 擴充功能已開啟的所有存放庫(含 submodule 與 worktree)。只有 known repository 能出現在存放庫選單中,但明確指名的路徑仍可繞過此集合直接開啟。
+這個集合同樣是跨工作階段保存的,所以它也可能列著已經不存在的目錄 —— 集合成員的身分不等於路徑仍然可用,兩者一樣由 `resolveCurrentRepo` 那組判準來分。圖形開機時要落在哪一個存放庫,由 host 端的 `pickBootRepo` 決定後送給 webview;webview 不從這個集合裡自己挑,它拿不到檔案系統。
 _Avoid_: discovered repo, tracked repo
 
 ### 分支的狀態
