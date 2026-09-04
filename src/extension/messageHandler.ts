@@ -622,8 +622,16 @@ export function registerMessageHandlers(
     "selectRepo",
     (msg) => {
       if (msg.repo === currentRepo) return;
-      currentRepo = msg.repo;
+      // Bind the client first: it is the only step here that can fail, and it
+      // fails synchronously — simple-git validates baseDir at construction, so
+      // a repo deleted since it was last seen throws. Ordered the other way,
+      // that throw left `currentRepo` already pointing at the dead repo while
+      // `git` still pointed at the old one, and `loadBranches` reads
+      // `currentRepo!` — so every later branch load aimed at the dead repo and
+      // threw again, unhandled, with the webview's spinner never cleared.
+      // Once setRepo returns, none of the remaining four steps can fail.
       gitClient.setRepo(msg.repo);
+      currentRepo = msg.repo;
       extensionState.setLastActiveRepo(msg.repo);
       repoFileWatcher.start(msg.repo);
       onSelectRepo(msg.repo);
@@ -638,7 +646,7 @@ export function registerMessageHandlers(
         bridge.post({
           command: "loadRepos",
           repos: repoManager.getRepos(),
-          lastActiveRepo: extensionState.getLastActiveRepo()
+          lastActiveRepo: repoManager.getBootRepo()
         });
       }
     },

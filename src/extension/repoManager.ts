@@ -12,6 +12,7 @@ import {
 import { isGitRepository } from "@/backend/utils/git";
 import { getPathFromUri } from "@/backend/utils/path";
 import { evalPromises } from "@/backend/utils/promise";
+import { pickBootRepo } from "@/backend/utils/repoPath";
 import { Config } from "@/config";
 import { ExtensionState } from "@/extensionState";
 import { StatusBarItem } from "@/statusBarItem";
@@ -162,10 +163,20 @@ export function createRepoManager(
     });
   }
 
+  /** Which repo the graph boots on. Every webview handshake takes its seed from
+   *  here rather than letting the webview pick one out of the repo set: the set
+   *  is persisted and can name directories that are gone, and only the host can
+   *  tell. Not folded into `getRepos` — that has 22 callers, and the panel
+   *  rebuilds its HTML every time it becomes visible again. */
+  function getBootRepo() {
+    return pickBootRepo(extensionState.getLastActiveRepo(), Object.keys(getRepos()));
+  }
+
   return {
     registerViewCallback,
     deregisterViewCallback,
     getRepos,
+    getBootRepo,
     isDirectoryWithinRepos,
     sendRepos,
     addRepo,

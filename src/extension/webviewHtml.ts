@@ -61,7 +61,7 @@ export function buildWebviewHtml(opts: {
     issueLinkingRegex: config.issueLinkingRegex(),
     issueLinkingUrl: config.issueLinkingUrl(),
     keybindings: config.keybindings(),
-    lastActiveRepo: extensionState.getLastActiveRepo(),
+    lastActiveRepo: repoManager.getBootRepo(),
     loadMoreAutomatically: config.loadMoreAutomatically(),
     loadMoreCount: config.loadMoreCount(),
     markdown: config.markdown(),
