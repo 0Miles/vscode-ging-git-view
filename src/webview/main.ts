@@ -714,8 +714,13 @@ class GitGraphView {
       // A repo may have vanished while the list was open (loadRepos).
       this.closeRepoDropdown();
     }
+    // Falsy, not `undefined`: "none selected" arrives as the empty string when
+    // the host had no live repo to offer ({@link loadRepos}), and as
+    // `undefined` only in the moment before the first handshake. Tested for
+    // `undefined` alone, the empty string walked past and left the *previous*
+    // repo's branch name standing next to an empty repo name.
     const repo: string | undefined = this.currentRepo;
-    if (repo === undefined) {
+    if (!repo) {
       nameElem.textContent = "";
       branchElem.textContent = "";
       return;
@@ -920,8 +925,16 @@ class GitGraphView {
       // `<root>/.claude/worktrees/…` sorts ahead of every alphanumeric sibling
       // once the workspace root is not itself a repo. Selecting it threw in the
       // host, unhandled, with the spinner never cleared.
-      // Empty string when the host has no live repo to offer: falsy, so the
-      // existing `!this.currentRepo` guards read it as "none selected".
+      //
+      // Empty string when the host has no live repo to offer — and *only*
+      // then, which is why `pickBootRepo` requires the seed to be a member of
+      // this very set. Without that, a seed that had merely stayed on disk
+      // after leaving the set landed the panel here with live repos sitting in
+      // `repos`: blank title, no graph, and no way back short of closing the
+      // tab. The empty string says "none selected" and nothing else — the
+      // guards that must read it that way are in {@link updateRepoTitle} and
+      // {@link requestLoadBranchesAndCommits}, both of which take a falsy repo
+      // as an answer rather than as a path.
       this.currentRepo =
         lastActiveRepo !== null && typeof repos[lastActiveRepo] !== "undefined"
           ? lastActiveRepo
@@ -1510,12 +1523,24 @@ class GitGraphView {
     return true;
   }
   private requestLoadBranchesAndCommits(hard: boolean) {
+    // No repository, so no load — the panel is not waiting on anything and
+    // nothing that came back could be about it. Ahead of the busy claim
+    // deliberately: a load that was never started has no claim to drop, and the
+    // indicator would otherwise spin for a panel with nothing in flight.
+    //
+    // `currentRepo` is falsy exactly when the host offered no live repository
+    // ({@link loadRepos}), plus the moment before the first handshake lands.
+    // Sending regardless is what put `selectRepo` with an empty path on the
+    // wire, and simple-git reads an empty `baseDir` as absent and falls back to
+    // the extension host's own working directory — so the panel could end up
+    // drawing an unrelated repository. The host refuses that path too; this is
+    // the near side of the same refusal, and it is the one that also keeps the
+    // ledger straight.
+    if (!this.currentRepo) return;
     this.beginBusyLoad();
     // Refresh the conflict banner alongside every (re)load so it tracks the
     // repo's operation state (.git changes trigger a refresh via the watcher).
-    if (this.currentRepo) {
-      sendMessage({ command: "operationState", repo: this.currentRepo });
-    }
+    sendMessage({ command: "operationState", repo: this.currentRepo });
     const branchesSent = this.requestLoadBranches(
       hard,
       (branchChanges: boolean, isRepo: boolean) => {
@@ -4428,7 +4453,14 @@ class GitGraphView {
   private makeTableResizable(): () => void {
     let colHeadersElem = document.getElementById("tableColHeaders")!,
       cols = <HTMLCollectionOf<HTMLElement>>document.getElementsByClassName("tableColHeader");
-    let columnWidths = this.gitRepos[this.currentRepo].columnWidths,
+    // `?.`, because this runs on a redraw and a redraw does not imply a
+    // repository: a panel the host could offer no live repo to keeps the graph
+    // it had on screen ({@link refresh} does not blank), and there is then no
+    // state to read widths from. Unguarded this threw here — inside
+    // `renderTable`, *after* `innerHTML` had already been replaced — so the
+    // rows were on screen with none of the listeners below this line attached,
+    // and clicking one did nothing at all.
+    let columnWidths = this.gitRepos[this.currentRepo]?.columnWidths ?? null,
       mouseX = -1,
       col = -1;
 
@@ -4444,17 +4476,21 @@ class GitGraphView {
       }
     };
     const stopResizing = () => {
-      if (col > -1 && columnWidths !== null) {
-        col = -1;
-        mouseX = -1;
-        colHeadersElem.classList.remove("resizing");
-        this.gitRepos[this.currentRepo].columnWidths = columnWidths;
-        sendMessage({
-          command: "saveRepoState",
-          repo: this.currentRepo,
-          state: this.gitRepos[this.currentRepo]
-        });
-      }
+      if (col === -1 || columnWidths === null) return;
+      // The drag ends either way — releasing the mouse must always put the
+      // header back — and only the persistence depends on there being a repo
+      // to persist against.
+      col = -1;
+      mouseX = -1;
+      colHeadersElem.classList.remove("resizing");
+      const repoState = this.gitRepos[this.currentRepo];
+      if (repoState === undefined) return;
+      repoState.columnWidths = columnWidths;
+      sendMessage({
+        command: "saveRepoState",
+        repo: this.currentRepo,
+        state: repoState
+      });
     };
 
     for (let i = 0; i < cols.length; i++) {
@@ -5967,7 +6003,20 @@ class GitGraphView {
     const files = document.getElementById("commitDetailsFiles");
     const divider = document.getElementById("detailsDivider");
     const heightGrip = document.getElementById("detailsResizeGrip");
-    if (summary === null || files === null || divider === null || heightGrip === null) return;
+    // `repoState` joins the DOM lookups rather than being asserted: everything
+    // below reads a per-repo size or writes one back, and a panel with no
+    // repository selected has neither. Both halves are the same kind of
+    // absence — the pieces this needs are not there — and both leave the view
+    // at its CSS defaults rather than throwing mid-render.
+    if (
+      repoState === undefined ||
+      summary === null ||
+      files === null ||
+      divider === null ||
+      heightGrip === null
+    ) {
+      return;
+    }
 
     if (typeof repoState.detailsPanelHeight === "number")
       row.style.height = repoState.detailsPanelHeight + "px";
@@ -5990,7 +6039,7 @@ class GitGraphView {
         sendMessage({
           command: "saveRepoState",
           repo: this.currentRepo!,
-          state: this.gitRepos[this.currentRepo]
+          state: repoState
         });
       };
       document.addEventListener("mousemove", move);
@@ -6491,12 +6540,18 @@ class GitGraphView {
   private setFileViewType(fileViewType: GG.FileViewType) {
     if (fileViewType !== "File Tree" && fileViewType !== "File List") return;
     if (fileViewType === this.getFileViewType()) return;
-    this.gitRepos[this.currentRepo].fileViewType = fileViewType;
+    // Nowhere to persist the choice to, so there is no choice to make. Reached
+    // only through a Commit Details View left open over a panel that has since
+    // lost its repository; {@link getFileViewType} already falls back to the
+    // setting on the read side.
+    const repoState = this.gitRepos[this.currentRepo];
+    if (repoState === undefined) return;
+    repoState.fileViewType = fileViewType;
     this.saveState();
     sendMessage({
       command: "saveRepoState",
       repo: this.currentRepo,
-      state: this.gitRepos[this.currentRepo]
+      state: repoState
     });
 
     const expanded = this.expandedCommit;
