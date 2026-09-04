@@ -127,6 +127,7 @@ describe("rebase --onto from the commit context menu", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "topic", "dup-a", "dup-b", "fix&bug"],
       head: "topic",
       hard: true,
@@ -135,6 +136,7 @@ describe("rebase --onto from the commit context menu", () => {
     });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "w2",
       moreCommitsAvailable: false,
@@ -325,6 +327,7 @@ describe("rebase --onto from the commit context menu", () => {
     // watcher: the name in the printed command now covers one commit fewer.
     receive({
       command: "loadCommits",
+      token: 0,
       commits: commits.map((c) =>
         c.hash === "w2"
           ? node("w2", ["w1"], "wanted 2")

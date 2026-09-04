@@ -57,6 +57,7 @@ describe("merged ref chips in the graph", () => {
     await import("@/webview/main");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "done", "wip", "remotes/origin/done"],
       head: "main",
       hard: true,
@@ -73,6 +74,7 @@ describe("merged ref chips in the graph", () => {
     });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "aaa111",
       moreCommitsAvailable: false,
@@ -103,6 +105,7 @@ describe("merged ref chips in the graph", () => {
   it("dims nothing when the host sends no dimmed set", () => {
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main", "done", "wip", "remotes/origin/done"],
       head: "main",
       hard: true,
@@ -111,6 +114,7 @@ describe("merged ref chips in the graph", () => {
     });
     receive({
       command: "loadCommits",
+      token: 0,
       commits,
       head: "aaa111",
       moreCommitsAvailable: false,

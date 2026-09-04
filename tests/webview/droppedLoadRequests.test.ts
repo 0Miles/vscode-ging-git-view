@@ -47,6 +47,7 @@ const commits: GitCommitNode[] = [
 
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
+  token: 0,
   branches: ["main"],
   head: "main",
   hard: true,
@@ -56,6 +57,7 @@ const branchesResponse: GG.ResponseMessage = {
 
 const commitsResponse: GG.ResponseMessage = {
   command: "loadCommits",
+  token: 0,
   commits,
   head: "aaa111",
   moreCommitsAvailable: true,
@@ -298,45 +300,68 @@ describe("a commit load request arriving while one is in flight", () => {
     });
   });
 
+  // The one caller that is *not* refused, and the reason this file is not
+  // simply "requests in flight win". A branch-filter change is a navigation:
+  // the commits on screen answer a question the user has replaced, and the load
+  // it would have stood down for has never heard of the new filter — so nothing
+  // is coming to correct the graph. It abandons that load instead (#84).
   describe("from a branch-filter change pushed by the Branches side-view", () => {
     let chipBefore: string | null = null;
+    // The page request the filter change abandons — kept so its answer can be
+    // delivered below, which is the only way to observe that it is dropped.
+    let abandonedPage: Extract<GG.RequestMessage, { command: "loadCommits" }> | undefined;
 
     beforeAll(() => {
       receive(commitsResponse); // settle the previous refresh
       chipBefore = filterChipText();
       // Widen the loaded commit window to 700 and leave that load in flight.
       click("loadMoreCommitsBtn");
+      abandonedPage = sentOf("loadCommits").at(-1) as typeof abandonedPage;
       mock.clearMessages();
       receive({ command: "setBranchFilter", branches: ["feature/x"] });
     });
 
-    it("does not reload the graph", () => {
-      expect(sentOf("loadCommits")).toHaveLength(0);
+    it("reloads the graph over the page in flight", () => {
+      // At the opening count, not the 700 the abandoned page asked for: the
+      // filter decides which commits exist to page through, so the window goes
+      // back to the start with it.
+      expect(sentOf("loadCommits")).toMatchObject([{ maxCommits: 300 }]);
     });
 
-    it("still applies the filter — a host push has no retry and must not vanish", () => {
-      // Only the reload is dropped. Refusing the push outright would leave the
-      // side-view showing a filter the graph never heard of, with nothing to
-      // correct it; the graph catches up on the next load instead.
+    it("asks with the new filter, which is the point of reloading at all", () => {
+      expect(sentOf("loadCommits")).toMatchObject([{ branchNames: ["feature/x"] }]);
+    });
+
+    it("applies the filter — a host push has no retry and must not vanish", () => {
       expect(chipBefore).toBe("");
       expect(filterChipText()).toBe("feature/x");
     });
 
-    it("leaves the Refresh button alone rather than spinning it forever", () => {
-      expect(refreshing()).toBe(false);
+    it("spins the Refresh button for the load it sent in its place", () => {
+      // One claim released with the abandoned page, one raised for the reload:
+      // the indicator never went out, because a load never stopped running.
+      expect(refreshing()).toBe(true);
     });
 
-    describe("and once the in-flight load lands", () => {
+    describe("and when the abandoned page finally answers", () => {
       beforeAll(() => {
-        receive(commitsResponse);
         mock.clearMessages();
-        click("loadMoreCommitsBtn");
+        // Nothing can stop a git read already running; what stops its answer is
+        // the navigation token it was stamped with.
+        receive({ ...commitsResponse, token: abandonedPage!.token }, { keepToken: true });
       });
 
-      it("leaves the loaded commit window where Load More left it", () => {
-        // 800, not 400: applying the change would have snapped the window back
-        // to the opening 300 for a graph that never reloaded.
-        expect(sentOf("loadCommits")).toMatchObject([{ maxCommits: 800 }]);
+      it("keeps spinning: that answer is not the load the panel is waiting on", () => {
+        expect(refreshing()).toBe(true);
+      });
+
+      it("leaves the loaded commit window at the reload's, not the page's", () => {
+        receive(commitsResponse); // the reload's own answer
+        mock.clearMessages();
+        click("loadMoreCommitsBtn");
+        // 400, not 800: the window restarted with the filter, and the page that
+        // had widened it to 700 was abandoned before it could count.
+        expect(sentOf("loadCommits")).toMatchObject([{ maxCommits: 400 }]);
       });
     });
   });

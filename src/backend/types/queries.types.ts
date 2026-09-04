@@ -53,12 +53,25 @@ type QueryPayloads = {
     /** No `showRemoteBranches`: the host resolves it per repo. The webview's
      *  copy is a one-way echo of that state and could only ever be staler,
      *  which is one of the two surfaces' disagreements ADR-0013 removes. */
-    request: { hard: boolean };
+    request: {
+      hard: boolean;
+      /** Which navigation this request belongs to. The host reads it exactly
+       *  once, to copy it onto the response: it is the webview's own counter,
+       *  bumped whenever the user changes *which* commits belong on screen
+       *  (repo, remote-branch visibility, branch filter). A navigation
+       *  abandons the loads already out rather than waiting for them, so two
+       *  answers to two different questions can be in the air at once and the
+       *  messaging is command-keyed, not request-id'd — without this the
+       *  webview would draw the abandoned one over the repo it moved to (#84). */
+      token: number;
+    };
     response: {
       branches: string[];
       head: string | null;
       hard: boolean;
       isRepo: boolean;
+      /** Verbatim echo of the request's `token`; carries no host knowledge. */
+      token: number;
       /** Refs the graph should render dimmed, in branch-list format: merged
        *  into the default branch and not exempt — i.e. exactly the branches the
        *  side-view's "hide merged" toggle would remove. The exemptions are
@@ -115,6 +128,9 @@ type QueryPayloads = {
        *  would work too — the round trip is what the protocol already gives us,
        *  not the only thing that could pin it. */
       hard: boolean;
+      /** Which navigation this request belongs to; see the `loadBranches`
+       *  request field. */
+      token: number;
       commitOrder?: CommitOrdering;
       /** Remote names whose branches are hidden. */
       hiddenRemotes?: string[];
@@ -125,6 +141,8 @@ type QueryPayloads = {
       moreCommitsAvailable: boolean;
       /** Verbatim echo of the request's `hard`; carries no host knowledge. */
       hard: boolean;
+      /** Verbatim echo of the request's `token`; carries no host knowledge. */
+      token: number;
     };
   };
 };

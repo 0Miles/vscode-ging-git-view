@@ -81,6 +81,7 @@ const commits: GitCommitNode[] = [
 
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
+  token: 0,
   branches: ["main", "feature"],
   head: "main",
   hard: true,
@@ -93,6 +94,7 @@ const branchesResponse: GG.ResponseMessage = {
  *  re-attach. */
 const commitsResponse: GG.ResponseMessage = {
   command: "loadCommits",
+  token: 0,
   commits,
   head: "aaa111",
   moreCommitsAvailable: false,

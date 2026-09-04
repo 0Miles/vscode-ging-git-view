@@ -33,6 +33,7 @@ describe("toolbar repo title", () => {
   it("shows the checked-out branch once branches load", () => {
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,
@@ -48,6 +49,7 @@ describe("toolbar repo title", () => {
     expect(titleText()).toBe("repo-b");
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["develop"],
       head: "develop",
       hard: true,

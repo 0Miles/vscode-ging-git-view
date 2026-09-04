@@ -24,6 +24,7 @@ describe("showRemoteBranches per-repo override", () => {
     // reasons that have nothing to do with what is under test.
     receive({
       command: "loadBranches",
+      token: 0,
       branches: ["main"],
       head: "main",
       hard: true,

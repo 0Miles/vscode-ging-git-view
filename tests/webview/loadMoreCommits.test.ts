@@ -59,6 +59,7 @@ const commits: GitCommitNode[] = [
 
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
+  token: 0,
   branches: ["main"],
   head: "main",
   hard: true,
@@ -68,6 +69,7 @@ const branchesResponse: GG.ResponseMessage = {
 
 const commitsResponse: GG.ResponseMessage = {
   command: "loadCommits",
+  token: 0,
   commits,
   head: "aaa111",
   moreCommitsAvailable: true,

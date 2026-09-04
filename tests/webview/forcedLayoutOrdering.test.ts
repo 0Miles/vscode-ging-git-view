@@ -266,6 +266,7 @@ function commits(variant: 0 | 1): GitCommitNode[] {
 
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
+  token: 0,
   branches: ["main"],
   head: "main",
   hard: true,
@@ -276,6 +277,7 @@ const branchesResponse: GG.ResponseMessage = {
 function commitsResponse(variant: 0 | 1): GG.ResponseMessage {
   return {
     command: "loadCommits",
+    token: 0,
     commits: commits(variant),
     head: "aaa111",
     moreCommitsAvailable: true,

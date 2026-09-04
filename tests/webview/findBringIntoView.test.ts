@@ -126,6 +126,7 @@ const amendedPage: GitCommitNode[] = epiloguePage.filter((c) => c.hash !== "eee5
 
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
+  token: 0,
   branches: ["main"],
   head: "main",
   hard: true,
@@ -136,6 +137,7 @@ const branchesResponse: GG.ResponseMessage = {
 function commitsResponse(loaded: GitCommitNode[]): GG.ResponseMessage {
   return {
     command: "loadCommits",
+    token: 0,
     commits: loaded,
     head: "aaa111",
     moreCommitsAvailable: true,

@@ -59,6 +59,7 @@ const viewState: GG.GitGraphViewState = {
  *  the view half-applied (issue #39). */
 const brokenResponse = {
   command: "loadBranches",
+  token: 0,
   branches: null,
   head: null,
   hard: true,
@@ -148,6 +149,7 @@ describe("failures the webview cannot handle (issue #39)", () => {
     mock.clearMessages();
     receive({
       command: "loadCommits",
+      token: 0,
       commits: null,
       head: null,
       moreCommitsAvailable: false,
