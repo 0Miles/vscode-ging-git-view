@@ -36,7 +36,12 @@ const viewState: GG.GitGraphViewState = {
   issueLinkingRegex: "",
   issueLinkingUrl: "",
   keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
-  lastActiveRepo: null,
+  // The repo the host would seed for this set: `null` alongside a non-empty
+  // `repos` is a shape the host no longer produces (`pickBootRepo` falls
+  // through to the first live known repository), and taking it literally boots
+  // the panel onto no repository at all — which sends no load, so there is no
+  // answer for this suite's broken response to be an answer *to*.
+  lastActiveRepo: REPO,
   loadMoreAutomatically: true,
   loadMoreCount: 100,
   markdown: false,

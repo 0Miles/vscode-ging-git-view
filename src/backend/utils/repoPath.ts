@@ -44,18 +44,33 @@ export function resolveCurrentRepo(
 }
 
 /**
- * Which repo the graph should boot on: the Current repository when it resolved,
- * otherwise the first known repository whose directory is still there.
+ * Which repo the graph should boot on: the Current repository when it resolved
+ * *and* is still one of the known ones, otherwise the first known repository
+ * whose directory is still there.
  *
  * This is the host's call, not the webview's — the webview receives the repo
  * set but cannot check any of it against the file system. `find` stops at the
  * first hit, so the ordinary cost is one stat.
+ *
+ * Membership, and not resolution alone, because the seed only means anything
+ * alongside the set it travels with: the webview keys straight into that set
+ * and has no way to honour a path that is not a key of it. The Current
+ * repository can leave the set without leaving the disk — `checkReposExist`
+ * and `removeReposNotInWorkspace` drop a directory that is no longer a repo or
+ * no longer in the workspace, and neither clears the stored path — so a seed
+ * that is merely *resolvable* sends the panel to no repository at all while
+ * live ones sit in the very set it was handed.
+ *
+ * This narrows only the graph's boot seed. The side views take their repo from
+ * `getLastActiveRepo` directly, so the promise that "an explicitly named path
+ * can bypass the set and open directly" is untouched by this — the graph could
+ * never honour such a path anyway, for the keying reason above.
  */
 export function pickBootRepo(
   currentRepo: string | null,
   knownRepoPaths: string[],
   isUsable: (p: string) => boolean = isUsableRepoPath
 ): string | null {
-  if (currentRepo !== null) return currentRepo;
+  if (currentRepo !== null && knownRepoPaths.includes(currentRepo)) return currentRepo;
   return knownRepoPaths.find((p) => isUsable(p)) ?? null;
 }
