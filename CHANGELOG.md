@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.6.1](https://github.com/0Miles/vscode-ging-git-view/compare/v0.6.0...v0.6.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* **git-client:** build the client before the setters commit to it ([1eb280c](https://github.com/0Miles/vscode-ging-git-view/commit/1eb280c6c2c99907586eb5acc9d8152f2b5ed5b1))
+* give GING a terminal state for a Current repository that is gone ([6fe851f](https://github.com/0Miles/vscode-ging-git-view/commit/6fe851fa6f80bfe583b78159e6b3cae1199e243c))
+* **l10n:** git refuses, it does not "may refuse" ([5f4fded](https://github.com/0Miles/vscode-ging-git-view/commit/5f4fdedc186289c4616c17a2a96a922e0362f114))
+* **repo-boot:** seed the graph with a repository it can actually open ([6eeb465](https://github.com/0Miles/vscode-ging-git-view/commit/6eeb465dbd30693eb9ddd7e251d615ab43e78e4a))
+* **repo-selection:** bind the git client before selectRepo commits to it ([9aa58de](https://github.com/0Miles/vscode-ging-git-view/commit/9aa58de877cc1898cf7caf3315d3cbd363303ae8))
+* **repo-selection:** refuse a repository that is empty or gone ([9e8f90c](https://github.com/0Miles/vscode-ging-git-view/commit/9e8f90c78c447f66660573d5fba323c9efba5c64))
+* **repo-state:** resolve the persisted repo path before anything reads it ([084af45](https://github.com/0Miles/vscode-ging-git-view/commit/084af45eaad6f50f0b44578d6ca0d70e109af17f))
+* the graph must not land on a repository nobody chose ([a1f63bc](https://github.com/0Miles/vscode-ging-git-view/commit/a1f63bc9f0e0ecc58d3b67e5d8f62d2a2da0e313))
+* **ui:** polish branch cleanup feedback ([bdc0a3d](https://github.com/0Miles/vscode-ging-git-view/commit/bdc0a3dc5c976636a928fa53fc4b515e95f3384c))
+* **ui:** polish branch cleanup feedback ([2ccdc39](https://github.com/0Miles/vscode-ging-git-view/commit/2ccdc39ab462870be30cda63ed58b6439fe15362))
+* **webview:** "no repository" is an answer, not a repository path ([cbfb28b](https://github.com/0Miles/vscode-ging-git-view/commit/cbfb28bd90872652d423e656a70aa8068ea35c36))
+* **webview:** a navigation must settle what it abandoned, and ignore what predates it ([c1dbaca](https://github.com/0Miles/vscode-ging-git-view/commit/c1dbacafbfcf245b696e4bf08daa39bc698439fc))
+* **webview:** close the holes the first pass at the no-repository state left ([1116f7f](https://github.com/0Miles/vscode-ging-git-view/commit/1116f7f4ec749ba687a18068b1bdd2bd59da5172))
+* **webview:** hiding a remote is a navigation, not a droppable refresh ([3742412](https://github.com/0Miles/vscode-ging-git-view/commit/37424126d43503811089f773979034165e5ca5c7))
+* **webview:** navigation abandons the load in flight ([#84](https://github.com/0Miles/vscode-ging-git-view/issues/84)) ([2cbbe3f](https://github.com/0Miles/vscode-ging-git-view/commit/2cbbe3f23adc95d397deb79f95714d9d08672ec2))
+* **webview:** navigation abandons the load in flight ([#84](https://github.com/0Miles/vscode-ging-git-view/issues/84)) ([a07b58c](https://github.com/0Miles/vscode-ging-git-view/commit/a07b58c5a19d0b3b1f5029b0f52700c5f3cca5ba))
+* **webview:** navigation abandons the load in flight ([#84](https://github.com/0Miles/vscode-ging-git-view/issues/84)) ([9c24e9c](https://github.com/0Miles/vscode-ging-git-view/commit/9c24e9c9d8278eb2bdb9d0ed417acfda43eeed55))
+
 ## [0.6.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.5.0...v0.6.0) (2026-09-01)
 
 
