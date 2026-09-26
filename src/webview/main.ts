@@ -7642,7 +7642,6 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "mergeBranch":
     case "mergeCommit":
     case "pullBranch":
-    case "pushBranch":
     case "pushTag":
     case "renameBranch":
     case "resetToCommit":
@@ -7738,6 +7737,9 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "deleteBranch":
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
+      break;
+    case "pushBranch":
+      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -7863,9 +7865,10 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
  * the host injects into the page — read at load time it would be read too
  * early. Keying by `keyof LocalizedStrings` also type-checks the other side.
  *
- * `deleteBranch` is excluded because it does not belong here: it reports
- * `notFullyMerged` as well, and the offer to force the delete is built from
- * that. `fetch` is included though it is not an action — its response carries
+ * `deleteBranch` and `pushBranch` are excluded because they do not belong
+ * here: each reports a classification as well (`notFullyMerged`,
+ * `remoteUpdatedSinceCheckout`) and has a response handler built on it. `fetch`
+ * is included though it is not an action — its response carries
  * `status` and reports failure exactly the same way.
  *
  * The three rebases share one message deliberately: which of them ran was
@@ -7873,7 +7876,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
  * the person reading the error (ADR-0022).
  */
 const ACTION_FAILURE: Record<
-  Exclude<ActionRequest["command"], "deleteBranch"> | "fetch",
+  Exclude<ActionRequest["command"], "deleteBranch" | "pushBranch"> | "fetch",
   keyof LocalizedStrings
 > = {
   addTag: "unableToAddTag",
@@ -7899,7 +7902,6 @@ const ACTION_FAILURE: Record<
   mergeBranch: "unableToMergeBranch",
   mergeCommit: "unableToMergeCommit",
   pullBranch: "unableToPullBranch",
-  pushBranch: "unableToPushBranch",
   pushTag: "unableToPushTag",
   renameBranch: "unableToRenameBranch",
   resetToCommit: "unableToReset",
@@ -7920,6 +7922,25 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
     // manual refresh. (Harmless for non-operation failures — state is unchanged.)
     showErrorDialog(errorMessage, status, null, () => gitGraph.refresh(false));
   }
+}
+
+/** Handle a pushBranch response. A Force with lease refused because the remote
+ *  tip was never integrated (ADR-0025) gets an explanation — git's own reason,
+ *  "remote ref updated since checkout", names no next step — with git's line
+ *  kept beneath it. The explanation names the Force option instead of offering
+ *  it: overwriting someone's work stays a separate, deliberate choice. */
+function handlePushBranchResponse(status: GitCommandStatus, remoteUpdatedSinceCheckout: boolean) {
+  refreshGraphOrDisplayError(
+    status,
+    remoteUpdatedSinceCheckout
+      ? l10n.unableToPushBranch +
+          "<br>" +
+          l10n.dialogPushForceLeaseRefused.replace(
+            "{0}",
+            "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>"
+          )
+      : l10n.unableToPushBranch
+  );
 }
 
 /* Dates */
