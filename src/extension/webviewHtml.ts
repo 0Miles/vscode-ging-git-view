@@ -76,6 +76,7 @@ export function buildWebviewHtml(opts: {
     uncommittedChangesAtHead: config.uncommittedChangesAtHead(),
     showSpecificBranches: config.showSpecificBranches(),
     showRemoteBranches: config.showRemoteBranches(),
+    repoSettingDefaults: config.repoSettingDefaults(),
     showTags: config.showTags()
   };
 

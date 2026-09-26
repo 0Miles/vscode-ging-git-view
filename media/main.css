@@ -935,7 +935,8 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn,
 #blinkHeadBtn,
 #fetchBtn,
-#refreshBtn {
+#refreshBtn,
+#repoSettingsBtn {
   position: relative;
   flex: 0 0 auto;
   width: 20px;
@@ -946,7 +947,8 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn svg,
 #blinkHeadBtn svg,
 #fetchBtn svg,
-#refreshBtn svg {
+#refreshBtn svg,
+#repoSettingsBtn svg {
   position: absolute;
   fill: var(--vscode-editor-foreground);
   opacity: 0.8;
@@ -962,7 +964,8 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn:hover svg,
 #blinkHeadBtn:hover svg,
 #fetchBtn:hover svg,
-#refreshBtn:hover svg {
+#refreshBtn:hover svg,
+#repoSettingsBtn:hover svg {
   opacity: 1;
   stroke-width: 0.5px;
 }
@@ -970,7 +973,8 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn svg,
 #blinkHeadBtn svg,
 #fetchBtn svg,
-#refreshBtn svg {
+#refreshBtn svg,
+#repoSettingsBtn svg {
   left: 2px;
   top: 2px;
   width: 16px !important;
@@ -982,7 +986,8 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn:hover,
 #blinkHeadBtn:hover,
 #fetchBtn:hover,
-#refreshBtn:hover {
+#refreshBtn:hover,
+#repoSettingsBtn:hover {
   background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
   border-radius: 5px;
 }
@@ -1162,6 +1167,12 @@ body.vscode-high-contrast #contextMenu {
 #dialog > table.dialogForm .dialogFormCheckbox input[type="checkbox"] {
   margin-left: 0;
   margin-right: 6px;
+}
+/* A hover note beside a form label: the one line of warning a checkbox needs
+   and a label has no room for. */
+#dialog .dialogInfo {
+  cursor: help;
+  opacity: 0.7;
 }
 #dialog > table.dialogForm input[type="text"] {
   width: 100%;

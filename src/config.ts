@@ -15,7 +15,8 @@ import {
   FileViewType,
   GraphStyle,
   KeybindingConfig,
-  RefSpaceSubstitution
+  RefSpaceSubstitution,
+  RepoSettingDefaults
 } from "./types";
 
 type TabIconColourTheme = "colour" | "grey";
@@ -201,6 +202,18 @@ export const config = {
   showSignatureStatus: (): boolean => getConfig("history.showSignatures", false),
   showStashes: (): boolean => getConfig("show.stashes", true),
   showCurrentBranchByDefault: (): boolean => getConfig("onOpen.selectCheckedOutBranch", false),
+  /** What a repo that has not overridden them gets, keyed by the `GitRepoState`
+   *  field that overrides each: the host resolves the graph's load scope from
+   *  it, and the Repository Settings dialog shows it (#183). */
+  repoSettingDefaults: (): RepoSettingDefaults => ({
+    onlyFollowFirstParent: config.onlyFollowFirstParent(),
+    includeReflogCommits: config.includeCommitsMentionedByReflogs(),
+    showStashes: config.showStashes(),
+    showTagOnlyCommits: config.showCommitsOnlyReferencedByTags(),
+    showRemoteHeads: config.showRemoteHeads(),
+    showInactiveBranches: config.showInactiveBranchesByDefault(),
+    showMergedBranches: config.showMergedBranchesByDefault()
+  }),
   // Where the open (hollow) circle for uncommitted changes is drawn —
   // at the uncommitted-changes node (default) or at the checked-out commit.
   uncommittedChangesAtHead: (): boolean =>

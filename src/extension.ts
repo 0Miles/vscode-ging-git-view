@@ -50,6 +50,7 @@ import {
 } from "./extension/remotesView";
 import { createRepoGitClients } from "./extension/repoGitClients";
 import { createRepoManager } from "./extension/repoManager";
+import { resolveRepoScope } from "./extension/repoSettings";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
 import { SequenceEditorManager } from "./extension/sequenceEditor/sequenceEditorManager";
 import { showStatistics } from "./extension/statisticsPanel";
@@ -236,6 +237,11 @@ export function activate(context: vscode.ExtensionContext) {
       const next = !(state[field] ?? globalDefault());
       repoManager.setRepoState(repo, { ...state, [field]: next });
       branchesView.refresh();
+      // The graph keeps its own copy of the repo state and writes all of it
+      // back whenever it persists anything (a column drag is enough), so a copy
+      // that never heard of this toggle would quietly undo it. It is also what
+      // the Repository Settings dialog opens with (#183).
+      repoManager.sendRepos();
       onToggled?.(next);
     };
   };
@@ -380,6 +386,9 @@ export function activate(context: vscode.ExtensionContext) {
       branchFacts,
       branchCleanup,
       resolveShowRemote,
+      resolveRepoScope: (repo) =>
+        resolveRepoScope(repoManager.getRepos()[repo], config.repoSettingDefaults()),
+      onSideViewStateChanged: () => branchesView.refresh(),
       logger,
       sequenceEditor,
       onSelectRepo: (repo) => {

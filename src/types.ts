@@ -109,6 +109,36 @@ export type GitRepoState = {
   detailsPanelHeight?: number | null;
   /** Inline Commit Details View summary/files split, 0–1; unset = 0.45. */
   detailsDivider?: number | null;
+} & {
+  /** Per-repo overrides of the settings that decide which commits the graph
+   *  loads, set from the Repository Settings dialog (#183); null/undefined uses
+   *  the global setting. */
+  [K in keyof RepoScopeSettings]?: boolean | null;
+};
+
+/** The settings that decide which commits a `loadCommits` request walks and
+ *  that a repo can override — all resolved by the host from the repo's state,
+ *  none of them riding on the request (the `showRemoteBranches` shape, not the
+ *  `commitOrdering` one). Named by the `GitRepoState` field that overrides each. */
+export type RepoScopeSettings = {
+  /** `history.firstParentOnly` — `git log --first-parent`. */
+  onlyFollowFirstParent: boolean;
+  /** `history.includeReflogCommits` — `git log --reflog`. */
+  includeReflogCommits: boolean;
+  /** `show.stashes`. */
+  showStashes: boolean;
+  /** `show.tagOnlyCommits` — commits reachable only from tags. */
+  showTagOnlyCommits: boolean;
+  /** `show.remoteHeads` — `origin/HEAD` and its kind. */
+  showRemoteHeads: boolean;
+};
+
+/** The global values the Repository Settings dialog shows for a repo that has
+ *  not overridden them. `showRemoteBranches` is not here: the view state has
+ *  carried its global value since before the dialog existed. */
+export type RepoSettingDefaults = RepoScopeSettings & {
+  showInactiveBranches: boolean;
+  showMergedBranches: boolean;
 };
 
 export type GitGraphViewState = {
@@ -164,6 +194,7 @@ export type GitGraphViewState = {
   uncommittedChangesAtHead: boolean;
   showSpecificBranches: string[];
   showRemoteBranches: boolean;
+  repoSettingDefaults: RepoSettingDefaults;
   showTags: boolean;
 };
 

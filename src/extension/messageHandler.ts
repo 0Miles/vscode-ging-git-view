@@ -67,7 +67,7 @@ import { copyToClipboard } from "@/extension/utils/clipboard";
 import { ExtensionState } from "@/extensionState";
 import * as l10n from "@/l10n";
 import { RepoFileWatcher } from "@/repoFileWatcher";
-import { RequestMessage, ResponseMessage } from "@/types";
+import { RepoScopeSettings, RequestMessage, ResponseMessage } from "@/types";
 
 import { resolveCleanupCandidates } from "./branchCleanup";
 import { type BranchCleanup } from "./branchCleanupService";
@@ -75,6 +75,7 @@ import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
 import { type Logger } from "./logger";
 import { RepoManager } from "./repoManager";
+import { sideViewStateChanged } from "./repoSettings";
 import { WebviewBridge } from "./webviewBridge";
 import { createWebviewErrorSink } from "./webviewErrorSink";
 
@@ -141,6 +142,13 @@ export function registerMessageHandlers(
     /** The repo's "show remote branches" state. The webview no longer sends its
      *  own copy: it was a one-way echo of this and could only be staler. */
     resolveShowRemote: (repo: string) => boolean;
+    /** The repo's load scope — first-parent, reflog, stashes, tag-only commits,
+     *  remote heads — with its per-repo overrides applied. Resolved here rather
+     *  than sent by the webview, for the same reason as `resolveShowRemote`. */
+    resolveRepoScope: (repo: string) => RepoScopeSettings;
+    /** Called after a webview write moved something the Branches side-view
+     *  draws itself from, so it can re-list. */
+    onSideViewStateChanged: () => void;
     /** The GING Output Channel, which is also where the webview's own failures
      *  are written down (ADR-0016). */
     logger: Logger;
@@ -160,6 +168,8 @@ export function registerMessageHandlers(
     branchFacts,
     branchCleanup,
     resolveShowRemote,
+    resolveRepoScope,
+    onSideViewStateChanged,
     logger,
     onSelectRepo
   } = deps;
@@ -302,13 +312,16 @@ export function registerMessageHandlers(
       let branches: BranchSearchEntry[] = [];
       let status: string | null = null;
       try {
+        // The index has to walk the same history the graph was loaded from,
+        // or Find would offer commits the graph cannot reach.
+        const scope = resolveRepoScope(currentRepo!);
         ({ branches } = await loadBranchSearchIndex(gitClient.getInstance(), {
           branchNames: msg.branchNames,
           showRemoteBranches: resolveShowRemote(currentRepo!),
           commitOrder: msg.commitOrder ?? config.commitOrder(),
-          onlyFollowFirstParent: config.onlyFollowFirstParent(),
-          showCommitsOnlyReferencedByTags: config.showCommitsOnlyReferencedByTags(),
-          includeCommitsMentionedByReflogs: config.includeCommitsMentionedByReflogs(),
+          onlyFollowFirstParent: scope.onlyFollowFirstParent,
+          showCommitsOnlyReferencedByTags: scope.showTagOnlyCommits,
+          includeCommitsMentionedByReflogs: scope.includeReflogCommits,
           hiddenRemotes: msg.hiddenRemotes ?? []
         }));
       } catch (error: unknown) {
@@ -327,6 +340,10 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "loadCommits",
     async (msg) => {
+      // Read before the first await, as everything else here is: a
+      // `saveRepoState` the webview sent ahead of this request has been
+      // applied by now, and one it sends after must not leak into it.
+      const scope = resolveRepoScope(currentRepo!);
       bridge.post({
         command: "loadCommits",
         ...(await loadCommits(gitClient.getInstance(), {
@@ -337,12 +354,12 @@ export function registerMessageHandlers(
           showUncommittedChanges: config.showUncommittedChanges(),
           // A per-repo override (from the column-header menu) wins over the setting.
           commitOrder: msg.commitOrder ?? config.commitOrder(),
-          onlyFollowFirstParent: config.onlyFollowFirstParent(),
-          showCommitsOnlyReferencedByTags: config.showCommitsOnlyReferencedByTags(),
-          showRemoteHeads: config.showRemoteHeads(),
-          includeCommitsMentionedByReflogs: config.includeCommitsMentionedByReflogs(),
+          onlyFollowFirstParent: scope.onlyFollowFirstParent,
+          showCommitsOnlyReferencedByTags: scope.showTagOnlyCommits,
+          showRemoteHeads: scope.showRemoteHeads,
+          includeCommitsMentionedByReflogs: scope.includeReflogCommits,
           showSignatureStatus: config.showSignatureStatus(),
-          showStashes: config.showStashes(),
+          showStashes: scope.showStashes,
           useMailmap: config.useMailmap(),
           hiddenRemotes: msg.hiddenRemotes ?? []
         })),
@@ -702,7 +719,12 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "saveRepoState",
     (msg) => {
+      const before = repoManager.getRepos()[msg.repo];
       repoManager.setRepoState(msg.repo, msg.state);
+      // The Repository Settings dialog writes the side-view's toggles too
+      // (#183), and the manager only stores what it is given — without this
+      // the view would go on showing the state from before the write.
+      if (sideViewStateChanged(before, msg.state)) onSideViewStateChanged();
     },
     { mutatesRepo: false }
   );

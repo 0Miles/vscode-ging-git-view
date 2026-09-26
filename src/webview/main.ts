@@ -301,6 +301,36 @@ const commitTarget = (hash: string): RebaseTarget => ({ value: hash, label: abbr
  *  "Ref 的兩種形"). */
 const branchTarget = (refName: string): RebaseTarget => ({ value: refName, label: refName });
 
+/** What a Repository Settings change costs the graph: its branch list and its
+ *  commits, only its commits, or nothing — the side-view's two hide toggles
+ *  steer a view the graph does not draw. */
+type RepoSettingReload = "branches" | "commits" | null;
+
+/** The Repository Settings dialog's checkboxes (#183), in the order it shows
+ *  them, each named by the repo-state field it overrides.
+ *
+ *  Labels are l10n *keys*, for the reason {@link ACTION_FAILURE}'s are: this is
+ *  module level, and `l10n` is a global the host injects into the page. */
+const REPO_SETTING_TOGGLES: {
+  field: keyof GG.RepoSettingDefaults | "showRemoteBranches";
+  label: keyof LocalizedStrings;
+  reload: RepoSettingReload;
+}[] = [
+  // Which refs `git log` walks, and which branches the branch list offers.
+  { field: "showRemoteBranches", label: "repoSettingsShowRemoteBranches", reload: "branches" },
+  { field: "showRemoteHeads", label: "repoSettingsShowRemoteHeads", reload: "commits" },
+  { field: "showStashes", label: "repoSettingsShowStashes", reload: "commits" },
+  { field: "showTagOnlyCommits", label: "repoSettingsShowTagOnlyCommits", reload: "commits" },
+  { field: "includeReflogCommits", label: "repoSettingsIncludeReflogCommits", reload: "commits" },
+  { field: "onlyFollowFirstParent", label: "repoSettingsFirstParentOnly", reload: "commits" },
+  { field: "showInactiveBranches", label: "repoSettingsShowInactiveBranches", reload: null },
+  { field: "showMergedBranches", label: "repoSettingsShowMergedBranches", reload: null }
+];
+
+/** The commit-order select's value for "no override". A select's values are
+ *  strings, so null needs a stand-in. */
+const REPO_SETTING_ORDER_DEFAULT = "default";
+
 class GitGraphView {
   private gitRepos: GG.GitRepoSet;
   // Whether the Source Control view is in multi-select mode. Only then does the
@@ -480,6 +510,11 @@ class GitGraphView {
     if (findBtn) {
       findBtn.innerHTML = svgIcons.search;
       findBtn.addEventListener("click", () => this.showFind());
+    }
+    const repoSettingsBtn = document.getElementById("repoSettingsBtn");
+    if (repoSettingsBtn) {
+      repoSettingsBtn.innerHTML = svgIcons.settings;
+      repoSettingsBtn.addEventListener("click", () => this.showRepoSettings(repoSettingsBtn));
     }
     const terminalBtn = document.getElementById("terminalBtn");
     if (terminalBtn) {
@@ -850,6 +885,150 @@ class GitGraphView {
     this.shrinkLoadedCommitWindow();
     this.saveState();
     this.navigateReload();
+  }
+
+  /** Open the Repository Settings dialog: a shortcut to the current repo's own
+   *  overrides, gathered off the settings page into one form (#183).
+   *
+   *  A shortcut and not a second copy. The repo state stays the one holder: the
+   *  form opens on what is in force now — the override where there is one, the
+   *  global setting where there is not — and every other way in (the
+   *  side-view's toggles, the column-header menu, the rename command) stays. */
+  private showRepoSettings(sourceElem: HTMLElement | null) {
+    const repo = this.currentRepo;
+    if (!repo) return;
+    const state = this.gitRepos[repo];
+    if (state === undefined) return;
+    const defaults: Record<(typeof REPO_SETTING_TOGGLES)[number]["field"], boolean> = {
+      ...viewState.repoSettingDefaults,
+      showRemoteBranches: this.config.showRemoteBranches
+    };
+    const shownName = state.customName ?? "";
+    const shownOrder = state.commitOrdering ?? null;
+    const shownToggles = REPO_SETTING_TOGGLES.map((t) => state[t.field] ?? defaults[t.field]);
+    const inputs: DialogInput[] = [
+      {
+        type: "text",
+        name: l10n.repoSettingsName,
+        default: shownName,
+        placeholder: repo.substring(repo.lastIndexOf("/") + 1)
+      },
+      {
+        type: "select",
+        name: l10n.repoSettingsCommitOrder,
+        options: [
+          { name: l10n.repoSettingsOrderDefault, value: REPO_SETTING_ORDER_DEFAULT },
+          { name: l10n.repoSettingsOrderDate, value: "date" },
+          { name: l10n.repoSettingsOrderAuthorDate, value: "author-date" },
+          { name: l10n.repoSettingsOrderTopo, value: "topo" }
+        ],
+        default: shownOrder ?? REPO_SETTING_ORDER_DEFAULT
+      },
+      ...REPO_SETTING_TOGGLES.map(
+        (t, i): DialogInput => ({
+          type: "checkbox",
+          // A checkbox's name is its label's markup. The one toggle with a cost
+          // the user cannot see coming carries it beside it: turning remote
+          // branches off prunes them from the branch filter, and turning them
+          // back on does not restore them (ADR-0013). The side-view's toggle has
+          // always done that; a form that can flip several things in one Apply
+          // makes it easier to do by accident.
+          name:
+            l10n[t.label] +
+            (t.field === "showRemoteBranches"
+              ? ' <span class="dialogInfo" title="' +
+                escapeHtml(l10n.repoSettingsRemotePruneInfo) +
+                '">&#9432;</span>'
+              : ""),
+          value: shownToggles[i]
+        })
+      )
+    ];
+    showFormDialog(
+      l10n.repoSettingsTitle.replace(
+        "{0}",
+        "<b>" + escapeHtml(this.repoDisplayName(repo)) + "</b>"
+      ),
+      inputs,
+      l10n.repoSettingsApply,
+      (values) => {
+        // Only what the user changed in the form is written. Anything they
+        // left alone keeps whatever it holds when they press Apply — an unset
+        // field goes on following the global setting instead of being pinned
+        // to the value it happened to have, and a field the host moved while
+        // the dialog was open is not written back over.
+        const changes: Partial<GG.GitRepoState> = {};
+        const name = values[0].trim();
+        if (name !== shownName) changes.customName = name === "" ? null : name;
+        const order = values[1] === REPO_SETTING_ORDER_DEFAULT ? null : <CommitOrdering>values[1];
+        if (order !== shownOrder) changes.commitOrdering = order;
+        REPO_SETTING_TOGGLES.forEach((t, i) => {
+          const checked = values[2 + i] === "checked";
+          if (checked !== shownToggles[i]) changes[t.field] = checked;
+        });
+        // One reload covers them all, and the widest wins: a branch reload
+        // brings the commits with it.
+        const costs: RepoSettingReload[] = REPO_SETTING_TOGGLES.filter(
+          (t) => t.field in changes
+        ).map((t) => t.reload);
+        if ("commitOrdering" in changes) costs.push("commits");
+        const reload: RepoSettingReload = costs.includes("branches")
+          ? "branches"
+          : costs.includes("commits")
+            ? "commits"
+            : null;
+        // Bound at consent ({@link confirmForRepo}): the settings are the
+        // repo's the dialog named, whichever one is current by now.
+        this.applyRepoSettings(repo, changes, reload);
+      },
+      sourceElem
+    );
+  }
+
+  /** Write the Repository Settings dialog's changes to `repo`'s state in one
+   *  save, and reload once for all of them.
+   *
+   *  Refused out loud while a commit load is in flight, on the terms of the
+   *  commit-ordering menu and for its reason: nothing of it survives a dropped
+   *  reload — the overrides would be persisted and the loaded commit window
+   *  shrunk for a graph that never reloads — and the guard stands ahead of any
+   *  state change, so a refusal leaves nothing half done (ADR-0024). Only a
+   *  change that reloads is refused. A rename or a side-view toggle has no load
+   *  to lose, and refusing one would be a busy message about nothing. */
+  private applyRepoSettings(
+    repo: string,
+    changes: Partial<GG.GitRepoState>,
+    reload: RepoSettingReload
+  ) {
+    if (Object.keys(changes).length === 0) return;
+    // A repo the graph is not showing has nothing on screen to reload: it
+    // loads under its new state the next time it is switched to.
+    const onScreen = repo === this.currentRepo;
+    if (onScreen && reload !== null && this.commitLoadInFlight) {
+      showErrorDialog(l10n.dialogRepoSettingsBusy, null, null);
+      return;
+    }
+    // Re-read: the repo can have left the set while the dialog was open.
+    const repoState = this.gitRepos[repo];
+    if (repoState === undefined) return;
+    Object.assign(repoState, changes);
+    // Ahead of the reload: the host resolves the load scope from this state,
+    // not from the request, and handles the two in the order they are sent.
+    sendMessage({ command: "saveRepoState", repo, state: repoState });
+    if ("customName" in changes) this.updateRepoTitle();
+    if (!onScreen || reload === null) return;
+    this.shrinkLoadedCommitWindow();
+    if (reload === "branches") {
+      // The side-view's toggle arrives here too (setShowRemoteBranches), and
+      // the memo has to follow or that toggle would read this change as a
+      // no-op the next time it fires.
+      this.showRemoteBranches = repoState.showRemoteBranches ?? this.config.showRemoteBranches;
+      this.saveState();
+      this.navigateReload();
+    } else {
+      this.saveState();
+      this.requestLoadCommits(true, () => {});
+    }
   }
 
   /** Send a branch-deletion request, remembering its parameters so a failed

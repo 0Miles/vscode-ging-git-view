@@ -55,6 +55,15 @@ const viewState: GG.GitGraphViewState = {
   uncommittedChangesAtHead: false,
   showSpecificBranches: [],
   showRemoteBranches: true,
+  repoSettingDefaults: {
+    onlyFollowFirstParent: false,
+    includeReflogCommits: false,
+    showStashes: true,
+    showTagOnlyCommits: true,
+    showRemoteHeads: true,
+    showInactiveBranches: false,
+    showMergedBranches: false
+  },
   showTags: true,
   signCommits: false
 };
