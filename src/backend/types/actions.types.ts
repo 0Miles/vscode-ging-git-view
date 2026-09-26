@@ -72,6 +72,11 @@ export type BatchRefResult = { ref: string; status: GitCommandStatus };
  *  before `formatGitError` narrows it to its first line. */
 export type BatchDeleteResult = BatchRefResult & { notFullyMerged: boolean };
 
+/** A batch push result, plus the fact a single push reports alongside its
+ *  status (`ActionResponseExtras["pushBranch"]`), read off the raw git error
+ *  the same way. See `isRemoteUpdatedSinceCheckoutError`. */
+export type BatchPushResult = BatchRefResult & { remoteUpdatedSinceCheckout: boolean };
+
 /**
  * Batch actions. Unlike the actions above, each ref succeeds or fails on its
  * own, so the response carries one result per ref instead of a single status —
@@ -96,7 +101,7 @@ type BatchActionPayloads = {
       remotes: string[];
       forceMode: "normal" | "force" | "forceWithLease";
     };
-    response: { results: BatchRefResult[] };
+    response: { results: BatchPushResult[] };
   };
   fastForwardBranches: {
     request: { branchNames: string[] };
