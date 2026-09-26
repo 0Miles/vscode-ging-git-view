@@ -4159,8 +4159,8 @@ class GitGraphView {
       l10n.deleteBranches,
       (values) =>
         this.startBatchRun("deleteBranches", this.currentRepo!, targets, {
-          // The one classification the host makes more reliably than us: a
-          // refusal a force round can fix.
+          // A classification the host makes more reliably than us: a refusal
+          // a force round can fix.
           retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
           params: {
             forceDelete: values[0] === "checked",
