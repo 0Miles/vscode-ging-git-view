@@ -99,22 +99,31 @@ class Branch {
       });
     }
 
-    // Simplify consecutive lines that are straight by removing the 'middle' point
-    i = 0;
-    while (i < lines.length - 1) {
+    // Simplify consecutive lines that are straight by removing the 'middle'
+    // point. One forward pass into a new array rather than `splice` on this
+    // one: splice moves every remaining element, and the merge does not advance
+    // afterwards, so a branch drawn as one long vertical run — master across
+    // the whole graph, the common case — spliced at nearly every segment. That
+    // made `draw` quadratic in the branch's length, and `render` runs it for
+    // every branch on every redraw, including each mousemove of a Commit
+    // Details View resize.
+    const merged: PlacedLine[] = [];
+    for (const line of lines) {
+      const prev = merged[merged.length - 1];
       if (
-        lines[i].p1.x === lines[i].p2.x &&
-        lines[i].p2.x === lines[i + 1].p1.x &&
-        lines[i + 1].p1.x === lines[i + 1].p2.x &&
-        lines[i].p2.y === lines[i + 1].p1.y &&
-        lines[i].isCommitted === lines[i + 1].isCommitted
+        prev !== undefined &&
+        prev.p1.x === prev.p2.x &&
+        prev.p2.x === line.p1.x &&
+        line.p1.x === line.p2.x &&
+        prev.p2.y === line.p1.y &&
+        prev.isCommitted === line.isCommitted
       ) {
-        lines[i].p2.y = lines[i + 1].p2.y;
-        lines.splice(i + 1, 1);
+        prev.p2.y = line.p2.y;
       } else {
-        i++;
+        merged.push(line);
       }
     }
+    lines = merged;
 
     // Iterate through all lines, producing and adding the svg paths to the DOM
     for (i = 0; i < lines.length; i++) {
@@ -410,7 +419,21 @@ export class Graph {
       }
     }
 
-    while ((i = this.findStart()) !== -1) {
+    // The cursor is what keeps this from being quadratic: `findStart` is called
+    // once per `determinePath`, and `determinePath` runs on the order of once
+    // per commit, so rescanning from zero each time re-walked the whole vertex
+    // list per commit.
+    //
+    // Safe because the predicate only ever falls, never rises. `getNextParent`
+    // returns null once every parent is processed, and `registerParentProcessed`
+    // only increments; `isNotOnBranch` goes false when `addToBranch` sets the
+    // branch, and that setter is guarded on `onBranch === null` and never
+    // clears it. So an index that failed the predicate cannot pass it later,
+    // and nothing before the cursor is worth looking at again. The cursor is
+    // not advanced past `i` — the same vertex may still have parents left.
+    let searchFrom = 0;
+    while ((i = this.findStart(searchFrom)) !== -1) {
+      searchFrom = i;
       this.determinePath(i);
     }
   }
@@ -577,8 +600,8 @@ export class Graph {
     }
   }
 
-  private findStart() {
-    for (let i = 0; i < this.vertices.length; i++) {
+  private findStart(from: number) {
+    for (let i = from; i < this.vertices.length; i++) {
       if (this.vertices[i].getNextParent() !== null || this.vertices[i].isNotOnBranch()) return i;
     }
     return -1;
