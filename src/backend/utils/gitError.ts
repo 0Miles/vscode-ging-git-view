@@ -1,6 +1,6 @@
 /** Everything git (via simple-git) said about a failure — the text the
  *  classifiers below read before `formatGitError` narrows it to one line. */
-function rawGitError(error: unknown): string {
+function rawGitErrorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -14,7 +14,7 @@ function rawGitError(error: unknown): string {
  *  (push hooks, branch protection), a push/fetch rejection reason, then git's
  *  own `fatal:` / `error:` line. Falls back to the first meaningful line. */
 export function formatGitError(error: unknown): string {
-  const raw = rawGitError(error);
+  const raw = rawGitErrorText(error);
   const lines = raw
     .split(/\r\n|\r|\n/)
     .map((line) => line.trim())
@@ -58,7 +58,7 @@ export function formatGitError(error: unknown): string {
  *  **raw** error, before formatting — a caller that classifies the formatted
  *  message can never match. */
 export function isNotFullyMergedError(error: unknown): boolean {
-  return rawGitError(error).includes("git branch -D");
+  return rawGitErrorText(error).includes("git branch -D");
 }
 
 /** Whether a force-with-lease push was refused because the remote tip is not
@@ -71,5 +71,5 @@ export function isNotFullyMergedError(error: unknown): boolean {
  *  {@link isNotFullyMergedError}. It does not mean the remote has new commits:
  *  a branch with no reflog is refused the same way. */
 export function isRemoteUpdatedSinceCheckoutError(error: unknown): boolean {
-  return rawGitError(error).includes("remote ref updated since checkout");
+  return rawGitErrorText(error).includes("remote ref updated since checkout");
 }

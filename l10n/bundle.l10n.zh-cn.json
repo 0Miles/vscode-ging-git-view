@@ -398,7 +398,7 @@
   "dialog.pushForce.none": "不强制",
   "dialog.pushForce.force": "强制",
   "dialog.pushForce.lease": "带租约强制（force with lease）",
-  "dialog.pushForce.leaseRefused": "Git 无法确认你已整合 remote 当前的版本 —— 通常是 fetch 或 auto-fetch 带进了你还没整合的 commit。请先 pull 或 rebase，再重新 push。确定要覆盖的话，请改选“{0}”。",
+  "dialog.pushForce.leaseRefused": "Git 无法确认你已整合 remote 当前的版本 —— 通常是 fetch 或 auto-fetch 带进了你还没整合的 commit。请先 pull 或 rebase，再重新 push。确定要覆盖的话，请改选 {0}。",
   "detail.commitDate": "Commit 日期：",
   "detail.comparingCommits": "正在显示从 {0} 到 {1} 的所有更改。",
   "branchView.current": "当前",

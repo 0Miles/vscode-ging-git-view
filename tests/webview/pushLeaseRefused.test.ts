@@ -42,6 +42,7 @@ describe("a refused push", () => {
     // English literals, not `L.dialogPushForceLeaseRefused`: rebuilding the
     // expectation from the same template the code uses could never disagree.
     const text = dialogText();
+    expect(text, "the failure header is still shown").toContain(L.unableToPushBranch);
     expect(text).toContain("Pull or rebase first, then push again.");
     expect(text).toContain(`To overwrite anyway, choose ${L.dialogPushForceForce}.`);
     expect(text).not.toContain("{0}");
