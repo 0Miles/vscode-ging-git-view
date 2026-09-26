@@ -67,7 +67,7 @@ type ActionPayloads = {
  *  one per ref. */
 export type BatchRefResult = { ref: string; status: GitCommandStatus };
 
-/** A batch delete result, plus the one classification the host can make more
+/** A batch delete result, plus a classification the host can make more
  *  reliably than the webview: `notFullyMerged` is read off the *raw* git error,
  *  before `formatGitError` narrows it to its first line. */
 export type BatchDeleteResult = BatchRefResult & { notFullyMerged: boolean };
