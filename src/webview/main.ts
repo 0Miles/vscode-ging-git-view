@@ -512,9 +512,41 @@ class GitGraphView {
       findBtn.addEventListener("click", () => this.showFind());
     }
     const repoSettingsBtn = document.getElementById("repoSettingsBtn");
-    if (repoSettingsBtn) {
+    const repoSettingsDrawer = document.getElementById("repoSettingsDrawer");
+    if (repoSettingsBtn && repoSettingsDrawer) {
       repoSettingsBtn.innerHTML = svgIcons.settings;
-      repoSettingsBtn.addEventListener("click", () => this.showRepoSettings(repoSettingsBtn));
+      // The document listener below closes the drawer on any click, so the
+      // clicks that belong to it are kept from reaching it — the repo
+      // dropdown's arrangement.
+      repoSettingsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.toggleRepoSettings();
+      });
+      repoSettingsBtn.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          this.toggleRepoSettings();
+        }
+      });
+      repoSettingsDrawer.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if ((<HTMLElement>e.target).closest("#repoSettingsRename") !== null) this.showRenameRepo();
+      });
+      repoSettingsDrawer.addEventListener("change", (e) => this.repoSettingChanged(e.target));
+      repoSettingsDrawer.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          this.closeRepoSettings(true);
+        } else if (
+          (e.key === "Enter" || e.key === " ") &&
+          (<HTMLElement>e.target).id === "repoSettingsRename"
+        ) {
+          e.preventDefault();
+          this.showRenameRepo();
+        }
+      });
+      document.addEventListener("click", () => this.closeRepoSettings());
+      document.addEventListener("contextmenu", () => this.closeRepoSettings());
     }
     const terminalBtn = document.getElementById("terminalBtn");
     if (terminalBtn) {
@@ -763,6 +795,8 @@ class GitGraphView {
     if (!repo) {
       nameElem.textContent = "";
       branchElem.textContent = "";
+      // Closes it: there is no repo left for it to be about.
+      this.refreshRepoSettings();
       return;
     }
     const branch = this.gitBranchHead ?? "";
@@ -774,6 +808,11 @@ class GitGraphView {
     else nameElem.title = repo;
     branchElem.textContent = branch;
     branchElem.title = branch;
+    // An open Repository Settings drawer is about the repo this title names and
+    // draws that repo's state, so it follows every change that reaches here: a
+    // repo switch, a `loadRepos` push (the side-view's toggles land that way),
+    // a rename.
+    this.refreshRepoSettings();
   }
 
   /* The repo dropdown (#16): a select-style listbox of the workspace's repos,
@@ -800,6 +839,7 @@ class GitGraphView {
     // The click that opens this never reaches the document listener that would
     // dismiss a context menu, so retire one here rather than stacking popups.
     hideContextMenu();
+    this.closeRepoSettings();
     list.innerHTML = "";
     for (const repo of repoPaths) {
       const current = repo === this.currentRepo;
@@ -882,141 +922,241 @@ class GitGraphView {
     if (typeof this.gitRepos[this.currentRepo] !== "undefined") {
       this.gitRepos[this.currentRepo].showRemoteBranches = value;
     }
+    this.refreshRepoSettings();
     this.shrinkLoadedCommitWindow();
     this.saveState();
     this.navigateReload();
   }
 
-  /** Open the Repository Settings dialog: a shortcut to the current repo's own
-   *  overrides, gathered off the settings page into one form (#183).
+  /* Repository Settings (#183) */
+
+  /** The drawer that slides out of the toolbar's gear: a shortcut to the
+   *  current repo's own overrides, gathered off the settings page into one
+   *  place.
    *
    *  A shortcut and not a second copy. The repo state stays the one holder: the
-   *  form opens on what is in force now — the override where there is one, the
-   *  global setting where there is not — and every other way in (the
+   *  drawer is drawn from what is in force now — the override where there is
+   *  one, the global setting where there is not — and every other way in (the
    *  side-view's toggles, the column-header menu, the rename command) stays. */
-  private showRepoSettings(sourceElem: HTMLElement | null) {
-    const repo = this.currentRepo;
-    if (!repo) return;
-    const state = this.gitRepos[repo];
-    if (state === undefined) return;
-    const defaults: Record<(typeof REPO_SETTING_TOGGLES)[number]["field"], boolean> = {
-      ...viewState.repoSettingDefaults,
-      showRemoteBranches: this.config.showRemoteBranches
-    };
-    const shownName = state.customName ?? "";
-    const shownOrder = state.commitOrdering ?? null;
-    const shownToggles = REPO_SETTING_TOGGLES.map((t) => state[t.field] ?? defaults[t.field]);
-    const inputs: DialogInput[] = [
-      {
-        type: "text",
-        name: l10n.repoSettingsName,
-        default: shownName,
-        placeholder: repo.substring(repo.lastIndexOf("/") + 1)
-      },
-      {
-        type: "select",
-        name: l10n.repoSettingsCommitOrder,
-        options: [
-          { name: l10n.repoSettingsOrderDefault, value: REPO_SETTING_ORDER_DEFAULT },
-          { name: l10n.repoSettingsOrderDate, value: "date" },
-          { name: l10n.repoSettingsOrderAuthorDate, value: "author-date" },
-          { name: l10n.repoSettingsOrderTopo, value: "topo" }
-        ],
-        default: shownOrder ?? REPO_SETTING_ORDER_DEFAULT
-      },
-      ...REPO_SETTING_TOGGLES.map(
-        (t, i): DialogInput => ({
-          type: "checkbox",
-          // A checkbox's name is its label's markup. The one toggle with a cost
-          // the user cannot see coming carries it beside it: turning remote
-          // branches off prunes them from the branch filter, and turning them
-          // back on does not restore them (ADR-0013). The side-view's toggle has
-          // always done that; a form that can flip several things in one Apply
-          // makes it easier to do by accident.
-          name:
-            l10n[t.label] +
-            (t.field === "showRemoteBranches"
-              ? ' <span class="dialogInfo" title="' +
-                escapeHtml(l10n.repoSettingsRemotePruneInfo) +
-                '">&#9432;</span>'
-              : ""),
-          value: shownToggles[i]
-        })
-      )
-    ];
-    showFormDialog(
-      l10n.repoSettingsTitle.replace(
-        "{0}",
-        "<b>" + escapeHtml(this.repoDisplayName(repo)) + "</b>"
-      ),
-      inputs,
-      l10n.repoSettingsApply,
-      (values) => {
-        // Only what the user changed in the form is written. Anything they
-        // left alone keeps whatever it holds when they press Apply — an unset
-        // field goes on following the global setting instead of being pinned
-        // to the value it happened to have, and a field the host moved while
-        // the dialog was open is not written back over.
-        const changes: Partial<GG.GitRepoState> = {};
-        const name = values[0].trim();
-        if (name !== shownName) changes.customName = name === "" ? null : name;
-        const order = values[1] === REPO_SETTING_ORDER_DEFAULT ? null : <CommitOrdering>values[1];
-        if (order !== shownOrder) changes.commitOrdering = order;
-        REPO_SETTING_TOGGLES.forEach((t, i) => {
-          const checked = values[2 + i] === "checked";
-          if (checked !== shownToggles[i]) changes[t.field] = checked;
-        });
-        // One reload covers them all, and the widest wins: a branch reload
-        // brings the commits with it.
-        const costs: RepoSettingReload[] = REPO_SETTING_TOGGLES.filter(
-          (t) => t.field in changes
-        ).map((t) => t.reload);
-        if ("commitOrdering" in changes) costs.push("commits");
-        const reload: RepoSettingReload = costs.includes("branches")
-          ? "branches"
-          : costs.includes("commits")
-            ? "commits"
-            : null;
-        // Bound at consent ({@link confirmForRepo}): the settings are the
-        // repo's the dialog named, whichever one is current by now.
-        this.applyRepoSettings(repo, changes, reload);
-      },
-      sourceElem
-    );
+  private repoSettingsDrawer(): HTMLElement | null {
+    return document.getElementById("repoSettingsDrawer");
   }
 
-  /** Write the Repository Settings dialog's changes to `repo`'s state in one
-   *  save, and reload once for all of them.
+  private repoSettingsOpen(): boolean {
+    return this.repoSettingsDrawer()?.classList.contains("active") === true;
+  }
+
+  private toggleRepoSettings() {
+    if (this.repoSettingsOpen()) this.closeRepoSettings(true);
+    else this.openRepoSettings();
+  }
+
+  private openRepoSettings() {
+    const drawer = this.repoSettingsDrawer();
+    if (drawer === null || !this.currentRepo) return;
+    // The click that opens this never reaches the document listeners that
+    // would dismiss the other popups, so they are retired here rather than
+    // left sharing the screen with it.
+    hideContextMenu();
+    this.closeRepoDropdown();
+    this.renderRepoSettings();
+    drawer.classList.add("active");
+    document.getElementById("repoSettingsBtn")?.setAttribute("aria-expanded", "true");
+    drawer.querySelector<HTMLElement>("#repoSettingsRename")?.focus({ preventScroll: true });
+  }
+
+  private closeRepoSettings(returnFocus: boolean = false) {
+    const drawer = this.repoSettingsDrawer();
+    if (drawer === null || !drawer.classList.contains("active")) return;
+    const hadFocus = drawer.contains(document.activeElement);
+    drawer.classList.remove("active");
+    const trigger = document.getElementById("repoSettingsBtn");
+    trigger?.setAttribute("aria-expanded", "false");
+    if (returnFocus && hadFocus) trigger?.focus({ preventScroll: true });
+  }
+
+  /** Redraw an open drawer from the state now in force. Called wherever that
+   *  state can move under it: a repo switch, a `loadRepos` push (the side-view
+   *  toggled something, the shareable config changed), the drawer's own
+   *  writes. The controls are rebuilt wholesale, so focus is put back on the
+   *  one it was on. */
+  private refreshRepoSettings() {
+    if (!this.repoSettingsOpen()) return;
+    if (!this.currentRepo) {
+      this.closeRepoSettings();
+      return;
+    }
+    const drawer = this.repoSettingsDrawer()!;
+    const active = document.activeElement;
+    const focusKey =
+      active instanceof HTMLElement && drawer.contains(active) ? active.dataset.field : undefined;
+    this.renderRepoSettings();
+    if (focusKey !== undefined) {
+      drawer
+        .querySelector<HTMLElement>('[data-field="' + focusKey + '"]')
+        ?.focus({ preventScroll: true });
+    }
+  }
+
+  private renderRepoSettings() {
+    const drawer = this.repoSettingsDrawer();
+    const repo = this.currentRepo;
+    if (drawer === null || !repo) return;
+    const state = this.gitRepos[repo];
+    if (state === undefined) return;
+    const defaults = this.repoSettingDefaults();
+    const order = state.commitOrdering ?? REPO_SETTING_ORDER_DEFAULT;
+    const orderOption = (value: string, label: string) =>
+      '<option value="' +
+      value +
+      '"' +
+      (value === order ? " selected" : "") +
+      ">" +
+      escapeHtml(label) +
+      "</option>";
+    let html =
+      '<div class="repoSettingsHeader">' +
+      escapeHtml(l10n.repoSettings) +
+      "</div>" +
+      '<div class="repoSettingsRow">' +
+      '<span class="repoSettingsLabel">' +
+      escapeHtml(l10n.repoSettingsName) +
+      "</span>" +
+      '<span class="repoSettingsName" title="' +
+      escapeHtml(repo) +
+      '">' +
+      escapeHtml(this.repoDisplayName(repo)) +
+      "</span>" +
+      '<span id="repoSettingsRename" class="repoSettingsIconBtn" role="button" tabindex="0"' +
+      ' data-field="customName" title="' +
+      escapeHtml(l10n.repoSettingsRename) +
+      '" aria-label="' +
+      escapeHtml(l10n.repoSettingsRename) +
+      '">' +
+      svgIcons.pencil +
+      "</span></div>" +
+      '<label class="repoSettingsRow"><span class="repoSettingsLabel">' +
+      escapeHtml(l10n.repoSettingsCommitOrder) +
+      '</span><select data-field="commitOrdering">' +
+      orderOption(REPO_SETTING_ORDER_DEFAULT, l10n.repoSettingsOrderDefault) +
+      orderOption("date", l10n.repoSettingsOrderDate) +
+      orderOption("author-date", l10n.repoSettingsOrderAuthorDate) +
+      orderOption("topo", l10n.repoSettingsOrderTopo) +
+      "</select></label>";
+    for (const t of REPO_SETTING_TOGGLES) {
+      // The side-view's two toggles steer a view the graph does not draw, so
+      // they sit apart from the ones that decide what the graph loads.
+      if (t.field === "showInactiveBranches") html += '<div class="repoSettingsSeparator"></div>';
+      const checked = state[t.field] ?? defaults[t.field];
+      html +=
+        '<label class="repoSettingsRow repoSettingsCheck"><input type="checkbox" data-field="' +
+        t.field +
+        '"' +
+        (checked ? " checked" : "") +
+        "/><span>" +
+        escapeHtml(l10n[t.label]) +
+        "</span>" +
+        // The one toggle with a cost the user cannot see coming carries it
+        // beside it: turning remote branches off prunes them from the branch
+        // filter, and turning them back on does not restore them (ADR-0013).
+        // The side-view's toggle has always done that; a panel of several
+        // switches makes it easier to do by accident.
+        (t.field === "showRemoteBranches"
+          ? '<span class="repoSettingsInfo" title="' +
+            escapeHtml(l10n.repoSettingsRemotePruneInfo) +
+            '">&#9432;</span>'
+          : "") +
+        "</label>";
+    }
+    drawer.innerHTML = html;
+  }
+
+  /** What a repo that has not overridden a toggle gets. */
+  private repoSettingDefaults(): Record<(typeof REPO_SETTING_TOGGLES)[number]["field"], boolean> {
+    return { ...viewState.repoSettingDefaults, showRemoteBranches: this.config.showRemoteBranches };
+  }
+
+  /** A control in the drawer changed: write it, and reload if it steers the
+   *  load. Every change applies as it is made — there is no Apply to gather
+   *  them behind. */
+  private repoSettingChanged(target: EventTarget | null) {
+    const repo = this.currentRepo;
+    if (!repo) return;
+    if (target instanceof HTMLSelectElement && target.dataset.field === "commitOrdering") {
+      const order =
+        target.value === REPO_SETTING_ORDER_DEFAULT ? null : <CommitOrdering>target.value;
+      this.applyRepoSettings(repo, { commitOrdering: order }, "commits");
+      return;
+    }
+    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+    const toggle = REPO_SETTING_TOGGLES.find((t) => t.field === target.dataset.field);
+    if (toggle === undefined) return;
+    this.applyRepoSettings(repo, { [toggle.field]: target.checked }, toggle.reload);
+  }
+
+  /** Rename the repo from the drawer's pencil. The drawer steps aside first:
+   *  it sits above the graph and the docked details panel, and so above the
+   *  dialog too. */
+  private showRenameRepo() {
+    const repo = this.currentRepo;
+    if (!repo || this.gitRepos[repo] === undefined) return;
+    const shown = this.gitRepos[repo].customName ?? null;
+    this.closeRepoSettings();
+    showFormDialog(
+      escapeHtml(l10n.repoSettingsRenamePrompt),
+      [
+        {
+          type: "text",
+          name: l10n.repoSettingsName,
+          default: shown ?? "",
+          placeholder: repo.substring(repo.lastIndexOf("/") + 1)
+        }
+      ],
+      l10n.repoSettingsRename,
+      (values) => {
+        const name = values[0].trim();
+        const next = name === "" ? null : name;
+        // Bound at consent ({@link confirmForRepo}): the name is for the repo
+        // the dialog was opened on, whichever one is current by now.
+        if (next !== shown) this.applyRepoSettings(repo, { customName: next }, null);
+      },
+      document.getElementById("repoSettingsBtn")
+    );
+    // The pencil was pressed to type: the form only focuses a ref-name field
+    // of its own accord, and this one is plain text.
+    const input = document.querySelector<HTMLInputElement>('#dialog input[type="text"]');
+    input?.focus();
+    input?.select();
+  }
+
+  /** Write a Repository Settings change to `repo`'s state, and reload the
+   *  graph if it steers the load.
    *
-   *  Refused out loud while a commit load is in flight, on the terms of the
-   *  commit-ordering menu and for its reason: nothing of it survives a dropped
-   *  reload — the overrides would be persisted and the loaded commit window
-   *  shrunk for a graph that never reloads — and the guard stands ahead of any
-   *  state change, so a refusal leaves nothing half done (ADR-0024). Only a
-   *  change that reloads is refused. A rename or a side-view toggle has no load
-   *  to lose, and refusing one would be a busy message about nothing. */
+   *  A change that reloads is a navigation, and it abandons the load in flight
+   *  rather than being refused by it — as the side-view's toggle already does
+   *  (ADR-0024). The drawer's control has moved by the time anything here
+   *  runs, which is the ADR's test for which way to go: state that has moved
+   *  before the load goes out can only be followed by abandoning. Refusing
+   *  would also cost more here than in the column-header menu: a drawer of
+   *  switches invites flipping two in a row, and the second would always land
+   *  on the first one's load. */
   private applyRepoSettings(
     repo: string,
     changes: Partial<GG.GitRepoState>,
     reload: RepoSettingReload
   ) {
-    if (Object.keys(changes).length === 0) return;
-    // A repo the graph is not showing has nothing on screen to reload: it
-    // loads under its new state the next time it is switched to.
-    const onScreen = repo === this.currentRepo;
-    if (onScreen && reload !== null && this.commitLoadInFlight) {
-      showErrorDialog(l10n.dialogRepoSettingsBusy, null, null);
-      return;
-    }
-    // Re-read: the repo can have left the set while the dialog was open.
+    // Re-read: the repo can have left the set while a dialog was open.
     const repoState = this.gitRepos[repo];
     if (repoState === undefined) return;
     Object.assign(repoState, changes);
     // Ahead of the reload: the host resolves the load scope from this state,
     // not from the request, and handles the two in the order they are sent.
     sendMessage({ command: "saveRepoState", repo, state: repoState });
-    if ("customName" in changes) this.updateRepoTitle();
-    if (!onScreen || reload === null) return;
+    // Redraws an open drawer too, which a change of any field needs.
+    this.updateRepoTitle();
+    // A repo the graph is not showing has nothing on screen to reload: it
+    // loads under its new state the next time it is switched to.
+    if (repo !== this.currentRepo || reload === null) return;
     this.shrinkLoadedCommitWindow();
     if (reload === "branches") {
       // The side-view's toggle arrives here too (setShowRemoteBranches), and
@@ -1026,8 +1166,13 @@ class GitGraphView {
       this.saveState();
       this.navigateReload();
     } else {
+      // Only the commits: none of these fields moves the branch list. Shaped
+      // like {@link reloadForBranchChange}, which is the same navigation one
+      // field over.
+      this.abandonLoadsInFlight();
       this.saveState();
-      this.requestLoadCommits(true, () => {});
+      this.beginBusyLoad();
+      this.requestLoadCommits(true, () => this.endBusyLoad());
     }
   }
 
@@ -8830,6 +8975,9 @@ document.addEventListener("keydown", (e) => {
   // same way the context menu above does — its own listener handles the keys it
   // wants, and nothing here may move focus out from under the rest.
   if (document.getElementById("repoDropdownList")?.classList.contains("active") === true) return;
+  // So does the Repository Settings drawer while focus is inside it: its select
+  // wants the arrows, and its own listener handles Escape.
+  if (active instanceof HTMLElement && active.closest("#repoSettingsDrawer") !== null) return;
   // Configurable CTRL/CMD shortcuts; each is null when set to UNASSIGNED.
   const kb = viewState.keybindings;
   const key = e.key.toLowerCase();

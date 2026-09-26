@@ -48,8 +48,10 @@ export function getWebviewLocalizedStrings() {
     commitOrderTopo: l10n.t("ui.commitOrder.topo"),
     // The Repository Settings dialog (#183).
     repoSettings: l10n.t("ui.repoSettings"),
-    repoSettingsTitle: l10n.t("ui.repoSettings.title"),
     repoSettingsName: l10n.t("ui.repoSettings.name"),
+    repoSettingsRename: l10n.t("ui.repoSettings.rename"),
+    // The same question the Set Repository Name command asks.
+    repoSettingsRenamePrompt: l10n.t("repoName.prompt"),
     repoSettingsCommitOrder: l10n.t("ui.repoSettings.commitOrder"),
     repoSettingsOrderDefault: l10n.t("ui.repoSettings.orderDefault"),
     repoSettingsOrderDate: l10n.t("ui.repoSettings.orderDate"),
@@ -64,7 +66,6 @@ export function getWebviewLocalizedStrings() {
     repoSettingsFirstParentOnly: l10n.t("ui.repoSettings.firstParentOnly"),
     repoSettingsShowInactiveBranches: l10n.t("ui.repoSettings.showInactiveBranches"),
     repoSettingsShowMergedBranches: l10n.t("ui.repoSettings.showMergedBranches"),
-    repoSettingsApply: l10n.t("ui.repoSettings.apply"),
 
     // Error messages
     unableToLoadGitGraph: l10n.t("error.unableToLoadGitGraph"),
@@ -291,7 +292,6 @@ export function getWebviewLocalizedStrings() {
     dialogStashMoved: l10n.t("dialog.stashMoved"),
     dialogPushRemoteGone: l10n.t("dialog.pushRemoteGone"),
     dialogCommitOrderBusy: l10n.t("dialog.commitOrderBusy"),
-    dialogRepoSettingsBusy: l10n.t("dialog.repoSettingsBusy"),
     dialogFindLoadBusy: l10n.t("dialog.findLoadBusy"),
     dialogFindStepBusy: l10n.t("dialog.findStepBusy"),
     dialogLoadMoreBusy: l10n.t("dialog.loadMoreBusy"),

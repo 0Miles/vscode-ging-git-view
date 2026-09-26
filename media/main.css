@@ -856,6 +856,119 @@ body.tagLabelsRightAligned .gitRef.tag {
 body.vscode-high-contrast #repoDropdownList {
   box-shadow: none;
 }
+/* The Repository Settings drawer: slides down out of the gear it hangs from,
+   pinned to the toolbar's right edge. Same surface and elevation as the repo
+   dropdown on the left — above the graph SVG and the docked CDV. It is kept in
+   the layout while closed (visibility, not display) so the slide has a
+   starting point; visibility also keeps its controls out of the tab order. */
+#repoSettingsDrawer {
+  position: absolute;
+  top: 100%;
+  right: 6px;
+  z-index: 300;
+  box-sizing: border-box;
+  width: 300px;
+  max-width: calc(100vw - 12px);
+  max-height: calc(100vh - 44px);
+  overflow-y: auto;
+  margin-top: 2px;
+  padding: 6px 0;
+  font-size: 13px;
+  background-color: var(--vscode-editorWidget-background, var(--vscode-dropdown-background));
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  box-shadow: var(--vscode-shadow-lg, 0 0 12px rgba(0, 0, 0, 0.14));
+  border: var(--vscode-strokeThickness, 1px) solid
+    var(--vscode-editorWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--vscode-cornerRadius-large, 5px);
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-8px);
+  transform-origin: top right;
+  transition:
+    transform 0.12s ease-out,
+    opacity 0.12s ease-out,
+    visibility 0s linear 0.12s;
+}
+#repoSettingsDrawer.active {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    transform 0.12s ease-out,
+    opacity 0.12s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  #repoSettingsDrawer,
+  #repoSettingsDrawer.active {
+    transition: none;
+  }
+}
+body.vscode-high-contrast #repoSettingsDrawer {
+  box-shadow: none;
+}
+.repoSettingsHeader {
+  padding: 2px 12px 6px;
+  font-weight: 600;
+}
+.repoSettingsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 12px;
+}
+.repoSettingsLabel {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+.repoSettingsName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repoSettingsRow select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.repoSettingsCheck {
+  cursor: pointer;
+}
+.repoSettingsCheck input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.repoSettingsInfo {
+  cursor: help;
+  opacity: 0.7;
+}
+.repoSettingsIconBtn {
+  position: relative;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+.repoSettingsIconBtn svg {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  fill: var(--vscode-editor-foreground);
+  opacity: 0.8;
+}
+.repoSettingsIconBtn:hover {
+  background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
+}
+.repoSettingsIconBtn:hover svg {
+  opacity: 1;
+}
+.repoSettingsSeparator {
+  height: 1px;
+  margin: 5px 12px;
+  background-color: var(--vscode-menu-separatorBackground, rgba(128, 128, 128, 0.35));
+}
 #repoDropdownList.active {
   display: block;
 }
@@ -1168,18 +1281,13 @@ body.vscode-high-contrast #contextMenu {
   margin-left: 0;
   margin-right: 6px;
 }
-/* A hover note beside a form label: the one line of warning a checkbox needs
-   and a label has no room for. */
-#dialog .dialogInfo {
-  cursor: help;
-  opacity: 0.7;
-}
 #dialog > table.dialogForm input[type="text"] {
   width: 100%;
 }
 /* Theme dialog inputs to respect the active VS Code Color Theme: a
    custom-rendered checkbox and themed select/text controls. */
-#dialog > table.dialogForm input[type="checkbox"] {
+#dialog > table.dialogForm input[type="checkbox"],
+#repoSettingsDrawer input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
   position: relative;
@@ -1196,11 +1304,13 @@ body.vscode-high-contrast #contextMenu {
   outline-style: none;
   cursor: pointer;
 }
-#dialog > table.dialogForm input[type="checkbox"]:checked {
+#dialog > table.dialogForm input[type="checkbox"]:checked,
+#repoSettingsDrawer input[type="checkbox"]:checked {
   background: var(--vscode-checkbox-selectBackground, var(--vscode-button-background));
   border-color: var(--vscode-checkbox-selectBorder, var(--vscode-button-background));
 }
-#dialog > table.dialogForm input[type="checkbox"]:checked::after {
+#dialog > table.dialogForm input[type="checkbox"]:checked::after,
+#repoSettingsDrawer input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
   left: 4px;
@@ -1212,7 +1322,8 @@ body.vscode-high-contrast #contextMenu {
   transform: rotate(45deg);
 }
 #dialog > table.dialogForm input[type="text"],
-#dialog > table.dialogForm select {
+#dialog > table.dialogForm select,
+#repoSettingsDrawer select {
   padding: 4px;
   box-sizing: border-box;
   /* Fall through to a foreground-derived border so the controls keep a visible
@@ -1229,7 +1340,8 @@ body.vscode-high-contrast #contextMenu {
   color: var(--vscode-input-foreground);
   outline-style: none;
 }
-#dialog > table.dialogForm select {
+#dialog > table.dialogForm select,
+#repoSettingsDrawer select {
   appearance: none;
   -webkit-appearance: none;
   background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
@@ -1243,10 +1355,13 @@ body.vscode-high-contrast #contextMenu {
   padding-right: 22px;
 }
 body.vscode-light #dialog > table.dialogForm select,
-body.vscode-high-contrast-light #dialog > table.dialogForm select {
+body.vscode-high-contrast-light #dialog > table.dialogForm select,
+body.vscode-light #repoSettingsDrawer select,
+body.vscode-high-contrast-light #repoSettingsDrawer select {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23424242' d='M8 11L3 6h10z'/></svg>");
 }
-#dialog > table.dialogForm select option {
+#dialog > table.dialogForm select option,
+#repoSettingsDrawer select option {
   background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
   color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
 }

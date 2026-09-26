@@ -68,10 +68,10 @@ tradeoffs, and release process clearer.
 All settings live under the `ging-git-view.*` prefix. The easiest way to configure the extension is
 the Settings UI — open Settings and search for **GING**.
 
-The gear on the graph's toolbar opens **Repository Settings**, which overrides the settings that decide
+The gear on the graph's toolbar slides out **Repository Settings**, which overrides the settings that decide
 what the graph loads — first parent only, reflog commits, stashes, tag-only commits, remote branches and
 remote HEADs — for the current repository alone, next to its commit order, its name, and the Branches
-view's inactive and merged filters.
+view's inactive and merged filters. Each change applies as you make it.
 
 A few commonly adjusted settings:
 
