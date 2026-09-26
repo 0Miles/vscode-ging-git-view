@@ -310,19 +310,37 @@ type RepoSettingReload = "branches" | "commits" | null;
  *  them, each named by the repo-state field it overrides.
  *
  *  Labels are l10n *keys*, for the reason {@link ACTION_FAILURE}'s are: this is
- *  module level, and `l10n` is a global the host injects into the page. */
+ *  module level, and `l10n` is a global the host injects into the page. So is
+ *  `info`: the full explanation an ⓘ beside the label carries, for a toggle
+ *  whose label cannot say everything it does. */
 const REPO_SETTING_TOGGLES: {
   field: keyof GG.RepoSettingDefaults | "showRemoteBranches";
   label: keyof LocalizedStrings;
   reload: RepoSettingReload;
+  info?: keyof LocalizedStrings;
 }[] = [
   // Which refs `git log` walks, and which branches the branch list offers.
-  { field: "showRemoteBranches", label: "repoSettingsShowRemoteBranches", reload: "branches" },
+  // Its note is a warning: turning remote branches off prunes them from the
+  // branch filter, and turning them back on does not restore them (ADR-0013).
+  // The side-view's toggle has always done that; a panel of several switches
+  // makes it easier to do by accident.
+  {
+    field: "showRemoteBranches",
+    label: "repoSettingsShowRemoteBranches",
+    reload: "branches",
+    info: "repoSettingsRemotePruneInfo"
+  },
   { field: "showRemoteHeads", label: "repoSettingsShowRemoteHeads", reload: "commits" },
   { field: "showStashes", label: "repoSettingsShowStashes", reload: "commits" },
   { field: "showTagOnlyCommits", label: "repoSettingsShowTagOnlyCommits", reload: "commits" },
   { field: "includeReflogCommits", label: "repoSettingsIncludeReflogCommits", reload: "commits" },
-  { field: "onlyFollowFirstParent", label: "repoSettingsFirstParentOnly", reload: "commits" },
+  // "First parent" is git's term, and says nothing about what disappears.
+  {
+    field: "onlyFollowFirstParent",
+    label: "repoSettingsFirstParentOnly",
+    reload: "commits",
+    info: "repoSettingsFirstParentInfo"
+  },
   { field: "showInactiveBranches", label: "repoSettingsShowInactiveBranches", reload: null },
   { field: "showMergedBranches", label: "repoSettingsShowMergedBranches", reload: null }
 ];
@@ -1056,15 +1074,8 @@ class GitGraphView {
         "/><span>" +
         escapeHtml(l10n[t.label]) +
         "</span>" +
-        // The one toggle with a cost the user cannot see coming carries it
-        // beside it: turning remote branches off prunes them from the branch
-        // filter, and turning them back on does not restore them (ADR-0013).
-        // The side-view's toggle has always done that; a panel of several
-        // switches makes it easier to do by accident.
-        (t.field === "showRemoteBranches"
-          ? '<span class="repoSettingsInfo" title="' +
-            escapeHtml(l10n.repoSettingsRemotePruneInfo) +
-            '">&#9432;</span>'
+        (t.info !== undefined
+          ? '<span class="repoSettingsInfo" title="' + escapeHtml(l10n[t.info]) + '">&#9432;</span>'
           : "") +
         "</label>";
     }

@@ -64,6 +64,7 @@ export function getWebviewLocalizedStrings() {
     repoSettingsShowTagOnlyCommits: l10n.t("ui.repoSettings.showTagOnlyCommits"),
     repoSettingsIncludeReflogCommits: l10n.t("ui.repoSettings.includeReflogCommits"),
     repoSettingsFirstParentOnly: l10n.t("ui.repoSettings.firstParentOnly"),
+    repoSettingsFirstParentInfo: l10n.t("ui.repoSettings.firstParentInfo"),
     repoSettingsShowInactiveBranches: l10n.t("ui.repoSettings.showInactiveBranches"),
     repoSettingsShowMergedBranches: l10n.t("ui.repoSettings.showMergedBranches"),
 

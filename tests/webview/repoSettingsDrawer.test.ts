@@ -175,6 +175,21 @@ describe("the Repository Settings drawer", () => {
       ).toBe(L.repoSettingsRemotePruneInfo);
     });
 
+    it("explains beside first parent only what it leaves out", () => {
+      expect(
+        checkbox(L.repoSettingsFirstParentOnly)
+          .closest("label")!
+          .querySelector(".repoSettingsInfo")!
+          .getAttribute("title")
+      ).toBe(L.repoSettingsFirstParentInfo);
+    });
+
+    it("carries a note only where a label cannot say it all", () => {
+      expect(
+        checkbox(L.repoSettingsShowStashes).closest("label")!.querySelector(".repoSettingsInfo")
+      ).toBeNull();
+    });
+
     it("stays open for a click inside it", () => {
       click(drawer().querySelector(".repoSettingsHeader"), "header");
       expect(drawerOpen()).toBe(true);

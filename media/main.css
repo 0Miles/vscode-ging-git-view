@@ -872,7 +872,7 @@ body.vscode-high-contrast #repoDropdownList {
   max-height: calc(100vh - 44px);
   overflow-y: auto;
   margin-top: 2px;
-  padding: 6px 0;
+  padding: 8px 0;
   font-size: 13px;
   background-color: var(--vscode-editorWidget-background, var(--vscode-dropdown-background));
   color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
@@ -907,15 +907,15 @@ body.vscode-high-contrast #repoSettingsDrawer {
   box-shadow: none;
 }
 .repoSettingsHeader {
-  padding: 2px 12px 6px;
+  padding: 2px 14px 8px;
   font-weight: 600;
 }
 .repoSettingsRow {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 26px;
-  padding: 0 12px;
+  min-height: 32px;
+  padding: 0 14px;
 }
 .repoSettingsLabel {
   flex: 0 0 auto;
@@ -966,7 +966,7 @@ body.vscode-high-contrast #repoSettingsDrawer {
 }
 .repoSettingsSeparator {
   height: 1px;
-  margin: 5px 12px;
+  margin: 8px 14px;
   background-color: var(--vscode-menu-separatorBackground, rgba(128, 128, 128, 0.35));
 }
 #repoDropdownList.active {

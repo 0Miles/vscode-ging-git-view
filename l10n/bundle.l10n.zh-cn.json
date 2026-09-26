@@ -40,6 +40,7 @@
   "ui.repoSettings.showTagOnlyCommits": "显示仅由 tag 引用的 commit",
   "ui.repoSettings.includeReflogCommits": "包含仅由 reflog 引用的 commit",
   "ui.repoSettings.firstParentOnly": "只跟随第一个父 commit",
+  "ui.repoSettings.firstParentInfo": "每遇到 merge commit，只沿着它的第一个父 commit 往回走（git log --first-parent）。被合并进来的 branch 上的 commit 不会显示，每次 merge 在被合并进去的 branch 上只剩一个点。",
   "ui.repoSettings.showInactiveBranches": "在分支视图中显示不活跃 branch",
   "ui.repoSettings.showMergedBranches": "在分支视图中显示已合并 branch",
   "error.unableToLoadGitGraph": "无法加载 Git 图形",
