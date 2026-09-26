@@ -131,6 +131,12 @@ type ActionResponseExtras = {
      *  the webview can offer a force delete. See `isNotFullyMergedError`. */
     notFullyMerged: boolean;
   };
+  pushBranch: {
+    /** git refused a force-with-lease push because the remote tip is not
+     *  integrated into the local branch. A fact, not a claim that the remote
+     *  has new commits — see `isRemoteUpdatedSinceCheckoutError`. */
+    remoteUpdatedSinceCheckout: boolean;
+  };
 };
 
 /** The extra response fields action `T` carries — `never` for the actions that

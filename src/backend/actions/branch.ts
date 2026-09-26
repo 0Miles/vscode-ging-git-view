@@ -170,18 +170,34 @@ export async function pullBranch(
   await git.pull(input.remote, input.branchName);
 }
 
+/** The `git` arguments that push `branch` to `remote` in `forceMode`. Raw
+ *  arguments rather than simple-git's `git.push`, which appends `--porcelain`
+ *  and so turns a rejection into a line nobody can read. */
+function pushArgs(
+  remote: string,
+  branch: string,
+  forceMode: ActionPayload<"pushBranch">["forceMode"]
+): string[] {
+  switch (forceMode) {
+    case "normal":
+      return ["push", remote, branch];
+    case "force":
+      return ["push", "--force", remote, branch];
+    case "forceWithLease":
+      // The lease only holds if the remote tip was integrated, not just fetched;
+      // `-c`, not `--force-if-includes`, so git < 2.30 still pushes. See ADR-0025.
+      return ["-c", "push.useForceIfIncludes=true", "push", "--force-with-lease", remote, branch];
+  }
+}
+
 export async function pushBranch(
   git: SimpleGit,
   input: ActionPayload<"pushBranch">
 ): Promise<void> {
-  const opts =
-    input.forceMode === "force"
-      ? ["--force"]
-      : input.forceMode === "forceWithLease"
-        ? ["--force-with-lease"]
-        : [];
   // Push to each selected remote; simple-git serialises them internally.
-  await Promise.all(input.remotes.map((remote) => git.push(remote, input.branchName, opts)));
+  await Promise.all(
+    input.remotes.map((remote) => git.raw(pushArgs(remote, input.branchName, input.forceMode)))
+  );
 }
 
 export async function deleteRemoteBranch(
