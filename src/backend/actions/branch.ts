@@ -4,10 +4,15 @@ import type {
   ActionPayload,
   BatchActionPayload,
   BatchDeleteResult,
+  BatchPushResult,
   BatchRefResult
 } from "@/backend/types";
 import { REMOTE_PREFIX, splitRemoteRef } from "@/backend/utils/branchRef";
-import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
+import {
+  formatGitError,
+  isNotFullyMergedError,
+  isRemoteUpdatedSinceCheckoutError
+} from "@/backend/utils/gitError";
 
 export async function createBranch(
   git: SimpleGit,
@@ -143,14 +148,27 @@ export async function deleteBranches(
   }));
 }
 
-/** Push several branches to the same remotes with the same force mode. */
-export function pushBranches(
+/** Push several branches to the same remotes with the same force mode. Each
+ *  refusal keeps git's own line as its status; a lease refused for an
+ *  unintegrated remote tip is also flagged, so the summary can explain it. */
+export async function pushBranches(
   git: SimpleGit,
   input: BatchActionPayload<"pushBranches">
-): Promise<BatchRefResult[]> {
-  return mapRefsSequentially(input.branchNames, (branchName) =>
-    pushBranch(git, { branchName, remotes: input.remotes, forceMode: input.forceMode })
-  );
+): Promise<BatchPushResult[]> {
+  const remoteUpdatedSinceCheckout = new Set<string>();
+  const results = await mapRefsSequentially(input.branchNames, async (branchName) => {
+    try {
+      await pushBranch(git, { branchName, remotes: input.remotes, forceMode: input.forceMode });
+    } catch (e: unknown) {
+      if (isRemoteUpdatedSinceCheckoutError(e)) remoteUpdatedSinceCheckout.add(branchName);
+      throw e;
+    }
+  });
+  return results.map((r) => ({
+    ref: r.ref,
+    status: r.status,
+    remoteUpdatedSinceCheckout: remoteUpdatedSinceCheckout.has(r.ref)
+  }));
 }
 
 /** Fast-forward several branches to their own upstreams. */

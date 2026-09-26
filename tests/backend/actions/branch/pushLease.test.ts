@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { pushBranch } from "@/backend/actions/branch";
+import { pushBranch, pushBranches } from "@/backend/actions/branch";
 import type { ActionPayload } from "@/backend/types";
 import { formatGitError, isRemoteUpdatedSinceCheckoutError } from "@/backend/utils/gitError";
 
@@ -126,6 +126,43 @@ describe("pushBranch with force-with-lease", () => {
     await pushMain(world.local, "forceWithLease");
 
     expect(remoteMain(world.remote)).toBe(rev(world.local, "main"));
+  });
+});
+
+describe("pushBranches with force-with-lease", () => {
+  it("flags only the branch refused for an unintegrated remote tip", async () => {
+    const world = makeWorld();
+    // A second branch of the local repo's own, pushed and then rewritten: its
+    // lease has nothing unintegrated to protect, so it goes through.
+    git(["checkout", "-b", "side"], world.local);
+    commitFile(world.local, "side.txt", "side", "side work");
+    git(["push", "-u", "origin", "side"], world.local);
+    amendTip(world.local, "side rewritten");
+    git(["checkout", "main"], world.local);
+
+    const matesTip = teammatePushes(world);
+    git(["fetch", "origin"], world.local);
+    amendTip(world.local, "rewritten");
+
+    const results = await pushBranches(simpleGit(world.local), {
+      branchNames: ["main", "side"],
+      remotes: ["origin"],
+      forceMode: "forceWithLease"
+    });
+
+    expect(results).toEqual([
+      {
+        ref: "main",
+        // git's own line stays the ref's status; the explanation is the webview's.
+        status: expect.stringMatching(
+          /^\[rejected\]\s+main -> main \(remote ref updated since checkout\)$/
+        ),
+        remoteUpdatedSinceCheckout: true
+      },
+      { ref: "side", status: null, remoteUpdatedSinceCheckout: false }
+    ]);
+    expect(remoteMain(world.remote)).toBe(matesTip);
+    expect(bareGit(["rev-parse", "side"], world.remote).trim()).toBe(rev(world.local, "side"));
   });
 });
 
