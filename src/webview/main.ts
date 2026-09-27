@@ -306,7 +306,7 @@ const branchTarget = (refName: string): RebaseTarget => ({ value: refName, label
  *  steer a view the graph does not draw. */
 type RepoSettingReload = "branches" | "commits" | null;
 
-/** The Repository Settings dialog's checkboxes (#183), in the order it shows
+/** The Repository Settings drawer's checkboxes (#183), in the order it shows
  *  them, each named by the repo-state field it overrides.
  *
  *  Labels are l10n *keys*, for the reason {@link ACTION_FAILURE}'s are: this is
@@ -344,6 +344,9 @@ const REPO_SETTING_TOGGLES: {
   { field: "showInactiveBranches", label: "repoSettingsShowInactiveBranches", reload: null },
   { field: "showMergedBranches", label: "repoSettingsShowMergedBranches", reload: null }
 ];
+
+/** The name a repo goes by when it has no custom name: its folder's. */
+const repoFolderName = (repo: string) => repo.substring(repo.lastIndexOf("/") + 1);
 
 /** The commit-order select's value for "no override". A select's values are
  *  strings, so null needs a stand-in. */
@@ -533,9 +536,9 @@ class GitGraphView {
     const repoSettingsDrawer = document.getElementById("repoSettingsDrawer");
     if (repoSettingsBtn && repoSettingsDrawer) {
       repoSettingsBtn.innerHTML = svgIcons.settings;
-      // The document listener below closes the drawer on any click, so the
-      // clicks that belong to it are kept from reaching it — the repo
-      // dropdown's arrangement.
+      // The toolbar's popups close on any click that reaches the document, so
+      // the clicks that belong to the drawer are kept from reaching it — the
+      // repo dropdown's arrangement.
       repoSettingsBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.toggleRepoSettings();
@@ -563,8 +566,6 @@ class GitGraphView {
           this.showRenameRepo();
         }
       });
-      document.addEventListener("click", () => this.closeRepoSettings());
-      document.addEventListener("contextmenu", () => this.closeRepoSettings());
     }
     const terminalBtn = document.getElementById("terminalBtn");
     if (terminalBtn) {
@@ -604,10 +605,16 @@ class GitGraphView {
       repoList.addEventListener("click", (e) => e.stopPropagation());
       repoList.addEventListener("keydown", (e) => this.repoDropdownKeydown(<KeyboardEvent>e));
     }
-    document.addEventListener("click", () => this.closeRepoDropdown());
-    // A right-click anywhere is about to raise a context menu; the two popups
-    // must not share the screen.
-    document.addEventListener("contextmenu", () => this.closeRepoDropdown());
+    // The toolbar's two popups — this dropdown and the Repository Settings
+    // drawer — close on a click anywhere that did not keep it for itself. A
+    // right-click anywhere is about to raise a context menu, and popups must
+    // not share the screen.
+    const closeToolbarPopups = () => {
+      this.closeRepoDropdown();
+      this.closeRepoSettings();
+    };
+    document.addEventListener("click", closeToolbarPopups);
+    document.addEventListener("contextmenu", closeToolbarPopups);
     const filterIcon = document.getElementById("branchFilterIcon");
     if (filterIcon) filterIcon.innerHTML = svgIcons.filter;
     const filterClear = document.getElementById("branchFilterClear");
@@ -749,7 +756,7 @@ class GitGraphView {
   /** The name the toolbar and repo dropdown show for a repo: its custom name
    *  when one is set, else its folder name. */
   private repoDisplayName(repo: string): string {
-    return this.gitRepos[repo]?.customName || repo.substring(repo.lastIndexOf("/") + 1);
+    return this.gitRepos[repo]?.customName || repoFolderName(repo);
   }
 
   /** Apply a change to VSCode's Source Control repo-selection mode: leaving
@@ -940,7 +947,6 @@ class GitGraphView {
     if (typeof this.gitRepos[this.currentRepo] !== "undefined") {
       this.gitRepos[this.currentRepo].showRemoteBranches = value;
     }
-    this.refreshRepoSettings();
     this.shrinkLoadedCommitWindow();
     this.saveState();
     this.navigateReload();
@@ -1022,7 +1028,11 @@ class GitGraphView {
     if (drawer === null || !repo) return;
     const state = this.gitRepos[repo];
     if (state === undefined) return;
-    const defaults = this.repoSettingDefaults();
+    // What a repo that has not overridden a toggle gets.
+    const defaults: Record<(typeof REPO_SETTING_TOGGLES)[number]["field"], boolean> = {
+      ...viewState.repoSettingDefaults,
+      showRemoteBranches: this.config.showRemoteBranches
+    };
     const order = state.commitOrdering ?? REPO_SETTING_ORDER_DEFAULT;
     const orderOption = (value: string, label: string) =>
       '<option value="' +
@@ -1045,7 +1055,7 @@ class GitGraphView {
       '">' +
       escapeHtml(this.repoDisplayName(repo)) +
       "</span>" +
-      '<span id="repoSettingsRename" class="repoSettingsIconBtn" role="button" tabindex="0"' +
+      '<span id="repoSettingsRename" role="button" tabindex="0"' +
       ' data-field="customName" title="' +
       escapeHtml(l10n.repoSettingsRename) +
       '" aria-label="' +
@@ -1082,11 +1092,6 @@ class GitGraphView {
     drawer.innerHTML = html;
   }
 
-  /** What a repo that has not overridden a toggle gets. */
-  private repoSettingDefaults(): Record<(typeof REPO_SETTING_TOGGLES)[number]["field"], boolean> {
-    return { ...viewState.repoSettingDefaults, showRemoteBranches: this.config.showRemoteBranches };
-  }
-
   /** A control in the drawer changed: write it, and reload if it steers the
    *  load. Every change applies as it is made — there is no Apply to gather
    *  them behind. */
@@ -1120,7 +1125,7 @@ class GitGraphView {
           type: "text",
           name: l10n.repoSettingsName,
           default: shown ?? "",
-          placeholder: repo.substring(repo.lastIndexOf("/") + 1)
+          placeholder: repoFolderName(repo)
         }
       ],
       l10n.repoSettingsRename,
@@ -1168,23 +1173,19 @@ class GitGraphView {
     // A repo the graph is not showing has nothing on screen to reload: it
     // loads under its new state the next time it is switched to.
     if (repo !== this.currentRepo || reload === null) return;
-    this.shrinkLoadedCommitWindow();
     if (reload === "branches") {
-      // The side-view's toggle arrives here too (setShowRemoteBranches), and
-      // the memo has to follow or that toggle would read this change as a
-      // no-op the next time it fires.
-      this.showRemoteBranches = repoState.showRemoteBranches ?? this.config.showRemoteBranches;
-      this.saveState();
-      this.navigateReload();
-    } else {
-      // Only the commits: none of these fields moves the branch list. Shaped
-      // like {@link reloadForBranchChange}, which is the same navigation one
-      // field over.
-      this.abandonLoadsInFlight();
-      this.saveState();
-      this.beginBusyLoad();
-      this.requestLoadCommits(true, () => this.endBusyLoad());
+      // The side-view's toggle already does all of this, memo included.
+      this.setShowRemoteBranches(repoState.showRemoteBranches ?? this.config.showRemoteBranches);
+      return;
     }
+    // Only the commits: none of these fields moves the branch list. Shaped like
+    // {@link reloadForBranchChange}, which is the same navigation one field
+    // over — less its closing of the details panel, which nobody asked for.
+    this.shrinkLoadedCommitWindow();
+    this.abandonLoadsInFlight();
+    this.saveState();
+    this.beginBusyLoad();
+    this.requestLoadCommits(true, () => this.endBusyLoad());
   }
 
   /** Send a branch-deletion request, remembering its parameters so a failed

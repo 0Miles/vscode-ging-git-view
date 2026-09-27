@@ -50,7 +50,11 @@ import {
 } from "./extension/remotesView";
 import { createRepoGitClients } from "./extension/repoGitClients";
 import { createRepoManager } from "./extension/repoManager";
-import { resolveRepoScope } from "./extension/repoSettings";
+import {
+  resolveRepoScope,
+  type SideViewField,
+  sideViewStateChanged
+} from "./extension/repoSettings";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
 import { SequenceEditorManager } from "./extension/sequenceEditor/sequenceEditorManager";
 import { showStatistics } from "./extension/statisticsPanel";
@@ -197,6 +201,15 @@ export function activate(context: vscode.ExtensionContext) {
   });
   branchesView.setActiveRepo(extensionState.getLastActiveRepo());
   context.subscriptions.push(branchesView, branchFilterStore);
+  // The side-view draws itself from three repo-state fields, and more than one
+  // thing writes them: its own toggles, and the graph's Repository Settings
+  // drawer (#183) through `saveRepoState`. Listening to the write itself keeps
+  // the view current whichever of them it was.
+  context.subscriptions.push(
+    repoManager.onDidWriteRepoState((_repo, before, after) => {
+      if (sideViewStateChanged(before, after)) branchesView.refresh();
+    })
+  );
 
   // Remotes side-view: a flat list of the active repo's remotes, sharing the
   // Branches view's data service and repo-following behaviour. Mutations are
@@ -225,7 +238,7 @@ export function activate(context: vscode.ExtensionContext) {
    * when unset), persists it, and re-lists the view.
    */
   const makeVisibilityToggle = (
-    field: "showRemoteBranches" | "showInactiveBranches" | "showMergedBranches",
+    field: SideViewField,
     globalDefault: () => boolean,
     onToggled?: (next: boolean) => void
   ) => {
@@ -235,12 +248,12 @@ export function activate(context: vscode.ExtensionContext) {
       const state = repoManager.getRepos()[repo];
       if (state === undefined) return;
       const next = !(state[field] ?? globalDefault());
+      // Re-lists the view too, through onDidWriteRepoState.
       repoManager.setRepoState(repo, { ...state, [field]: next });
-      branchesView.refresh();
       // The graph keeps its own copy of the repo state and writes all of it
       // back whenever it persists anything (a column drag is enough), so a copy
       // that never heard of this toggle would quietly undo it. It is also what
-      // the Repository Settings dialog opens with (#183).
+      // the Repository Settings drawer draws from (#183).
       repoManager.sendRepos();
       onToggled?.(next);
     };
@@ -388,7 +401,6 @@ export function activate(context: vscode.ExtensionContext) {
       resolveShowRemote,
       resolveRepoScope: (repo) =>
         resolveRepoScope(repoManager.getRepos()[repo], config.repoSettingDefaults()),
-      onSideViewStateChanged: () => branchesView.refresh(),
       logger,
       sequenceEditor,
       onSelectRepo: (repo) => {

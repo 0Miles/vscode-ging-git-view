@@ -111,7 +111,7 @@ export type GitRepoState = {
   detailsDivider?: number | null;
 } & {
   /** Per-repo overrides of the settings that decide which commits the graph
-   *  loads, set from the Repository Settings dialog (#183); null/undefined uses
+   *  loads, set from the Repository Settings drawer (#183); null/undefined uses
    *  the global setting. */
   [K in keyof RepoScopeSettings]?: boolean | null;
 };
@@ -133,9 +133,9 @@ export type RepoScopeSettings = {
   showRemoteHeads: boolean;
 };
 
-/** The global values the Repository Settings dialog shows for a repo that has
+/** The global values the Repository Settings drawer shows for a repo that has
  *  not overridden them. `showRemoteBranches` is not here: the view state has
- *  carried its global value since before the dialog existed. */
+ *  carried its global value since before the drawer existed. */
 export type RepoSettingDefaults = RepoScopeSettings & {
   showInactiveBranches: boolean;
   showMergedBranches: boolean;

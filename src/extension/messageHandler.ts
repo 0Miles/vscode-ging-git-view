@@ -75,7 +75,6 @@ import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
 import { type Logger } from "./logger";
 import { RepoManager } from "./repoManager";
-import { sideViewStateChanged } from "./repoSettings";
 import { WebviewBridge } from "./webviewBridge";
 import { createWebviewErrorSink } from "./webviewErrorSink";
 
@@ -146,9 +145,6 @@ export function registerMessageHandlers(
      *  remote heads — with its per-repo overrides applied. Resolved here rather
      *  than sent by the webview, for the same reason as `resolveShowRemote`. */
     resolveRepoScope: (repo: string) => RepoScopeSettings;
-    /** Called after a webview write moved something the Branches side-view
-     *  draws itself from, so it can re-list. */
-    onSideViewStateChanged: () => void;
     /** The GING Output Channel, which is also where the webview's own failures
      *  are written down (ADR-0016). */
     logger: Logger;
@@ -169,7 +165,6 @@ export function registerMessageHandlers(
     branchCleanup,
     resolveShowRemote,
     resolveRepoScope,
-    onSideViewStateChanged,
     logger,
     onSelectRepo
   } = deps;
@@ -719,12 +714,7 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "saveRepoState",
     (msg) => {
-      const before = repoManager.getRepos()[msg.repo];
       repoManager.setRepoState(msg.repo, msg.state);
-      // The Repository Settings dialog writes the side-view's toggles too
-      // (#183), and the manager only stores what it is given — without this
-      // the view would go on showing the state from before the write.
-      if (sideViewStateChanged(before, msg.state)) onSideViewStateChanged();
     },
     { mutatesRepo: false }
   );

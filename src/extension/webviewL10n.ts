@@ -46,7 +46,7 @@ export function getWebviewLocalizedStrings() {
     commitOrderDate: l10n.t("ui.commitOrder.date"),
     commitOrderAuthorDate: l10n.t("ui.commitOrder.authorDate"),
     commitOrderTopo: l10n.t("ui.commitOrder.topo"),
-    // The Repository Settings dialog (#183).
+    // The Repository Settings drawer (#183).
     repoSettings: l10n.t("ui.repoSettings"),
     repoSettingsName: l10n.t("ui.repoSettings.name"),
     repoSettingsRename: l10n.t("ui.repoSettings.rename"),

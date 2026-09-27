@@ -5,18 +5,20 @@ import type { GitRepoState, RepoScopeSettings } from "@/types";
  * own.
  *
  * A repo's state holds overrides, not values: null or missing means "use the
- * global setting", which is why the Repository Settings dialog (#183) can offer
+ * global setting", which is why the Repository Settings drawer (#183) can offer
  * a shortcut to them without becoming a second copy of them.
  */
 
-/** Every field of {@link RepoScopeSettings}, in the order the loader reads them. */
-const REPO_SCOPE_FIELDS: readonly (keyof RepoScopeSettings)[] = [
-  "onlyFollowFirstParent",
-  "includeReflogCommits",
-  "showStashes",
-  "showTagOnlyCommits",
-  "showRemoteHeads"
-];
+/** Every field of {@link RepoScopeSettings}. A record rather than a list so the
+ *  compiler holds it to the type: a field added there and missed here would
+ *  be written by the drawer and silently ignored by the loader. */
+const REPO_SCOPE_FIELDS = Object.keys({
+  onlyFollowFirstParent: true,
+  includeReflogCommits: true,
+  showStashes: true,
+  showTagOnlyCommits: true,
+  showRemoteHeads: true
+} satisfies Record<keyof RepoScopeSettings, true>) as (keyof RepoScopeSettings)[];
 
 /** The repo's load scope: its override where it has one, the global setting
  *  where it does not. `state` is undefined for a repo the manager does not
@@ -40,11 +42,14 @@ const SIDE_VIEW_FIELDS = [
   "showMergedBranches"
 ] as const;
 
+/** One of the side-view's toggles, named by the repo-state field it writes. */
+export type SideViewField = (typeof SIDE_VIEW_FIELDS)[number];
+
 /** Whether a repo-state write moved anything the Branches side-view shows.
  *
- *  The webview persists its repo state for reasons that have nothing to do
- *  with the side-view — a column drag, a details-panel resize — so re-listing
- *  the view on every save would be work for nothing. A missing field and an
+ *  Most writes have nothing to do with the side-view — the graph persists its
+ *  repo state on a column drag or a details-panel resize — so re-listing the
+ *  view on every write would be work for nothing. A missing field and an
  *  explicit null both mean "use the global setting", so they compare equal. */
 export function sideViewStateChanged(
   before: GitRepoState | undefined,

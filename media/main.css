@@ -853,7 +853,8 @@ body.tagLabelsRightAligned .gitRef.tag {
     opacity: 1;
   }
 }
-body.vscode-high-contrast #repoDropdownList {
+body.vscode-high-contrast #repoDropdownList,
+body.vscode-high-contrast #repoSettingsDrawer {
   box-shadow: none;
 }
 /* The Repository Settings drawer: slides down out of the gear it hangs from,
@@ -903,9 +904,6 @@ body.vscode-high-contrast #repoDropdownList {
     transition: none;
   }
 }
-body.vscode-high-contrast #repoSettingsDrawer {
-  box-shadow: none;
-}
 .repoSettingsHeader {
   padding: 2px 14px 8px;
   font-weight: 600;
@@ -942,27 +940,6 @@ body.vscode-high-contrast #repoSettingsDrawer {
 .repoSettingsInfo {
   cursor: help;
   opacity: 0.7;
-}
-.repoSettingsIconBtn {
-  position: relative;
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  border-radius: 5px;
-}
-.repoSettingsIconBtn svg {
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  fill: var(--vscode-editor-foreground);
-  opacity: 0.8;
-}
-.repoSettingsIconBtn:hover {
-  background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
-}
-.repoSettingsIconBtn:hover svg {
-  opacity: 1;
 }
 .repoSettingsSeparator {
   height: 1px;
@@ -1049,7 +1026,8 @@ body.vscode-high-contrast #repoSettingsDrawer {
 #blinkHeadBtn,
 #fetchBtn,
 #refreshBtn,
-#repoSettingsBtn {
+#repoSettingsBtn,
+#repoSettingsRename {
   position: relative;
   flex: 0 0 auto;
   width: 20px;
@@ -1061,7 +1039,8 @@ body.vscode-high-contrast #repoSettingsDrawer {
 #blinkHeadBtn svg,
 #fetchBtn svg,
 #refreshBtn svg,
-#repoSettingsBtn svg {
+#repoSettingsBtn svg,
+#repoSettingsRename svg {
   position: absolute;
   fill: var(--vscode-editor-foreground);
   opacity: 0.8;
@@ -1078,7 +1057,8 @@ body.vscode-high-contrast #repoSettingsDrawer {
 #blinkHeadBtn:hover svg,
 #fetchBtn:hover svg,
 #refreshBtn:hover svg,
-#repoSettingsBtn:hover svg {
+#repoSettingsBtn:hover svg,
+#repoSettingsRename:hover svg {
   opacity: 1;
   stroke-width: 0.5px;
 }
@@ -1087,7 +1067,8 @@ body.vscode-high-contrast #repoSettingsDrawer {
 #blinkHeadBtn svg,
 #fetchBtn svg,
 #refreshBtn svg,
-#repoSettingsBtn svg {
+#repoSettingsBtn svg,
+#repoSettingsRename svg {
   left: 2px;
   top: 2px;
   width: 16px !important;
@@ -1100,7 +1081,8 @@ body.vscode-high-contrast #repoSettingsDrawer {
 #blinkHeadBtn:hover,
 #fetchBtn:hover,
 #refreshBtn:hover,
-#repoSettingsBtn:hover {
+#repoSettingsBtn:hover,
+#repoSettingsRename:hover {
   background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
   border-radius: 5px;
 }

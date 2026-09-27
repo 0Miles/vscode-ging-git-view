@@ -204,7 +204,7 @@ export const config = {
   showCurrentBranchByDefault: (): boolean => getConfig("onOpen.selectCheckedOutBranch", false),
   /** What a repo that has not overridden them gets, keyed by the `GitRepoState`
    *  field that overrides each: the host resolves the graph's load scope from
-   *  it, and the Repository Settings dialog shows it (#183). */
+   *  it, and the Repository Settings drawer shows it (#183). */
   repoSettingDefaults: (): RepoSettingDefaults => ({
     onlyFollowFirstParent: config.onlyFollowFirstParent(),
     includeReflogCommits: config.includeCommitsMentionedByReflogs(),
