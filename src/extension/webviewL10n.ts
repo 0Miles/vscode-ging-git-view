@@ -46,6 +46,27 @@ export function getWebviewLocalizedStrings() {
     commitOrderDate: l10n.t("ui.commitOrder.date"),
     commitOrderAuthorDate: l10n.t("ui.commitOrder.authorDate"),
     commitOrderTopo: l10n.t("ui.commitOrder.topo"),
+    // The Repository Settings drawer (#183).
+    repoSettings: l10n.t("ui.repoSettings"),
+    repoSettingsName: l10n.t("ui.repoSettings.name"),
+    repoSettingsRename: l10n.t("ui.repoSettings.rename"),
+    // The same question the Set Repository Name command asks.
+    repoSettingsRenamePrompt: l10n.t("repoName.prompt"),
+    repoSettingsCommitOrder: l10n.t("ui.repoSettings.commitOrder"),
+    repoSettingsOrderDefault: l10n.t("ui.repoSettings.orderDefault"),
+    repoSettingsOrderDate: l10n.t("ui.repoSettings.orderDate"),
+    repoSettingsOrderAuthorDate: l10n.t("ui.repoSettings.orderAuthorDate"),
+    repoSettingsOrderTopo: l10n.t("ui.repoSettings.orderTopo"),
+    repoSettingsShowRemoteBranches: l10n.t("ui.repoSettings.showRemoteBranches"),
+    repoSettingsRemotePruneInfo: l10n.t("ui.repoSettings.remotePruneInfo"),
+    repoSettingsShowRemoteHeads: l10n.t("ui.repoSettings.showRemoteHeads"),
+    repoSettingsShowStashes: l10n.t("ui.repoSettings.showStashes"),
+    repoSettingsShowTagOnlyCommits: l10n.t("ui.repoSettings.showTagOnlyCommits"),
+    repoSettingsIncludeReflogCommits: l10n.t("ui.repoSettings.includeReflogCommits"),
+    repoSettingsFirstParentOnly: l10n.t("ui.repoSettings.firstParentOnly"),
+    repoSettingsFirstParentInfo: l10n.t("ui.repoSettings.firstParentInfo"),
+    repoSettingsShowInactiveBranches: l10n.t("ui.repoSettings.showInactiveBranches"),
+    repoSettingsShowMergedBranches: l10n.t("ui.repoSettings.showMergedBranches"),
 
     // Error messages
     unableToLoadGitGraph: l10n.t("error.unableToLoadGitGraph"),

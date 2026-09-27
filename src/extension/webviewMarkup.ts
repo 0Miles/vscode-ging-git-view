@@ -30,6 +30,9 @@ export function buildWebviewMarkup(l10n: LocalizedStrings): string {
       <div id="blinkHeadBtn" class="iconBtn" title="${l10n.locateHead}"></div>
       <div id="fetchBtn" class="iconBtn" title="${l10n.fetch}"></div>
       <div id="refreshBtn" class="iconBtn" title="${l10n.refresh}"></div>
+      <div id="repoSettingsBtn" class="iconBtn" role="button" tabindex="0" aria-haspopup="dialog"
+        aria-expanded="false" aria-controls="repoSettingsDrawer" title="${l10n.repoSettings}"></div>
+      <div id="repoSettingsDrawer" role="dialog" aria-label="${l10n.repoSettings}"></div>
     </div>
     <div id="conflictBanner"></div>
     <div id="content">

@@ -76,6 +76,15 @@ function buildViewState(overrides: Partial<GG.GitGraphViewState>): GG.GitGraphVi
     uncommittedChangesAtHead: false,
     showSpecificBranches: [],
     showRemoteBranches: true,
+    repoSettingDefaults: {
+      onlyFollowFirstParent: false,
+      includeReflogCommits: false,
+      showStashes: true,
+      showTagOnlyCommits: true,
+      showRemoteHeads: true,
+      showInactiveBranches: false,
+      showMergedBranches: false
+    },
     showTags: true,
     ...overrides
   };

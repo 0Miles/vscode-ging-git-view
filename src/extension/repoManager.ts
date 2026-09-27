@@ -19,6 +19,13 @@ import { StatusBarItem } from "@/statusBarItem";
 import { GitRepoSet, GitRepoState } from "@/types";
 
 export type RepoChangeCallback = (repos: GitRepoSet, numRepos: number) => void;
+/** Told of every repo-state write: the state it replaced (undefined for a repo
+ *  the manager did not hold) and the state it wrote. */
+export type RepoStateWriteCallback = (
+  repo: string,
+  before: GitRepoState | undefined,
+  after: GitRepoState
+) => void;
 
 function sortRepos(repos: GitRepoSet) {
   const repoPaths = Object.keys(repos).toSorted();
@@ -36,6 +43,7 @@ export function createRepoManager(
 ) {
   let repos = extensionState.getRepos();
   const viewCallbacks = new Set<RepoChangeCallback>();
+  const stateWriteCallbacks = new Set<RepoStateWriteCallback>();
 
   function getRepos() {
     return sortRepos(repos);
@@ -119,8 +127,18 @@ export function createRepoManager(
   }
 
   function setRepoState(repo: string, state: GitRepoState) {
+    const before = repos[repo];
     repos[repo] = state;
     extensionState.saveRepos(repos);
+    for (const cb of stateWriteCallbacks) cb(repo, before, state);
+  }
+
+  /** Listen to every repo-state write, whoever made it — so what depends on a
+   *  field (the Branches side-view on its toggles) follows it without each
+   *  writer having to remember to say so. */
+  function onDidWriteRepoState(cb: RepoStateWriteCallback): vscode.Disposable {
+    stateWriteCallbacks.add(cb);
+    return { dispose: () => stateWriteCallbacks.delete(cb) };
   }
 
   function removeReposNotInWorkspace() {
@@ -184,6 +202,7 @@ export function createRepoManager(
     removeRepo,
     removeReposWithinFolder,
     setRepoState,
+    onDidWriteRepoState,
     removeReposNotInWorkspace,
     checkReposExist
   };

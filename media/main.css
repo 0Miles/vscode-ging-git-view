@@ -853,8 +853,98 @@ body.tagLabelsRightAligned .gitRef.tag {
     opacity: 1;
   }
 }
-body.vscode-high-contrast #repoDropdownList {
+body.vscode-high-contrast #repoDropdownList,
+body.vscode-high-contrast #repoSettingsDrawer {
   box-shadow: none;
+}
+/* The Repository Settings drawer: slides down out of the gear it hangs from,
+   pinned to the toolbar's right edge. Same surface and elevation as the repo
+   dropdown on the left — above the graph SVG and the docked CDV. It is kept in
+   the layout while closed (visibility, not display) so the slide has a
+   starting point; visibility also keeps its controls out of the tab order. */
+#repoSettingsDrawer {
+  position: absolute;
+  top: 100%;
+  right: 6px;
+  z-index: 300;
+  box-sizing: border-box;
+  width: 300px;
+  max-width: calc(100vw - 12px);
+  max-height: calc(100vh - 44px);
+  overflow-y: auto;
+  margin-top: 2px;
+  padding: 8px 0;
+  font-size: 13px;
+  background-color: var(--vscode-editorWidget-background, var(--vscode-dropdown-background));
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  box-shadow: var(--vscode-shadow-lg, 0 0 12px rgba(0, 0, 0, 0.14));
+  border: var(--vscode-strokeThickness, 1px) solid
+    var(--vscode-editorWidget-border, var(--vscode-widget-border, rgba(128, 128, 128, 0.35)));
+  border-radius: var(--vscode-cornerRadius-large, 5px);
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-8px);
+  transform-origin: top right;
+  transition:
+    transform 0.12s ease-out,
+    opacity 0.12s ease-out,
+    visibility 0s linear 0.12s;
+}
+#repoSettingsDrawer.active {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    transform 0.12s ease-out,
+    opacity 0.12s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  #repoSettingsDrawer,
+  #repoSettingsDrawer.active {
+    transition: none;
+  }
+}
+.repoSettingsHeader {
+  padding: 2px 14px 8px;
+  font-weight: 600;
+}
+.repoSettingsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 14px;
+}
+.repoSettingsLabel {
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+.repoSettingsName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repoSettingsRow select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.repoSettingsCheck {
+  cursor: pointer;
+}
+.repoSettingsCheck input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.repoSettingsInfo {
+  cursor: help;
+  opacity: 0.7;
+}
+.repoSettingsSeparator {
+  height: 1px;
+  margin: 8px 14px;
+  background-color: var(--vscode-menu-separatorBackground, rgba(128, 128, 128, 0.35));
 }
 #repoDropdownList.active {
   display: block;
@@ -935,7 +1025,9 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn,
 #blinkHeadBtn,
 #fetchBtn,
-#refreshBtn {
+#refreshBtn,
+#repoSettingsBtn,
+#repoSettingsRename {
   position: relative;
   flex: 0 0 auto;
   width: 20px;
@@ -946,7 +1038,9 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn svg,
 #blinkHeadBtn svg,
 #fetchBtn svg,
-#refreshBtn svg {
+#refreshBtn svg,
+#repoSettingsBtn svg,
+#repoSettingsRename svg {
   position: absolute;
   fill: var(--vscode-editor-foreground);
   opacity: 0.8;
@@ -962,7 +1056,9 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn:hover svg,
 #blinkHeadBtn:hover svg,
 #fetchBtn:hover svg,
-#refreshBtn:hover svg {
+#refreshBtn:hover svg,
+#repoSettingsBtn:hover svg,
+#repoSettingsRename:hover svg {
   opacity: 1;
   stroke-width: 0.5px;
 }
@@ -970,7 +1066,9 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn svg,
 #blinkHeadBtn svg,
 #fetchBtn svg,
-#refreshBtn svg {
+#refreshBtn svg,
+#repoSettingsBtn svg,
+#repoSettingsRename svg {
   left: 2px;
   top: 2px;
   width: 16px !important;
@@ -982,7 +1080,9 @@ body.vscode-high-contrast #repoDropdownList {
 #terminalBtn:hover,
 #blinkHeadBtn:hover,
 #fetchBtn:hover,
-#refreshBtn:hover {
+#refreshBtn:hover,
+#repoSettingsBtn:hover,
+#repoSettingsRename:hover {
   background-color: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.2));
   border-radius: 5px;
 }
@@ -1168,7 +1268,8 @@ body.vscode-high-contrast #contextMenu {
 }
 /* Theme dialog inputs to respect the active VS Code Color Theme: a
    custom-rendered checkbox and themed select/text controls. */
-#dialog > table.dialogForm input[type="checkbox"] {
+#dialog > table.dialogForm input[type="checkbox"],
+#repoSettingsDrawer input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
   position: relative;
@@ -1185,11 +1286,13 @@ body.vscode-high-contrast #contextMenu {
   outline-style: none;
   cursor: pointer;
 }
-#dialog > table.dialogForm input[type="checkbox"]:checked {
+#dialog > table.dialogForm input[type="checkbox"]:checked,
+#repoSettingsDrawer input[type="checkbox"]:checked {
   background: var(--vscode-checkbox-selectBackground, var(--vscode-button-background));
   border-color: var(--vscode-checkbox-selectBorder, var(--vscode-button-background));
 }
-#dialog > table.dialogForm input[type="checkbox"]:checked::after {
+#dialog > table.dialogForm input[type="checkbox"]:checked::after,
+#repoSettingsDrawer input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
   left: 4px;
@@ -1201,7 +1304,8 @@ body.vscode-high-contrast #contextMenu {
   transform: rotate(45deg);
 }
 #dialog > table.dialogForm input[type="text"],
-#dialog > table.dialogForm select {
+#dialog > table.dialogForm select,
+#repoSettingsDrawer select {
   padding: 4px;
   box-sizing: border-box;
   /* Fall through to a foreground-derived border so the controls keep a visible
@@ -1218,7 +1322,8 @@ body.vscode-high-contrast #contextMenu {
   color: var(--vscode-input-foreground);
   outline-style: none;
 }
-#dialog > table.dialogForm select {
+#dialog > table.dialogForm select,
+#repoSettingsDrawer select {
   appearance: none;
   -webkit-appearance: none;
   background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
@@ -1232,10 +1337,13 @@ body.vscode-high-contrast #contextMenu {
   padding-right: 22px;
 }
 body.vscode-light #dialog > table.dialogForm select,
-body.vscode-high-contrast-light #dialog > table.dialogForm select {
+body.vscode-high-contrast-light #dialog > table.dialogForm select,
+body.vscode-light #repoSettingsDrawer select,
+body.vscode-high-contrast-light #repoSettingsDrawer select {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23424242' d='M8 11L3 6h10z'/></svg>");
 }
-#dialog > table.dialogForm select option {
+#dialog > table.dialogForm select option,
+#repoSettingsDrawer select option {
   background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
   color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
 }

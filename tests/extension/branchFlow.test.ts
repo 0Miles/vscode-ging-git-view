@@ -9,6 +9,7 @@ import { config } from "@/config";
 import { createBranchCleanup } from "@/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@/extension/branchFacts";
 import { registerMessageHandlers } from "@/extension/messageHandler";
+import { resolveRepoScope } from "@/extension/repoSettings";
 import type { WebviewBridge } from "@/extension/webviewBridge";
 import type { RequestMessage, ResponseMessage } from "@/types";
 
@@ -75,6 +76,7 @@ function makeDeps(overrides: DepOverrides = {}) {
       dateType: config.dateType
     }),
     resolveShowRemote,
+    resolveRepoScope: () => resolveRepoScope(undefined, config.repoSettingDefaults()),
     logger: { log: noop, logCmd: noop, logError: noop, logWebviewError: noop, reveal: noop },
     // No interactive rebase runs in this flow; a stager that reports its todo
     // as applied keeps the handler registration honest without touching disk.
