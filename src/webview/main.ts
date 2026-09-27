@@ -2,6 +2,7 @@ import type {
   ActionRequest,
   BatchActionRequest,
   BatchDeleteResult,
+  BatchPushResult,
   BatchRefResult,
   BranchSearchEntry,
   BranchRedundancy,
@@ -216,6 +217,19 @@ function deserializeExpandedCommit(
 /** The batch actions a BatchRun can execute, named by their protocol command
  *  so the tag can never drift from the messages it labels. */
 type BatchActionKind = BatchActionRequest["command"];
+/** What one batch action needs to execute its run's commands: how to send a
+ *  round, what to show while it runs, how to title a failed summary, and —
+ *  for actions with a retry round — the retry confirmation's body. */
+type BatchSpec = {
+  send: (refs: string[], round: 1 | 2, params: unknown) => void;
+  running: string;
+  errorTitle: string;
+  retryBody?: (refs: string[]) => string;
+  /** HTML shown once beneath a failed summary's list of refs, or null for
+   *  none — for a reason several refs share that git's own lines leave
+   *  unexplained. Handed only the failed results. */
+  failureNote?: (failed: BatchRefResult[]) => string | null;
+};
 /** What every batch run carries for its adapter whatever the action is: the
  *  repository the run was started for. Each action's own parameters intersect
  *  with this, so no `send` has to read the repo at send time — by then the
@@ -4269,15 +4283,8 @@ class GitGraphView {
       note(l10n.dialogBatchSkippedRemote, "remote")
     );
   }
-  /** What one batch action needs to execute its run's commands: how to send a
-   *  round, what to show while it runs, how to title a failed summary, and —
-   *  for actions with a retry round — the retry confirmation's body. */
-  private batchSpec(action: BatchActionKind): {
-    send: (refs: string[], round: 1 | 2, params: unknown) => void;
-    running: string;
-    errorTitle: string;
-    retryBody?: (refs: string[]) => string;
-  } {
+  /** The {@link BatchSpec} for `action`. */
+  private batchSpec(action: BatchActionKind): BatchSpec {
     switch (action) {
       case "deleteBranches":
         return {
@@ -4315,7 +4322,13 @@ class GitGraphView {
             });
           },
           running: l10n.pushingBranch,
-          errorTitle: l10n.unableToPushBranch
+          errorTitle: l10n.unableToPushBranch,
+          // Explained once for the whole batch, like a single push explains it
+          // (ADR-0025). Each ref keeps git's own line; no force round is offered.
+          failureNote: (failed) =>
+            failed.some((r) => (r as BatchPushResult).remoteUpdatedSinceCheckout)
+              ? leaseRefusedExplanation()
+              : null
         };
       case "fastForwardBranches":
         return {
@@ -4395,7 +4408,7 @@ class GitGraphView {
         );
         break;
       case "summarise":
-        this.reportBatchResults(command.results, spec.errorTitle);
+        this.reportBatchResults(command.results, spec);
         break;
       case "busy":
         showErrorDialog(l10n.dialogBatchBusy, null, null);
@@ -4461,7 +4474,7 @@ class GitGraphView {
     const owed = this.owedSummary;
     if (owed === null || isDialogOpen()) return;
     this.owedSummary = null;
-    this.reportBatchResults(owed.results, this.batchSpec(owed.action).errorTitle);
+    this.reportBatchResults(owed.results, this.batchSpec(owed.action));
   }
   private deleteBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     const inputs: DialogInput[] = [
@@ -4482,8 +4495,8 @@ class GitGraphView {
       l10n.deleteBranches,
       (values) =>
         this.startBatchRun("deleteBranches", this.currentRepo!, targets, {
-          // The one classification the host makes more reliably than us: a
-          // refusal a force round can fix.
+          // A classification the host makes more reliably than us: a refusal
+          // a force round can fix.
           retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
           params: {
             forceDelete: values[0] === "checked",
@@ -4542,22 +4555,27 @@ class GitGraphView {
   }
   /** Summarise a finished batch. Failures are collected into one dialog listing
    *  each ref and its git error — one dialog per failed ref would punish exactly
-   *  the case the batch exists to make cheap. */
-  public reportBatchResults(results: BatchRefResult[], errorTitle: string) {
+   *  the case the batch exists to make cheap. The spec's `failureNote`, if any,
+   *  goes once beneath the list. */
+  public reportBatchResults(
+    results: BatchRefResult[],
+    spec: Pick<BatchSpec, "errorTitle" | "failureNote">
+  ) {
     const failed = results.filter((r) => r.status !== null);
     if (failed.length === 0) {
       this.refresh(true, true); // keep the scroll position, as single actions do
       return;
     }
     showErrorDialog(
-      errorTitle +
+      spec.errorTitle +
         "<br>" +
         l10n.dialogBatchResult
           .replace("{0}", String(results.length - failed.length))
           .replace("{1}", String(failed.length)),
       failed.map((r) => displayRef(r.ref) + ": " + r.status).join("\n"),
       null,
-      () => this.refresh(false)
+      () => this.refresh(false),
+      spec.failureNote?.(failed) ?? null
     );
   }
   /** Display label for the checked-out branch in dialogs: its actual name when
@@ -7978,7 +7996,6 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "mergeBranch":
     case "mergeCommit":
     case "pullBranch":
-    case "pushBranch":
     case "pushTag":
     case "renameBranch":
     case "resetToCommit":
@@ -8074,6 +8091,9 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "deleteBranch":
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
+      break;
+    case "pushBranch":
+      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -8199,9 +8219,10 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
  * the host injects into the page — read at load time it would be read too
  * early. Keying by `keyof LocalizedStrings` also type-checks the other side.
  *
- * `deleteBranch` is excluded because it does not belong here: it reports
- * `notFullyMerged` as well, and the offer to force the delete is built from
- * that. `fetch` is included though it is not an action — its response carries
+ * `deleteBranch` and `pushBranch` are excluded because they do not belong
+ * here: each reports a classification as well (`notFullyMerged`,
+ * `remoteUpdatedSinceCheckout`) and has a response handler built on it. `fetch`
+ * is included though it is not an action — its response carries
  * `status` and reports failure exactly the same way.
  *
  * The three rebases share one message deliberately: which of them ran was
@@ -8209,7 +8230,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
  * the person reading the error (ADR-0022).
  */
 const ACTION_FAILURE: Record<
-  Exclude<ActionRequest["command"], "deleteBranch"> | "fetch",
+  Exclude<ActionRequest["command"], "deleteBranch" | "pushBranch"> | "fetch",
   keyof LocalizedStrings
 > = {
   addTag: "unableToAddTag",
@@ -8235,7 +8256,6 @@ const ACTION_FAILURE: Record<
   mergeBranch: "unableToMergeBranch",
   mergeCommit: "unableToMergeCommit",
   pullBranch: "unableToPullBranch",
-  pushBranch: "unableToPushBranch",
   pushTag: "unableToPushTag",
   renameBranch: "unableToRenameBranch",
   resetToCommit: "unableToReset",
@@ -8256,6 +8276,30 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
     // manual refresh. (Harmless for non-operation failures — state is unchanged.)
     showErrorDialog(errorMessage, status, null, () => gitGraph.refresh(false));
   }
+}
+
+/** Handle a pushBranch response. A Force with lease refused because the remote
+ *  tip was never integrated (ADR-0025) gets an explanation — git's own reason,
+ *  "remote ref updated since checkout", names no next step — with git's line
+ *  kept beneath it. The explanation names the Force option instead of offering
+ *  it: overwriting someone's work stays a separate, deliberate choice. */
+function handlePushBranchResponse(status: GitCommandStatus, remoteUpdatedSinceCheckout: boolean) {
+  refreshGraphOrDisplayError(
+    status,
+    remoteUpdatedSinceCheckout
+      ? l10n.unableToPushBranch + "<br>" + leaseRefusedExplanation()
+      : l10n.unableToPushBranch
+  );
+}
+
+/** Why a Force with lease was refused for an unintegrated remote tip, and what
+ *  to do about it, naming the Force option in the UI's own words. Shared by the
+ *  single push and the batch push summary so the two never drift apart. */
+function leaseRefusedExplanation(): string {
+  return l10n.dialogPushForceLeaseRefused.replace(
+    "{0}",
+    "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>"
+  );
 }
 
 /* Dates */
@@ -8782,18 +8826,22 @@ function showTagDetailsDialog(details: GitTagDetails) {
   }
   showDialog(html, null, l10n.dialogDismiss, null, null);
 }
+/** `note`, when given, is HTML shown beneath the reason — callers escape their
+ *  own interpolations, as for `message`. */
 function showErrorDialog(
   message: string,
   reason: string | null,
   sourceElem: HTMLElement | null,
-  onDismiss?: () => void
+  onDismiss?: () => void,
+  note: string | null = null
 ) {
   showDialog(
     svgIcons.alert +
       message +
       (reason !== null
         ? '<br><span class="errorReason">' + escapeHtml(reason).split("\n").join("<br>") + "</span>"
-        : ""),
+        : "") +
+      (note !== null ? "<br>" + note : ""),
     null,
     l10n.dialogDismiss,
     null,

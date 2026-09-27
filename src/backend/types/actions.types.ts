@@ -67,10 +67,15 @@ type ActionPayloads = {
  *  one per ref. */
 export type BatchRefResult = { ref: string; status: GitCommandStatus };
 
-/** A batch delete result, plus the one classification the host can make more
+/** A batch delete result, plus a classification the host can make more
  *  reliably than the webview: `notFullyMerged` is read off the *raw* git error,
  *  before `formatGitError` narrows it to its first line. */
 export type BatchDeleteResult = BatchRefResult & { notFullyMerged: boolean };
+
+/** A batch push result, plus the fact a single push reports alongside its
+ *  status (`ActionResponseExtras["pushBranch"]`), read off the raw git error
+ *  the same way. See `isRemoteUpdatedSinceCheckoutError`. */
+export type BatchPushResult = BatchRefResult & { remoteUpdatedSinceCheckout: boolean };
 
 /**
  * Batch actions. Unlike the actions above, each ref succeeds or fails on its
@@ -96,7 +101,7 @@ type BatchActionPayloads = {
       remotes: string[];
       forceMode: "normal" | "force" | "forceWithLease";
     };
-    response: { results: BatchRefResult[] };
+    response: { results: BatchPushResult[] };
   };
   fastForwardBranches: {
     request: { branchNames: string[] };
@@ -130,6 +135,12 @@ type ActionResponseExtras = {
     /** git refused the delete only because the branch is not fully merged, so
      *  the webview can offer a force delete. See `isNotFullyMergedError`. */
     notFullyMerged: boolean;
+  };
+  pushBranch: {
+    /** git refused a force-with-lease push because the remote tip is not
+     *  integrated into the local branch. A fact, not a claim that the remote
+     *  has new commits — see `isRemoteUpdatedSinceCheckoutError`. */
+    remoteUpdatedSinceCheckout: boolean;
   };
 };
 

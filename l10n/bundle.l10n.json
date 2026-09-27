@@ -416,6 +416,7 @@
   "dialog.pushForce.none": "Don't force",
   "dialog.pushForce.force": "Force",
   "dialog.pushForce.lease": "Force with lease",
+  "dialog.pushForce.leaseRefused": "Git couldn't confirm you've integrated the remote's current version — usually because a fetch or auto-fetch brought in commits you haven't integrated yet. Pull or rebase first, then push again. To overwrite anyway, choose {0}.",
   "detail.commitDate": "Commit Date: ",
   "detail.comparingCommits": "Displaying all changes from {0} to {1}.",
   "branchView.current": "current",
