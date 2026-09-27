@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.6.1...v0.7.0) (2026-09-27)
+
+
+### Features
+
+* **webview:** a Repository Settings dialog behind a toolbar gear ([2cfc426](https://github.com/0Miles/vscode-ging-git-view/commit/2cfc426329f4def6391d738afdb237b6c57733c6)), closes [#183](https://github.com/0Miles/vscode-ging-git-view/issues/183) [#175](https://github.com/0Miles/vscode-ging-git-view/issues/175)
+* **webview:** a Repository Settings drawer behind a toolbar gear ([ed82dde](https://github.com/0Miles/vscode-ging-git-view/commit/ed82dde9b4157523605280355e673a6eb0a8d040))
+* **webview:** Repository Settings slides out of the gear, and applies as it changes ([8f87f57](https://github.com/0Miles/vscode-ging-git-view/commit/8f87f57be30ef57c005e8cc560b9aa1395ae0fc1))
+
+
+### Bug Fixes
+
+* **l10n:** call first-parent-only what it shows, the mainline ([26fd886](https://github.com/0Miles/vscode-ging-git-view/commit/26fd886892ce8004e9a3765a18105bf7ba5ea2d9))
+* **push:** drop doubled emphasis in the zh lease-refused copy ([b97e3f3](https://github.com/0Miles/vscode-ging-git-view/commit/b97e3f3fad8524b99adc1ae9f66ef2baeb318225)), closes [#198](https://github.com/0Miles/vscode-ging-git-view/issues/198)
+* **push:** explain a batch lease refused for an unintegrated remote tip ([31e0f06](https://github.com/0Miles/vscode-ging-git-view/commit/31e0f06f067439d1243dd0f058833ac94434487e)), closes [#199](https://github.com/0Miles/vscode-ging-git-view/issues/199) [#193](https://github.com/0Miles/vscode-ging-git-view/issues/193)
+* **push:** force-with-lease only over a remote tip that was integrated ([798c674](https://github.com/0Miles/vscode-ging-git-view/commit/798c6746571b4b49359334ec32a6a1cb993cad4f))
+* **push:** only force-with-lease over a remote tip that was integrated ([4c1b16e](https://github.com/0Miles/vscode-ging-git-view/commit/4c1b16ed084c7d8baf5ca5b331c4777d2295a0b6)), closes [#198](https://github.com/0Miles/vscode-ging-git-view/issues/198) [#193](https://github.com/0Miles/vscode-ging-git-view/issues/193)
+
+
+### Performance Improvements
+
+* land [#190](https://github.com/0Miles/vscode-ging-git-view/issues/190) on main — two quadratic layout walks, and a dispatch that checks itself ([8568c15](https://github.com/0Miles/vscode-ging-git-view/commit/8568c15daccdc212e52f6c956999a156859113c8))
+
 ## [0.6.1](https://github.com/0Miles/vscode-ging-git-view/compare/v0.6.0...v0.6.1) (2026-09-04)
 
 
