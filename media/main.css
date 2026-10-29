@@ -290,8 +290,11 @@ code {
    The ref chips too: Left/Right step onto them within a row, and Page Up/Down
    can have carried that row under the header first without moving focus. Not
    the Commit Details View's file rows, though — the file list is a scroller of
-   its own, and the margin would hold every file 63px clear of *its* top. */
-#commitTable tr,
+   its own, and the margin would hold every file 63px clear of *its* top.
+   Nor the header row: it is part of the strip. The webview never scrolls it
+   into view (see `inFrozenHeader` in main.ts) — only its cells stick, so its
+   own box stays at the top of the page and would drag the page up there. */
+#commitTable tr:not(#tableColHeaders),
 #commitTable .gitRef {
   scroll-margin-top: var(--ging-frozen-header-height);
 }

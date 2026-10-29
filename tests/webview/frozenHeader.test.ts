@@ -66,8 +66,15 @@ function openDetails(hash: string) {
   receive({ command: "commitDetails", commitDetails: detailsFor(hash) });
 }
 
+function headerRow() {
+  return document.querySelector<HTMLElement>("#commitTable #tableColHeaders")!;
+}
+
 describe("the frozen header", () => {
   const scrollTo = vi.fn();
+  /** What was asked to scroll into view, by element. jsdom has no
+   *  `scrollIntoView`, so the stub on the prototype records its receiver. */
+  const scrolledIntoView: Element[] = [];
   const frozenStyle = document.createElement("style");
 
   beforeAll(async () => {
@@ -77,6 +84,9 @@ describe("the frozen header", () => {
     frozenStyle.textContent = `#commitTable tr { scroll-margin-top: ${FROZEN}px; }`;
     document.head.appendChild(frozenStyle);
     window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolledIntoView.push(this);
+    };
     Object.defineProperty(HTMLTableRowElement.prototype, "offsetTop", {
       configurable: true,
       get(this: HTMLElement) {
@@ -106,12 +116,38 @@ describe("the frozen header", () => {
   afterAll(() => {
     // The stub shadows HTMLElement's own getter; deleting it un-shadows it.
     delete (HTMLTableRowElement.prototype as { offsetTop?: number }).offsetTop;
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
     frozenStyle.remove();
     parkViewportAt(0);
   });
 
   beforeEach(() => {
     scrollTo.mockClear();
+    scrolledIntoView.length = 0;
+  });
+
+  describe("keyboard focus on the column headers", () => {
+    // Only the header *cells* stick; the header row's own box stays at the top
+    // of the page. Bringing it "into view" would haul the page all the way
+    // back up for a row the user is already looking at.
+    it("walks onto the header row, into a column and back out without scrolling", () => {
+      row("aaa111").focus();
+      scrolledIntoView.length = 0;
+      press("ArrowUp");
+      expect(document.activeElement).toBe(headerRow());
+      press("ArrowRight");
+      expect((document.activeElement as HTMLElement).matches(".tableColHeader")).toBe(true);
+      press("ArrowLeft");
+      expect(document.activeElement).toBe(headerRow());
+      expect(scrolledIntoView).toEqual([]);
+    });
+
+    it("still brings a commit into view when stepping back down to it", () => {
+      headerRow().focus();
+      scrolledIntoView.length = 0;
+      press("ArrowDown");
+      expect(scrolledIntoView).toEqual([row("aaa111")]);
+    });
   });
 
   describe("opening the Commit Details View", () => {
