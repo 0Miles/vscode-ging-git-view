@@ -58,9 +58,25 @@ const label = (selector: string) =>
 /** A cell of the row, which is where a drop lands. */
 const cellOf = (hash: string) => row(hash).querySelectorAll("td")[1] as HTMLElement;
 
-const mouse = (type: string, target: Element, x: number, y: number, button = 0) =>
+/** `buttons` is what is held while the event fires: the pressed button from
+ *  the press until the release, nothing from the release on. */
+const mouse = (
+  type: string,
+  target: Element,
+  x: number,
+  y: number,
+  button = 0,
+  buttons = type === "mousedown" || type === "mousemove" ? (button === 0 ? 1 : 2) : 0
+) =>
   target.dispatchEvent(
-    new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button })
+    new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      clientX: x,
+      clientY: y,
+      button,
+      buttons
+    })
   );
 
 /** Press on `from`, travel `distance` px, then release on `to` — followed, for
@@ -157,6 +173,40 @@ describe("dragging a branch that is not checked out", () => {
   });
 });
 
+describe("a branch that moves while the question is on screen", () => {
+  it('is refused at consent, since the dialog\'s "from" no longer holds', () => {
+    drag(label(".gitRef.head[data-name='feature']"), cellOf(BASE));
+    // A background refresh: `feature` was moved to TIP from a terminal.
+    receive({
+      command: "loadCommits",
+      token: 0,
+      commits: commits.map((c) => ({
+        ...c,
+        refs:
+          c.hash === TIP
+            ? [...c.refs, { hash: TIP, name: "feature", type: "head" as const }]
+            : c.refs.filter((r) => r.name !== "feature")
+      })),
+      head: TIP,
+      moreCommitsAvailable: false,
+      hard: false
+    });
+    confirm();
+
+    expect(mock.sentOf("moveBranch")).toEqual([]);
+    expect(dialogText()).toContain(L.dialogMoveBranchMoved.replace("{0}", "feature"));
+
+    receive({
+      command: "loadCommits",
+      token: 0,
+      commits,
+      head: TIP,
+      moreCommitsAvailable: false,
+      hard: false
+    });
+  });
+});
+
 describe("dragging the checked-out branch", () => {
   it("says it moves with reset --keep, and sends the same request", () => {
     drag(label(".gitRef.head[data-name='main']"), cellOf(MID));
@@ -209,8 +259,26 @@ describe("what does not move a branch", () => {
     mouse("mousedown", from, 100, 100);
     mouse("mousemove", cellOf(BASE), 100, 140);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(document.body.classList.contains("branchDragging")).toBe(false);
     mouse("mouseup", cellOf(BASE), 100, 140);
+    // The release still fires its click, and a cancelled drag is still a drag:
+    // the row it lands on must not expand.
+    mouse("click", cellOf(BASE), 100, 140);
 
+    expect(dialogOpen()).toBe(false);
+    expect(mock.sentOf("commitDetails")).toEqual([]);
+  });
+
+  it("a release the webview never saw: the next move without the button held ends the drag", () => {
+    const from = label(".gitRef.head[data-name='feature']");
+    mouse("mousedown", from, 100, 100);
+    mouse("mousemove", cellOf(BASE), 100, 140);
+    // Released outside the webview, then moved back in with nothing held.
+    mouse("mousemove", cellOf(BASE), 100, 150, 0, 0);
+
+    expect(document.body.classList.contains("branchDragging")).toBe(false);
+    expect(document.querySelector(".branchDropTarget")).toBeNull();
+    mouse("mouseup", cellOf(BASE), 100, 150);
     expect(dialogOpen()).toBe(false);
   });
 });

@@ -3676,19 +3676,36 @@ class GitGraphView {
   }
   /** Confirm, then move a dragged branch to the commit it was dropped on
    *  (#208). The checked-out note is the webview's reading of HEAD and only
-   *  words the dialog; which command runs is decided by the host as it runs. */
+   *  words the dialog; which command runs is decided by the host as it runs.
+   *
+   *  The dialog says "from A", and `branch -f` would move the branch from
+   *  wherever it really is by then — so, like the rebase-onto tip, a branch
+   *  that left A while the question was up is refused rather than moved
+   *  (ADR-0019). A repo switch is a refusal too: the branch is checked against
+   *  the loaded commits, which by then are another repository's. */
   private moveBranchAction(drop: BranchDrop) {
     const checkedOut = this.gitBranchHead === drop.branchName;
-    showConfirmationDialog(
+    this.confirmForRepo(
       l10n.dialogMoveBranchConfirm
         .replace("{0}", "<b><i>" + escapeHtml(drop.branchName) + "</i></b>")
         .replace("{1}", "<b><i>" + abbrevCommit(drop.fromHash) + "</i></b>")
         .replace("{2}", "<b><i>" + abbrevCommit(drop.toHash) + "</i></b>") +
         (checkedOut ? "<br>" + l10n.dialogMoveBranchCheckedOut : ""),
-      () => {
+      (repo) => {
+        if (this.currentRepo !== repo || !this.branchPointsAt(drop.branchName, drop.fromHash)) {
+          showErrorDialog(
+            l10n.dialogMoveBranchMoved.replace(
+              "{0}",
+              "<b><i>" + escapeHtml(drop.branchName) + "</i></b>"
+            ),
+            null,
+            null
+          );
+          return;
+        }
         sendMessage({
           command: "moveBranch",
-          repo: this.currentRepo!,
+          repo,
           branchName: drop.branchName,
           commitHash: drop.toHash
         });

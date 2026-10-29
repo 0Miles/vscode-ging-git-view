@@ -56,6 +56,9 @@ function track(
   onDrop: (drop: BranchDrop) => void
 ) {
   let dragging = false;
+  /** Escape was pressed mid-drag: nothing drops, but the press is still a drag
+   *  until its release, whose click must not land as an ordinary one. */
+  let cancelled = false;
   let target: HTMLElement | null = null;
 
   const setTarget = (row: HTMLElement | null) => {
@@ -64,16 +67,27 @@ function track(
     target = row;
     target?.classList.add("branchDropTarget");
   };
+  const clearMarks = () => {
+    setTarget(null);
+    source.label.classList.remove("branchDragSource");
+    document.body.classList.remove("branchDragging");
+  };
   const end = () => {
     document.removeEventListener("mousemove", move);
     document.removeEventListener("mouseup", up);
     document.removeEventListener("keydown", key, true);
     window.removeEventListener("blur", end);
-    setTarget(null);
-    source.label.classList.remove("branchDragSource");
-    document.body.classList.remove("branchDragging");
+    clearMarks();
   };
   const move = (e: MouseEvent) => {
+    // The release happened where the webview could not see it — outside the
+    // panel, say. Without this the drag would outlive the button, and the next
+    // unrelated click on a row would drop the branch there.
+    if ((e.buttons & 1) === 0) {
+      end();
+      return;
+    }
+    if (cancelled) return;
     if (!dragging) {
       const distance = Math.hypot(e.clientX - start.clientX, e.clientY - start.clientY);
       if (distance < BRANCH_DRAG_THRESHOLD) return;
@@ -89,7 +103,7 @@ function track(
     setTarget(row !== null && row.dataset.hash !== source.fromHash ? row : null);
   };
   const up = () => {
-    const toHash = target?.dataset.hash;
+    const toHash = cancelled ? undefined : target?.dataset.hash;
     const dragged = dragging;
     end();
     if (!dragged) return;
@@ -98,12 +112,13 @@ function track(
   };
   const key = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
-    if (dragging) {
-      // Keep the Escape from also closing whatever else listens for it.
-      e.preventDefault();
-      e.stopPropagation();
+    if (!dragging) {
+      end();
+      return;
     }
-    end();
+    // Keep listening for the release, so `up` can swallow its click.
+    cancelled = true;
+    clearMarks();
   };
 
   document.addEventListener("mousemove", move);

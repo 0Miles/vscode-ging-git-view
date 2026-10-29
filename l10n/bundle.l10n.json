@@ -174,6 +174,7 @@
   "dialog.reset.keep": "Keep - Move the branch to the commit, keep uncommitted changes; stop if they would be overwritten",
   "dialog.moveBranch.confirm": "Are you sure you want to move branch {0} from commit {1} to commit {2}?",
   "dialog.moveBranch.checkedOut": "It is the checked-out branch, so it moves with git reset --keep: uncommitted changes are kept, and the move stops if they would be overwritten.",
+  "dialog.moveBranch.moved": "{0} no longer points at the commit this move started from, so nothing was done. Drag it again from where it is now.",
   "dialog.delete.confirm": "Are you sure you want to delete {0} {1}?",
   "dialog.delete.forceBranchConfirm": "The branch {0} is not fully merged. Are you sure you want to force delete it?",
   "dialog.delete.forceDelete": "Force Delete",
