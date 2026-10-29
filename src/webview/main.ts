@@ -29,6 +29,7 @@ import type { LocalizedStrings } from "@/extension/webviewL10n";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
 import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "./branchCleanup";
+import { attachBranchDrag, type BranchDrop } from "./branchDrag";
 import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
 import { createErrorReporter } from "./errorReporting";
 import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } from "./find";
@@ -547,6 +548,7 @@ class GitGraphView {
     document.body.classList.toggle("tagLabelsRightAligned", config.tagLabelsRightAligned);
     this.graph = new Graph("commitGraph", this.config);
     this.tableElem = document.getElementById("commitTable")!;
+    attachBranchDrag(this.tableElem, (drop) => this.moveBranchAction(drop));
     this.footerElem = document.getElementById("footer")!;
     this.scrollShadowElem = <HTMLInputElement>document.getElementById("scrollShadow")!;
     const refreshBtn = document.getElementById("refreshBtn")!;
@@ -3671,6 +3673,28 @@ class GitGraphView {
     // opening count and nothing is known to be loadable — so it renders the
     // same empty footer, from the state, instead of asserting emptiness.
     this.renderFooter();
+  }
+  /** Confirm, then move a dragged branch to the commit it was dropped on
+   *  (#208). The checked-out note is the webview's reading of HEAD and only
+   *  words the dialog; which command runs is decided by the host as it runs. */
+  private moveBranchAction(drop: BranchDrop) {
+    const checkedOut = this.gitBranchHead === drop.branchName;
+    showConfirmationDialog(
+      l10n.dialogMoveBranchConfirm
+        .replace("{0}", "<b><i>" + escapeHtml(drop.branchName) + "</i></b>")
+        .replace("{1}", "<b><i>" + abbrevCommit(drop.fromHash) + "</i></b>")
+        .replace("{2}", "<b><i>" + abbrevCommit(drop.toHash) + "</i></b>") +
+        (checkedOut ? "<br>" + l10n.dialogMoveBranchCheckedOut : ""),
+      () => {
+        sendMessage({
+          command: "moveBranch",
+          repo: this.currentRepo!,
+          branchName: drop.branchName,
+          commitHash: drop.toHash
+        });
+      },
+      drop.label
+    );
   }
   private checkoutBranchAction(refName: string, isRemote: boolean) {
     if (!isRemote) {
@@ -8061,6 +8085,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "fastForwardBranch":
     case "mergeBranch":
     case "mergeCommit":
+    case "moveBranch":
     case "pullBranch":
     case "pushTag":
     case "renameBranch":
@@ -8327,6 +8352,7 @@ const ACTION_FAILURE: Record<
   fastForwardBranch: "unableToFastForward",
   mergeBranch: "unableToMergeBranch",
   mergeCommit: "unableToMergeCommit",
+  moveBranch: "unableToMoveBranch",
   pullBranch: "unableToPullBranch",
   pushTag: "unableToPushTag",
   renameBranch: "unableToRenameBranch",

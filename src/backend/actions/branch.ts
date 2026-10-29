@@ -256,6 +256,28 @@ export async function renameBranch(
   await git.raw(["branch", "-m", input.oldName, input.newName]);
 }
 
+/** Point a local branch at another commit — what dropping its label on a
+ *  commit row asks for (#208). The checked-out branch moves with `reset --keep`,
+ *  which keeps uncommitted changes and refuses to overwrite one; any other
+ *  branch with `branch -f`, which git refuses for a branch checked out in
+ *  another worktree.
+ *
+ *  HEAD is read here, as the command runs, rather than taken from the webview:
+ *  a stale "this one is checked out" would otherwise reset whichever branch
+ *  really is — a different branch than the one the user dragged. */
+export async function moveBranch(
+  git: SimpleGit,
+  input: ActionPayload<"moveBranch">
+): Promise<void> {
+  // `--symbolic-full-name` answers `HEAD` itself when detached, never failing.
+  const head = (await git.raw(["rev-parse", "--symbolic-full-name", "HEAD"])).trim();
+  if (head === "refs/heads/" + input.branchName) {
+    await git.raw(["reset", "--keep", input.commitHash]);
+  } else {
+    await git.raw(["branch", "-f", input.branchName, input.commitHash]);
+  }
+}
+
 /** Fast-forward a (non-checked-out) local branch up to its configured upstream
  *  without switching to it. `git fetch .` refuses a non-fast-forward update, so
  *  this can never rewrite or lose history; it errors if the branch has no
