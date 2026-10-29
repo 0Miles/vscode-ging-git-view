@@ -368,6 +368,49 @@ describe("loadCommits", () => {
     expect(result.commits.length).toBeGreaterThan(0);
   });
 
+  it("keeps a merge's real parents when only first parents are walked (#205)", async () => {
+    // `--first-parent` never loads a merge's second parent, but it stays
+    // listed: the merge-commit prompts (revert, cherry-pick) count it. Leaving
+    // it off the graph is the graph's job, not this query's.
+    const r = makeRepo();
+    try {
+      git(["checkout", "-b", "side"], r);
+      fs.writeFileSync(path.join(r, "side"), "side");
+      git(["add", "side"], r);
+      git(["commit", "-m", "side commit"], r);
+      git(["checkout", "main"], r);
+      fs.writeFileSync(path.join(r, "main"), "main");
+      git(["add", "main"], r);
+      git(["commit", "-m", "main commit"], r);
+      git(["merge", "--no-ff", "side", "-m", "merge side"], r);
+      const sideTip = cp.execFileSync("git", ["rev-parse", "side"], { cwd: r }).toString().trim();
+
+      const result = await loadCommits(simpleGit(r), {
+        branchNames: ["main"],
+        maxCommits: 300,
+        showRemoteBranches: false,
+        dateType: "Author Date",
+        showUncommittedChanges: false,
+        commitOrder: "date",
+        onlyFollowFirstParent: true,
+        showCommitsOnlyReferencedByTags: false,
+        showRemoteHeads: false,
+        includeCommitsMentionedByReflogs: false,
+        showSignatureStatus: false,
+        showStashes: false,
+        useMailmap: false,
+        hiddenRemotes: []
+      });
+
+      expect(result.commits.map((c) => c.hash)).not.toContain(sideTip);
+      const merge = result.commits.find((c) => c.message === "merge side")!;
+      expect(merge.parentHashes).toHaveLength(2);
+      expect(merge.parentHashes[1]).toBe(sideTip);
+    } finally {
+      rmrf(r);
+    }
+  });
+
   it("remaps author names via .mailmap when useMailmap is true", async () => {
     const r = makeRepo();
     try {

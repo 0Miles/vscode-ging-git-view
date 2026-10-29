@@ -139,6 +139,14 @@ type QueryPayloads = {
       commits: GitCommitNode[];
       head: string | null;
       moreCommitsAvailable: boolean;
+      /** Whether these commits came from a `--first-parent` walk — the repo's
+       *  resolved `onlyFollowFirstParent`. Their `parentHashes` still list
+       *  every parent, so only this says that nothing past a merge's first
+       *  parent was loaded; the graph draws the first parent alone when it is
+       *  set (#205). It rides with the commits, rather than the webview
+       *  resolving the setting itself, so the drawing and the walk come from
+       *  one resolution. Absent reads as false. */
+      onlyFollowFirstParent?: boolean;
       /** Verbatim echo of the request's `hard`; carries no host knowledge. */
       hard: boolean;
       /** Verbatim echo of the request's `token`; carries no host knowledge. */

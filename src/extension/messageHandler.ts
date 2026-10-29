@@ -366,6 +366,10 @@ export function registerMessageHandlers(
           useMailmap: config.useMailmap(),
           hiddenRemotes: msg.hiddenRemotes ?? []
         })),
+        // The walk the commits came from, from the same resolution that chose
+        // it: their `parentHashes` still list every parent, and only this tells
+        // the graph that nothing past a merge's first parent was loaded (#205).
+        onlyFollowFirstParent: scope.onlyFollowFirstParent,
         // Echoed back, and this line is as deep as it ever goes — the query
         // above is not given it and would have nothing to do with it. Unlike
         // `loadBranches`, where `hard` bypasses the branch-facts coalescing

@@ -447,6 +447,10 @@ class GitGraphView {
   private graph: Graph;
   private config: Config;
   private moreCommitsAvailable: boolean = false;
+  /** Whether the loaded commits came from a `--first-parent` walk, as the load
+   *  answer said. The graph draws each commit's first parent alone when it is
+   *  set (#205); `parentHashes` keep every parent for everything else. */
+  private onlyFollowFirstParent = false;
   // Scroll offset to restore once the next load re-renders the table, so an
   // action / manual refresh keeps the user's place rather than jumping.
   private pendingScrollRestore: number | null = null;
@@ -703,7 +707,8 @@ class GitGraphView {
           prevState.commits,
           prevState.commitHead,
           prevState.moreCommitsAvailable,
-          true
+          true,
+          prevState.onlyFollowFirstParent ?? false
         );
       }
     }
@@ -1477,7 +1482,8 @@ class GitGraphView {
     commits: GitCommitNode[],
     commitHead: string | null,
     moreAvailable: boolean,
-    hard: boolean
+    hard: boolean,
+    onlyFollowFirstParent: boolean
   ) {
     // Spent here, at the top: this load owns the permission, and it owns it
     // whichever way the function leaves — including the short-circuit below and
@@ -1488,6 +1494,8 @@ class GitGraphView {
     if (
       !hard &&
       this.moreCommitsAvailable === moreAvailable &&
+      // Same commits, other mode: the graph draws them differently.
+      this.onlyFollowFirstParent === onlyFollowFirstParent &&
       this.commitHead === commitHead &&
       arraysEqual(
         this.commits,
@@ -1509,6 +1517,7 @@ class GitGraphView {
     }
 
     this.moreCommitsAvailable = moreAvailable;
+    this.onlyFollowFirstParent = onlyFollowFirstParent;
     this.commits = commits;
     this.commitHead = commitHead;
     if (this.commits.length > 0 && this.commits[0].hash === "*") {
@@ -1545,7 +1554,12 @@ class GitGraphView {
     // (the busy indicator never clears), freezing the view until the tab is
     // reopened. The finally guarantees the callback always runs.
     try {
-      this.graph.loadCommits(this.commits, this.commitHead, this.commitLookup);
+      this.graph.loadCommits(
+        this.commits,
+        this.commitHead,
+        this.commitLookup,
+        this.onlyFollowFirstParent
+      );
 
       if (this.expandedCommit !== null && !expandedCommitVisible) {
         this.clearExpandedCommit();
@@ -2013,6 +2027,7 @@ class GitGraphView {
       currentBranches: this.currentBranches,
       currentRepo: this.currentRepo,
       moreCommitsAvailable: this.moreCommitsAvailable,
+      onlyFollowFirstParent: this.onlyFollowFirstParent,
       maxCommits: this.maxCommits,
       showRemoteBranches: this.showRemoteBranches,
       expandedCommit: serializeExpandedCommit(this.expandedCommit),
@@ -8116,7 +8131,13 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.setShowRemoteBranches(msg.value);
       break;
     case "loadCommits":
-      gitGraph.loadCommits(msg.commits, msg.head, msg.moreCommitsAvailable, msg.hard);
+      gitGraph.loadCommits(
+        msg.commits,
+        msg.head,
+        msg.moreCommitsAvailable,
+        msg.hard,
+        msg.onlyFollowFirstParent ?? false
+      );
       break;
     case "loadRemotes":
       gitGraph.loadRemotes(msg.remotes, msg.pushDefault);

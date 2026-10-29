@@ -374,10 +374,15 @@ export class Graph {
     document.getElementById(id)!.appendChild(this.svg);
   }
 
+  /** `onlyFollowFirstParent` says the commits came from a `--first-parent`
+   *  walk. Their `parentHashes` still list every parent — other readers need
+   *  the real ones — but the walk never loaded anything past the first, so
+   *  the graph draws the first parent alone (#205). */
   public loadCommits(
     commits: GitCommitNode[],
     commitHead: string | null,
-    commitLookup: { [hash: string]: number }
+    commitLookup: { [hash: string]: number },
+    onlyFollowFirstParent: boolean
   ) {
     this.vertices = [];
     this.branches = [];
@@ -391,7 +396,10 @@ export class Graph {
       this.vertices.push(new Vertex(i));
     }
     for (i = 0; i < commits.length; i++) {
-      for (j = 0; j < commits[i].parentHashes.length; j++) {
+      const drawnParents = onlyFollowFirstParent
+        ? Math.min(commits[i].parentHashes.length, 1)
+        : commits[i].parentHashes.length;
+      for (j = 0; j < drawnParents; j++) {
         if (typeof commitLookup[commits[i].parentHashes[j]] === "number") {
           this.vertices[i].addParent(this.vertices[commitLookup[commits[i].parentHashes[j]]]);
         } else {

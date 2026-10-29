@@ -51,7 +51,7 @@ describe("graph layout termination", () => {
       commit("I", []) // 2
     ];
     const g = makeGraph();
-    g.loadCommits(commits, "A", lookupOf(commits));
+    g.loadCommits(commits, "A", lookupOf(commits), false);
     g.render(null);
     expect(circleCount()).toBeGreaterThan(0);
   });
@@ -65,7 +65,7 @@ describe("graph layout termination", () => {
       commit("root", []) // 4
     ];
     const g = makeGraph();
-    g.loadCommits(commits, "X", lookupOf(commits));
+    g.loadCommits(commits, "X", lookupOf(commits), false);
     g.render(null);
     expect(circleCount()).toBeGreaterThan(0);
   });
@@ -77,7 +77,7 @@ describe("graph layout termination", () => {
       commit("C", []) // 2 (A→B→C all point upward)
     ];
     const g = makeGraph();
-    g.loadCommits(commits, "A", lookupOf(commits));
+    g.loadCommits(commits, "A", lookupOf(commits), false);
     g.render(null);
     expect(circleCount()).toBeGreaterThan(0);
   });
@@ -85,7 +85,7 @@ describe("graph layout termination", () => {
   it("still lays out a normal in-order graph correctly (guard is inert on valid input)", () => {
     const commits = [commit("C", ["B"]), commit("B", ["A"]), commit("A", [])];
     const g = makeGraph();
-    g.loadCommits(commits, "C", lookupOf(commits));
+    g.loadCommits(commits, "C", lookupOf(commits), false);
     g.render(null);
     // Every vertex ends up on a branch, so each draws a node.
     expect(circleCount()).toBe(3);
@@ -99,7 +99,7 @@ describe("graph layout termination", () => {
       commit("base", []) // 3
     ];
     const g = makeGraph();
-    g.loadCommits(commits, "M", lookupOf(commits));
+    g.loadCommits(commits, "M", lookupOf(commits), false);
     g.render(null);
     expect(circleCount()).toBe(4);
   });
@@ -157,7 +157,7 @@ describe("graph layout across a widened commit window", () => {
   function layOut(commits: GitCommitNode[]): { widths: number[]; colours: number[] } {
     document.body.innerHTML = '<div id="commitGraph"></div>';
     const g = new Graph("commitGraph", { ...makeConfig(), graphColours: shippedPalette });
-    g.loadCommits(commits, commits[0].hash, lookupOf(commits));
+    g.loadCommits(commits, commits[0].hash, lookupOf(commits), false);
     return {
       widths: g.getWidthsAtVertices(),
       colours: commits.map((_, i) => g.getVertexColour(i))
@@ -198,5 +198,39 @@ describe("graph layout across a widened commit window", () => {
     expect(firstPass.colours).toEqual([0, 0, 0]);
     expect(secondPass.widths).toEqual([30, 30, 30, 30]);
     expect(secondPass.colours).toEqual([0, 0, 0, 0]);
+  });
+});
+
+// With `history.firstParentOnly` on, `git log --first-parent` walks only each
+// commit's first parent, yet `%P` still prints every parent — and the commit
+// keeps them, because the Commit Details View, the merge-commit prompts and the
+// replay list all need the real ones. So a merge on the mainline arrives with a
+// second parent that is never loaded. Drawn, that parent becomes the id -1
+// sentinel: one more line off the bottom edge per merge, the mesh #205 reports.
+// In that mode the graph follows the first parent and nothing else.
+describe("graph layout when only the first parent is followed (#205)", () => {
+  // M2 and M1 merge pull requests whose branch commits (X2, X1) the walk never
+  // reached; every row's first parent is the next row.
+  const mainline = [
+    commit("M2", ["M1", "X2"]), // 0
+    commit("M1", ["C", "X1"]), // 1
+    commit("C", []) // 2
+  ];
+
+  function widthsOf(onlyFollowFirstParent: boolean): number[] {
+    const g = makeGraph();
+    g.loadCommits(mainline, "M2", lookupOf(mainline), onlyFollowFirstParent);
+    g.render(null);
+    return g.getWidthsAtVertices();
+  }
+
+  it("draws the mainline as one straight lane, with no line for an unloaded second parent", () => {
+    expect(widthsOf(true)).toEqual([30, 30, 30]);
+  });
+
+  it("still draws a merge's second parent off the bottom edge when every parent is followed", () => {
+    // The ordinary mode is unchanged: each unloaded second parent takes a lane
+    // from its merge down.
+    expect(widthsOf(false)).toEqual([30, 46, 62]);
   });
 });
