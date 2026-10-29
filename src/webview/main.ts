@@ -3709,7 +3709,7 @@ class GitGraphView {
           branchName: drop.branchName,
           commitHash: drop.toHash
         });
-        showActionRunningDialog(l10n.movingBranch);
+        showUnstoppableActionRunningDialog(l10n.movingBranch);
       },
       drop.label
     );
@@ -8978,9 +8978,14 @@ function showErrorDialog(
  *
  * `content` is inserted as HTML, so callers escape their own interpolations;
  * `dismissName` is the Dismiss button's label, which the cleanup scan replaces
- * with "Stop" because for that one wait, dismissing is what stops it.
+ * with "Stop" because for that one wait, dismissing is what stops it. Null
+ * leaves the button out, for a wait that closing the dialog would not stop.
  */
-function showActionRunningDialogWith(content: string, dismissName: string, onDismiss?: () => void) {
+function showActionRunningDialogWith(
+  content: string,
+  dismissName: string | null,
+  onDismiss?: () => void
+) {
   showDialog(
     '<span id="actionRunning">' + svgIcons.loading + content + "</span>",
     null,
@@ -8993,10 +8998,16 @@ function showActionRunningDialogWith(content: string, dismissName: string, onDis
 function showActionRunningDialog(command: string) {
   showActionRunningDialogWith(command + " ...", l10n.dialogDismiss);
 }
+/** A progress dialog with no Dismiss, for an action the host cannot be asked to
+ *  stop: closing it early would only hide work that goes on regardless. It
+ *  closes the way the others do — the refresh after success, or the error. */
+function showUnstoppableActionRunningDialog(command: string) {
+  showActionRunningDialogWith(command + " ...", null);
+}
 function showDialog(
   html: string,
   actionName: string | null,
-  dismissName: string,
+  dismissName: string | null,
   actioned: (() => void) | null,
   sourceElem: HTMLElement | null,
   onDismiss?: () => void
@@ -9016,13 +9027,14 @@ function showDialog(
     (actionName !== null
       ? '<div id="dialogAction" class="roundedBtn">' + actionName + "</div>"
       : "") +
-    '<div id="dialogDismiss" class="roundedBtn">' +
-    dismissName +
-    "</div></div>";
+    (dismissName !== null
+      ? '<div id="dialogDismiss" class="roundedBtn">' + dismissName + "</div>"
+      : "") +
+    "</div>";
   if (actionName !== null && actioned !== null)
     document.getElementById("dialogAction")!.addEventListener("click", actioned);
   dialogDismissAction = onDismiss ?? null;
-  document.getElementById("dialogDismiss")!.addEventListener("click", dismissDialog);
+  document.getElementById("dialogDismiss")?.addEventListener("click", dismissDialog);
 
   dialogMenuSource = sourceElem;
   if (dialogMenuSource !== null) dialogMenuSource.classList.add("dialogActive");
@@ -9114,7 +9126,11 @@ function hideReloadOwnedOverlays() {
 // in points its tab stop at it, so Tab comes back to where the user left off.
 document.addEventListener("focusin", (e) => gitGraph.syncTabStop(e.target));
 document.addEventListener("keyup", (e) => {
-  if (e.key === "Escape") {
+  // A dialog without Dismiss offers no way out, and Escape is not one either.
+  if (
+    e.key === "Escape" &&
+    !(isDialogOpen() && document.getElementById("dialogDismiss") === null)
+  ) {
     hideDialogAndContextMenu();
   }
 });

@@ -109,6 +109,28 @@ const dismiss = () =>
     .getElementById("dialogDismiss")!
     .dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
+const running = () => document.getElementById("actionRunning");
+/** The graph's answer to the refresh a finished action asks for. */
+function reload() {
+  receive({
+    command: "loadBranches",
+    token: 0,
+    branches: ["main", "feature"],
+    head: "main",
+    hard: false,
+    isRepo: true,
+    filter: []
+  });
+  receive({
+    command: "loadCommits",
+    token: 0,
+    commits,
+    head: TIP,
+    moreCommitsAvailable: false,
+    hard: false
+  });
+}
+
 let mock: ReturnType<typeof createVscodeMock>;
 
 beforeAll(async () => {
@@ -137,6 +159,11 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  // A move's progress dialog has no Dismiss, so one left running is finished.
+  if (running() !== null) {
+    receive({ command: "moveBranch", status: null });
+    reload();
+  }
   if (dialogOpen()) dismiss();
   mock.clearMessages();
 });
@@ -219,28 +246,6 @@ describe("dragging the checked-out branch", () => {
   });
 });
 
-const running = () => document.getElementById("actionRunning");
-/** The graph's answer to the refresh a finished action asks for. */
-function reload() {
-  receive({
-    command: "loadBranches",
-    token: 0,
-    branches: ["main", "feature"],
-    head: "main",
-    hard: false,
-    isRepo: true,
-    filter: []
-  });
-  receive({
-    command: "loadCommits",
-    token: 0,
-    commits,
-    head: TIP,
-    moreCommitsAvailable: false,
-    hard: false
-  });
-}
-
 describe("while the move runs", () => {
   it("shows the progress dialog from the confirmation until the move succeeds", () => {
     drag(label(".gitRef.head[data-name='feature']"), cellOf(BASE));
@@ -264,6 +269,23 @@ describe("while the move runs", () => {
     expect(running()).toBeNull();
     expect(dialogText()).toContain(L.unableToMoveBranch);
     expect(dialogText()).toContain("Entry 'tip.txt' not uptodate.");
+    // Dismissing the error refreshes the graph; answer it, so the next test's
+    // refresh is not left queued behind it.
+    dismiss();
+    reload();
+  });
+
+  it("offers no way to close it early, since closing it would not stop the move", () => {
+    drag(label(".gitRef.head[data-name='feature']"), cellOf(BASE));
+    confirm();
+
+    expect(document.getElementById("dialogDismiss")).toBeNull();
+    document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape" }));
+    expect(running()).not.toBeNull();
+
+    receive({ command: "moveBranch", status: null });
+    reload();
+    expect(dialogOpen()).toBe(false);
   });
 });
 
