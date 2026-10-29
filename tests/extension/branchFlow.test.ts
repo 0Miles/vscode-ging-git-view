@@ -11,7 +11,7 @@ import { createBranchFacts, createGitSnapshotReader } from "@/extension/branchFa
 import { registerMessageHandlers } from "@/extension/messageHandler";
 import { resolveRepoScope } from "@/extension/repoSettings";
 import type { WebviewBridge } from "@/extension/webviewBridge";
-import type { RequestMessage, ResponseMessage } from "@/types";
+import type { RepoScopeSettings, RequestMessage, ResponseMessage } from "@/types";
 
 // End-to-end exercise of the extension-side branch flow against the real repo
 // (the test workspace is this repo). Drives the real registerMessageHandlers
@@ -22,11 +22,13 @@ const noop = () => {};
 
 const resolveShowRemote = () => true;
 
-/** Dependency slices a test may want to *observe* rather than ignore. Both are
- *  inert stubs in the base wiring below. */
+/** Dependency slices a test may want to *observe* or steer rather than take
+ *  as wired below: the first two are inert stubs there, `resolveRepoScope`
+ *  the global settings. */
 type DepOverrides = {
   repoManager?: unknown;
   extensionState?: unknown;
+  resolveRepoScope?: (repo: string) => RepoScopeSettings;
 };
 
 /** The real handler dependencies, wired the way extension.ts wires them: a real
@@ -76,7 +78,9 @@ function makeDeps(overrides: DepOverrides = {}) {
       dateType: config.dateType
     }),
     resolveShowRemote,
-    resolveRepoScope: () => resolveRepoScope(undefined, config.repoSettingDefaults()),
+    resolveRepoScope:
+      overrides.resolveRepoScope ??
+      (() => resolveRepoScope(undefined, config.repoSettingDefaults())),
     logger: { log: noop, logCmd: noop, logError: noop, logWebviewError: noop, reveal: noop },
     // No interactive rebase runs in this flow; a stager that reports its todo
     // as applied keeps the handler registration honest without touching disk.
@@ -227,6 +231,54 @@ suite("navigation token echo (integration)", () => {
     assert.ok(res, "a loadCommits response should be posted");
     assert.strictEqual(res!.token, 12, "the token must come back as it was sent");
   });
+});
+
+/** #205: the graph draws a `--first-parent` load with each commit's first
+ *  parent alone, and the load answer is the only place it learns the mode —
+ *  the commits keep every parent either way. The webview suites build that
+ *  answer themselves, so only this can show the host writes it, and writes the
+ *  repo's resolved setting rather than a constant. */
+suite("first-parent mode rides with the commits (integration)", () => {
+  for (const onlyFollowFirstParent of [true, false]) {
+    test(`loadCommits answers onlyFollowFirstParent: ${onlyFollowFirstParent} when the repo resolves to it`, async () => {
+      const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
+      const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
+      const posted: ResponseMessage[] = [];
+      const bridge = {
+        post: (m: ResponseMessage) => posted.push(m),
+        onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) =>
+          handlers.set(cmd, h)
+      } as unknown as WebviewBridge;
+      registerMessageHandlers(
+        bridge,
+        makeDeps({
+          resolveRepoScope: () => ({
+            ...resolveRepoScope(undefined, config.repoSettingDefaults()),
+            onlyFollowFirstParent
+          })
+        })
+      );
+
+      await handlers.get("selectRepo")!({
+        command: "selectRepo",
+        repo: repoPath
+      } as RequestMessage);
+      await handlers.get("loadCommits")!({
+        command: "loadCommits",
+        repo: repoPath,
+        branchNames: ["HEAD"],
+        maxCommits: 1,
+        hard: false,
+        token: 3
+      } as RequestMessage);
+
+      const res = posted.find((m) => m.command === "loadCommits") as
+        | Extract<ResponseMessage, { command: "loadCommits" }>
+        | undefined;
+      assert.ok(res, "a loadCommits response should be posted");
+      assert.strictEqual(res!.onlyFollowFirstParent, onlyFollowFirstParent);
+    });
+  }
 });
 
 /** `selectRepo` is where the host commits to a repository, and it is the one

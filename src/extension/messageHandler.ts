@@ -366,6 +366,9 @@ export function registerMessageHandlers(
           useMailmap: config.useMailmap(),
           hiddenRemotes: msg.hiddenRemotes ?? []
         })),
+        // The walk the commits came from, read off the same resolved scope the
+        // query was given (see the response type, #205).
+        onlyFollowFirstParent: scope.onlyFollowFirstParent,
         // Echoed back, and this line is as deep as it ever goes — the query
         // above is not given it and would have nothing to do with it. Unlike
         // `loadBranches`, where `hard` bypasses the branch-facts coalescing

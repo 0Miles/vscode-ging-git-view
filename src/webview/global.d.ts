@@ -202,6 +202,9 @@ declare global {
     currentBranches: string[] | null;
     currentRepo: string;
     moreCommitsAvailable: boolean;
+    // Optional: absent in states saved before the graph drew first-parent
+    // loads on their own terms (#205); absent reads as every parent followed.
+    onlyFollowFirstParent?: boolean;
     maxCommits: number;
     showRemoteBranches: boolean;
     expandedCommit: SerializedExpandedCommit | null;

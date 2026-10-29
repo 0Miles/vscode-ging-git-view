@@ -214,7 +214,7 @@ function stashInsertIndex(
 export async function loadCommits(
   git: SimpleGit,
   input: LoadCommitsInput
-): Promise<Omit<QueryResult<"loadCommits">, "hard" | "token">> {
+): Promise<Omit<QueryResult<"loadCommits">, "hard" | "token" | "onlyFollowFirstParent">> {
   const {
     branchNames,
     maxCommits,
