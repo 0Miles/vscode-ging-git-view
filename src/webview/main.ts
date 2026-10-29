@@ -3071,31 +3071,7 @@ class GitGraphView {
             visible: cmv.reset,
             title: l10n.reset + ELLIPSIS,
             icon: "history",
-            onClick: () => {
-              showSelectDialog(
-                l10n.dialogResetConfirm
-                  .replace("{0}", this.currentBranchLabel())
-                  .replace("{1}", "<b><i>" + abbrevCommit(hash) + "</i></b>"),
-                this.config.dialogResetMode,
-                [
-                  { name: l10n.dialogResetSoft, value: "soft" },
-                  { name: l10n.dialogResetMixed, value: "mixed" },
-                  { name: l10n.dialogResetHard, value: "hard" },
-                  { name: l10n.dialogResetKeep, value: "keep" }
-                ],
-                l10n.dialogYesReset,
-                (mode) => {
-                  sendMessage({
-                    command: "resetToCommit",
-                    repo: this.currentRepo!,
-                    commitHash: hash,
-                    resetMode: <GitResetMode>mode
-                  });
-                },
-                sourceElem,
-                "resetMode"
-              );
-            }
+            onClick: () => this.resetToCommitAction(hash, sourceElem)
           },
           // One rebase entry, whichever rebase is on offer (#173): with a range
           // to replay it says so and replays it, otherwise it replays the
@@ -3674,9 +3650,39 @@ class GitGraphView {
     // same empty footer, from the state, instead of asserting emptiness.
     this.renderFooter();
   }
+  /** Ask for a mode, then reset the checked-out branch to `hash` — the commit
+   *  menu's Reset, and what dropping the checked-out branch's label on a commit
+   *  opens too (#208). */
+  private resetToCommitAction(hash: string, sourceElem: HTMLElement) {
+    showSelectDialog(
+      l10n.dialogResetConfirm
+        .replace("{0}", this.currentBranchLabel())
+        .replace("{1}", "<b><i>" + abbrevCommit(hash) + "</i></b>"),
+      this.config.dialogResetMode,
+      [
+        { name: l10n.dialogResetSoft, value: "soft" },
+        { name: l10n.dialogResetMixed, value: "mixed" },
+        { name: l10n.dialogResetHard, value: "hard" },
+        { name: l10n.dialogResetKeep, value: "keep" }
+      ],
+      l10n.dialogYesReset,
+      (mode) => {
+        sendMessage({
+          command: "resetToCommit",
+          repo: this.currentRepo!,
+          commitHash: hash,
+          resetMode: <GitResetMode>mode
+        });
+      },
+      sourceElem,
+      "resetMode"
+    );
+  }
   /** Confirm, then move a dragged branch to the commit it was dropped on
-   *  (#208). The checked-out note is the webview's reading of HEAD and only
-   *  words the dialog; which command runs is decided by the host as it runs.
+   *  (#208). The checked-out branch is not moved but reset, so dropping it
+   *  asks what the commit menu's Reset asks: which mode. That is the webview's
+   *  reading of HEAD; the host reads HEAD again as `moveBranch` runs, so a
+   *  stale one still moves the branch that was dragged.
    *
    *  The dialog says "from A", and `branch -f` would move the branch from
    *  wherever it really is by then — so, like the rebase-onto tip, a branch
@@ -3684,7 +3690,10 @@ class GitGraphView {
    *  (ADR-0019). A repo switch is a refusal too: the branch is checked against
    *  the loaded commits, which by then are another repository's. */
   private moveBranchAction(drop: BranchDrop) {
-    const checkedOut = this.gitBranchHead === drop.branchName;
+    if (this.gitBranchHead === drop.branchName) {
+      this.resetToCommitAction(drop.toHash, drop.label);
+      return;
+    }
     const name = "<b><i>" + escapeHtml(drop.branchName) + "</i></b>";
     this.confirmForRepo(
       fillTemplate(
@@ -3692,7 +3701,7 @@ class GitGraphView {
         name,
         "<b><i>" + abbrevCommit(drop.fromHash) + "</i></b>",
         "<b><i>" + abbrevCommit(drop.toHash) + "</i></b>"
-      ) + (checkedOut ? "<br>" + l10n.dialogMoveBranchCheckedOut : ""),
+      ),
       (repo) => {
         if (this.currentRepo !== repo || !this.branchPointsAt(drop.branchName, drop.fromHash)) {
           showErrorDialog(fillTemplate(l10n.dialogMoveBranchMoved, name), null, null);

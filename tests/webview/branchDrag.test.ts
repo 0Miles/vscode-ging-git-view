@@ -4,7 +4,14 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import { BRANCH_DRAG_THRESHOLD } from "@/webview/branchDrag";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // Dragging a local branch's label onto another commit row moves the branch
 // there (#208), behind a confirmation that names the branch and both commits.
@@ -169,7 +176,6 @@ describe("dragging a branch that is not checked out", () => {
       .replace("{2}", BASE.substring(0, 8));
     expect(dialogText()).toContain(expected);
     // The checked-out note belongs to the other case only.
-    expect(dialogText()).not.toContain(L.dialogMoveBranchCheckedOut);
     expect(mock.sentOf("moveBranch")).toEqual([]);
   });
 
@@ -219,14 +225,27 @@ describe("a branch that moves while the question is on screen", () => {
 });
 
 describe("dragging the checked-out branch", () => {
-  it("says it moves with reset --keep, and sends the same request", () => {
+  // Moving it is a reset, so it asks what the commit menu's Reset asks.
+  it("opens the commit menu's Reset dialog for the commit it lands on", () => {
+    row(MID).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    clickItem(L.reset + "…");
+    const fromMenu = document.getElementById("dialog")!.innerHTML;
+    dismiss();
+
     drag(label(".gitRef.head[data-name='main']"), cellOf(MID));
 
-    expect(dialogText()).toContain(L.dialogMoveBranchCheckedOut);
+    expect(document.getElementById("dialog")!.innerHTML).toBe(fromMenu);
+  });
+
+  it("resets with the mode chosen there, rather than moving the branch", () => {
+    drag(label(".gitRef.head[data-name='main']"), cellOf(MID));
+    (document.getElementById("dialogInput0") as HTMLSelectElement).value = "keep";
     confirm();
-    expect(mock.sentOf("moveBranch")).toEqual([
-      { command: "moveBranch", repo: DEFAULT_REPO, branchName: "main", commitHash: MID }
+
+    expect(mock.sentOf("resetToCommit")).toEqual([
+      { command: "resetToCommit", repo: DEFAULT_REPO, commitHash: MID, resetMode: "keep" }
     ]);
+    expect(mock.sentOf("moveBranch")).toEqual([]);
   });
 });
 
@@ -245,14 +264,15 @@ describe("while the move runs", () => {
   });
 
   it("gives way to git's error when the move fails", () => {
-    drag(label(".gitRef.head[data-name='main']"), cellOf(MID));
+    drag(label(".gitRef.head[data-name='feature']"), cellOf(BASE));
     confirm();
     expect(running()).not.toBeNull();
 
-    receive({ command: "moveBranch", status: "error: Entry 'tip.txt' not uptodate." });
+    const refused = "fatal: cannot force update the branch 'feature' used by worktree at '/wt'";
+    receive({ command: "moveBranch", status: refused });
     expect(running()).toBeNull();
     expect(dialogText()).toContain(L.unableToMoveBranch);
-    expect(dialogText()).toContain("Entry 'tip.txt' not uptodate.");
+    expect(dialogText()).toContain(refused);
     // Dismissing the error refreshes the graph; answer it, so the next test's
     // refresh is not left queued behind it.
     dismiss();

@@ -258,14 +258,15 @@ export async function renameBranch(
 }
 
 /** Point a local branch at another commit — what dropping its label on a
- *  commit row asks for (#208). The checked-out branch moves with `reset --keep`,
- *  which keeps uncommitted changes and refuses to overwrite one; any other
- *  branch with `branch -f`, which git refuses for a branch checked out in
- *  another worktree.
+ *  commit row asks for (#208). Any branch but the checked-out one moves with
+ *  `branch -f`, which git refuses for a branch checked out in another worktree.
  *
- *  HEAD is read here, as the command runs, rather than taken from the webview:
- *  a stale "this one is checked out" would otherwise reset whichever branch
- *  really is — a different branch than the one the user dragged. */
+ *  The webview sends the checked-out branch to Reset instead, but HEAD is read
+ *  again here, as the command runs: if it changed since the webview looked,
+ *  the dragged branch is the checked-out one now, and it moves with
+ *  `reset --keep`, which keeps uncommitted changes and refuses to overwrite
+ *  one. Taking HEAD from the webview would instead reset whichever branch
+ *  really is checked out — a different branch than the one the user dragged. */
 export async function moveBranch(
   git: SimpleGit,
   input: ActionPayload<"moveBranch">

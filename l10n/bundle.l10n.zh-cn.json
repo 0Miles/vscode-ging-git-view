@@ -173,7 +173,6 @@
   "dialog.reset.hard": "Hard - 丢弃所有更改",
   "dialog.reset.keep": "Keep - 将 branch 移到该 commit，保留 uncommitted 更改；若会覆盖这些更改则中止",
   "dialog.moveBranch.confirm": "确定要将 branch {0} 从 commit {1} 移到 commit {2} 吗？",
-  "dialog.moveBranch.checkedOut": "这是当前 checkout 的 branch，所以会以 git reset --keep 移动：保留 uncommitted 更改；若会覆盖这些更改则中止。",
   "dialog.moveBranch.moved": "{0} 已不再指向这次移动的起点 commit，因此没有执行任何操作。请从它当前的位置重新拖动。",
   "dialog.delete.confirm": "确定要删除{0} {1} 吗？",
   "dialog.delete.forceBranchConfirm": "Branch {0} 尚未完全 merge。确定要强制删除它吗？",

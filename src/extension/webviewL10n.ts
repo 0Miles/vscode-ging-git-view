@@ -279,7 +279,6 @@ export function getWebviewLocalizedStrings() {
     dialogResetHard: l10n.t("dialog.reset.hard"),
     dialogResetKeep: l10n.t("dialog.reset.keep"),
     dialogMoveBranchConfirm: l10n.t("dialog.moveBranch.confirm"),
-    dialogMoveBranchCheckedOut: l10n.t("dialog.moveBranch.checkedOut"),
     dialogMoveBranchMoved: l10n.t("dialog.moveBranch.moved"),
     dialogDeleteConfirm: l10n.t("dialog.delete.confirm"),
     dialogForceDeleteBranchConfirm: l10n.t("dialog.delete.forceBranchConfirm"),
