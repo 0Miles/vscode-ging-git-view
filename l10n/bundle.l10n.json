@@ -171,7 +171,7 @@
   "dialog.reset.soft": "Soft - Keep all changes, but reset head",
   "dialog.reset.mixed": "Mixed - Keep working tree, but reset index",
   "dialog.reset.hard": "Hard - Discard all changes",
-  "dialog.reset.keep": "Keep - Keep uncommitted changes, discard the rest; stop if they conflict",
+  "dialog.reset.keep": "Keep - Move the branch to the commit, keep uncommitted changes; stop if they would be overwritten",
   "dialog.delete.confirm": "Are you sure you want to delete {0} {1}?",
   "dialog.delete.forceBranchConfirm": "The branch {0} is not fully merged. Are you sure you want to force delete it?",
   "dialog.delete.forceDelete": "Force Delete",

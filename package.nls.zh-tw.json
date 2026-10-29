@@ -124,7 +124,7 @@
   "config.dialog.resetCurrentBranch.mode.soft": "保留所有變更，僅重設 HEAD （git reset --soft）",
   "config.dialog.resetCurrentBranch.mode.mixed": "保留工作區，重設 HEAD 與索引 （git reset --mixed）",
   "config.dialog.resetCurrentBranch.mode.hard": "捨棄所有變更 （git reset --hard）",
-  "config.dialog.resetCurrentBranch.mode.keep": "保留 uncommitted 變更，捨棄其餘變更；若會覆蓋 uncommitted 變更則中止 （git reset --keep）",
+  "config.dialog.resetCurrentBranch.mode.keep": "將 branch 移到該 commit，保留 uncommitted 變更；若會覆蓋這些變更則中止 （git reset --keep）",
   "config.followSourceControlSelection": "啟用後，GING 會跟隨在原始檔控制檢視中選取的存放庫，開啟或切換圖表至該存放庫。當選取多個存放庫時，圖表控制列會顯示存放庫下拉框供你選擇要顯示哪一個。預設：啟用",
   "view.branches": "分支",
   "view.branches.welcome": "未選取存放庫。\n[開啟歷史檢視](command:ging-git-view.view)",

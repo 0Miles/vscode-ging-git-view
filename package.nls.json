@@ -124,7 +124,7 @@
   "config.dialog.resetCurrentBranch.mode.soft": "Keep all changes, but reset HEAD (git reset --soft)",
   "config.dialog.resetCurrentBranch.mode.mixed": "Keep the working tree, but reset the index (git reset --mixed)",
   "config.dialog.resetCurrentBranch.mode.hard": "Discard all changes (git reset --hard)",
-  "config.dialog.resetCurrentBranch.mode.keep": "Keep uncommitted changes and discard the rest; stop if they would be overwritten (git reset --keep)",
+  "config.dialog.resetCurrentBranch.mode.keep": "Move the branch to the commit, keep uncommitted changes; stop if they would be overwritten (git reset --keep)",
   "config.followSourceControlSelection": "When enabled, GING follows the repository selected in the Source Control view, opening or switching the graph to it. When several repositories are selected, a repository dropdown in the Graph control bar lets you choose which one to display. Default: enabled",
   "view.branches": "Branches",
   "view.branches.welcome": "No repository selected.\n[Open History View](command:ging-git-view.view)",
