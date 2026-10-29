@@ -4,15 +4,15 @@ import type { GitCommitNode } from "@/backend/types";
 
 import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
-// #205: with `history.firstParentOnly` on, a mainline of merged pull requests
-// was drawn as a mesh — every merge kept a line for its second parent, which
-// the `--first-parent` walk never loads, so each ran off the bottom edge. The
-// commits keep their real parents (the merge prompts count them), so the graph
-// learns the mode from the load answer and draws the first parent alone.
+// #205: with `history.firstParentOnly` on, a first-parent chain of merged pull
+// requests was drawn as a mesh — every merge kept a line for its second parent,
+// which the `--first-parent` walk never loads, so each ran off the bottom edge.
+// The commits keep their real parents (the merge prompts count them), so the
+// graph learns the mode from the load answer and draws the first parent alone.
 //
-// The graph's width is the measure: a mainline drawn as one straight lane is
-// exactly as wide as a linear history of the same length, and every stray
-// second-parent line widens it by a lane.
+// The graph's width is the measure: a first-parent chain drawn as one straight
+// lane is exactly as wide as a linear history of the same length, and every
+// stray second-parent line widens it by a lane.
 
 const REPO = DEFAULT_REPO;
 
@@ -30,7 +30,7 @@ function node(hash: string, parentHashes: string[], refs: GitCommitNode["refs"] 
 
 // m2 and m1 merge branches whose commits (x2, x1) a first-parent walk never
 // reaches.
-const mainline = [
+const firstParentChain = [
   node("m2", ["m1", "x2"], [{ hash: "m2", name: "main", type: "head" }]),
   node("m1", ["c0", "x1"]),
   node("c0", [])
@@ -51,7 +51,7 @@ function savedState(extra: Partial<WebViewState>): WebViewState {
     gitRepos: { [REPO]: { columnWidths: null } },
     gitBranches: ["main"],
     gitBranchHead: "main",
-    commits: mainline,
+    commits: firstParentChain,
     commitHead: "m2",
     avatars: {},
     currentBranches: [],
@@ -113,18 +113,18 @@ describe("the graph in first-parent mode (#205)", () => {
   });
 
   it("draws a first-parent load as one straight lane", () => {
-    loadCommits(mainline, { onlyFollowFirstParent: true });
+    loadCommits(firstParentChain, { onlyFollowFirstParent: true });
     expect(graphWidth()).toBe(straightLane);
   });
 
   it("still draws every parent when the load followed them all", () => {
-    loadCommits(mainline, { onlyFollowFirstParent: false });
+    loadCommits(firstParentChain, { onlyFollowFirstParent: false });
     expect(graphWidth()).not.toBe(straightLane);
   });
 
   it("redraws when only the mode changed, even for the same commits on a soft refresh", () => {
-    loadCommits(mainline, { onlyFollowFirstParent: false });
-    loadCommits(mainline, { onlyFollowFirstParent: true, hard: false });
+    loadCommits(firstParentChain, { onlyFollowFirstParent: false });
+    loadCommits(firstParentChain, { onlyFollowFirstParent: true, hard: false });
     expect(graphWidth()).toBe(straightLane);
   });
 });

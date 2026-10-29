@@ -204,14 +204,15 @@ describe("graph layout across a widened commit window", () => {
 // With `history.firstParentOnly` on, `git log --first-parent` walks only each
 // commit's first parent, yet `%P` still prints every parent — and the commit
 // keeps them, because the Commit Details View, the merge-commit prompts and the
-// replay list all need the real ones. So a merge on the mainline arrives with a
-// second parent that is never loaded. Drawn, that parent becomes the id -1
-// sentinel: one more line off the bottom edge per merge, the mesh #205 reports.
+// replay list all need the real ones. So a merge on the first-parent chain
+// arrives with a second parent that is never loaded. Drawn, that parent becomes
+// the id -1 sentinel: one more line off the bottom edge per merge, the mesh #205
+// reports.
 // In that mode the graph follows the first parent and nothing else.
 describe("graph layout when only the first parent is followed (#205)", () => {
   // M2 and M1 merge pull requests whose branch commits (X2, X1) the walk never
   // reached; every row's first parent is the next row.
-  const mainline = [
+  const firstParentChain = [
     commit("M2", ["M1", "X2"]), // 0
     commit("M1", ["C", "X1"]), // 1
     commit("C", []) // 2
@@ -219,12 +220,12 @@ describe("graph layout when only the first parent is followed (#205)", () => {
 
   function widthsOf(onlyFollowFirstParent: boolean): number[] {
     const g = makeGraph();
-    g.loadCommits(mainline, "M2", lookupOf(mainline), onlyFollowFirstParent);
+    g.loadCommits(firstParentChain, "M2", lookupOf(firstParentChain), onlyFollowFirstParent);
     g.render(null);
     return g.getWidthsAtVertices();
   }
 
-  it("draws the mainline as one straight lane, with no line for an unloaded second parent", () => {
+  it("draws the first-parent chain as one straight lane, with no line for an unloaded second parent", () => {
     expect(widthsOf(true)).toEqual([30, 30, 30]);
   });
 
