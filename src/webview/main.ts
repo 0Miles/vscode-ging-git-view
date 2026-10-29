@@ -121,6 +121,32 @@ function isHeaderRow(row: HTMLElement): boolean {
   return row.id === "tableColHeaders";
 }
 
+/** How far below the top of the viewport the graph's visible rows begin: the
+ *  height of the frozen control bar and column headers (#206), which rows
+ *  scroll under. For the scrolls the webview works out by hand; the browser's
+ *  own `scrollIntoView` already clears the header without being told.
+ *
+ *  Read off a row's `scroll-margin-top`, because that rule is how the browser
+ *  is told — so main.css stays the one place the number lives, and the two
+ *  kinds of scroll cannot disagree about it. 0 with no row to read (nothing is
+ *  frozen over a table that is not there) and wherever layout is absent. */
+function frozenHeaderHeight(
+  row: Element | null = document.querySelector("#commitTable tr.commit")
+): number {
+  if (row === null) return 0;
+  const margin = parseFloat(getComputedStyle(row).scrollMarginTop);
+  return Number.isFinite(margin) ? margin : 0;
+}
+
+/** Whether `elem` is part of the frozen column-header row — the row or one of
+ *  its cells — and so always on screen while the table is (#206). Nothing
+ *  there may be scrolled into view: only the *cells* stick, a `tr` cannot, so
+ *  the row's own box stays at the top of the page, and `scrollIntoView` on it
+ *  hauls the page all the way back up for a row the user is looking at. */
+function inFrozenHeader(elem: HTMLElement): boolean {
+  return elem.closest("#tableColHeaders") !== null;
+}
+
 /** What a commit table row *stands for*, as opposed to which element it is.
  *  `renderTable` replaces every row object, so anything that has to survive a
  *  re-render — the keyboard's place in the graph above all — has to name its
@@ -6024,7 +6050,7 @@ class GitGraphView {
    *  was already how the details view was navigated, and leaving the panel on a
    *  commit the user has focused away from would have the two disagree. */
   private focusGraphRow(row: HTMLElement) {
-    this.graphTabStop.focus(row);
+    this.focusGraphMember(row);
     if (
       this.expandedCommit !== null &&
       row.classList.contains("commit") &&
@@ -6049,8 +6075,17 @@ class GitGraphView {
     // last; stepping off either end hands focus back to the row.
     const at = widgets.indexOf(<HTMLElement>document.activeElement);
     const next = at === -1 ? (delta > 0 ? 0 : widgets.length - 1) : at + delta;
-    this.graphTabStop.focus(next < 0 || next >= widgets.length ? row : widgets[next]);
+    this.focusGraphMember(next < 0 || next >= widgets.length ? row : widgets[next]);
     return true;
+  }
+
+  /** The graph's one way of *moving* focus: onto `target`, brought into view —
+   *  except in the frozen header (#206), which is already in view wherever the
+   *  page stands, and whose row would drag the page to the top if asked. See
+   *  {@link inFrozenHeader}. */
+  private focusGraphMember(target: HTMLElement) {
+    if (inFrozenHeader(target)) this.graphTabStop.focusInPlace(target);
+    else this.graphTabStop.focus(target);
   }
 
   /** The open Commit Details View, or null when none is. **A class name is never
@@ -6159,7 +6194,7 @@ class GitGraphView {
       // Commit Details View onto a commit the user never arrowed onto.
       // `focus` only when the caller shrank the loaded set on purpose, which is
       // the one case where standing still is not the neutral choice.
-      if (mayScroll) this.graphTabStop.focus(refocused);
+      if (mayScroll) this.focusGraphMember(refocused);
       else this.graphTabStop.focusInPlace(refocused);
       return;
     }
@@ -6176,7 +6211,9 @@ class GitGraphView {
     // may be in the footer rather than dropped outright, and then this does
     // leave the two apart; `restoreFooterFocus` argues why that is the cheaper
     // of the two errors on the one path (the reset) where this scrolls at all.
-    if (mayScroll && typeof target.scrollIntoView === "function") {
+    // The header row is the fallback only when no commit is loaded, and it is
+    // frozen in view anyway (#206); scrolling to it would mean the page top.
+    if (mayScroll && !inFrozenHeader(target) && typeof target.scrollIntoView === "function") {
       target.scrollIntoView({ block: "nearest" });
     }
   }
@@ -6618,20 +6655,34 @@ class GitGraphView {
     const cdv = this.cdvIdentity();
     if (!docked && cdv !== this.cdvBroughtIntoView) {
       this.cdvBroughtIntoView = cdv;
+      // Page positions, worked from the panel's `offsetTop`, which is measured
+      // from the table: the table starts below the 32px control bar (the
+      // conflict banner, when shown, is not counted here), so the panel's top
+      // is at offsetTop + 32 and the commit's 24px row above it at offsetTop + 8.
+      //
+      // The top of the viewport is not where the visible rows begin: the
+      // frozen header covers `frozen` px of it (#206). Both comparisons against
+      // the top edge, and the centring, measure from below the header; the
+      // bottom edge has nothing frozen over it, so that branch is unchanged.
+      const frozen = frozenHeaderHeight(newElem);
       if (this.config.autoCenterCommitDetailsView) {
-        // Center Commit Detail View setting is enabled
-        // control menu height [40px] + newElem.y + (commit details view height [250px] + commit height [24px]) / 2 - (window height) / 2
-        window.scrollTo(0, newElem.offsetTop + 177 - window.innerHeight / 2);
-      } else if (newElem.offsetTop + 8 < window.pageYOffset) {
-        // Commit Detail View is opening above what is visible on screen
-        // control menu height [40px] + newElem y - commit height [24px] - desired gap from top [8px] < pageYOffset
-        window.scrollTo(0, newElem.offsetTop + 8);
+        // Centre Commit Details View is on: put offsetTop + 177 at the middle
+        // of the visible rows, (window height + frozen) / 2 down the viewport.
+        // The row-plus-panel block's own middle is offsetTop + 8 + (24 + 250) / 2
+        // = offsetTop + 145, so this sits the block 32px above centre — an
+        // offset that predates the frozen header, left as found.
+        window.scrollTo(0, newElem.offsetTop + 177 - (window.innerHeight + frozen) / 2);
+      } else if (newElem.offsetTop + 8 - frozen < window.pageYOffset) {
+        // The commit's row (offsetTop + 8) starts above the first visible row
+        // (pageYOffset + frozen): scroll it to sit right under the header.
+        window.scrollTo(0, newElem.offsetTop + 8 - frozen);
       } else if (
         newElem.offsetTop + this.config.grid.expandY - window.innerHeight + 48 >
         window.pageYOffset
       ) {
-        // Commit Detail View is opening below what is visible on screen
-        // control menu height [40px] + newElem y + commit details view height [250px] + desired gap from bottom [8px] - window height > pageYOffset
+        // The panel's bottom (offsetTop + 32 + its height) ends less than 16px
+        // above the viewport's bottom (pageYOffset + window height): scroll so
+        // that 16px gap is there. 48 is the 32px bar plus the 16px gap.
         window.scrollTo(0, newElem.offsetTop + this.config.grid.expandY - window.innerHeight + 48);
       }
     }
@@ -9027,8 +9078,13 @@ document.addEventListener("keyup", (e) => {
 // something to re-orient against on the far side of the jump. Up/Down no longer
 // scroll at all — they move focus between rows (see ADR-0014).
 const PAGE_SCROLL_OVERLAP = 48;
+/** A screenful is what the user can see of the graph, and the frozen header
+ *  (#206) is not part of that: jumping the whole viewport would carry rows
+ *  from under the header's lower edge straight past it, unseen, and the
+ *  overlap is smaller than the header — so it would skip rows outright. */
 function pageScrollStep() {
-  return Math.max(window.innerHeight - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
+  const visible = window.innerHeight - frozenHeaderHeight();
+  return Math.max(visible - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
 }
 document.addEventListener("keydown", (e) => {
   if (isDialogOpen()) {

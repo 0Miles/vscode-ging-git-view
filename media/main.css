@@ -18,6 +18,16 @@ html {
     --vscode-quickInputList-focusForeground,
     var(--vscode-list-activeSelectionForeground, var(--vscode-editor-foreground))
   );
+  /* The frozen header: the control bar and the commit table's column headers
+     stay at the top while the graph scrolls under them (#206), so Fetch and
+     Refresh are always a click away. Both heights are fixed by the rules that
+     draw them (#controls sets its own; a th is 18px of line plus 6px padding
+     either side and its 1px border), and are spelled out here because the
+     headers stick *below* the bar, and the rows' scroll margin and the scroll
+     shadow need their sum. */
+  --ging-controls-height: 32px;
+  --ging-col-headers-height: 31px;
+  --ging-frozen-header-height: calc(var(--ging-controls-height) + var(--ging-col-headers-height));
 }
 body {
   margin: 0;
@@ -30,13 +40,21 @@ body.unableToLoad h2,
 body.unableToLoad p {
   text-align: center;
 }
+/* "There is more above." Since the header froze (#206) the content no longer
+   scrolls off the top of the viewport but under the header, so the shadow
+   hangs from the header's lower edge. Drawn the way VS Code draws its own
+   scrollable-element shadow — an inset shadow inside a 3px strip — because the
+   old outset shadow on a zero-height strip relied on the viewport edge to hide
+   its upper half, and here there is header above it, not an edge.
+   Click-transparent: the strip lies over the first visible row. */
 #scrollShadow.active {
   position: fixed;
-  top: 0px;
+  top: var(--ging-frozen-header-height);
   left: 0px;
   width: 100%;
-  height: 0px;
-  box-shadow: 0 -6px 6px 6px var(--vscode-scrollbar-shadow);
+  height: 3px;
+  box-shadow: var(--vscode-scrollbar-shadow) 0 6px 6px -6px inset;
+  pointer-events: none;
   z-index: 200;
 }
 
@@ -240,9 +258,45 @@ code {
   padding: 0 4px;
 }
 #commitTable th {
-  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.5));
+  /* The border keeps its width but not its colour; the line is the inset
+     shadow. In a border-collapse table the table paints the collapsed borders,
+     not the cell, so once the cell sticks its border stays behind and scrolls
+     away with the rows. The transparent border still holds the row's height,
+     which renderGraph's offset depends on. */
+  border-bottom: 1px solid transparent;
+  box-shadow: inset 0 -1px 0 var(--vscode-panel-border, rgba(128, 128, 128, 0.5));
   line-height: 18px;
   padding: 6px 12px;
+  /* Frozen under the control bar (#206). The cells stick rather than the row:
+     a `tr` cannot be sticky, and the cells keep the table's column widths for
+     free, which a header cloned outside the table would have to copy. Opaque,
+     on the background the webview sits on, so rows don't show through; above
+     the graph SVG (z-index: 2), whose lines scroll under it with the rows, and
+     below the control bar and everything that floats (menus, dialog). */
+  position: sticky;
+  top: var(--ging-controls-height);
+  z-index: 3;
+  background-color: var(--vscode-editor-background);
+}
+/* A row brought into view — stepped onto with the arrow keys, a find match,
+   HEAD, a parent hash clicked in the details — must land below the frozen
+   header, not under it, and "centred" must mean centred in what is left
+   visible. A margin on the rows, not `scroll-padding` on the page: padding
+   would apply to every scroll-into-view in the document, and the targets that
+   live *inside* the frozen strip (a header cell, a repo dropdown item) would
+   then always read as covered, so stepping onto one would nudge the page up
+   under them. The webview's own scroll arithmetic reads this value back off a
+   row rather than keeping a copy of the number.
+   The ref chips too: Left/Right step onto them within a row, and Page Up/Down
+   can have carried that row under the header first without moving focus. Not
+   the Commit Details View's file rows, though — the file list is a scroller of
+   its own, and the margin would hold every file 63px clear of *its* top.
+   Nor the header row: it is part of the strip. The webview never scrolls it
+   into view (see `inFrozenHeader` in main.ts) — only its cells stick, so its
+   own box stays at the top of the page and would drag the page up there. */
+#commitTable tr:not(#tableColHeaders),
+#commitTable .gitRef {
+  scroll-margin-top: var(--ging-frozen-header-height);
 }
 
 #commitTable.fixedLayout table {
@@ -260,9 +314,9 @@ code {
 #tableColHeaders.resizing th {
   cursor: col-resize;
 }
-.tableColHeader {
-  position: relative;
-}
+/* No `position: relative` on .tableColHeader: the header cells are sticky (see
+   `#commitTable th`), and a sticky box is already the containing block the
+   resize handles below position against. */
 .resizeCol {
   position: absolute;
   top: 0px;
@@ -743,12 +797,31 @@ body.tagLabelsRightAligned .gitRef.tag {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  position: relative;
-  height: 32px;
+  height: var(--ging-controls-height);
   box-sizing: border-box;
   padding: 0 10px;
   border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.5));
   font-size: 13px;
+  /* Frozen at the top (#206): reaching Fetch or Refresh must not mean
+     scrolling back up through the history first. Opaque for the same reason
+     as the column headers, and above them and the graph SVG.
+     Below the dialog backing (z-index: 9), though, and that is the whole
+     reason for the rule after this one: a sticky box is a stacking context, so
+     the dropdown and drawer hanging off this bar can climb no higher than the
+     bar itself. Raising the bar to their 300 for good would lift it over the
+     backing too, and make Fetch clickable behind every modal dialog. */
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background-color: var(--vscode-editor-background);
+}
+/* While one of the bar's own popups is open, the bar takes that popup's
+   elevation, so the repo dropdown and the Repository Settings drawer stay
+   above the docked CDV (z-index: 80) and the find widget (z-index: 250) as
+   they were before the bar was frozen. Only for as long as a popup is open:
+   that is the one time the bar has something to put above them. */
+#controls:has(#repoDropdownList.active, #repoSettingsDrawer.active) {
+  z-index: 300;
 }
 /* The left-hand group: the repo title block, followed by the branch-filter chip
    when a filter is in force. margin-right:auto lives here rather than on either
@@ -1975,6 +2048,17 @@ body.vscode-high-contrast #commitTable tr.commit.findMatchCurrent {
      user has not selected, and it must never out-shout --ging-selected-
      background on the row whose details are actually open. */
   background-color: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15));
+}
+/* The same fill on the frozen header (#206), laid *over* its opaque background
+   instead of replacing it: rows scroll under the header, and Page Up/Down move
+   the rows without moving focus off it, so a translucent hover colour on its
+   own would let them show through. */
+#commitTable #tableColHeaders:focus-visible th {
+  background-color: var(--vscode-editor-background);
+  background-image: linear-gradient(
+    var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15)),
+    var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.15))
+  );
 }
 #commitTable tr.commit:focus-visible,
 #commitTable tr.unsavedChanges:focus-visible,
