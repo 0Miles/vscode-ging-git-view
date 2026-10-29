@@ -251,6 +251,7 @@
   "status.fetchingIntoLocalBranch": "正在 fetch 到本機 branch",
   "status.rebasing": "正在 rebase",
   "status.dropping": "正在捨棄 commit",
+  "status.movingBranch": "正在移動 branch",
   "time.second": "秒",
   "time.minute": "分鐘",
   "time.hour": "小時",

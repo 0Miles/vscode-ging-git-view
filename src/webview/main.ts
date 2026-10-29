@@ -3709,6 +3709,7 @@ class GitGraphView {
           branchName: drop.branchName,
           commitHash: drop.toHash
         });
+        showActionRunningDialog(l10n.movingBranch);
       },
       drop.label
     );

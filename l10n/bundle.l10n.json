@@ -251,6 +251,7 @@
   "status.fetchingIntoLocalBranch": "Fetching into Local Branch",
   "status.rebasing": "Rebasing",
   "status.dropping": "Dropping Commit",
+  "status.movingBranch": "Moving Branch",
   "time.second": "second",
   "time.minute": "minute",
   "time.hour": "hour",

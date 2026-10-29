@@ -350,6 +350,7 @@ export function getWebviewLocalizedStrings() {
     pushingTag: l10n.t("status.pushingTag"),
     rebasing: l10n.t("status.rebasing"),
     dropping: l10n.t("status.dropping"),
+    movingBranch: l10n.t("status.movingBranch"),
     deletingRemoteBranch: l10n.t("status.deletingRemoteBranch"),
     deletingBranches: l10n.t("status.deletingBranches"),
     fastForwardingBranches: l10n.t("status.fastForwardingBranches"),
