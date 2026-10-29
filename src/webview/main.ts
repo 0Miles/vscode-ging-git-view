@@ -3685,22 +3685,17 @@ class GitGraphView {
    *  the loaded commits, which by then are another repository's. */
   private moveBranchAction(drop: BranchDrop) {
     const checkedOut = this.gitBranchHead === drop.branchName;
+    const name = "<b><i>" + escapeHtml(drop.branchName) + "</i></b>";
     this.confirmForRepo(
-      l10n.dialogMoveBranchConfirm
-        .replace("{0}", "<b><i>" + escapeHtml(drop.branchName) + "</i></b>")
-        .replace("{1}", "<b><i>" + abbrevCommit(drop.fromHash) + "</i></b>")
-        .replace("{2}", "<b><i>" + abbrevCommit(drop.toHash) + "</i></b>") +
-        (checkedOut ? "<br>" + l10n.dialogMoveBranchCheckedOut : ""),
+      fillTemplate(
+        l10n.dialogMoveBranchConfirm,
+        name,
+        "<b><i>" + abbrevCommit(drop.fromHash) + "</i></b>",
+        "<b><i>" + abbrevCommit(drop.toHash) + "</i></b>"
+      ) + (checkedOut ? "<br>" + l10n.dialogMoveBranchCheckedOut : ""),
       (repo) => {
         if (this.currentRepo !== repo || !this.branchPointsAt(drop.branchName, drop.fromHash)) {
-          showErrorDialog(
-            l10n.dialogMoveBranchMoved.replace(
-              "{0}",
-              "<b><i>" + escapeHtml(drop.branchName) + "</i></b>"
-            ),
-            null,
-            null
-          );
+          showErrorDialog(fillTemplate(l10n.dialogMoveBranchMoved, name), null, null);
           return;
         }
         sendMessage({

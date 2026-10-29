@@ -1,5 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
+import { resetToCommit } from "@/backend/actions/commit";
 import type {
   ActionPayload,
   BatchActionPayload,
@@ -272,7 +273,7 @@ export async function moveBranch(
   // `--symbolic-full-name` answers `HEAD` itself when detached, never failing.
   const head = (await git.raw(["rev-parse", "--symbolic-full-name", "HEAD"])).trim();
   if (head === "refs/heads/" + input.branchName) {
-    await git.raw(["reset", "--keep", input.commitHash]);
+    await resetToCommit(git, { commitHash: input.commitHash, resetMode: "keep" });
   } else {
     await git.raw(["branch", "-f", input.branchName, input.commitHash]);
   }

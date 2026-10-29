@@ -53,8 +53,7 @@ const row = (hash: string) =>
   document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
 /** The label's name span — what a pointer actually lands on. */
 const label = (selector: string) =>
-  document.querySelector<HTMLElement>(`#commitTable ${selector} .gitRefName`) ??
-  document.querySelector<HTMLElement>(`#commitTable ${selector}`)!;
+  document.querySelector<HTMLElement>(`#commitTable ${selector} .gitRefName`)!;
 /** A cell of the row, which is where a drop lands. */
 const cellOf = (hash: string) => row(hash).querySelectorAll("td")[1] as HTMLElement;
 
@@ -110,25 +109,31 @@ const dismiss = () =>
     .dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
 const running = () => document.getElementById("actionRunning");
-/** The graph's answer to the refresh a finished action asks for. */
-function reload() {
+function loadBranches(hard = false) {
   receive({
     command: "loadBranches",
     token: 0,
     branches: ["main", "feature"],
     head: "main",
-    hard: false,
+    hard,
     isRepo: true,
     filter: []
   });
+}
+function loadCommits(list = commits, hard = false) {
   receive({
     command: "loadCommits",
     token: 0,
-    commits,
+    commits: list,
     head: TIP,
     moreCommitsAvailable: false,
-    hard: false
+    hard
   });
+}
+/** The graph's answer to the refresh a finished action asks for. */
+function reload() {
+  loadBranches();
+  loadCommits();
 }
 
 let mock: ReturnType<typeof createVscodeMock>;
@@ -138,24 +143,9 @@ beforeAll(async () => {
   mock = createVscodeMock();
   setupHtml(makeViewState({ combineLocalAndRemoteBranchLabels: false }));
   await import("@/webview/main");
-  receive({
-    command: "loadBranches",
-    token: 0,
-    branches: ["main", "feature"],
-    head: "main",
-    hard: true,
-    isRepo: true,
-    filter: []
-  });
+  loadBranches(true);
   receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
-  receive({
-    command: "loadCommits",
-    token: 0,
-    commits,
-    head: TIP,
-    moreCommitsAvailable: false,
-    hard: true
-  });
+  loadCommits(commits, true);
 });
 
 beforeEach(() => {
@@ -207,13 +197,14 @@ describe("a branch that moves while the question is on screen", () => {
     receive({
       command: "loadCommits",
       token: 0,
-      commits: commits.map((c) => ({
-        ...c,
-        refs:
-          c.hash === TIP
-            ? [...c.refs, { hash: TIP, name: "feature", type: "head" as const }]
-            : c.refs.filter((r) => r.name !== "feature")
-      })),
+      commits: commits.map((c) =>
+        Object.assign({}, c, {
+          refs:
+            c.hash === TIP
+              ? [...c.refs, { hash: TIP, name: "feature", type: "head" as const }]
+              : c.refs.filter((r) => r.name !== "feature")
+        })
+      ),
       head: TIP,
       moreCommitsAvailable: false,
       hard: false
@@ -223,14 +214,7 @@ describe("a branch that moves while the question is on screen", () => {
     expect(mock.sentOf("moveBranch")).toEqual([]);
     expect(dialogText()).toContain(L.dialogMoveBranchMoved.replace("{0}", "feature"));
 
-    receive({
-      command: "loadCommits",
-      token: 0,
-      commits,
-      head: TIP,
-      moreCommitsAvailable: false,
-      hard: false
-    });
+    loadCommits();
   });
 });
 

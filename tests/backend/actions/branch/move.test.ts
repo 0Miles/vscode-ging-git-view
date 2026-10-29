@@ -19,8 +19,8 @@ let repo: string;
 let base: string;
 let tip: string;
 
-const rev = (ref: string, cwd = repo) =>
-  cp.execFileSync("git", ["rev-parse", ref], { cwd }).toString().trim();
+const gitOut = (...args: string[]) => cp.execFileSync("git", args, { cwd: repo }).toString().trim();
+const rev = (ref: string) => gitOut("rev-parse", ref);
 const read = (file: string) => fs.readFileSync(path.join(repo, file), "utf8");
 
 beforeAll(() => {
@@ -46,9 +46,7 @@ describe("moveBranch on a branch that is not checked out", () => {
 
     expect(rev("side")).toBe(tip);
     expect(rev("HEAD")).toBe(tip);
-    expect(cp.execFileSync("git", ["symbolic-ref", "HEAD"], { cwd: repo }).toString().trim()).toBe(
-      "refs/heads/main"
-    );
+    expect(gitOut("symbolic-ref", "HEAD")).toBe("refs/heads/main");
     expect(read("f")).toBe("tip");
   });
 

@@ -55,10 +55,10 @@ function track(
   source: Omit<BranchDrop, "toHash">,
   onDrop: (drop: BranchDrop) => void
 ) {
-  let dragging = false;
-  /** Escape was pressed mid-drag: nothing drops, but the press is still a drag
-   *  until its release, whose click must not land as an ordinary one. */
-  let cancelled = false;
+  /** A press until it travels past the threshold. Once Escape cancels a drag,
+   *  nothing drops, but it is still a drag until its release, whose click must
+   *  not land as an ordinary one. */
+  let phase: "press" | "drag" | "cancelled" = "press";
   let target: HTMLElement | null = null;
   let ghost: HTMLElement | null = null;
   // Where on the label the press landed, so the copy is held by the same spot.
@@ -99,11 +99,11 @@ function track(
       end();
       return;
     }
-    if (cancelled) return;
-    if (!dragging) {
+    if (phase === "cancelled") return;
+    if (phase === "press") {
       const distance = Math.hypot(e.clientX - start.clientX, e.clientY - start.clientY);
       if (distance < BRANCH_DRAG_THRESHOLD) return;
-      dragging = true;
+      phase = "drag";
       source.label.classList.add("branchDragSource");
       document.body.classList.add("branchDragging");
       // The press may already have begun selecting the row's text.
@@ -116,21 +116,21 @@ function track(
     setTarget(row !== null && row.dataset.hash !== source.fromHash ? row : null);
   };
   const up = () => {
-    const toHash = cancelled ? undefined : target?.dataset.hash;
-    const dragged = dragging;
+    // Read before `end` clears it; a cancelled drag has no target left.
+    const toHash = target?.dataset.hash;
     end();
-    if (!dragged) return;
+    if (phase === "press") return;
     swallowNextClick();
     if (toHash !== undefined) onDrop({ ...source, toHash });
   };
   const key = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
-    if (!dragging) {
+    if (phase === "press") {
       end();
       return;
     }
     // Keep listening for the release, so `up` can swallow its click.
-    cancelled = true;
+    phase = "cancelled";
     clearMarks();
   };
 
