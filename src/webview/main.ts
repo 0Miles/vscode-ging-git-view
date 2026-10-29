@@ -121,6 +121,23 @@ function isHeaderRow(row: HTMLElement): boolean {
   return row.id === "tableColHeaders";
 }
 
+/** How far below the top of the viewport the graph's visible rows begin: the
+ *  height of the frozen control bar and column headers (#206), which rows
+ *  scroll under. For the scrolls the webview works out by hand; the browser's
+ *  own `scrollIntoView` already clears the header without being told.
+ *
+ *  Read off a row's `scroll-margin-top`, because that rule is how the browser
+ *  is told — so main.css stays the one place the number lives, and the two
+ *  kinds of scroll cannot disagree about it. 0 with no row to read (nothing is
+ *  frozen over a table that is not there) and wherever layout is absent. */
+function frozenHeaderHeight(
+  row: Element | null = document.querySelector("#commitTable tr.commit")
+): number {
+  if (row === null) return 0;
+  const margin = parseFloat(getComputedStyle(row).scrollMarginTop);
+  return Number.isFinite(margin) ? margin : 0;
+}
+
 /** What a commit table row *stands for*, as opposed to which element it is.
  *  `renderTable` replaces every row object, so anything that has to survive a
  *  re-render — the keyboard's place in the graph above all — has to name its
@@ -6603,14 +6620,19 @@ class GitGraphView {
     const cdv = this.cdvIdentity();
     if (!docked && cdv !== this.cdvBroughtIntoView) {
       this.cdvBroughtIntoView = cdv;
+      // The top of the viewport is not where the visible rows begin: the
+      // frozen header covers that much of it (#206). Both comparisons against
+      // the top edge, and the centring, measure from below the header; the
+      // bottom edge has nothing frozen over it, so that branch is unchanged.
+      const frozen = frozenHeaderHeight(newElem);
       if (this.config.autoCenterCommitDetailsView) {
         // Center Commit Detail View setting is enabled
-        // control menu height [40px] + newElem.y + (commit details view height [250px] + commit height [24px]) / 2 - (window height) / 2
-        window.scrollTo(0, newElem.offsetTop + 177 - window.innerHeight / 2);
-      } else if (newElem.offsetTop + 8 < window.pageYOffset) {
+        // control menu height [40px] + newElem.y + (commit details view height [250px] + commit height [24px]) / 2 - (window height + frozen header) / 2
+        window.scrollTo(0, newElem.offsetTop + 177 - (window.innerHeight + frozen) / 2);
+      } else if (newElem.offsetTop + 8 - frozen < window.pageYOffset) {
         // Commit Detail View is opening above what is visible on screen
-        // control menu height [40px] + newElem y - commit height [24px] - desired gap from top [8px] < pageYOffset
-        window.scrollTo(0, newElem.offsetTop + 8);
+        // control menu height [40px] + newElem y - commit height [24px] - desired gap from top [8px] - frozen header < pageYOffset
+        window.scrollTo(0, newElem.offsetTop + 8 - frozen);
       } else if (
         newElem.offsetTop + this.config.grid.expandY - window.innerHeight + 48 >
         window.pageYOffset
@@ -9006,8 +9028,13 @@ document.addEventListener("keyup", (e) => {
 // something to re-orient against on the far side of the jump. Up/Down no longer
 // scroll at all — they move focus between rows (see ADR-0014).
 const PAGE_SCROLL_OVERLAP = 48;
+/** A screenful is what the user can see of the graph, and the frozen header
+ *  (#206) is not part of that: jumping the whole viewport would carry rows
+ *  from under the header's lower edge straight past it, unseen, and the
+ *  overlap is smaller than the header — so it would skip rows outright. */
 function pageScrollStep() {
-  return Math.max(window.innerHeight - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
+  const visible = window.innerHeight - frozenHeaderHeight();
+  return Math.max(visible - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
 }
 document.addEventListener("keydown", (e) => {
   if (isDialogOpen()) {
