@@ -60,7 +60,17 @@ function track(
    *  until its release, whose click must not land as an ordinary one. */
   let cancelled = false;
   let target: HTMLElement | null = null;
+  let ghost: HTMLElement | null = null;
+  // Where on the label the press landed, so the copy is held by the same spot.
+  const rect = source.label.getBoundingClientRect();
+  const grabX = start.clientX - rect.left;
+  const grabY = start.clientY - rect.top;
 
+  const moveGhost = (e: MouseEvent) => {
+    ghost ??= makeGhost(source.label);
+    ghost.style.left = e.clientX - grabX + "px";
+    ghost.style.top = e.clientY - grabY + "px";
+  };
   const setTarget = (row: HTMLElement | null) => {
     if (row === target) return;
     target?.classList.remove("branchDropTarget");
@@ -69,6 +79,8 @@ function track(
   };
   const clearMarks = () => {
     setTarget(null);
+    ghost?.remove();
+    ghost = null;
     source.label.classList.remove("branchDragSource");
     document.body.classList.remove("branchDragging");
   };
@@ -98,6 +110,7 @@ function track(
       window.getSelection()?.removeAllRanges();
     }
     e.preventDefault();
+    moveGhost(e);
     const row = commitRowIn(root, e.target as Element);
     // The row it already points at is no target: dropping there moves nothing.
     setTarget(row !== null && row.dataset.hash !== source.fromHash ? row : null);
@@ -125,6 +138,25 @@ function track(
   document.addEventListener("mouseup", up);
   document.addEventListener("keydown", key, true);
   window.addEventListener("blur", end);
+}
+
+/** A copy of `label` for the pointer to carry — what makes the press read as a
+ *  drag at all, since the label itself stays where it is. It lives on the body,
+ *  outside `#commitTable`, so nothing that looks the graph's labels up finds it;
+ *  and it takes no pointer events, so the row under it stays the drop target.
+ *  The branch colour is inherited from the row, so it is carried over by hand. */
+function makeGhost(label: HTMLElement): HTMLElement {
+  const ghost = label.cloneNode(true) as HTMLElement;
+  for (const elem of [ghost, ...Array.from(ghost.querySelectorAll<HTMLElement>("*"))]) {
+    elem.classList.remove("branchDragSource", "dimmedRef", "findBranchMatch");
+    elem.removeAttribute("tabindex");
+  }
+  ghost.classList.add("branchDragGhost");
+  ghost.setAttribute("aria-hidden", "true");
+  const colour = getComputedStyle(label).getPropertyValue("--git-graph-color");
+  if (colour !== "") ghost.style.setProperty("--git-graph-color", colour);
+  document.body.appendChild(ghost);
+  return ghost;
 }
 
 /** Drop the click the browser fires right after a drag's mouseup. It goes to

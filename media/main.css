@@ -2038,6 +2038,14 @@ body.branchDragging * {
 #commitTable .gitRef.branchDragSource {
   opacity: 0.5;
 }
+/* The copy of the label the pointer carries. */
+.gitRef.branchDragGhost {
+  position: fixed;
+  z-index: 100;
+  margin: 0;
+  pointer-events: none;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
 /* VS Code's own drop-target colours, as its trees show them while dragging. */
 #commitTable tr.commit.branchDropTarget td {
   background-color: var(--vscode-list-dropBackground, rgba(128, 128, 128, 0.3));

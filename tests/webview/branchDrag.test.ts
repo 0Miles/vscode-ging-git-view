@@ -283,6 +283,60 @@ describe("what does not move a branch", () => {
   });
 });
 
+const ghost = () => document.querySelector<HTMLElement>(".branchDragGhost");
+const at = (elem: HTMLElement) => [parseFloat(elem.style.left), parseFloat(elem.style.top)];
+
+describe("the label follows the pointer", () => {
+  // Without it the press looks like it did nothing: the label stays put, and a
+  // merged branch's label is already dim, so dimming it says nothing (#208).
+
+  it("as a copy of the label that moves with the pointer, and is gone on release", () => {
+    const from = label(".gitRef.head[data-name='feature']");
+    mouse("mousedown", from, 100, 100);
+    mouse("mousemove", cellOf(MID), 100, 100 + BRANCH_DRAG_THRESHOLD - 1);
+    expect(ghost()).toBeNull();
+
+    mouse("mousemove", cellOf(BASE), 110, 140);
+    const g = ghost()!;
+    expect(g).not.toBeNull();
+    expect(g.textContent).toBe("feature");
+    const [x, y] = at(g);
+    mouse("mousemove", cellOf(BASE), 130, 175);
+    expect(at(g)).toEqual([x + 20, y + 35]);
+
+    mouse("mouseup", cellOf(BASE), 130, 175);
+    mouse("click", from, 130, 175);
+    expect(ghost()).toBeNull();
+  });
+
+  it("without being one of the graph's labels, or a target for the pointer", () => {
+    const from = label(".gitRef.head[data-name='feature']");
+    mouse("mousedown", from, 100, 100);
+    mouse("mousemove", cellOf(BASE), 100, 140);
+
+    const g = ghost()!;
+    expect(document.getElementById("commitTable")!.contains(g)).toBe(false);
+    expect(g.getAttribute("aria-hidden")).toBe("true");
+    // Not the source's dimming either: the copy is what the eye follows.
+    expect(g.classList.contains("branchDragSource")).toBe(false);
+    expect(g.classList.contains("dimmedRef")).toBe(false);
+
+    mouse("mouseup", cellOf(BASE), 100, 140);
+    mouse("click", from, 100, 140);
+  });
+
+  it("and is gone when Escape cancels the drag", () => {
+    const from = label(".gitRef.head[data-name='feature']");
+    mouse("mousedown", from, 100, 100);
+    mouse("mousemove", cellOf(BASE), 100, 140);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(ghost()).toBeNull();
+    mouse("mouseup", cellOf(BASE), 100, 140);
+    mouse("click", cellOf(BASE), 100, 140);
+  });
+});
+
 describe("while and after a drag", () => {
   it("marks the row under the pointer as the drop target, and clears it on release", () => {
     const from = label(".gitRef.head[data-name='feature']");
