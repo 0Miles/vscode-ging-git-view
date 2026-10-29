@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import { SquashMessageFormat } from "./backend/actions/merge";
-import { CommitOrdering, DateType } from "./backend/types";
+import { CommitOrdering, DateType, GitResetMode } from "./backend/types";
 import { mergeContextMenuActionsVisibility } from "./backend/utils/contextMenuVisibility";
 import { resolveGitPath } from "./backend/utils/gitPath";
 import { normalizeKeybinding } from "./backend/utils/keybinding";
@@ -82,7 +82,7 @@ export const config = {
     getConfig<string>("dialogDefaults.mergeSquashMessageFormat", "Default") === "Git SQUASH_MSG"
       ? "Git SQUASH_MSG"
       : "Default",
-  dialogResetMode: (): "soft" | "mixed" | "hard" => getConfig("dialogDefaults.resetMode", "mixed"),
+  dialogResetMode: (): GitResetMode => getConfig("dialogDefaults.resetMode", "mixed"),
   commitOrder: (): CommitOrdering => getConfig("history.commitOrder", "date"),
   contextMenuActionsVisibility: (): ContextMenuActionsVisibility =>
     mergeContextMenuActionsVisibility(getConfig("contextMenuActions", {})),

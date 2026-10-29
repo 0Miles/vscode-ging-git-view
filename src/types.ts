@@ -5,6 +5,7 @@ import {
   BatchActionResponse,
   CommitOrdering,
   GitFileChangeType,
+  GitResetMode,
   QueryRequest,
   QueryResponse
 } from "@/backend/types";
@@ -155,7 +156,7 @@ export type GitGraphViewState = {
   dialogCreateBranchCheckOut: boolean;
   dialogMergeNoFastForward: boolean;
   dialogMergeSquash: boolean;
-  dialogResetMode: "soft" | "mixed" | "hard";
+  dialogResetMode: GitResetMode;
   /** Remembered "Remember my choice" values for option-bearing dialogs,
    *  injected at load so they can be applied before any dialog opens. */
   dialogMemory: DialogMemoryStore;

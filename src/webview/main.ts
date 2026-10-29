@@ -3038,7 +3038,8 @@ class GitGraphView {
                 [
                   { name: l10n.dialogResetSoft, value: "soft" },
                   { name: l10n.dialogResetMixed, value: "mixed" },
-                  { name: l10n.dialogResetHard, value: "hard" }
+                  { name: l10n.dialogResetHard, value: "hard" },
+                  { name: l10n.dialogResetKeep, value: "keep" }
                 ],
                 l10n.dialogYesReset,
                 (mode) => {

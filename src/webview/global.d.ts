@@ -1,4 +1,4 @@
-import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@/backend/types";
+import type { GitCommitDetails, GitCommitNode, GitFileChange, GitResetMode } from "@/backend/types";
 import * as GG from "@/types";
 
 import type { SvgIconName } from "./utils/icons";
@@ -26,7 +26,7 @@ declare global {
     dialogCreateBranchCheckOut: boolean;
     dialogMergeNoFastForward: boolean;
     dialogMergeSquash: boolean;
-    dialogResetMode: "soft" | "mixed" | "hard";
+    dialogResetMode: GitResetMode;
     customBranchGlobPatterns: { name: string; glob: string }[];
     customEmojiShortcodeMappings: { [code: string]: string };
     enhancedAccessibility: boolean;
