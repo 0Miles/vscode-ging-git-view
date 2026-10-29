@@ -280,6 +280,8 @@ describe("while the move runs", () => {
     confirm();
 
     expect(document.getElementById("dialogDismiss")).toBeNull();
+    // Nor an empty button row, whose top margin would push the text off centre.
+    expect(document.querySelector("#dialog .dialogButtons")).toBeNull();
     document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape" }));
     expect(running()).not.toBeNull();
 

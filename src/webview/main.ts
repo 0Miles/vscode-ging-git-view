@@ -9021,16 +9021,17 @@ function showDialog(
   if (document.getElementById("batchRetryOffer") !== null) gitGraph.abandonBatchRun();
   dialogBacking.className = "active";
   dialog.className = "active";
-  dialog.innerHTML =
-    html +
-    '<div class="dialogButtons">' +
+  const buttons =
     (actionName !== null
       ? '<div id="dialogAction" class="roundedBtn">' + actionName + "</div>"
       : "") +
     (dismissName !== null
       ? '<div id="dialogDismiss" class="roundedBtn">' + dismissName + "</div>"
-      : "") +
-    "</div>";
+      : "");
+  // No row at all without buttons: an empty one keeps its top margin, and the
+  // content would sit that much above the dialog's centre.
+  dialog.innerHTML =
+    html + (buttons !== "" ? '<div class="dialogButtons">' + buttons + "</div>" : "");
   if (actionName !== null && actioned !== null)
     document.getElementById("dialogAction")!.addEventListener("click", actioned);
   dialogDismissAction = onDismiss ?? null;
