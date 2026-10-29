@@ -848,7 +848,14 @@
           "enum": [
             "soft",
             "mixed",
-            "hard"
+            "hard",
+            "keep"
+          ],
+          "enumDescriptions": [
+            "%config.dialog.resetCurrentBranch.mode.soft%",
+            "%config.dialog.resetCurrentBranch.mode.mixed%",
+            "%config.dialog.resetCurrentBranch.mode.hard%",
+            "%config.dialog.resetCurrentBranch.mode.keep%"
           ],
           "default": "mixed",
           "description": "%config.dialog.resetCurrentBranch.mode%"

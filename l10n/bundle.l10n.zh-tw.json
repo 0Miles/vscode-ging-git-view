@@ -171,6 +171,7 @@
   "dialog.reset.soft": "Soft - 保留所有變更，僅重設 HEAD",
   "dialog.reset.mixed": "Mixed - 保留工作區，重設 HEAD 與索引",
   "dialog.reset.hard": "Hard - 捨棄所有變更",
+  "dialog.reset.keep": "Keep - 將 branch 移到該 commit，保留 uncommitted 變更；若會覆蓋這些變更則中止",
   "dialog.delete.confirm": "確定要刪除{0} {1} 嗎？",
   "dialog.delete.forceBranchConfirm": "Branch {0} 尚未完全 merge。確定要強制刪除它嗎？",
   "dialog.delete.forceDelete": "強制刪除",
