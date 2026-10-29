@@ -448,8 +448,7 @@ class GitGraphView {
   private config: Config;
   private moreCommitsAvailable: boolean = false;
   /** Whether the loaded commits came from a `--first-parent` walk, as the load
-   *  answer said. The graph draws each commit's first parent alone when it is
-   *  set (#205); `parentHashes` keep every parent for everything else. */
+   *  answer said; see the response type (#205). */
   private onlyFollowFirstParent = false;
   // Scroll offset to restore once the next load re-renders the table, so an
   // action / manual refresh keeps the user's place rather than jumping.
