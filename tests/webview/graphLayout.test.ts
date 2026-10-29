@@ -208,7 +208,7 @@ describe("graph layout across a widened commit window", () => {
 // arrives with a second parent that is never loaded. Drawn, that parent becomes
 // the id -1 sentinel: one more line off the bottom edge per merge, the mesh #205
 // reports.
-// In that mode the graph follows the first parent and nothing else.
+// In that mode the graph drops a line only for a later parent nobody loaded.
 describe("graph layout when only the first parent is followed (#205)", () => {
   // M2 and M1 merge pull requests whose branch commits (X2, X1) the walk never
   // reached; every row's first parent is the next row.
@@ -233,5 +233,22 @@ describe("graph layout when only the first parent is followed (#205)", () => {
     // The ordinary mode is unchanged: each unloaded second parent takes a lane
     // from its merge down.
     expect(widthsOf(false)).toEqual([30, 46, 62]);
+  });
+
+  it("still joins a merge to a second parent that was loaded, so a merged branch whose ref remains stays connected", () => {
+    // `--first-parent` walks from every shown ref, so a merged branch that
+    // still has a ref brings its tip (X2) into the load. Dropping the merge's
+    // line to it left that branch hanging beside the chain as if unmerged.
+    const withMergedTip = [
+      commit("M2", ["M1", "X2"]), // 0
+      commit("M1", ["C"]), // 1
+      commit("X2", ["C"]), // 2: the merged branch's tip, still behind a ref
+      commit("C", []) // 3
+    ];
+    const g = makeGraph();
+    g.loadCommits(withMergedTip, "M2", lookupOf(withMergedTip), true);
+    g.render(null);
+    // X2's lane runs from the merge down, so it is open beside M1 too.
+    expect(g.getWidthsAtVertices()).toEqual([30, 46, 46, 30]);
   });
 });

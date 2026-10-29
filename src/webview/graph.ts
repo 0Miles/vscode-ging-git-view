@@ -376,8 +376,10 @@ export class Graph {
 
   /** `onlyFollowFirstParent` says the commits came from a `--first-parent`
    *  walk. Their `parentHashes` still list every parent — other readers need
-   *  the real ones — but the walk never loaded anything past the first, so
-   *  the graph draws the first parent alone (#205). */
+   *  the real ones — but the walk only loads a later parent when some shown
+   *  ref reaches it, so an unloaded later parent gets no line off the bottom
+   *  edge (#205). A loaded one keeps its line: that is a merged branch whose
+   *  ref remains, and cutting it would leave the branch looking unmerged. */
   public loadCommits(
     commits: GitCommitNode[],
     commitHead: string | null,
@@ -396,13 +398,10 @@ export class Graph {
       this.vertices.push(new Vertex(i));
     }
     for (i = 0; i < commits.length; i++) {
-      const drawnParents = onlyFollowFirstParent
-        ? Math.min(commits[i].parentHashes.length, 1)
-        : commits[i].parentHashes.length;
-      for (j = 0; j < drawnParents; j++) {
+      for (j = 0; j < commits[i].parentHashes.length; j++) {
         if (typeof commitLookup[commits[i].parentHashes[j]] === "number") {
           this.vertices[i].addParent(this.vertices[commitLookup[commits[i].parentHashes[j]]]);
-        } else {
+        } else if (!onlyFollowFirstParent || j === 0) {
           this.vertices[i].addParent(nullVertex);
         }
       }

@@ -141,9 +141,9 @@ type QueryPayloads = {
       moreCommitsAvailable: boolean;
       /** Whether these commits came from a `--first-parent` walk — the repo's
        *  resolved `onlyFollowFirstParent`. Their `parentHashes` still list
-       *  every parent, so only this says that nothing past a merge's first
-       *  parent was loaded; the graph draws the first parent alone when it is
-       *  set (#205). It rides with the commits, rather than the webview
+       *  every parent, so only this says that a merge's later parents were
+       *  not walked; when it is set the graph draws no line off the bottom
+       *  edge for a later parent that was not loaded (#205). It rides with the commits, rather than the webview
        *  resolving the setting itself, so the drawing and the walk come from
        *  one resolution. Absent reads as false. */
       onlyFollowFirstParent?: boolean;

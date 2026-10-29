@@ -8,7 +8,7 @@ import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } fro
 // requests was drawn as a mesh — every merge kept a line for its second parent,
 // which the `--first-parent` walk never loads, so each ran off the bottom edge.
 // The commits keep their real parents (the merge prompts count them), so the
-// graph learns the mode from the load answer and draws the first parent alone.
+// graph learns the mode from the load answer and drops those unloaded lines.
 //
 // The graph's width is the measure: a first-parent chain drawn as one straight
 // lane is exactly as wide as a linear history of the same length, and every
