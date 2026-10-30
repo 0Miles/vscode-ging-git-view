@@ -16,7 +16,8 @@ import {
   GraphStyle,
   KeybindingConfig,
   RefSpaceSubstitution,
-  RepoSettingDefaults
+  RepoSettingDefaults,
+  RepoSettingField
 } from "./types";
 
 type TabIconColourTheme = "colour" | "grey";
@@ -49,6 +50,23 @@ function getConfig<T>(key: string, defaultValue: T): T {
  *  repos are actually ticked is kept in workbench storage and is not readable by
  *  extensions — only this mode is. */
 export const SCM_SELECTION_MODE_SETTING = "scm.repositories.selectionMode";
+
+/** The setting behind each Repository Setting's default, keyed by the
+ *  `GitRepoState` field that overrides it: a change to one moves what a repo
+ *  without its own override gets, so the host tells an open graph (#211). Held
+ *  to the type, so a Repository Setting added there and missed here fails to
+ *  compile rather than leaving the graph on the old value until it reloads. */
+export const REPO_SETTING_DEFAULT_KEYS = {
+  onlyFollowFirstParent: "ging-git-view.history.firstParentOnly",
+  includeReflogCommits: "ging-git-view.history.includeReflogCommits",
+  showStashes: "ging-git-view.show.stashes",
+  showTagOnlyCommits: "ging-git-view.show.tagOnlyCommits",
+  showRemoteHeads: "ging-git-view.show.remoteHeads",
+  showInactiveBranches: "ging-git-view.branches.showInactiveByDefault",
+  showMergedBranches: "ging-git-view.branches.showMergedByDefault",
+  showRemoteBranches: "ging-git-view.show.remoteBranches",
+  commitOrdering: "ging-git-view.history.commitOrder"
+} satisfies Record<RepoSettingField, string>;
 
 /** Read and normalise a `keyboardShortcut.*` setting (see normalizeKeybinding). */
 function getKeybinding(section: string, defaultKey: string): string | null {

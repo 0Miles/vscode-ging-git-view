@@ -142,6 +142,11 @@ export type RepoSettingDefaults = RepoScopeSettings & {
   showMergedBranches: boolean;
 };
 
+/** A Repository Setting that has a default in VSCode's settings, named by the
+ *  `GitRepoState` field that overrides it: every control in the drawer but the
+ *  name. */
+export type RepoSettingField = keyof RepoSettingDefaults | "showRemoteBranches" | "commitOrdering";
+
 export type GitGraphViewState = {
   autoCenterCommitDetailsView: boolean;
   commitDetailsViewLocation: "Inline" | "Docked to Bottom";
@@ -405,6 +410,20 @@ export type ResponseSetScmMultiRepoSelection = {
   enabled: boolean;
 };
 
+/** Push the Repository Setting defaults again after one changed in VSCode's
+ *  settings (#211). The graph reloads if a moved default is one the repo it
+ *  shows loads under — one it has not overridden — and the Repository Settings
+ *  drawer redraws from them either way. */
+export type ResponseSetRepoSettingDefaults = {
+  command: "setRepoSettingDefaults";
+  defaults: RepoSettingDefaults;
+  /** `show.remoteBranches`, which the view state carries apart from the rest. */
+  showRemoteBranches: boolean;
+  /** The settings that moved. Named rather than left to a comparison: the
+   *  graph holds no copy of the commit order's default to compare against. */
+  changed: RepoSettingField[];
+};
+
 /** Push a new branch filter into the graph (driven by the Branches side-view).
  *  An empty array means "show all branches". */
 export type ResponseSetBranchFilter = {
@@ -639,6 +658,7 @@ export type ResponseMessage =
   | ResponseRefresh
   | ResponseSetRepo
   | ResponseSetScmMultiRepoSelection
+  | ResponseSetRepoSettingDefaults
   | ResponseSetBranchFilter
   | ResponseSetShowRemoteBranches
   | ResponseRunRefAction
