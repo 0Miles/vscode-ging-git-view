@@ -285,9 +285,8 @@ describe("the size a confirmed Find load asks for", () => {
       for (let i = 0; i < 5; i++) if (scrollAsksForAPage()) loadedByWheel++;
 
       // The stand-in, five times over, on the button behind the overlay. Five
-      // pages at loadMoreCount (100) each takes the window
-      // from the opening 300 to 800, which is past the 701 the plan was sized
-      // for.
+      // pages at loadMoreCount (100) each takes the window from the opening
+      // 300 to 800, which is past the 701 the plan was sized for.
       for (let i = 0; i < 5; i++) {
         expect(loadMorePressLoadsAPage(), `press ${i + 1} never went out`).toBe(true);
       }

@@ -106,6 +106,12 @@ const MENU_SOURCES =
  *  gets pressed twice. */
 const ACTIVATABLE = GRAPH_FOCUSABLE + ", .gitFile";
 
+/** The controls inside a dialog whose own Enter means something — a button
+ *  presses itself, a link follows, a textarea breaks the line — so the
+ *  dialog's "Enter confirms" stays out of their way (#141). `a[href]`, not
+ *  `a`: an anchor without one does nothing on Enter, and so confirms. */
+const OWNS_ENTER = "button, a[href], textarea";
+
 /** The graph footer's controls, by id. Peers rather than a roving group: Tab
  *  visits each of them, so neither needs a tabindex and there is no tab stop to
  *  hold between them — being real `<button>`s is the whole of it (#88).
@@ -5929,8 +5935,8 @@ class GitGraphView {
       // footer's Load More cannot either, being `inert` behind the dialog with
       // the rest of the background. The re-take is kept for it all the same:
       // it is the rule ADR-0019 states, not a patch for one route to the
-      // window, and the rule outlives the routes. And the match: a background reload lands on the file
-      // watcher's schedule, not the user's, so a rebase or an amend in the
+      // window, and the rule outlives the routes. And the match: a background
+      // reload lands on the file watcher's schedule, not the user's, so a rebase or an amend in the
       // terminal can redraw the very commit this plan was sized to go and
       // fetch.
       // Acting on a stale plan sets `maxCommits` *back* to the older, smaller
@@ -9335,21 +9341,23 @@ function takeDialogOpener(): DialogOpener | null {
  *  held focus when the dialog opened, nothing is given it now. */
 function returnDialogFocus(opener: DialogOpener | null) {
   if (opener === null) return;
-  if (opener.elem.isConnected) {
-    opener.elem.focus({ preventScroll: true });
-    // A connected element can still have stopped being focusable — a context
-    // menu source whose borrowed tabindex was handed back.
-    if (document.activeElement === opener.elem) return;
-  }
+  // Connected is not enough: an element can still have stopped being
+  // focusable — a context menu source whose borrowed tabindex was handed back.
+  if (opener.elem.isConnected && focusTook(opener.elem)) return;
   if (opener.rowKey !== null && gitGraph.focusGraphRowByKey(opener.rowKey)) return;
   const sameId = opener.id !== "" ? document.getElementById(opener.id) : null;
-  if (sameId !== null) {
-    sameId.focus({ preventScroll: true });
-    if (document.activeElement === sameId) return;
-  }
+  if (sameId !== null && focusTook(sameId)) return;
   document.getElementById("commitTable")?.focus({ preventScroll: true });
 }
 
+/** Focus `elem` without scrolling, and say whether it took. */
+function focusTook(elem: HTMLElement): boolean {
+  elem.focus({ preventScroll: true });
+  return document.activeElement === elem;
+}
+
+/** Make one child of `<body>` inert, or live again — never the dialog or its
+ *  backing, which are what stays in reach. */
 function markInert(elem: Element, inert: boolean) {
   if (elem !== dialog && elem !== dialogBacking) elem.toggleAttribute("inert", inert);
 }
@@ -9489,19 +9497,13 @@ document.addEventListener("keydown", (e) => {
     // on macOS reports isComposing on keydown). The action's own click handler
     // no-ops when the form is empty/invalid, so firing it is safe.
     //
-    // Except on a control whose own Enter means something: a focused button
-    // presses itself, a link follows, a textarea breaks the line. Pressing
-    // Action as well would answer a focused Dismiss twice over, both ways
-    // (#141). Everywhere else — the dialog itself, a text input, a checkbox —
-    // Enter stays "confirm", and the browser's own default is cancelled so it
-    // is the only thing Enter does.
+    // Except on a control that OWNS_ENTER. Pressing Action as well would answer
+    // a focused Dismiss twice over, both ways (#141). Everywhere else — the
+    // dialog itself, a text input, a checkbox — Enter stays "confirm", and the
+    // browser's own default is cancelled so it is the only thing Enter does.
     if (e.key === "Enter" && !e.isComposing) {
       const target = e.target;
-      if (
-        target instanceof Element &&
-        dialog.contains(target) &&
-        target.matches("button, a, textarea")
-      )
+      if (target instanceof Element && dialog.contains(target) && target.matches(OWNS_ENTER))
         return;
       e.preventDefault();
       const dialogAction = document.getElementById("dialogAction");

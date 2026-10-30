@@ -14,7 +14,7 @@ import { clickItem, createVscodeMock, makeViewState, receive, setupHtml } from "
 // jsdom moves no focus on Tab and implements no `inert`, so what is pinned
 // here is the attributes and what the handlers do; that the browser then
 // honours them — Tab really skipping the background, a click on it really
-// landing nowhere — was measured in Chromium (see the PR).
+// landing nowhere — was measured in Chromium, as ADR-0019 records.
 
 const L = getWebviewLocalizedStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
@@ -227,6 +227,27 @@ describe("a modal dialog and the keyboard", () => {
       expect(event.defaultPrevented).toBe(true);
       expect(sent("createBranch")).toHaveLength(1);
     });
+
+    it("still confirms from a text input", () => {
+      raiseForm();
+      const input = <HTMLInputElement>document.getElementById("dialogInput0");
+      input.value = "topic";
+      input.dispatchEvent(new KeyboardEvent("keyup", { key: "c" }));
+      const event = press("Enter");
+      expect(event.defaultPrevented).toBe(true);
+      expect(sent("createBranch")).toHaveLength(1);
+    });
+
+    it("leaves a link to the browser", () => {
+      raiseConfirmation();
+      const link = document.createElement("a");
+      link.href = "mailto:alice@example.com";
+      dialog().prepend(link);
+      link.focus();
+      const event = press("Enter");
+      expect(event.defaultPrevented).toBe(false);
+      expect(sent("revertCommit")).toHaveLength(0);
+    });
   });
 
   describe("Space", () => {
@@ -246,6 +267,25 @@ describe("a modal dialog and the keyboard", () => {
       raiseError();
       expect(document.activeElement).not.toBe(opener);
       document.getElementById("dialogDismiss")!.click();
+      expect(document.activeElement).toBe(opener);
+    });
+
+    it("goes back the same way when Escape closes it", () => {
+      const opener = row("bbb222")!;
+      opener.focus();
+      raiseError();
+      document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape" }));
+      expect(dialogShown()).toBe(false);
+      expect(document.activeElement).toBe(opener);
+    });
+
+    it("goes back the same way when the dialog is answered", () => {
+      const opener = row("aaa111")!;
+      opener.focus();
+      raiseConfirmation();
+      press("Enter");
+      expect(sent("revertCommit")).toHaveLength(1);
+      expect(dialogShown()).toBe(false);
       expect(document.activeElement).toBe(opener);
     });
 
