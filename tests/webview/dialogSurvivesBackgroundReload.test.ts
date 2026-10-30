@@ -27,12 +27,11 @@ import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } fro
 //
 // What each hook then does is its own business, and the tests below keep them
 // apart rather than treating "the hook ran" as the end of the story. The
-// refetch's clears `cleanupState`, and clearing it is what stops the answer
-// reopening the dialog — so that one is closed end to end. The scan's sends a
-// cancel, and Stop is a "come back with what you found" contract, so the answer
-// still arrives and still reopens the dialog; there is a test that says so, in
-// as many words, because the neighbouring one would otherwise read as covering
-// it.
+// refetch's clears `cleanupState` however the dialog went, and clearing it is
+// what stops the answer reopening the dialog. The scan's depends on who closed
+// it (#134): Stop and Escape are a "come back with what you found" contract, so
+// the answer still reopens the list; a reload asked for nothing back, so its
+// hook abandons the list the way the refetch's does.
 
 const L = getWebviewLocalizedStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
@@ -179,6 +178,15 @@ function openCleanupDialog() {
   ).not.toBeNull();
 }
 
+/** Press the open cleanup dialog's deep check and return the token its
+ *  request went out with, which the scan's answer has to carry back. */
+function startScan(): number {
+  click("cleanupDeepCheck");
+  const scan = sentOf("branchCleanupScan").at(-1);
+  expect(scan, "the scan request").toBeDefined();
+  return (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
+}
+
 // One webview for the file. A second `setupHtml` + import would replace the
 // body under the first instance while leaving it listening on `window`, so
 // every message would then be handled twice — once by an instance whose element
@@ -262,24 +270,16 @@ describe("a background reload landing under an open dialog", () => {
       expect(sentOf("branchCleanupScanCancel")).toHaveLength(1);
     });
 
-    // And what cancelling does *not* do, stated here rather than left to be
-    // discovered. Stop is a "come back with what you found" contract, so a
-    // cancelled scan is answered like a finished one, and that answer still
-    // carries the open dialog's token — so it fills the dialog back in, on top
-    // of whatever the user is now looking at. The hook stops the work; only the
-    // refetch's hook, which clears `cleanupState`, stops the reopen, because
-    // clearing that state is what it *is*.
-    //
-    // This is not a regression: before the hook ran at all, the scan simply ran
-    // to completion and reopened the dialog the same way. It is the gap the
-    // hook does not close, and it is asserted so that the next reader finds it
-    // written down instead of inferring from the test above that it is covered.
-    it("but the cancelled scan's answer still brings the dialog back", () => {
+    // Stopping the work is not the whole of it. A cancelled scan is answered
+    // like a finished one — Stop is a "come back with what you found" contract
+    // — and that answer still carries the open dialog's token, so it used to
+    // fill the dialog back in on top of whatever the user had moved on to. The
+    // hook now hears that it was the reload, not the user, that took the
+    // dialog away (#134), and a reload asked for nothing back: it abandons the
+    // cleanup dialog the way the refetch's hook always has.
+    it("and keeps the cancelled scan's answer from bringing the dialog back", () => {
       openCleanupDialog();
-      click("cleanupDeepCheck");
-      const scan = sentOf("branchCleanupScan").at(-1);
-      expect(scan, "the scan request").toBeDefined();
-      const token = (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
+      const token = startScan();
 
       backgroundReloadLands();
       expect(progressDialogIsUp(), "the scan dialog outlived the reload").toBe(false);
@@ -292,11 +292,7 @@ describe("a background reload landing under an open dialog", () => {
         token
       });
 
-      expect(dialogIsOpen()).toBe(true);
-      expect(
-        document.querySelector('#dialog .cleanupRow input[data-ref="merged"]'),
-        "the cleanup dialog came back"
-      ).not.toBeNull();
+      expect(dialogIsOpen(), "the cleanup dialog came back on its own").toBe(false);
     });
 
     it("keeps the refetch answer from reopening the dialog the user lost", () => {
@@ -335,6 +331,23 @@ describe("closing a dialog with Escape", () => {
     expect(sentOf("branchCleanupScanCancel")).toHaveLength(1);
   });
 
+  // The other half of "the same as Stop", and the half a reload does not get:
+  // the user walked away from the wait, not from the list, so what the scan
+  // found comes back.
+  it("brings back what the stopped scan found, the same as Stop would", () => {
+    openCleanupDialog();
+    const token = startScan();
+
+    pressEscape();
+    receive({ command: "branchCleanupScan", payload: cleanupPayload, cancelled: true, token });
+
+    expect(
+      document.querySelector('#dialog .cleanupRow input[data-ref="merged"]'),
+      "the cleanup dialog did not come back"
+    ).not.toBeNull();
+    expect(dialogText()).toContain(L.cleanupScanCancelled);
+  });
+
   it("abandons the cleanup dialog the refetch was working for", () => {
     openCleanupDialog();
     click("cleanupRefetch");
@@ -370,9 +383,7 @@ describe("closing a dialog with Escape", () => {
   // it the moment the user closed the list.
   it("does not run the hook of a dialog that has since been replaced", () => {
     openCleanupDialog();
-    click("cleanupDeepCheck");
-    const scan = sentOf("branchCleanupScan").at(-1);
-    const token = (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
+    const token = startScan();
     // The scan comes back and renders the list over its own progress dialog.
     receive({ command: "branchCleanupScan", payload: cleanupPayload, cancelled: false, token });
     expect(

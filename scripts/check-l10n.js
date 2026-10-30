@@ -1,14 +1,20 @@
 /**
- * Check l10n files for missing translations and parameter consistency
+ * Check l10n files for missing translations, parameter consistency and
+ * mixed-width punctuation
  * Compares all translation files against the base bundle.l10n.json and package.nls.json
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 
-const L10N_DIR = path.join(__dirname, "../l10n");
+/**
+ * The tree to check. Defaults to this repo, which is what CI runs; the argument
+ * lets the rules be driven against throwaway layouts in a test, the same way
+ * `scripts/check-adr.js` is.
+ */
+const ROOT_DIR = path.resolve(process.argv[2] ?? path.join(__dirname, ".."));
+const L10N_DIR = path.join(ROOT_DIR, "l10n");
 const BASE_FILE = "bundle.l10n.json";
-const ROOT_DIR = path.join(__dirname, "..");
 const PACKAGE_NLS_BASE = "package.nls.json";
 
 function loadJson(filePath) {
@@ -61,6 +67,61 @@ function placeholdersMatch(arr1, arr2) {
   }
 
   return true;
+}
+
+/**
+ * Keys whose half-width commas are data, not punctuation.
+ *
+ * `stats.weekdays` is split on `,` in `src/extension/statisticsPanel.ts`, so a
+ * full-width comma there would break the weekday header rather than fix it.
+ */
+const PUNCTUATION_EXEMPT_KEYS = new Set(["stats.weekdays"]);
+
+/** Regex source for one Han character, or CJK / full-width punctuation such as 「」。 */
+const CJK_CHAR = "[\\p{Script=Han}\\u3000-\\u303f\\uff00-\\uffef]";
+const HALF_WIDTH_BESIDE_CJK = new RegExp(`${CJK_CHAR}[,;]|[,;]${CJK_CHAR}`, "gu");
+/** Opening bracket → its closer, at the same width. */
+const BRACKETS = new Map([
+  ["(", ")"],
+  ["（", "）"]
+]);
+const CLOSERS = new Set(BRACKETS.values());
+
+/**
+ * Report mixed-width punctuation in a translated string.
+ *
+ * Deliberately narrow: a bracket pair whose two halves differ in width, and a
+ * half-width `,` / `;` touching a CJK character. Both are mistakes no reader
+ * intends and both slipped into the zh locales unnoticed (issue #156). A comma
+ * between English words stays legal, because inside a Chinese sentence that is
+ * still English punctuation; an unbalanced bracket is left alone, because
+ * strings like "1) …" make it a judgement call rather than a defect.
+ * @param {string} text
+ * @returns {string[]} - One description per problem found
+ */
+function findPunctuationIssues(text) {
+  if (typeof text !== "string") {
+    return [];
+  }
+
+  const issues = [];
+  const open = [];
+  for (const char of text) {
+    if (BRACKETS.has(char)) {
+      open.push(char);
+    } else if (CLOSERS.has(char)) {
+      const opener = open.pop();
+      if (opener !== undefined && BRACKETS.get(opener) !== char) {
+        issues.push(`bracket opened with "${opener}" but closed with "${char}"`);
+      }
+    }
+  }
+
+  for (const [halfWidthMatch] of text.matchAll(HALF_WIDTH_BESIDE_CJK)) {
+    issues.push(`half-width punctuation beside CJK: "${halfWidthMatch}"`);
+  }
+
+  return issues;
 }
 
 function checkFileSet(baseDir, baseFileName, filePattern, sectionTitle) {
@@ -178,7 +239,27 @@ function checkFileSet(baseDir, baseFileName, filePattern, sectionTitle) {
       });
     }
 
-    if (missing.length === 0 && extra.length === 0 && paramIssues.length === 0) {
+    const punctuationIssues = keys
+      .filter((key) => !PUNCTUATION_EXEMPT_KEYS.has(key))
+      .flatMap((key) =>
+        findPunctuationIssues(translations[key]).map((problem) => ({ key, problem }))
+      );
+
+    if (punctuationIssues.length > 0) {
+      hasIssues = true;
+      console.log(`  ⚠️  Mixed-width punctuation in ${punctuationIssues.length} place(s):`);
+      punctuationIssues.forEach(({ key, problem }) => {
+        console.log(`     - ${key}: ${problem}`);
+        console.log(`       Translation: "${translations[key]}"`);
+      });
+    }
+
+    if (
+      missing.length === 0 &&
+      extra.length === 0 &&
+      paramIssues.length === 0 &&
+      punctuationIssues.length === 0
+    ) {
       console.log(`  ✅ Complete`);
     }
 

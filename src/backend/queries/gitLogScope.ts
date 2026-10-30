@@ -23,6 +23,18 @@ export type GitLogScope = {
   includeReflogCommits?: boolean;
 };
 
+function showsAllBranches(branchNames: string[]): boolean {
+  return branchNames.length === 0 || branchNames.includes("");
+}
+
+/** Whether the scope's log walks the reflogs (`--reflog`). That reaches
+ *  `refs/stash`'s own reflog, so every stash is then one of the log's entries. */
+export function gitLogScopeReachesReflogs(
+  scope: Pick<GitLogScope, "branchNames" | "includeReflogCommits">
+): boolean {
+  return scope.includeReflogCommits === true && showsAllBranches(scope.branchNames);
+}
+
 /** Build the revision arguments shared by bounded and unbounded graph queries. */
 export function gitLogScopeArgs(scope: GitLogScope): string[] {
   const args: string[] = [];
@@ -30,9 +42,8 @@ export function gitLogScopeArgs(scope: GitLogScope): string[] {
     .filter((branch) => branch.startsWith("glob:"))
     .map((branch) => branch.slice(5));
   const named = scope.branchNames.filter((branch) => branch !== "" && !branch.startsWith("glob:"));
-  const showAll = scope.branchNames.length === 0 || scope.branchNames.includes("");
 
-  if (!showAll) {
+  if (!showsAllBranches(scope.branchNames)) {
     for (const glob of globs) {
       args.push("--branches=" + glob);
       if (scope.showRemoteBranches) {
@@ -50,7 +61,7 @@ export function gitLogScopeArgs(scope: GitLogScope): string[] {
     for (const remote of scope.hiddenRemotes) args.push("--exclude=" + remote + "/*");
     args.push("--remotes");
   }
-  if (scope.includeReflogCommits) args.push("--reflog");
+  if (gitLogScopeReachesReflogs(scope)) args.push("--reflog");
   args.push("HEAD");
   return args;
 }

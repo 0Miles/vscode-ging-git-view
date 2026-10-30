@@ -433,10 +433,10 @@ describe("keyboard focus in the Commit Details View's file list", () => {
       // that it happens to sit on some row or other.
       expect(tabStopsBeforeDialog).toEqual([cdvFileForSamePath]);
       expect(tabStopsWhileDialogHasFocus).toEqual([cdvFileForSamePath]);
-      // And the dialog's own row never became one: its file list is inert, so
-      // the row is focusable (the generator ships every row at -1) but is not
-      // any group's tab stop.
-      expect(dialogFile.tabIndex).toBe(-1);
+      // The dialog's row did take a tab stop — its own list's, which is a roving
+      // group of its own since #145 — and that is a second group, not the
+      // panel's: the panel's single tab stop is still where it was, above.
+      expect(dialogFile.tabIndex).toBe(0);
     });
 
     it("still lets Tab back into the file list once the redraw has rebuilt it", () => {
