@@ -115,25 +115,25 @@ _Avoid_: page, 分頁, commit 快取, maxCommits(那是實作名)
 
 ### Find 的位置與步進
 
-Find 在畫面上有兩個讀數 —— 計數器與目前匹配的高亮 —— 卻只有一個位置。移動它可能當場完成,也可能要等:等一份新的 branch index、等使用者答覆確認、等一頁 commit 落地。以下三個詞把「Find 站在哪」「使用者要它去哪」「還在等的那一步」釘開。
+Find 在畫面上有兩個讀數 —— 計數器與匹配列上的高亮 —— 卻只有一個位置。移動它可能當場完成,也可能要等:等一份新的 branch index、等使用者答覆確認、等一頁 commit 落地。以下三個詞把「Find 站在哪」「使用者要它去哪」「還在等的那一步」釘開。
 
 **Find position**:
-Find 當下指著的那一個匹配,身分是 commit hash;序號(計數器 `3/7` 裡的 3)只是它在匹配清單裡的讀法。計數器與高亮是**同一個** Find position 的兩種呈現,不可各自前進 —— 只動其中一個,兩個讀數就在說不同的事。匹配清單重建時(重繪、branch index 抵達)序號會位移,位置靠 hash 找回同一個 commit;只有那個 commit 不再匹配時,才依最近一次 Find step 的方向落到鄰近的匹配。程式裡 `findCurrent` 是序號,`FindPosition` 是 hash 加序號、能把 Find 放回原處的快照;`findSettledOn` 則是最近一次已處理過的 Find position,用來分辨「目標換了」與「同一個目標又畫了一次」—— 它記的是 Find 指向哪裡,不是畫面捲到過哪裡。
+Find 當下指著的那一個匹配,身分是 commit hash;序號(計數器 `3/7` 裡的 3)只是它在匹配清單裡的讀法。計數器與高亮是**同一個** Find position 的兩種呈現,不可各自前進 —— 只動其中一個,兩個讀數就在說不同的事。目標那一列還沒載入時,高亮暫時無處可畫,計數器先到;那是同一個位置少了一種呈現,不是兩個位置。匹配清單重建時(重繪、branch index 抵達)序號會位移,位置靠 hash 找回同一個 commit;只有那個 commit 不再匹配時,才依最近一次 Find step 的方向落到鄰近的匹配。程式裡 `findCurrent` 是序號,`FindPosition` 是 hash 加序號、能把 Find 放回原處的快照;`findSettledOn` 則是最近一次已處理過的 Find position 的 hash,用來分辨「目標換了」與「同一個目標又畫了一次」—— 它記的是 Find 指向哪裡,不是畫面捲到過哪裡。
 _Avoid_: cursor, 游標, selected match, current match index
 
 **Find step**:
-使用者要求 Find 移到上一個或下一個匹配的一次**操作** —— 不是瀏覽,所以它會把目標捲進視野(ADR-0019)。一個 step 只有兩種結局:整個發生,或完全沒發生;不存在計數器動了、畫面沒動的半套。目標在 loaded commit window 之外時,step 要撐大視窗去拿那一頁(超過門檻先問使用者):它在請求送出的那一刻發生,而 Find position 隨那一頁一起落地,途中要前往的 commit 記在 `pendingFindTargetHash`。請求送不出去(已有載入在飛)、或確認還沒被答應時,step 沒有發生 —— 什麼都不記,前一種還要明講被拒絕(`dialogFindStepBusy`)。這兩種結局就是 `FindLoadOutcome` 的 `move` 與 `hold`。
-_Avoid_: jump, 跳轉, find navigation
+使用者要求 Find 移到上一個或下一個匹配的一次**操作** —— 不是瀏覽,所以它會把目標捲進視野(ADR-0019)。一個 step 只有兩種結局:整個發生,或完全沒發生;不存在 step 記下了、卻沒有任何東西會來把它做完的半套。目標在 loaded commit window 之外時,step 要撐大視窗去拿那一頁(超過門檻先問使用者):它在請求送出的那一刻發生,而途中要前往的 commit 記在 `pendingFindTargetHash`,讓那一頁落地時的重建仍落在目標上,並把它捲進視野。請求送不出去(已有載入在飛)時,step 沒有發生,什麼都不記,而且要明講被拒絕(`dialogFindStepBusy`)。確認框立著時 step 也還沒發生;使用者答應之後它才發生 —— 除非這段時間裡有載入搶先開始,那時同樣明講(`dialogFindLoadBusy`)。`FindLoadOutcome` 回答的是 step **此刻**能不能記下自己:`move` 能,`hold` 不能。
+_Avoid_: jump, 跳轉
 
 **Pending Find navigation**:
-落在「名字匹配的分支」上的 Find step,在新的 branch index 回來之前的樣子。分支可能在手上那份 index 抓取之後移動過,所以落點以回覆為準,不以按下的那一刻為準。在那之前它只是一個**願望**:Find position 不動、方向不記;回覆抵達時才找出那條分支現在的 commit,照 Find step 的規則決定發生或不發生,不發生就回到原本的 Find position。等待期間再按步進,從這個待決的目標起算,所以連按不會被吞掉。換搜尋、關閉 Find、或 branch index 作廢時,它被丟棄。程式裡是 `pendingFindNavigation`(型別 `PendingFindNavigation`)。
-它與 `pendingFindTargetHash` 不可互換:這個等的是 branch index,step **尚未發生**;那個等的是一頁 commit,step **已經發生**,只是 Find position 還沒落地。
+落在「名字匹配的分支」上的 Find step,在新的 branch index 回來之前的樣子。分支可能在手上那份 index 抓取之後移動過,所以落點以回覆為準,不以按下的那一刻為準。在那之前它只是一個**願望**:Find position 不動、方向不記;回覆抵達時才找出那條分支現在的 commit,照 Find step 的規則決定發生或不發生,被拒絕(`hold`)就回到原本的 Find position。它雖然叫 navigation,卻**不是** Navigation:它不改變哪些 commit 該在畫面上,也不作廢在飛的載入。等待期間再按步進,從這個待決的目標起算,所以連按不會被吞掉。換搜尋、關閉 Find、或 branch index 作廢時,它被丟棄。程式裡是 `pendingFindNavigation`(型別 `PendingFindNavigation`)。
+它與 `pendingFindTargetHash` 不可互換:這個等的是 branch index,step **尚未發生**;那個等的是一頁 commit,step **已經發生**,只是目標那一列還沒畫出來。
 _Avoid_: pending step, queued step
 
 ### 忙碌指示
 
 **Busy indicator**:
-Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重新載入時,畫面上唯一說「有載入在進行」的東西。它亮著,當且僅當還有至少一個 busy claim 沒有放下;它不是一個「有人設了、還沒人取消」的旗標。載入更多與捲動自動載入不認領它,那兩條路有頁尾自己的標示。
+Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重新載入時,告訴使用者「有載入在進行」的那個標示。它亮著,當且僅當還有至少一個 busy claim 沒有放下;它不是一個「有人設了、還沒人取消」的旗標。不是每個載入都認領它:載入更多、捲動自動載入、以及頁尾的 loaded commit window 重設入口都不認領,它們用頁尾自己的標示;從欄位標題選單改 commit 排序也不認領。
 _Avoid_: loading flag, spinner, refreshing state
 
 **Busy claim**:
