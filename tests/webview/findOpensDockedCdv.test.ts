@@ -4,6 +4,7 @@ import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 
 import {
   VIEWPORT_HEIGHT,
+  clickId,
   createVscodeMock,
   makeViewState,
   parkViewportAt,
@@ -108,8 +109,8 @@ describe("Find opening a closed docked Commit Details View", () => {
       moreCommitsAvailable: false,
       hard: true
     });
-    document.getElementById("findBtn")!.click();
-    document.getElementById("findOpenCdv")!.click();
+    clickId("findBtn");
+    clickId("findOpenCdv");
     expect(document.getElementById("commitDetails")).toBeNull();
 
     parkViewportAt(SCROLLED);

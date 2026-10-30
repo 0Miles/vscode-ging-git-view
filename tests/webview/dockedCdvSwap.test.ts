@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 
-import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
+import { clickElem, createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 
 /* Moving a docked Commit Details View from one commit to another — a click on
  * another row, an arrow key, Find — tears the old panel down and waits for the
@@ -69,14 +69,14 @@ describe("moving a docked Commit Details View to another commit", () => {
       moreCommitsAvailable: false,
       hard: true
     });
-    graphRow("aaa111").click();
+    clickElem(graphRow("aaa111"));
     receive({ command: "commitDetails", commitDetails: details("aaa111") });
     expect(panel()!.classList.contains("docked")).toBe(true);
   });
 
   describe("while the next commit's details are on their way", () => {
     beforeAll(() => {
-      graphRow("bbb222").click();
+      clickElem(graphRow("bbb222"));
     });
 
     it("has taken the old panel down", () => {
@@ -96,7 +96,7 @@ describe("moving a docked Commit Details View to another commit", () => {
 
   describe("when the next commit's details cannot be loaded", () => {
     beforeAll(() => {
-      graphRow("ccc333").click();
+      clickElem(graphRow("ccc333"));
       receive({ command: "commitDetails", commitDetails: null });
     });
 
