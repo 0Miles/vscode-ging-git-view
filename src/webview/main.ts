@@ -144,12 +144,15 @@ function frozenHeaderHeight(
  *  bottom, which rows scroll under the way they scroll under the frozen header
  *  (#217); 0 when nothing is docked. The bottom-edge counterpart of
  *  {@link frozenHeaderHeight}, for the same hand-worked scrolls — the
- *  browser's own `scrollIntoView` learns it from the rows' `scroll-margin-
- *  bottom` in main.css.
+ *  browser's own `scrollIntoView` learns it from the rows'
+ *  `scroll-margin-bottom` in main.css.
  *
  *  Measured off the panel rather than read off a row, because the panel's box
  *  is what covers the rows: whatever height it is drawn at, that is how much
- *  of the window the user cannot see the graph through. */
+ *  of the window the user cannot see the graph through. The rows' margin and
+ *  the panel's height are the same CSS variable, `--ging-docked-cdv-height`,
+ *  so the two agree for as long as the panel is sized through it — which is
+ *  why main.css says anything resizing the panel must go through it. */
 function dockedCdvHeight(): number {
   const panel = document.querySelector("#commitDetails.docked");
   return panel === null ? 0 : panel.getBoundingClientRect().height;
