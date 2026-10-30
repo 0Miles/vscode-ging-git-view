@@ -17,8 +17,8 @@ import {
   pullBranch,
   pushBranch,
   pushBranches,
-  renameBranch,
-  staleLeaseInfoRef
+  pushRefusalFacts,
+  renameBranch
 } from "@/backend/actions/branch";
 import {
   checkoutCommit,
@@ -60,11 +60,7 @@ import type {
   BranchSearchEntry
 } from "@/backend/types";
 import { GitFileChangeType } from "@/backend/types";
-import {
-  formatGitError,
-  isNotFullyMergedError,
-  isRemoteUpdatedSinceCheckoutError
-} from "@/backend/utils/gitError";
+import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 import { parseRemoteUrl, pullRequestCreateUrl } from "@/backend/utils/pullRequest";
 import { abbrevCommit } from "@/backend/utils/string";
 import { Config } from "@/config";
@@ -254,14 +250,7 @@ export function registerMessageHandlers(
   registerAction("fetchIntoLocalBranch", (msg) =>
     fetchIntoLocalBranch(gitClient.getInstance(), msg)
   );
-  registerAction(
-    "pushBranch",
-    (msg) => pushBranch(gitClient.getInstance(), msg),
-    (error) => ({
-      remoteUpdatedSinceCheckout: isRemoteUpdatedSinceCheckoutError(error),
-      staleInfoRef: staleLeaseInfoRef(error)
-    })
-  );
+  registerAction("pushBranch", (msg) => pushBranch(gitClient.getInstance(), msg), pushRefusalFacts);
   registerAction("pullBranch", (msg) => pullBranch(gitClient.getInstance(), msg));
   registerAction("renameBranch", (msg) => renameBranch(gitClient.getInstance(), msg));
   registerAction("moveBranch", (msg) => moveBranch(gitClient.getInstance(), msg));

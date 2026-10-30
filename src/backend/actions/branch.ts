@@ -3,6 +3,7 @@ import type { SimpleGit } from "simple-git";
 import { resetToCommit } from "@/backend/actions/commit";
 import type {
   ActionPayload,
+  ActionResponseExtra,
   BatchActionPayload,
   BatchDeleteResult,
   BatchPushResult,
@@ -157,24 +158,24 @@ export async function pushBranches(
   git: SimpleGit,
   input: BatchActionPayload<"pushBranches">
 ): Promise<BatchPushResult[]> {
-  const remoteUpdatedSinceCheckout = new Set<string>();
-  const staleInfoRefs = new Map<string, string>();
+  const refusals = new Map<string, PushRefusalFacts>();
   const results = await mapRefsSequentially(input.branchNames, async (branchName) => {
     try {
       await pushBranch(git, { branchName, remotes: input.remotes, forceMode: input.forceMode });
     } catch (e: unknown) {
-      if (isRemoteUpdatedSinceCheckoutError(e)) remoteUpdatedSinceCheckout.add(branchName);
-      const staleInfoRef = staleLeaseInfoRef(e);
-      if (staleInfoRef !== null) staleInfoRefs.set(branchName, staleInfoRef);
+      refusals.set(branchName, pushRefusalFacts(e));
       throw e;
     }
   });
-  return results.map((r) => ({
-    ref: r.ref,
-    status: r.status,
-    remoteUpdatedSinceCheckout: remoteUpdatedSinceCheckout.has(r.ref),
-    staleInfoRef: staleInfoRefs.get(r.ref) ?? null
-  }));
+  return results.map((r) => {
+    const facts = refusals.get(r.ref) ?? pushRefusalFacts(null);
+    return {
+      ref: r.ref,
+      status: r.status,
+      remoteUpdatedSinceCheckout: facts.remoteUpdatedSinceCheckout,
+      staleInfoRef: facts.staleInfoRef
+    };
+  });
 }
 
 /** Fast-forward several branches to their own upstreams. */
@@ -235,6 +236,18 @@ export function staleLeaseInfoRef(error: unknown): string | null {
   return error instanceof RemotePushError && isStaleLeaseInfoError(error)
     ? error.trackingRef
     : null;
+}
+
+type PushRefusalFacts = ActionResponseExtra<"pushBranch">;
+
+/** What a push reports beside its status, read off the raw error `pushBranch`
+ *  threw (null when it succeeded). The single push and each ref of a batch
+ *  push report the same facts, so both read them here. */
+export function pushRefusalFacts(error: unknown): PushRefusalFacts {
+  return {
+    remoteUpdatedSinceCheckout: isRemoteUpdatedSinceCheckoutError(error),
+    staleInfoRef: staleLeaseInfoRef(error)
+  };
 }
 
 export async function pushBranch(
