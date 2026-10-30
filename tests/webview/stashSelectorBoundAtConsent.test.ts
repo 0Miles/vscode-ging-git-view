@@ -4,7 +4,15 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  openMenuOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // `stash@{n}` is a *position*, not a name: it means "the nth entry on the stash
 // stack right now". Every `git stash push` — from the terminal, from VS Code's
@@ -86,22 +94,6 @@ function commitsResponse(commits: GitCommitNode[]): GG.ResponseMessage {
 let mock: ReturnType<typeof createVscodeMock>;
 
 const sentOf = (command: string) => mock.sentMessages.filter((m) => m.command === command);
-
-function openMenuOn(selector: string) {
-  const elem = document.querySelector<HTMLElement>(selector);
-  expect(elem, selector).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
-/** `toBeDefined`, not `not.toBeNull`: `find` yields `undefined`, which a null
- *  check waves straight through (issue #131). */
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
 
 function clickYes() {
   const action = document.getElementById("dialogAction");

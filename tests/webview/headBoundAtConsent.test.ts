@@ -9,7 +9,9 @@ import {
   createVscodeMock,
   DEFAULT_REPO,
   makeViewState,
+  openMenuOn,
   receive,
+  rightClick,
   setupHtml
 } from "./setup";
 
@@ -100,12 +102,6 @@ function row(hash: string) {
   return elem!;
 }
 
-function openMenuOn(selector: string) {
-  const elem = document.querySelector<HTMLElement>(selector);
-  expect(elem, selector).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
 function dialogText() {
   return document.getElementById("dialog")!.textContent ?? "";
 }
@@ -177,7 +173,7 @@ describe("the branch a confirmation dialog named", () => {
   });
 
   it("refuses to rebase onto a commit once the branch being rebased has changed", () => {
-    row("bbb222").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    rightClick(row("bbb222"));
     clickItem(L.rebaseOnCommit + E);
     expect(dialogText()).toContain("main");
 
@@ -196,7 +192,7 @@ describe("the branch a confirmation dialog named", () => {
   // branch, rewritten onto `<hash>~1`, with no git error to show for it. The
   // dialog does say it out loud: "rewrites the history of the current branch".
   it("refuses to drop a commit once the branch it would rewrite has changed", () => {
-    row("bbb222").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    rightClick(row("bbb222"));
     clickItem(L.drop + E);
     expect(dialogText()).toContain("the history of the current branch");
 

@@ -37,7 +37,9 @@ export function buildWebviewMarkup(l10n: LocalizedStrings): string {
     <div id="conflictBanner"></div>
     <div id="content">
       <div id="commitGraph"></div>
-      <div id="commitTable"></div>
+      <!-- tabindex="-1", like the footer's: where a closing dialog puts focus
+           when the element it took focus from is gone (#141). -->
+      <div id="commitTable" tabindex="-1"></div>
     </div>
     <!-- tabindex="-1" so focus can be *put* here without Tab ever stopping
          here: the footer's controls are rewritten wholesale on every redraw,
@@ -53,6 +55,8 @@ export function buildWebviewMarkup(l10n: LocalizedStrings): string {
     </div>
     <ul id="contextMenu" role="menu" tabindex="-1"></ul>
     <div id="dialogBacking"></div>
-    <div id="dialog"></div>
+    <!-- tabindex="-1": a dialog that asks for no input holds focus itself, so
+         Enter confirms it and Tab enters it at either end (#141). -->
+    <div id="dialog" tabindex="-1"></div>
     <div id="scrollShadow"></div>`;
 }

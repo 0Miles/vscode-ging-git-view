@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 
 /* cdvBringIntoView.test.ts with the Commit Details View docked to the bottom
  * and "Center Commit Details View" off (dockedCdvAutoCenter.test.ts has it
@@ -49,10 +49,6 @@ function details(hash: string): GitCommitDetails {
   };
 }
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
 /** A soft refresh that found something new — a tag pushed from elsewhere — so
  *  the table, and the panel with it, is redrawn. One that found nothing would
  *  short-circuit before drawing anything. */
@@ -80,7 +76,7 @@ describe("bringing an opening docked Commit Details View's commit into view", ()
    *  the details arrive is kept: clicking a row is a focus move of its own,
    *  and may bring the row into view for that reason. */
   function openDetails(hash: string) {
-    row(hash).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    graphRow(hash).dispatchEvent(new MouseEvent("click", { bubbles: true }));
     scrolledIntoView.length = 0;
     receive({ command: "commitDetails", commitDetails: details(hash) });
   }
@@ -124,7 +120,7 @@ describe("bringing an opening docked Commit Details View's commit into view", ()
   it("brings the commit's row into view the way the arrow keys do", () => {
     openDetails("aaa111");
     expect(document.getElementById("commitDetails")!.classList.contains("docked")).toBe(true);
-    expect(scrolledIntoView).toEqual([[row("aaa111"), { block: "nearest" }]]);
+    expect(scrolledIntoView).toEqual([[graphRow("aaa111"), { block: "nearest" }]]);
     expect(scrollTo).not.toHaveBeenCalled();
   });
 
@@ -140,6 +136,6 @@ describe("bringing an opening docked Commit Details View's commit into view", ()
 
   it("brings the next commit opened into view in its turn", () => {
     openDetails("bbb222");
-    expect(scrolledIntoView).toEqual([[row("bbb222"), { block: "nearest" }]]);
+    expect(scrolledIntoView).toEqual([[graphRow("bbb222"), { block: "nearest" }]]);
   });
 });

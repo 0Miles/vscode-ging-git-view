@@ -12,9 +12,10 @@ import { describe, expect, it } from "vitest";
  * runs under jsdom, where `import.meta.url` is not a file URL to resolve from.
  *
  * It exists because the decision has no other guard. Since #88 the footer's two
- * members of this class are real `<button>`s while the dialog's and the
- * conflict banner's are still `<div>`s, and the reset is the whole of what
- * makes them render alike. Nothing in the suites can see that: jsdom loads no
+ * members of this class are real `<button>`s — and since #141 and #145 the
+ * dialog's are too, its tools included — while the conflict banner's are still
+ * `<div>`s, and the reset is the whole of what makes them render alike.
+ * Nothing in the suites can see that: jsdom loads no
  * stylesheet, so every behavioural test passes just as well with the reset
  * deleted, and this repo has no visual-regression harness to add it to.
  *

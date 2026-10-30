@@ -1,9 +1,8 @@
 import type {
   ActionRequest,
+  BatchActionPayload,
   BatchActionRequest,
-  BatchDeleteResult,
-  BatchPushResult,
-  BatchRefResult,
+  BatchResultOf,
   BranchSearchEntry,
   BranchRedundancy,
   CommitOrdering,
@@ -46,7 +45,11 @@ import {
   generateGitFileListHtml,
   generateGitFileTree,
   generateGitFileTreeHtml,
-  serializeGitFileTree
+  isGitFolderOpen,
+  parentGitFolderRow,
+  serializeGitFileTree,
+  setGitFolderOpen,
+  visibleGitFileTreeRows
 } from "./utils/fileTree";
 import {
   arraysEqual,
@@ -105,6 +108,12 @@ const MENU_SOURCES =
  *  they are real `<button>`s, and a second opinion about Enter is how a button
  *  gets pressed twice. */
 const ACTIVATABLE = GRAPH_FOCUSABLE + ", .gitFile";
+
+/** The controls inside a dialog whose own Enter means something — a button
+ *  presses itself, a link follows, a textarea breaks the line — so the
+ *  dialog's "Enter confirms" stays out of their way (#141). `a[href]`, not
+ *  `a`: an anchor without one does nothing on Enter, and so confirms. */
+const OWNS_ENTER = "button, a[href], textarea";
 
 /** The graph footer's controls, by id. Peers rather than a roving group: Tab
  *  visits each of them, so neither needs a tabindex and there is no tab stop to
@@ -248,12 +257,6 @@ function rowWidgets(row: HTMLElement): HTMLElement[] {
  *  pointer. */
 const MENU_KEY_EVENT = "ging.contextMenuKey";
 
-/** Wire a context-menu handler to both ways of raising one. */
-function addContextMenuListener(className: string, listener: EventListener) {
-  addListenerToClass(className, "contextmenu", listener);
-  addListenerToClass(className, MENU_KEY_EVENT, listener);
-}
-
 /** ExpandedCommit in the JSON-safe form saved with vscode.setState: DOM
  *  references are dropped (renderTable re-binds them to the fresh rows) and
  *  the file tree's Maps are converted to arrays. */
@@ -286,15 +289,15 @@ type BatchActionKind = BatchActionRequest["command"];
 /** What one batch action needs to execute its run's commands: how to send a
  *  round, what to show while it runs, how to title a failed summary, and —
  *  for actions with a retry round — the retry confirmation's body. */
-type BatchSpec = {
-  send: (refs: string[], round: 1 | 2, params: unknown) => void;
+type BatchSpec<K extends BatchActionKind> = {
+  send: (refs: string[], round: 1 | 2, params: BatchParams & BatchActionParams<K>) => void;
   running: string;
   errorTitle: string;
   retryBody?: (refs: string[]) => string;
   /** HTML shown once beneath a failed summary's list of refs, or null for
    *  none — for a reason several refs share that git's own lines leave
    *  unexplained. Handed only the failed results. */
-  failureNote?: (failed: BatchRefResult[]) => string | null;
+  failureNote?: (failed: BatchResultOf<K>[]) => string | null;
 };
 /** What every batch run carries for its adapter whatever the action is: the
  *  repository the run was started for. Each action's own parameters intersect
@@ -302,6 +305,17 @@ type BatchSpec = {
  *  confirmation, the host round-trip and possibly a retry dialog have all
  *  happened. */
 type BatchParams = { repo: string };
+/** One batch action's own parameters: its request, less the refs that each
+ *  round names for itself. */
+type BatchActionParams<K extends BatchActionKind> = Omit<
+  BatchActionPayload<K>,
+  "refs" | "branchNames"
+>;
+/** What a {@link BatchRun} is told about each batch action: its per-ref result
+ *  and the parameters its run echoes. */
+type BatchActionTypes = {
+  [K in BatchActionKind]: { result: BatchResultOf<K>; params: BatchParams & BatchActionParams<K> };
+};
 
 /** Where Find is standing, in the form something that moved it can put it back.
  *  The hash is the position; the index is only what `resolveFindCurrent` falls
@@ -504,11 +518,12 @@ class GitGraphView {
   private lastRefActionSeq = 0;
   // The one batch run in flight (at most): rounds, retry offer and summary all
   // live behind its interface — the adapters below only execute its commands.
-  private batchRun = new BatchRun<BatchActionKind>();
+  private batchRun = new BatchRun<BatchActionTypes>();
   /** A summary an ended run could not show, because the dialog slot was taken
    *  at the moment it ended. Held until there is a screen for it; see
    *  {@link abandonBatchRun} and {@link deliverOwedBatchSummary}. */
-  private owedSummary: { results: BatchRefResult[]; action: BatchActionKind } | null = null;
+  private owedSummary: Extract<BatchRunCommand<BatchActionTypes>, { kind: "summarise" }> | null =
+    null;
 
   private graph: Graph;
   private config: Config;
@@ -560,7 +575,12 @@ class GitGraphView {
   // move within them. Two groups, not one: they are separate widgets, and
   // arrowing through files must not walk out into the commits behind them.
   private graphTabStop = new RovingTabStop();
-  private cdvFileTabStop = new RovingTabStop();
+  private cdvFileTabStop = new RovingTabStop((file) => this.rememberCdvFileTabStop(file));
+  /** Which file last held the file list's tab stop, in which view, at which
+   *  index. The element itself does not outlive a redraw, so this is what
+   *  {@link restoreCdvFileTabStop} finds the user's place again from. */
+  private cdvFileTabStopMemory: { cdvIdentity: string | null; key: string; index: number } | null =
+    null;
 
   private loadBranchesCallback: ((changes: boolean, isRepo: boolean) => void) | null = null;
   private loadCommitsCallback: ((changes: boolean) => void) | null = null;
@@ -1196,7 +1216,7 @@ class GitGraphView {
   }
 
   /** Rename the repo from the drawer's pencil. The drawer steps aside first:
-   *  it sits above the graph and the docked details panel, and so above the
+   *  it sits above the graph and a docked Commit Details View, and so above the
    *  dialog too. */
   private showRenameRepo() {
     const repo = this.currentRepo;
@@ -1265,7 +1285,7 @@ class GitGraphView {
     }
     // Only the commits: none of these fields moves the branch list. Shaped like
     // {@link reloadForBranchChange}, which is the same navigation one field
-    // over — less its closing of the details panel, which nobody asked for.
+    // over — less its closing of the Commit Details View, which nobody asked for.
     this.shrinkLoadedCommitWindow();
     this.abandonLoadsInFlight();
     this.saveState();
@@ -1523,35 +1543,50 @@ class GitGraphView {
     dimmedBranches: string[] = [],
     cleanupCandidates: string[] = []
   ) {
-    if (!isRepo) {
-      this.triggerLoadBranchesCallback(false, isRepo);
-      return;
-    }
-    // Not part of the change comparison below, and not saved with the view
-    // state: it decides nothing that is drawn, only whether a context-menu item
-    // is offered, so a stale set has nothing to flash and self-corrects on the
-    // next load.
-    this.cleanupCandidateRefs = new Set(cleanupCandidates.map(displayRef));
-    const dimmedUnchanged = arraysEqual(this.dimmedBranches, dimmedBranches, (a, b) => a === b);
-    const branchesUnchanged =
-      arraysEqual(this.gitBranches, branchOptions, (a, b) => a === b) &&
-      this.gitBranchHead === branchHead;
-    const filterUnchanged = arraysEqual(this.currentBranches ?? [], filter, (a, b) => a === b);
-    if (!hard && branchesUnchanged && filterUnchanged && dimmedUnchanged) {
-      this.triggerLoadBranchesCallback(false, isRepo);
-      return;
-    }
+    // The callback runs whichever way this leaves, as {@link loadCommits}'s
+    // does: a throw that skipped it would leave the busy claim up and
+    // {@link branchLoadInFlight} true, and every later refresh would be dropped
+    // onto a load that is never coming. A throw still escapes to the message
+    // listener, which reports it (ADR-0016).
+    //
+    // Unlike there, a throw reports no changes even after the state has moved
+    // — the same "a load that never ran brought none with it" a dropped request
+    // gets. The only reader is the close-out's dismissal, and a hard reload is
+    // dismissed on `hard` alone; what it costs is a soft reload that throws
+    // after the branch state is written and finds no commit change either —
+    // that one skips the dismissal it was owed, and the progress dialog stays
+    // up until the next reload that changes something.
+    let changes = false;
+    try {
+      if (!isRepo) return;
+      // Not part of the change comparison below, and not saved with the view
+      // state: it decides nothing that is drawn, only whether a context-menu
+      // item is offered, so a stale set has nothing to flash and self-corrects
+      // on the next load.
+      this.cleanupCandidateRefs = new Set(cleanupCandidates.map(displayRef));
+      const dimmedUnchanged = arraysEqual(this.dimmedBranches, dimmedBranches, (a, b) => a === b);
+      const branchesUnchanged =
+        arraysEqual(this.gitBranches, branchOptions, (a, b) => a === b) &&
+        this.gitBranchHead === branchHead;
+      const filterUnchanged = arraysEqual(this.currentBranches ?? [], filter, (a, b) => a === b);
+      if (!hard && branchesUnchanged && filterUnchanged && dimmedUnchanged) return;
 
-    this.gitBranches = branchOptions;
-    this.gitBranchHead = branchHead;
-    this.dimmedBranches = dimmedBranches;
-    this.updateRepoTitle();
-    // The branch filter is owned by the extension host (the Branches side-view);
-    // apply whatever it resolved for this repo. An empty list means "show all".
-    this.setCurrentBranches(filter);
-    this.saveState();
-
-    this.triggerLoadBranchesCallback(true, isRepo);
+      this.gitBranches = branchOptions;
+      this.gitBranchHead = branchHead;
+      this.dimmedBranches = dimmedBranches;
+      this.updateRepoTitle();
+      // The branch filter is owned by the extension host (the Branches
+      // side-view); apply whatever it resolved for this repo. An empty list
+      // means "show all".
+      this.setCurrentBranches(filter);
+      this.saveState();
+      changes = true;
+    } finally {
+      // If the body threw and the callback throws too, the callback's
+      // exception replaces the original one, and ADR-0016 reports only that
+      // second failure.
+      this.triggerLoadBranchesCallback(changes, isRepo);
+    }
   }
 
   /** Apply a branch filter pushed from the extension host — a selection change
@@ -1568,11 +1603,16 @@ class GitGraphView {
     this.setCurrentBranches(branches);
     this.reloadForBranchChange();
   }
+  /** Spend the branch callback. Cleared before it runs, not after: the
+   *  callback goes on to request commits and to close the reload out, and a
+   *  throw from in there would otherwise leave it set — the load finished, but
+   *  {@link branchLoadInFlight} saying it never will. The commit side's twin
+   *  below does the same. */
   private triggerLoadBranchesCallback(changes: boolean, isRepo: boolean) {
-    if (this.loadBranchesCallback !== null) {
-      this.loadBranchesCallback(changes, isRepo);
-      this.loadBranchesCallback = null;
-    }
+    const callback = this.loadBranchesCallback;
+    if (callback === null) return;
+    this.loadBranchesCallback = null;
+    callback(changes, isRepo);
   }
 
   public loadCommits(
@@ -1584,73 +1624,76 @@ class GitGraphView {
   ) {
     // Spent here, at the top: this load owns the permission, and it owns it
     // whichever way the function leaves — including the short-circuit below and
-    // the throw the try/finally further down exists to survive. Reading it any
-    // later would leave it set for a redraw that has nothing to do with it.
+    // the throw the try/finally exists to survive. Reading it any later would
+    // leave it set for a redraw that has nothing to do with it.
     const focusMayScroll = this.pendingFocusScroll;
     this.pendingFocusScroll = false;
-    if (
-      !hard &&
-      this.moreCommitsAvailable === moreAvailable &&
-      // Same commits, other mode: the graph draws them differently.
-      this.onlyFollowFirstParent === onlyFollowFirstParent &&
-      this.commitHead === commitHead &&
-      arraysEqual(
-        this.commits,
-        commits,
-        (a, b) =>
-          a.hash === b.hash &&
-          arraysEqual(a.refs, b.refs, (ra, rb) => ra.name === rb.name && ra.type === rb.type) &&
-          arraysEqual(a.parentHashes, b.parentHashes, (pa, pb) => pa === pb)
-      )
-    ) {
-      if (this.commits.length > 0 && this.commits[0].hash === "*") {
-        this.commits[0] = commits[0];
-        this.saveState();
-        this.renderUncommitedChanges();
-      }
-      if (this.findActive) this.requestBranchSearchIndex();
-      this.triggerLoadCommitsCallback(false);
-      return;
-    }
-
-    this.moreCommitsAvailable = moreAvailable;
-    this.onlyFollowFirstParent = onlyFollowFirstParent;
-    this.commits = commits;
-    this.commitHead = commitHead;
-    if (this.commits.length > 0 && this.commits[0].hash === "*") {
-      const match = this.commits[0].message.match(/\((\d+)\)$/);
-      const count = match ? match[1] : "?";
-      this.commits[0].message = l10n.uncommittedChanges.replace("{0}", count);
-    }
-    this.commitLookup = {};
-    this.saveState();
-
-    let i: number,
-      expandedCommitVisible = false,
-      avatarsNeeded: { [email: string]: string[] } = {};
-    for (i = 0; i < this.commits.length; i++) {
-      this.commitLookup[this.commits[i].hash] = i;
-      if (this.expandedCommit !== null && this.expandedCommit.hash === this.commits[i].hash)
-        expandedCommitVisible = true;
+    // Nothing in here may leave the load callback unfired: if anything throws,
+    // loadCommitsCallback would stay set and every later refresh/commit would be
+    // silently dropped (the busy indicator never clears), freezing the view
+    // until the tab is reopened. The whole body is guarded, the short-circuit
+    // included — it compares and redraws too. A throw still escapes to the
+    // message listener, which reports it (ADR-0016). It reports changes once the
+    // state has been replaced, as a redraw that failed half-way still has.
+    let changes = false;
+    try {
       if (
-        this.config.fetchAvatars &&
-        typeof this.avatars[this.commits[i].email] !== "string" &&
-        this.commits[i].email !== ""
+        !hard &&
+        this.moreCommitsAvailable === moreAvailable &&
+        // Same commits, other mode: the graph draws them differently.
+        this.onlyFollowFirstParent === onlyFollowFirstParent &&
+        this.commitHead === commitHead &&
+        arraysEqual(
+          this.commits,
+          commits,
+          (a, b) =>
+            a.hash === b.hash &&
+            arraysEqual(a.refs, b.refs, (ra, rb) => ra.name === rb.name && ra.type === rb.type) &&
+            arraysEqual(a.parentHashes, b.parentHashes, (pa, pb) => pa === pb)
+        )
       ) {
-        if (typeof avatarsNeeded[this.commits[i].email] === "undefined") {
-          avatarsNeeded[this.commits[i].email] = [this.commits[i].hash];
-        } else {
-          avatarsNeeded[this.commits[i].email].push(this.commits[i].hash);
+        if (this.commits.length > 0 && this.commits[0].hash === "*") {
+          this.commits[0] = commits[0];
+          this.saveState();
+          this.renderUncommitedChanges();
+        }
+        if (this.findActive) this.requestBranchSearchIndex();
+        return;
+      }
+
+      changes = true;
+      this.moreCommitsAvailable = moreAvailable;
+      this.onlyFollowFirstParent = onlyFollowFirstParent;
+      this.commits = commits;
+      this.commitHead = commitHead;
+      if (this.commits.length > 0 && this.commits[0].hash === "*") {
+        const match = this.commits[0].message.match(/\((\d+)\)$/);
+        const count = match ? match[1] : "?";
+        this.commits[0].message = l10n.uncommittedChanges.replace("{0}", count);
+      }
+      this.commitLookup = {};
+      this.saveState();
+
+      let i: number,
+        expandedCommitVisible = false,
+        avatarsNeeded: { [email: string]: string[] } = {};
+      for (i = 0; i < this.commits.length; i++) {
+        this.commitLookup[this.commits[i].hash] = i;
+        if (this.expandedCommit !== null && this.expandedCommit.hash === this.commits[i].hash)
+          expandedCommitVisible = true;
+        if (
+          this.config.fetchAvatars &&
+          typeof this.avatars[this.commits[i].email] !== "string" &&
+          this.commits[i].email !== ""
+        ) {
+          if (typeof avatarsNeeded[this.commits[i].email] === "undefined") {
+            avatarsNeeded[this.commits[i].email] = [this.commits[i].hash];
+          } else {
+            avatarsNeeded[this.commits[i].email].push(this.commits[i].hash);
+          }
         }
       }
-    }
 
-    // Building the graph layout and rendering the table must never leave the
-    // refresh callback unfired: if anything in here throws, loadCommitsCallback
-    // would stay set and every later refresh/commit would be silently dropped
-    // (the busy indicator never clears), freezing the view until the tab is
-    // reopened. The finally guarantees the callback always runs.
-    try {
       this.graph.loadCommits(
         this.commits,
         this.commitHead,
@@ -1688,16 +1731,25 @@ class GitGraphView {
 
       this.fetchAvatars(avatarsNeeded);
     } finally {
-      this.triggerLoadCommitsCallback(true);
+      // As in {@link loadBranches}: a callback that throws here masks the
+      // body's own exception, and ADR-0016 reports only the second one.
+      this.triggerLoadCommitsCallback(changes);
     }
   }
+  /** Spend the commit callback, clearing it before it runs for the reason at
+   *  {@link triggerLoadBranchesCallback}: a close-out that throws — a dismissal
+   *  hook on the dialog it takes down, say — must not leave
+   *  {@link commitLoadInFlight} answering true for good. */
   private triggerLoadCommitsCallback(changes: boolean) {
-    if (this.loadCommitsCallback !== null) {
-      this.loadCommitsCallback(changes);
-      this.loadCommitsCallback = null;
+    const callback = this.loadCommitsCallback;
+    this.loadCommitsCallback = null;
+    try {
+      if (callback !== null) callback(changes);
+    } finally {
+      // A side-view-delegated action may have been waiting for this load, and
+      // it goes on waiting for nothing if a throwing close-out skips this.
+      this.tryRunPendingRefAction();
     }
-    // A side-view-delegated action may have been waiting for this load.
-    this.tryRunPendingRefAction();
   }
 
   public loadAvatar(email: string, image: string) {
@@ -1794,15 +1846,18 @@ class GitGraphView {
    *  stands. Testing `hard` left exactly that case stranded.
    *
    *  This dismissal can reach a dialog the reload does not own — the existence
-   *  check in {@link hideReloadOwnedOverlays} cannot tell them apart, which is
-   *  tracked on #127 and predates this — and through {@link reloadForBranchChange}
+   *  check in {@link hideReloadOwnedOverlays} cannot tell them apart, which
+   *  predates this — and through {@link reloadForBranchChange}
    *  that is a way in the panel did not have before: a filter pushed from the
    *  side-view can now take down a Branch Cleanup deep scan (its dismissal hook
-   *  sends `branchCleanupScanCancel`) or a "Check for Unmerged Changes" whose
-   *  answer is then dropped on arrival. It is the same trade #127 already
-   *  names, made once more: a dialog that closes early beats one that never
-   *  closes at all, and both end when the dialog is correlated with the reload
-   *  that owns it.
+   *  sends `branchCleanupScanCancel`, and, told the system closed it, abandons
+   *  the list so the cancelled answer does not bring it back — #134) or a
+   *  "Check for Unmerged Changes" whose
+   *  answer is then dropped on arrival (by its owner token, so it cannot land
+   *  in a progress dialog raised since — #127). It is the same trade
+   *  {@link hideReloadOwnedOverlays} already makes, made once more: a dialog
+   *  that closes early beats one that never closes at all, and both end when
+   *  the dialog is correlated with the reload that owns it.
    *
    *  Deliberately not routed through {@link triggerLoadCommitsCallback}: that
    *  one also retries a delegated ref action, and here the gate is about to be
@@ -1829,8 +1884,9 @@ class GitGraphView {
    *  button.
    *
    *  Counted rather than set, because the indicator is one class on one button
-   *  and three separate things raise it: a refresh, a branch-change reload, and
-   *  a Find step that has to page. ADR-0019's "at most one commit load in
+   *  and four separate things raise it: a refresh, a branch-change reload, a
+   *  Find step that has to page, and a Repository Setting that reloads the
+   *  commits ({@link applyRepoSettings}). ADR-0019's "at most one commit load in
    *  flight" is what makes the overlap easy to miss — it holds, and it is not
    *  the whole story. A refresh's branch half is out well before its commit
    *  half exists, so a second refresh starting in that window is a second live
@@ -2066,6 +2122,12 @@ class GitGraphView {
             // refreshes follow an action (checkout, merge, …) so always close;
             // soft refreshes only close when something changed.
             //
+            // A hard reload whose branch handler ran to the end always arrives
+            // here with `branchChanges` set — {@link loadBranches} never
+            // short-circuits a hard one — so `hard` reads as redundant, and is
+            // not: it states the intent, and it is the one arm left standing
+            // when that handler threw part-way, which reports no changes.
+            //
             // Not held back when this refresh's own request was dropped, unlike
             // the claim above, and the two part company on what is left to do
             // rather than on how loud to be. The claim reports this panel's
@@ -2264,11 +2326,10 @@ class GitGraphView {
       .forEach((elem) => elem.addEventListener(event, listener));
   }
 
-  /** Wire a context-menu handler within `root` to both ways of raising one — the
-   *  scoped counterpart of `addContextMenuListener`. Both, not just the
-   *  pointer's: the keyboard's `MENU_KEY_EVENT` is dispatched at whatever holds
-   *  focus, and focus reaches the branch-redundancy dialog's rows the moment
-   *  anything gives them a tab stop (#141, #145). */
+  /** Wire a context-menu handler within `root` to both ways of raising one.
+   *  Both, not just the pointer's: the keyboard's `MENU_KEY_EVENT` is dispatched
+   *  at whatever holds focus, and focus reaches the branch-redundancy dialog's
+   *  rows, which have had tab stops of their own since #145. */
   private addScopedContextMenuListener(
     root: HTMLElement,
     className: string,
@@ -2278,9 +2339,10 @@ class GitGraphView {
     this.addScopedListenerToClass(root, className, MENU_KEY_EVENT, listener);
   }
 
-  /** The graph's root, named: the only binder {@link renderTable} may use for a
-   *  class the graph's *rows* carry, binding within `#commitTable` instead of
-   *  across the whole document.
+  /** The graph's root, named: the only binder {@link renderTable} and
+   *  {@link makeTableResizable} may use for a class the graph's table carries —
+   *  rows, ref chips, headers, resize handles — binding within `#commitTable`
+   *  instead of across the whole document.
    *
    *  **A class name is never proof of the graph.** The branch-redundancy dialog
    *  builds its own commit list out of `redundancyCommitRow`, which emits
@@ -2298,11 +2360,12 @@ class GitGraphView {
    *  replaces its `innerHTML`, never the element, so the boundary outlives every
    *  redraw that runs through here.
    *
-   *  **Not every binding the graph makes goes through here.** What is left, and
-   *  what each one's safety rests on, is listed once beside `addListenerToClass`
-   *  in `utils/dom.ts` — next to the unscoped helper, which is where someone
-   *  adding a call site is actually looking. `tr.commit` was on that list until
-   *  the redundancy dialog started drawing commit rows.
+   *  **Every class the graph binds goes through here since #166.** The ref
+   *  chips, the uncommitted-changes row, the column headers and the resize
+   *  handles were the last to bind document-wide, on the ground that no other
+   *  view drew those classes — a ground a branch drag's ghost, a `.gitRef`
+   *  clone on `<body>`, had already broken. What still binds unscoped, and why,
+   *  is listed beside `addListenerToClass` in `utils/dom.ts`.
    *
    *  **Binding was only half of it, and #150 took the other half.** The reads
    *  that go looking for a commit row are scoped to the same `#commitTable`
@@ -2394,6 +2457,32 @@ class GitGraphView {
     return this.tableElem.querySelector<HTMLElement>('tr.commit[data-id="' + id + '"]');
   }
 
+  /** Close a context menu opened on a commit row, a ref, a column header or
+   *  anything in the Commit Details View — everything a redraw replaces.
+   *
+   *  Left open, the menu would stay at the page coordinates it opened at, over
+   *  whatever row the redraw puts there, still offering Reset and Delete for
+   *  the row that was. Closing it afterwards is too late for focus as well:
+   *  `hideContextMenu` hands focus back only to a source still in the document,
+   *  and the old row is not, so focus fell to `<body>`. Closing it here, first,
+   *  puts focus back on the source while it exists, which is where
+   *  `focusedRowKey` and `focusedCdvFileKey` read it from — and the redraw's
+   *  own restore then carries it over to the new row by key.
+   *
+   *  Hard reloads and reloads that change something close the menu anyway
+   *  ({@link hideReloadOwnedOverlays}), only after the redraw. The path this is
+   *  for is the one that closes nothing: a soft reload whose remote names
+   *  changed, which redraws from `loadRemotes` alone. Closing rather than
+   *  re-anchoring is deliberate — the menu's items were computed from the
+   *  state the redraw replaces, the reason `hideReloadOwnedOverlays` gives. */
+  private closeContextMenuAnchoredInGraph() {
+    if (contextMenuSource === null) return;
+    const cdv = this.cdvPanel();
+    if (this.tableElem.contains(contextMenuSource) || cdv?.contains(contextMenuSource) === true) {
+      hideContextMenu();
+    }
+  }
+
   /** Rebuilds the commit table and hands back the one write it deliberately did
    *  not do — see {@link makeTableResizable} and {@link render}. Whoever calls
    *  this must run that write, and must run it after the last layout read of
@@ -2401,6 +2490,9 @@ class GitGraphView {
    *  accident: a second one would be a second place to get it wrong, and
    *  ignoring the returned value is not a type error. */
   private renderTable(focusMayScroll: boolean = false): () => void {
+    // First of all, while its source is still in the document: a menu opened
+    // on a row this is about to replace would outlive the row (#126).
+    this.closeContextMenuAnchoredInGraph();
     // Read before a single row is replaced; `restoreGraphFocus` at the end puts
     // the keyboard back on the same commit once the new rows are in place.
     const focusedKey = this.focusedRowKey();
@@ -2705,7 +2797,7 @@ class GitGraphView {
     this.restoreCdvFileFocus(focusedFileKey);
     this.restoreGraphFocus(focusedKey, focusMayScroll);
 
-    addContextMenuListener("tableColHeader", (e: Event) => {
+    this.addGraphContextMenuListener("tableColHeader", (e: Event) => {
       const headerElem = <HTMLElement>(<Element>e.target).closest(".tableColHeader")!;
       // Only the Date/Author/Commit headers carry a data-col and can be toggled.
       if (headerElem.dataset.col === undefined) return;
@@ -3256,7 +3348,7 @@ class GitGraphView {
         this.loadCommitDetails(sourceElem);
       }
     });
-    addContextMenuListener("unsavedChanges", (e: Event) => {
+    this.addGraphContextMenuListener("unsavedChanges", (e: Event) => {
       e.stopPropagation();
       const sourceElem = <HTMLElement>(<Element>e.target).closest(".unsavedChanges")!;
       const ucv = viewState.contextMenuActionsVisibility.uncommittedChanges; // #198
@@ -3297,7 +3389,7 @@ class GitGraphView {
         sourceElem
       );
     });
-    addContextMenuListener("gitRef", (e: Event) => {
+    this.addGraphContextMenuListener("gitRef", (e: Event) => {
       e.stopPropagation();
       const sourceElem = <HTMLElement>(<Element>e.target).closest(".gitRef")!;
       const refName = unescapeHtml(sourceElem.dataset.name!);
@@ -3501,10 +3593,10 @@ class GitGraphView {
         sourceElem
       );
     });
-    addListenerToClass("gitRef", "click", (e: Event) => e.stopPropagation());
-    addListenerToClass("gitRef", "dblclick", (e: Event) => {
+    this.addGraphListenerToClass("gitRef", "click", (e: Event) => e.stopPropagation());
+    this.addGraphListenerToClass("gitRef", "dblclick", (e: Event) => {
       e.stopPropagation();
-      hideDialogAndContextMenu();
+      hideDialogAndContextMenu("user");
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitRef")!;
       // Only branches are checkout-able; tag/stash refs share the gitRef class.
       if (sourceElem.classList.contains("head") || sourceElem.classList.contains("remote")) {
@@ -3694,7 +3786,7 @@ class GitGraphView {
    *  The state goes with the rows for the same reason: any later redraw (a
    *  remote list arriving, a column toggled) would put them straight back. */
   private renderNoRepo() {
-    hideDialogAndContextMenu();
+    hideDialogAndContextMenu("system");
     this.commits = [];
     this.commitLookup = {};
     this.commitHead = null;
@@ -3710,7 +3802,7 @@ class GitGraphView {
     this.renderFooter();
   }
   private renderShowLoading() {
-    hideDialogAndContextMenu();
+    hideDialogAndContextMenu("system");
     this.graph.clear();
     this.tableElem.innerHTML =
       '<h2 id="loadingHeader">' + svgIcons.loading + l10n.loading + "</h2>";
@@ -4440,66 +4532,63 @@ class GitGraphView {
       note(l10n.dialogBatchSkippedRemote, "remote")
     );
   }
-  /** The {@link BatchSpec} for `action`. */
-  private batchSpec(action: BatchActionKind): BatchSpec {
-    switch (action) {
-      case "deleteBranches":
-        return {
-          send: (refs, round, params) => {
-            const p = params as BatchParams & { forceDelete: boolean; deleteOnRemotes: boolean };
-            sendMessage({
-              command: "deleteBranches",
-              repo: p.repo,
-              refs,
-              // The retry round exists to force what round 1 could not delete.
-              forceDelete: round === 2 || p.forceDelete,
-              deleteOnRemotes: p.deleteOnRemotes
-            });
-          },
-          running: l10n.deletingBranches,
-          errorTitle: l10n.unableToDeleteBranch,
-          retryBody: (refs) =>
-            l10n.dialogDeleteBatchForceConfirm.replace("{0}", String(refs.length)) +
-            "<br>" +
-            this.batchRefNames(refs)
-        };
-      case "pushBranches":
-        return {
-          send: (refs, _round, params) => {
-            const p = params as BatchParams & {
-              remotes: string[];
-              forceMode: "normal" | "force" | "forceWithLease";
-            };
-            sendMessage({
-              command: "pushBranches",
-              repo: p.repo,
-              branchNames: refs,
-              remotes: p.remotes,
-              forceMode: p.forceMode
-            });
-          },
-          running: l10n.pushingBranch,
-          errorTitle: l10n.unableToPushBranch,
-          // Explained once for the whole batch, like a single push explains it
-          // (ADR-0025). Each ref keeps git's own line; no force round is offered.
-          failureNote: (failed) =>
-            failed.some((r) => (r as BatchPushResult).remoteUpdatedSinceCheckout)
-              ? leaseRefusedExplanation()
-              : null
-        };
-      case "fastForwardBranches":
-        return {
-          send: (refs, _round, params) => {
-            sendMessage({
-              command: "fastForwardBranches",
-              repo: (params as BatchParams).repo,
-              branchNames: refs
-            });
-          },
-          running: l10n.fastForwardingBranches,
-          errorTitle: l10n.unableToFastForward
-        };
-    }
+  /** The {@link BatchSpec} for `action`. A table looked up by the action rather
+   *  than a switch over it: a switch cannot narrow a generic `K`, and the
+   *  lookup is what lets each entry's `send` and `failureNote` see their own
+   *  action's params and results. */
+  private batchSpec<K extends BatchActionKind>(action: K): BatchSpec<K> {
+    const specs: { [A in BatchActionKind]: BatchSpec<A> } = {
+      deleteBranches: {
+        send: (refs, round, p) => {
+          sendMessage({
+            command: "deleteBranches",
+            repo: p.repo,
+            refs,
+            // The retry round exists to force what round 1 could not delete.
+            forceDelete: round === 2 || p.forceDelete,
+            deleteOnRemotes: p.deleteOnRemotes
+          });
+        },
+        running: l10n.deletingBranches,
+        errorTitle: l10n.unableToDeleteBranch,
+        retryBody: (refs) =>
+          l10n.dialogDeleteBatchForceConfirm.replace("{0}", String(refs.length)) +
+          "<br>" +
+          this.batchRefNames(refs)
+      },
+      pushBranches: {
+        send: (refs, _round, p) => {
+          sendMessage({
+            command: "pushBranches",
+            repo: p.repo,
+            branchNames: refs,
+            remotes: p.remotes,
+            forceMode: p.forceMode
+          });
+        },
+        running: l10n.pushingBranch,
+        errorTitle: l10n.unableToPushBranch,
+        // Each kind of lease refusal is explained once for the whole batch, like
+        // a single push explains it (ADR-0025). Each ref keeps git's own line;
+        // no force round is offered.
+        failureNote: (failed) => {
+          const staleInfoRefs = failed.flatMap((r) => r.staleInfoRef ?? []);
+          const notes = [
+            failed.some((r) => r.remoteUpdatedSinceCheckout) ? leaseRefusedExplanation() : null,
+            staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
+          ].filter((note) => note !== null);
+          return notes.length > 0 ? notes.join("<br>") : null;
+        }
+      },
+      fastForwardBranches: {
+        send: (refs, _round, p) => {
+          sendMessage({ command: "fastForwardBranches", repo: p.repo, branchNames: refs });
+        },
+        running: l10n.fastForwardingBranches,
+        errorTitle: l10n.unableToFastForward
+      }
+    };
+    return specs[action];
   }
   /** Start one batch run and execute its first command. The action tag feeds
    *  the run and the command executor from the one argument, so the two can
@@ -4515,10 +4604,11 @@ class GitGraphView {
    *  There is deliberately no guard here for "a retry offer is still on
    *  screen", though `BatchRun.start` treating a standing `offeringRetry` as an
    *  ended run would otherwise make one look necessary — the reachability the
-   *  guard would answer is the reason #127 and #141 were raised, and it is real
-   *  as a *gesture*: the context menu sits above the dialog and stays
-   *  clickable, and background controls stay tabbable behind it, so the user
-   *  can absolutely reach for a second batch with the offer in front of them.
+   *  guard would answer is the reason #127 and #141 were raised, and it was
+   *  real as a *gesture*: the context menu sat above the dialog and stayed
+   *  clickable, and background controls stayed tabbable behind it, so the user
+   *  could reach for a second batch with the offer in front of them. Both doors
+   *  are shut now (#218, #141); the argument below never rested on them.
    *  What they cannot do is arrive *here* that way. Every caller below is
    *  inside a dialog's own action callback, because ADR-0009 sends exactly the
    *  batch actions that ask through the webview, so each one raises its
@@ -4526,11 +4616,13 @@ class GitGraphView {
    *  abandons the run (see {@link abandonBatchRun}). By the time a start is
    *  reached the offer is gone and the run really is over, which is the state
    *  `BatchRun.start` then reads. A guard here would never fire. */
-  private startBatchRun(
-    action: BatchActionKind,
+  private startBatchRun<K extends BatchActionKind>(
+    action: K,
     repo: string,
     targets: string[],
-    options: Omit<BatchRunOptions<BatchActionKind>, "action" | "params"> & { params?: object } = {}
+    options: Pick<BatchRunOptions<BatchActionTypes, K>, "retryWhen"> & {
+      params: BatchActionParams<K>;
+    }
   ) {
     this.runBatchCommand(
       this.batchRun.start(targets, { ...options, action, params: { ...options.params, repo } }),
@@ -4539,7 +4631,10 @@ class GitGraphView {
   }
   /** Execute one BatchRun command, re-entering as the retry dialog resolves.
    *  All round state lives in the run; this only performs its side effects. */
-  private runBatchCommand(command: BatchRunCommand<BatchActionKind>, action: BatchActionKind) {
+  private runBatchCommand<K extends BatchActionKind>(
+    command: BatchRunCommand<BatchActionTypes, K>,
+    action: K
+  ) {
     const spec = this.batchSpec(action);
     switch (command.kind) {
       case "send":
@@ -4557,11 +4652,17 @@ class GitGraphView {
           // destroy it by destroying the dialog, so it is present exactly while
           // the question is on screen with neither answer given.
           '<span id="batchRetryOffer">' + (spec.retryBody?.(command.refs) ?? "") + "</span>",
-          () => this.runBatchCommand(this.batchRun.onRetryConfirmed(), action),
+          () => this.runBatchCommand(this.batchRun.onRetryConfirmed(action), action),
           null,
           // Declining the retry round still ends a batch that did real work, so
           // report what the first round managed rather than closing in silence.
-          () => this.runBatchCommand(this.batchRun.onRetryDeclined(), action)
+          // Only the user declines, though: an offer the system took away was
+          // answered by nobody, which is an abandoned run and owes its summary
+          // rather than raising it into the slot just emptied (#134).
+          (reason) => {
+            if (reason === "system") this.abandonBatchRun();
+            else this.runBatchCommand(this.batchRun.onRetryDeclined(action), action);
+          }
         );
         break;
       case "summarise":
@@ -4575,15 +4676,20 @@ class GitGraphView {
     }
   }
   /** Feed a batch action's response to the run in flight. */
-  public handleBatchActionResponse(action: BatchActionKind, results: BatchRefResult[]) {
+  public handleBatchActionResponse<K extends BatchActionKind>(
+    action: K,
+    results: BatchResultOf<K>[]
+  ) {
     this.runBatchCommand(this.batchRun.onResults(results, action), action);
   }
-  /** End the run whose retry offer has just been written over, and keep what
+  /** End the run whose retry offer has just been taken away, and keep what
    *  its first round did until there is a screen to say it on.
    *
    *  Called from {@link showDialog} whenever a dialog is raised over a standing
-   *  `#batchRetryOffer` — the offer's two answers both close it themselves, so
-   *  arriving here means neither was given and nobody is going to give one.
+   *  `#batchRetryOffer`, and from the offer's own dismissal hook when the
+   *  system rather than the user closed it (#134) — the offer's two answers
+   *  both close it themselves, so arriving here means neither was given and
+   *  nobody is going to give one.
    *  Without this the run holds the single in-flight slot for the life of the
    *  panel (`BatchRun.start`'s backstop then catches it, but only by dropping
    *  these results on the floor).
@@ -4604,23 +4710,33 @@ class GitGraphView {
     const command = this.batchRun.abandon();
     // `none` is the ordinary case, not a defensive one: the offer's markup is
     // still up while its own summary is raised, so this re-enters once.
-    if (command.kind !== "summarise" || command.action === null) return;
-    this.owedSummary = { results: command.results, action: command.action };
+    if (command.kind !== "summarise") return;
+    this.owedSummary = command;
     this.refresh(false);
   }
   /** Raise a summary that had nowhere to go when its run ended.
    *
-   *  Queued from {@link hideDialog} — the one place the dialog slot is emptied
+   *  Called from {@link hideDialog} — the one place the dialog slot is emptied
    *  — and run as a microtask, so that whatever the closing route does *next*
    *  has already had its turn: a Yes that fires off the next action and raises
    *  its progress dialog, a dismissal hook that opens a dialog of its own. If
    *  one of those claimed the slot, the summary stays owed and waits for the
    *  next close.
    *
-   *  It is deliberately not hung off `dialogDismissAction`. That hook cannot
-   *  tell a dialog the user dismissed from one the webview took away (#134),
-   *  and a summary owed is owed whichever of those happened. What this waits
-   *  for is the slot, not anyone's dismissal.
+   *  Only the summary that was owed when the slot emptied, though, and that is
+   *  why it is captured here rather than read when the microtask runs. One
+   *  that this very close runs up — the system taking a retry offer away,
+   *  whose hook abandons the run after the close (#134) — is owed to the slot
+   *  freeing *again*: this close was the removal, and paying it here would put
+   *  a dialog straight back into the slot the removal emptied. Something else
+   *  being owed already does not change that, so the test is identity, not
+   *  presence.
+   *
+   *  It is deliberately not hung off `dialogDismissAction`. The slot frees for
+   *  the user's dismissal, the system's, an answer, and a summary owed is owed
+   *  whichever of those happened. What this waits for is the slot, not anyone's
+   *  dismissal — except that the close which *ran up* the debt does not pay
+   *  it.
    *
    *  If the panel never frees the slot the summary is never shown, and it does
    *  not survive a reload. That is the accepted floor: the run is already
@@ -4629,9 +4745,12 @@ class GitGraphView {
    *  before, now only in the case where the user never closes another dialog. */
   public deliverOwedBatchSummary() {
     const owed = this.owedSummary;
-    if (owed === null || isDialogOpen()) return;
-    this.owedSummary = null;
-    this.reportBatchResults(owed.results, this.batchSpec(owed.action));
+    if (owed === null) return;
+    queueMicrotask(() => {
+      if (this.owedSummary !== owed || isDialogOpen()) return;
+      this.owedSummary = null;
+      this.reportBatchResults(owed.results, this.batchSpec(owed.action));
+    });
   }
   private deleteBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     const inputs: DialogInput[] = [
@@ -4654,7 +4773,7 @@ class GitGraphView {
         this.startBatchRun("deleteBranches", this.currentRepo!, targets, {
           // A classification the host makes more reliably than us: a refusal
           // a force round can fix.
-          retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
+          retryWhen: (r) => r.notFullyMerged,
           params: {
             forceDelete: values[0] === "checked",
             deleteOnRemotes: inputs.length > 1 && values[1] === "checked"
@@ -4678,7 +4797,7 @@ class GitGraphView {
     // Delete, nothing happened" whenever the host had posted `setRepo` in the
     // meantime.
     this.startBatchRun("deleteBranches", repo, refs, {
-      retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
+      retryWhen: (r) => r.notFullyMerged,
       params
     });
   }
@@ -4706,7 +4825,7 @@ class GitGraphView {
   private fastForwardBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     this.confirmForRepo(
       this.batchConfirmBody(l10n.dialogFastForwardBatchConfirm, targets, skipped),
-      (repo) => this.startBatchRun("fastForwardBranches", repo, targets),
+      (repo) => this.startBatchRun("fastForwardBranches", repo, targets, { params: {} }),
       null
     );
   }
@@ -4714,9 +4833,9 @@ class GitGraphView {
    *  each ref and its git error — one dialog per failed ref would punish exactly
    *  the case the batch exists to make cheap. The spec's `failureNote`, if any,
    *  goes once beneath the list. */
-  public reportBatchResults(
-    results: BatchRefResult[],
-    spec: Pick<BatchSpec, "errorTitle" | "failureNote">
+  public reportBatchResults<K extends BatchActionKind>(
+    results: BatchResultOf<K>[],
+    spec: Pick<BatchSpec<K>, "errorTitle" | "failureNote">
   ) {
     const failed = results.filter((r) => r.status !== null);
     if (failed.length === 0) {
@@ -5048,8 +5167,12 @@ class GitGraphView {
    * the one place cells are not `nowrap`. See {@link render}.
    */
   private makeTableResizable(): () => void {
+    // The headers are read from the graph's own header row, for the reason the
+    // handles below are bound within `#commitTable`: a `.tableColHeader` ahead
+    // of the table anywhere in the page would otherwise be `cols[0]`, take a
+    // pair of handles, and be sized as the graph column (#166).
     let colHeadersElem = document.getElementById("tableColHeaders")!,
-      cols = <HTMLCollectionOf<HTMLElement>>document.getElementsByClassName("tableColHeader");
+      cols = <HTMLCollectionOf<HTMLElement>>colHeadersElem.getElementsByClassName("tableColHeader");
     // `?.`, because this runs on a redraw and a redraw does not imply a
     // repository: a panel the host could offer no live repo to keeps the graph
     // it had on screen ({@link refresh} does not blank), and there is then no
@@ -5121,7 +5244,7 @@ class GitGraphView {
       };
     }
 
-    addListenerToClass("resizeCol", "mousedown", (e) => {
+    this.addGraphListenerToClass("resizeCol", "mousedown", (e) => {
       col = parseInt((<HTMLElement>e.target).dataset.col!);
       mouseX = (<MouseEvent>e).clientX;
       if (columnWidths === null) {
@@ -5219,32 +5342,29 @@ class GitGraphView {
       // the measurement below, never the listener's right to block.
       //
       // Not while a dialog is up. `#dialogBacking` is an unscrollable
-      // full-screen overlay, so a wheel over it chains to the document and
-      // this fires — but a user reading a modal question is not browsing the
-      // graph underneath it, which is the whole premise ADR-0019 keeps
+      // full-screen overlay, so a wheel over it used to chain to the document
+      // and fire this — but a user reading a modal question is not browsing
+      // the graph underneath it, which is the whole premise ADR-0019 keeps
       // automatic loading on. Its condition fails here twice over: the loaded
       // commit window would widen out of sight, and the footer carrying both
       // the count and the only control that shrinks it is behind the overlay.
       // A deferral, not a refusal — the next scroll after the dialog closes
       // loads as it always did.
       //
-      // This closes the wheel and *only* the wheel, which is worth saying
-      // plainly because the obvious reading of it is wrong. The footer's Load
-      // More is a real `<button>` with a tabindex, and `showDialog` sets two
-      // class names and an `innerHTML` — no `inert` on the background, no
-      // focus trap. So Tab still reaches that button behind the overlay and
-      // Space still activates it natively; the keydown handler's dialog branch
-      // returns without `preventDefault`, which cannot stop an activation it
-      // never saw. The window therefore still widens behind a dialog by
-      // keyboard, out of sight, and ADR-0019's condition is still only half
-      // restored.
+      // Since #230 the page itself holds still behind a dialog
+      // (`html.dialogOpen`), so the wheel no longer gets here at all. The gate
+      // stays for the scrolls that lock cannot stop: the browser bringing a
+      // focused background control into view was one, measured in Chromium.
       //
-      // #141 is the other half, and it is deliberately not scoped to this
-      // window: the defect it names is that `showDialog` provides no focus
-      // containment at all, so *every* background control stays tabbable and
-      // pressable while a dialog is up. Load More is the symptom that reaches
-      // this listener's subject, not the size of the problem. Nothing here can
-      // fix that — a term in this condition cannot make a dialog modal.
+      // The gate closed the wheel and *only* the wheel. The keyboard's door was
+      // the footer's Load More, a real `<button>` that Tab reached and Space
+      // pressed behind the overlay, because `showDialog` contained no focus at
+      // all. #141 closed that one where it belonged, in the dialog rather than
+      // in this condition: the background is `inert` while a dialog stands and
+      // Tab cycles inside it, so no background control takes focus — and none
+      // is scrolled into view by taking it — until the dialog is gone. The
+      // gate is kept anyway: it costs one term, and it does not depend on
+      // every scroll source having been found.
       //
       // `"browsing"` is what keeps a refused load silent on this path while the
       // footer button reports its own (#137). It is not a nicety: this listener
@@ -5381,9 +5501,11 @@ class GitGraphView {
    *  it stands this very listener is gated (#124), so one page too many would
    *  stop every page after it.
    *
-   *  Speaking from behind a standing dialog costs that dialog — #141 is why the
-   *  user can get here, #127 is why arriving destroys the standing question; the
-   *  measurement and why silence is not the cure are in ADR-0019. */
+   *  Speaking from behind a standing dialog costs that dialog — #141 was why
+   *  the user could get here, #127 is why arriving destroys the standing
+   *  question; the measurement and why silence is not the cure are in ADR-0019.
+   *  Since #141 the button is `inert` while a dialog stands, so the press can no
+   *  longer come from behind one. */
   private loadMoreCommits(trigger: LoadMoreTrigger) {
     if (this.commitLoadInFlight) {
       if (trigger === "operation") showErrorDialog(l10n.dialogLoadMoreBusy, null, null);
@@ -5433,11 +5555,11 @@ class GitGraphView {
    *  appearing to hold. Nothing is lost by saying so: the same press works a
    *  moment later.
    *
-   *  Speaking from behind a standing dialog costs that dialog — #141 is why the
-   *  user can get here, #127 is why arriving destroys the standing question; the
-   *  measurement and why silence is not the cure are in ADR-0019. It applies to
-   *  this button as much as to Load More beside it: same footer, same overlay,
-   *  same tab order. */
+   *  Speaking from behind a standing dialog costs that dialog — #141 was why
+   *  the user could get here, #127 is why arriving destroys the standing
+   *  question; the measurement and why silence is not the cure are in ADR-0019.
+   *  What holds for Load More beside it holds here: same footer, same overlay,
+   *  and since #141 the same `inert` while a dialog stands. */
   private resetLoadedCommitWindow() {
     if (this.commitLoadInFlight) {
       showErrorDialog(l10n.dialogResetWindowBusy, null, null);
@@ -5524,6 +5646,7 @@ class GitGraphView {
     if (panel !== null) panel.remove();
     // The next CDV is an opening, however it compares to this one.
     this.cdvBroughtIntoView = null;
+    this.cdvFileTabStopMemory = null;
     if (this.expandedCommit !== null) {
       if (this.expandedCommit.srcElem !== null)
         this.expandedCommit.srcElem.classList.remove("commitDetailsOpen");
@@ -5884,12 +6007,12 @@ class GitGraphView {
       // a few lines down when the match has been amended away: the very same
       // press, once the load in flight lands.
       //
-      // Speaking from behind a standing dialog costs that dialog — #141 is why
-      // the user can get here, #127 is why arriving destroys the standing
+      // Speaking from behind a standing dialog costs that dialog — #141 was why
+      // the user could get here, #127 is why arriving destroys the standing
       // question; the measurement and why silence is not the cure are in
-      // ADR-0019. Live on this path too: the document keydown handler returns
-      // early while a dialog is up, but the Find input has a keyup listener of
-      // its own, so Enter still steps from behind an overlay.
+      // ADR-0019. This path was live too — the Find input's own keyup listener
+      // stepped on Enter from behind an overlay — until #141 made the Find
+      // widget `inert` with the rest of the background.
       showErrorDialog(l10n.dialogFindStepBusy, null, null);
       return "hold";
     }
@@ -5909,11 +6032,12 @@ class GitGraphView {
       // rather than that one is running: when the question went up there was
       // none, and the user has no other way to learn that changed.
       //
-      // Speaking from behind a standing dialog costs that dialog — #141 is why
-      // the user can get here, #127 is why arriving destroys the standing
+      // Speaking from behind a standing dialog costs that dialog — #141 was why
+      // the user could get here, #127 is why arriving destroys the standing
       // question; the measurement and why silence is not the cure are in
       // ADR-0019. Cheapest to see here of the four: this runs from the answer
-      // to a dialog, so another may well have been raised over it in between.
+      // to a dialog, so another may well have been raised over it in between —
+      // by the host, which #141's `inert` does nothing to stop.
       if (this.commitLoadInFlight) {
         showErrorDialog(l10n.dialogFindLoadBusy, null, null);
         return;
@@ -5924,12 +6048,12 @@ class GitGraphView {
       // they stood when the question went up, and both still move while the
       // dialog stands.
       // The loaded commit window: automatic loading no longer widens it there
-      // — #124 gated the scroll listener on the dialog — but the footer's Load
-      // More still does, because `showDialog` provides no focus containment
-      // (#141: no `inert`, no focus trap, no focus move, so every background
-      // control stays tabbable and pressable) and the overlay hides that
-      // button without disabling it. And the match: a background reload lands on the file
-      // watcher's schedule, not the user's, so a rebase or an amend in the
+      // — #124 gated the scroll listener on the dialog — and since #141 the
+      // footer's Load More cannot either, being `inert` behind the dialog with
+      // the rest of the background. The re-take is kept for it all the same:
+      // it is the rule ADR-0019 states, not a patch for one route to the
+      // window, and the rule outlives the routes. And the match: a background
+      // reload lands on the file watcher's schedule, not the user's, so a rebase or an amend in the
       // terminal can redraw the very commit this plan was sized to go and
       // fetch.
       // Acting on a stale plan sets `maxCommits` *back* to the older, smaller
@@ -5994,13 +6118,11 @@ class GitGraphView {
    *  this family reads the same, and so that the one thing they have in common
    *  is visible at a glance — they all name a row of a table.
    *
-   *  The ref half is scoped with it rather than left behind. Nothing but
-   *  `renderTable` renders a `.gitRef` today, so there is no second `.gitRef` to
-   *  reach — but `findBranchMatch` is set, ten lines down, only on refs inside a
-   *  row this now cannot find outside the table, and a clear with a wider reach
-   *  than the paint it undoes is the asymmetry both #128 and #144 were. This is
-   *  the *read*; `gitRef`'s **binding** is still document-wide and is somebody
-   *  else's ticket — see the inventory beside `addListenerToClass`. */
+   *  The ref half is scoped with it rather than left behind. `findBranchMatch`
+   *  is set, ten lines down, only on refs inside a row this now cannot find
+   *  outside the table, and a clear with a wider reach than the paint it undoes
+   *  is the asymmetry both #128 and #144 were. This is the *read*; #166 scoped
+   *  `gitRef`'s **bindings** to the same table. */
   private clearFindHighlights() {
     this.tableElem
       .querySelectorAll("tr.commit.findMatch, tr.commit.findMatchCurrent")
@@ -6132,6 +6254,24 @@ class GitGraphView {
   private focusedRowKey(): string | null {
     const row = focusedRow(this.graphRows());
     return row === undefined ? null : graphRowKey(row);
+  }
+
+  /** The key of the graph row `elem` is, or sits in — null when it is not in
+   *  the graph. What a modal dialog keeps of the element it took focus from, so
+   *  that a redraw replacing that element while the dialog stands does not cost
+   *  the user their place (#141). */
+  public graphRowKeyOf(elem: HTMLElement): string | null {
+    const row = this.graphRows().find((r) => r === elem || r.contains(elem));
+    return row === undefined ? null : graphRowKey(row);
+  }
+
+  /** Put focus back on the row `key` names, in place. False when no such row
+   *  is drawn any more. */
+  public focusGraphRowByKey(key: string): boolean {
+    const row = this.graphRows().find((r) => graphRowKey(r) === key);
+    if (row === undefined) return false;
+    this.graphTabStop.focusInPlace(row);
+    return true;
   }
 
   /** Where the arrow keys step from: the row holding focus, falling back to the
@@ -6382,18 +6522,59 @@ class GitGraphView {
    *  at all. Re-run whenever the visible set changes — a fresh render leaves
    *  every row at `-1`, and collapsing a folder can bury the row that held it.
    *
-   *  Only *this* list gets one. The branch-redundancy dialog's copy of a commit's
-   *  files is left with no tab stop of its own and so is unreachable by keyboard
-   *  — not a conclusion anyone reached, but a question that was asked and moved:
-   *  #128 was told to decide whether that list should be its own roving group and
-   *  the maintainer deferred it to **#145**, so that its own defect (the file
-   *  actions crossing between the two lists) could be fixed without a keyboard
-   *  design riding along. Read this as pending, not as settled. */
+   *  Only *this* list's, through this method. The branch-redundancy dialog's
+   *  copy of a commit's files is a roving group of its own (#145), with a tab
+   *  stop of its own that `bindDialogFileList` gives it — a question #128 was
+   *  asked and the maintainer deferred to #145, so that #128's own defect (the
+   *  file actions crossing between the two lists) could be fixed without a
+   *  keyboard design riding along.
+   *
+   *  The stop goes back onto the file that last held it, found by
+   *  {@link cdvFileKey} in the new rows — the same lookup
+   *  {@link restoreCdvFileFocus} makes, for the same reason: the tree and list
+   *  layouts put a file at different indices, so only the path survives the
+   *  layout toggle, and a redraw (a page of commits, a refresh) replaces every
+   *  row. Without it Tab came back to the first file after every one of those,
+   *  wherever the user had left the list (#129).
+   *
+   *  When that file is no longer among the rows the keyboard can reach — the
+   *  same commit answered again with different files, as the uncommitted
+   *  changes do, or a collapsed folder burying it — the stop takes the row now
+   *  at its old index, clamped to the shorter list. That is not the index
+   *  ADR-0019 rules out as an identity: the path is still the identity, and
+   *  the index only answers what to do once that identity is gone. It is a
+   *  guess, and a rough one after a collapse — the folder's other files leave
+   *  the list too, so the index lands that many files further on — but it
+   *  keeps the user in the part of the list they were in, which the first row
+   *  did not. The stop then belongs to the row it landed on, so a file that
+   *  comes back on a later redraw does not take it back.
+   *
+   *  Only for the same view, though. A different commit, or a different
+   *  comparison, is an opening, and its list starts from the top even when it
+   *  has a file at the same path. */
   private restoreCdvFileTabStop() {
     const held = this.cdvFileTabStop.current;
     if (held !== null && held.closest(".hidden") === null) return;
-    const first = this.cdvFileRows()[0];
-    if (first !== undefined) this.cdvFileTabStop.set(first);
+    const files = this.cdvFileRows();
+    if (files.length === 0) return;
+    const memory = this.cdvFileTabStopMemory;
+    const target =
+      memory === null || memory.cdvIdentity !== this.cdvIdentity()
+        ? files[0]
+        : (files.find((file) => cdvFileKey(file) === memory.key) ??
+          files[Math.max(0, Math.min(memory.index, files.length - 1))]);
+    this.cdvFileTabStop.set(target);
+  }
+
+  /** Note which file now holds the file list's tab stop — see
+   *  {@link cdvFileTabStopMemory}. Every way the stop moves ends here, through
+   *  {@link RovingTabStop}'s `onSet`, so the memory never lags the markup. */
+  private rememberCdvFileTabStop(file: HTMLElement) {
+    this.cdvFileTabStopMemory = {
+      cdvIdentity: this.cdvIdentity(),
+      key: cdvFileKey(file),
+      index: this.cdvFileRows().indexOf(file)
+    };
   }
 
   /** Keep each group's tab stop wherever it last held focus, however focus got
@@ -6412,14 +6593,14 @@ class GitGraphView {
    *  unhidden and returns early — and once the dialog closes and takes its rows
    *  with it, nothing calls that method until the panel is next rebuilt. So the
    *  list stays unreachable until some *other* thing redraws it: a refresh, a
-   *  page of commits, a layout toggle. The dialog's rows belong to no roving
-   *  group, so there is no tab stop of theirs to keep and none to hand them:
-   *  leaving the panel's where it was is the whole of the fix. It claimed
-   *  nothing about how those rows behave otherwise, and at the time they were
-   *  not inert at all; the binding path has since been scoped the same way this
-   *  one is (#128), so {@link commitFilesHtml} can now say they do nothing — on
-   *  three conditions it lists there, the third of which is not about the rows
-   *  and would be re-opened by #145 or #141.
+   *  load of more commits, a layout toggle. Leaving the panel's where it was is the
+   *  whole of the fix here; the dialog's rows keep a tab stop of their own, in a
+   *  group of their own (#145), which `syncDialogTabStop` points the same way
+   *  this points the panel's. It claimed nothing about how those rows behave
+   *  otherwise, and at the time they were not inert at all; the binding path
+   *  has since been scoped the same way this one is (#128), so
+   *  {@link commitFilesHtml} can now say what they do — on three conditions it
+   *  lists there.
    *
    *  The `.gitFile` match survives in front of the scope check as a cheap way
    *  in, not as a second scoping rule: `cdvFileRows` is the only thing that says
@@ -6918,14 +7099,9 @@ class GitGraphView {
   private attachCdvFileListeners() {
     this.restoreCdvFileTabStop();
     this.addCdvListenerToClass("gitFolder", "click", (e) => {
-      let sourceElem = <HTMLElement>(<Element>e.target!).closest(".gitFolder");
-      let parent = sourceElem.parentElement!;
-      parent.classList.toggle("closed");
-      let isOpen = !parent.classList.contains("closed");
-      parent.children[0].children[0].innerHTML = isOpen
-        ? svgIcons.openFolder
-        : svgIcons.closedFolder;
-      parent.children[1].classList.toggle("hidden");
+      const sourceElem = <HTMLElement>(<Element>e.target!).closest(".gitFolder");
+      const isOpen = !isGitFolderOpen(sourceElem);
+      setGitFolderOpen(sourceElem, isOpen);
       // Both `!`s rest on the scope, not on luck: this handler only exists on
       // rows inside {@link cdvPanel}, and `clearExpandedCommit` removes that
       // panel and nulls `expandedCommit` in the same breath. Unscoped, the
@@ -7132,7 +7308,9 @@ class GitGraphView {
    *  layout the repo is set to. Shared with the branch-redundancy dialog so a
    *  commit's files read the same wherever they are shown.
    *
-   *  **The dialog's copy is inert, and it rests on three legs, not one.** First,
+   *  **The dialog's file rows are inert, and that rests on three legs, not
+   *  one.** (Its folders fold, by listeners the dialog binds on its own rows —
+   *  `bindDialogFileList`, #145 — which read nothing of the panel's.) First,
    *  nothing here binds a listener — the generator emits markup only. Second,
    *  the panel's own binding stays out: {@link attachCdvFileListeners} goes
    *  through {@link addCdvListenerToClass}, scoped to {@link cdvPanel}. Third —
@@ -7148,6 +7326,18 @@ class GitGraphView {
    *  what can be focused here, and the third leg survives only because that
    *  early return outranks the branches — not because the rows are unreachable.
    *  The first two legs are this ticket's and hold on their own.
+   *
+   *  #141 has landed, and the third leg held: its Tab and Enter handling went
+   *  *inside* that early return rather than in front of it, and its Tab stops
+   *  are `tabIndex >= 0` only, so the rows — all at `-1` then — were never
+   *  stepped onto.
+   *
+   *  #145 has landed too, and the third leg held again, though the rows are now
+   *  reachable — one of them holds its list's tab stop, at `0`, so Tab does
+   *  step onto that one. Its keys went inside
+   *  the same early return (`dialogListKeydown`), and read neither constant:
+   *  Enter and Space on a file are taken there and do nothing, and the menu
+   *  key is never dispatched while a dialog stands.
    *
    *  This comment claimed inertness for years on a different ground that was never
    *  true — that the row actions are bound to the graph's expanded row — while
@@ -7226,21 +7416,27 @@ let dialog = document.getElementById("dialog")!,
   /** The open dialog's dismissal hook, if it declared one.
    *
    *  Held here rather than only inside the Dismiss button's click closure,
-   *  because the button is not the only way a dialog closes: Escape closes one,
-   *  and so does a background reload that finds its own progress dialog still
-   *  up. A hook wired to one route out of three is not a hook, it is a
-   *  coincidence.
+   *  because the button is not the only way a dialog closes unanswered: Escape
+   *  closes one, and so do a background reload that finds its own progress
+   *  dialog still up and the panel losing its repository. A hook wired to one
+   *  of those routes is not a hook, it is a coincidence.
    *
    *  The five of them do quite different things, and it is worth not flattening
    *  that. The cleanup refetch clears the state a late answer would otherwise
-   *  put back on screen; the cleanup scan stops work the host is still doing,
-   *  and stops *only* that — Stop is a "come back with what you found"
-   *  contract, so the answer still arrives and still fills the dialog back in;
+   *  put back on screen; the cleanup scan stops work the host is still doing;
    *  the error dialog and the batch summary go and fetch what they were
    *  standing in front of (the conflict banner); the batch retry's decline ends
    *  a run that did real work, and opens a summary dialog of its own. What they
-   *  share is only the occasion — the user is done with this dialog — and that
-   *  is as true of the routes that close it *for* them as of the button.
+   *  share is only the occasion — the dialog is gone unanswered.
+   *
+   *  Who took it away is passed in ({@link DismissalReason}), because two of
+   *  them answer differently for it (#134); the other three do the same either
+   *  way. The cleanup scan's Stop is a "come
+   *  back with what you found" contract, so after the user's dismissal the
+   *  answer fills the list back in; after the system's nobody asked for it, and
+   *  it would land over whatever the user is on by then. The retry offer taken
+   *  away by the system was not declined — nobody answered — so the run is
+   *  abandoned rather than summarised on the spot.
    *
    *  Set on every {@link showDialog}, including the ones that overwrite an open
    *  dialog, so a stale hook can never outlive its dialog. Overwriting does not
@@ -7248,7 +7444,18 @@ let dialog = document.getElementById("dialog")!,
    *  dialog it was awaited by is not a dismissal — `handleBranchCleanupOpen`
    *  builds the new `cleanupState` before rendering over the refetch dialog,
    *  and running that dialog's hook would null it straight back out. */
-  dialogDismissAction: (() => void) | null = null;
+  dialogDismissAction: ((reason: DismissalReason) => void) | null = null,
+  /** Where the standing run of dialogs took focus from; see {@link showDialog}. */
+  dialogOpener: DialogOpener | null = null;
+/** Marks what arrives in `<body>` while a dialog stands — a docked Commit
+ *  Details View rebuilt by a background reload — inert like the rest. */
+const lateBackgroundObserver = new MutationObserver((records) => {
+  for (const record of records) {
+    record.addedNodes.forEach((node) => {
+      if (node instanceof Element && node.parentElement === document.body) markInert(node, true);
+    });
+  }
+});
 // "Remember my choice" values per dialog key, seeded from the extension host at
 // load and updated optimistically on each confirm (the save message is one-way).
 let dialogMemory: GG.DialogMemoryStore = viewState.dialogMemory ?? {};
@@ -7320,8 +7527,25 @@ function conflictPredictionPlaceholder(repo: string, theirs: string): string {
 // late answer must neither replace whatever the user opened in the meantime nor
 // reappear after they dismissed the "checking" dialog.
 let redundancyCheckSeq = 0;
+/** The progress dialog the latest check raised. The sequence says the answer
+ *  is to the latest request; this says that request's dialog is still up. */
+let redundancyDialogOwner = 0;
 /** The repo the open dialog is reporting on, for its lazy detail requests. */
 let redundancyRepo: string | null = null;
+/** The dialog's commit rows are one roving group (#145): one tab stop, Up/Down
+ *  between them, Enter or Space to expand. Each dialog brings fresh rows, so a
+ *  holder left over from the last one is simply disconnected. */
+const redundancyRowTabStop = new RovingTabStop();
+
+/** A commit row of the redundancy dialog's list, asked of elements already
+ *  known to be in `#dialog` — never a bare `tr.commit`: the graph's rows carry
+ *  the same class (#144). */
+const REDUNDANCY_ROW = ".commitList tr.commit";
+
+/** The open dialog's commit rows, in order. */
+function redundancyCommitRows(): HTMLElement[] {
+  return Array.from(dialog.querySelectorAll<HTMLElement>(REDUNDANCY_ROW));
+}
 
 /** Ask whether `branch` still has anything to contribute to the default branch.
  *  Deliberately reports and forgets: the answer is a snapshot, and folding it
@@ -7329,12 +7553,12 @@ let redundancyRepo: string | null = null;
  *  promise (ADR-0006). */
 function requestBranchRedundancy(repo: string, branch: string) {
   redundancyRepo = repo;
-  showActionRunningDialog(l10n.redundancyChecking);
+  redundancyDialogOwner = showActionRunningDialog(l10n.redundancyChecking);
   sendMessage({ command: "branchRedundancy", repo, branch, token: ++redundancyCheckSeq });
 }
 
 function showBranchRedundancy(branch: string, result: BranchRedundancy, token: number) {
-  if (token !== redundancyCheckSeq || document.getElementById("actionRunning") === null) return;
+  if (token !== redundancyCheckSeq || progressDialogOwnedBy(redundancyDialogOwner) === null) return;
   const message = branchRedundancyMessage(branch, result) + branchRedundancyBasis(result);
   // A redundant branch, and every branch we couldn't judge, is a one-line
   // answer with nothing to list. Those stay plain centred alerts: the wide
@@ -7355,9 +7579,9 @@ function showBranchRedundancy(branch: string, result: BranchRedundancy, token: n
     null,
     null
   );
-  document.querySelectorAll("#dialog .commitList tr.commit").forEach((row) => {
-    row.addEventListener("click", () => toggleRedundancyCommit(<HTMLElement>row));
-  });
+  const rows = redundancyCommitRows();
+  for (const row of rows) row.addEventListener("click", () => toggleRedundancyCommit(row));
+  if (rows.length > 0) redundancyRowTabStop.set(rows[0]);
 }
 
 /* The rebase dialogs' replay checklist (#172) */
@@ -7613,13 +7837,19 @@ let cleanupSeq = 0;
 let cleanupOpenToken = 0;
 /** The repo that request was made for. */
 let cleanupOpenRepo: string | null = null;
+/** The progress dialog that request raised, which its answer replaces. */
+let cleanupOpenDialogOwner = 0;
+/** The progress dialog the running deep scan reports into. */
+let cleanupScanDialogOwner = 0;
+/** The progress dialog the open dialog's "fetch and recompute" raised. */
+let cleanupRefetchDialogOwner = 0;
 
 /** Ask the host for a payload and open the dialog on it. The graph's context
  *  menu route (the side-view command has the payload already). */
 function requestBranchCleanup(repo: string) {
   cleanupOpenRepo = repo;
   cleanupOpenToken = ++cleanupSeq;
-  showActionRunningDialog(l10n.cleanupChecking);
+  cleanupOpenDialogOwner = showActionRunningDialog(l10n.cleanupChecking);
   sendMessage({ command: "branchCleanupOpen", repo, fetch: false, token: cleanupOpenToken });
 }
 
@@ -7628,19 +7858,25 @@ function requestBranchCleanup(repo: string) {
  *
  * The open dialog's own "fetch and recompute" carries that dialog's token, so it
  * updates in place. Anything else is a fresh open, and only counts while the
- * "working" dialog it replaced is still up — a late answer must not reopen a
- * dialog the user has already dismissed.
+ * "working" dialog its request raised is still up — a late answer must not
+ * reopen a dialog the user has already dismissed, nor take over the progress
+ * dialog of whatever they started since.
  */
 function handleBranchCleanupOpen(msg: GG.ResponseBranchCleanupOpen) {
   const notice = msg.fetchFailed ? l10n.cleanupFetchFailed : null;
   if (cleanupState !== null && msg.token === cleanupState.token) {
-    updateBranchCleanup(msg.payload, notice, msg.token);
+    // Only over the refetch's own progress dialog. Its hook clears
+    // `cleanupState` when the user walks away, but a dialog that replaces it
+    // runs no hook, and the answer would render the list over that one.
+    if (progressDialogOwnedBy(cleanupRefetchDialogOwner) !== null) {
+      updateBranchCleanup(msg.payload, notice, msg.token);
+    }
     return;
   }
   if (
     msg.token !== cleanupOpenToken ||
     cleanupOpenRepo === null ||
-    document.getElementById("actionRunning") === null
+    progressDialogOwnedBy(cleanupOpenDialogOwner) === null
   ) {
     return;
   }
@@ -7819,11 +8055,11 @@ function renderBranchCleanup() {
   ];
   const scanButton =
     state.payload.scannable > 0
-      ? '<div id="cleanupDeepCheck" class="roundedBtn" title="' +
+      ? '<button type="button" id="cleanupDeepCheck" class="roundedBtn" title="' +
         escapeHtml(l10n.cleanupDeepCheckHint) +
         '">' +
         escapeHtml(fillTemplate(l10n.cleanupDeepCheck, String(state.payload.scannable))) +
-        "</div>"
+        "</button>"
       : "";
   const body =
     '<div class="cleanupResult"><span class="cleanupSummary">' +
@@ -7833,11 +8069,13 @@ function renderBranchCleanup() {
     "</div>" +
     cleanupList(state) +
     cleanupBasis(state) +
+    // Real `<button>`s, as the dialog's own are (#141): Tab stops, pressed by
+    // Enter or Space, and so never the dialog's "confirm".
     '<div class="cleanupTools">' +
     scanButton +
-    '<div id="cleanupRefetch" class="roundedBtn">' +
+    '<button type="button" id="cleanupRefetch" class="roundedBtn">' +
     escapeHtml(l10n.cleanupRefetch) +
-    "</div></div></div>";
+    "</button></div></div>";
 
   // The dialog is the confirmation: there is no second one behind it. The row
   // ticks, the two delete options and the batch run all hang off this one
@@ -7910,13 +8148,17 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
   });
   document.getElementById("cleanupRefetch")?.addEventListener("click", () => {
     if (cleanupState === null) return;
-    // Dismissing the progress dialog abandons the dialog with it. The fetch
-    // itself cannot be recalled, but the answer must not reopen a dialog the
-    // user has closed — unlike the scan's Stop, which exists precisely to come
-    // back with what it found.
-    showActionRunningDialogWith(l10n.loading, l10n.dialogDismiss, () => {
-      cleanupState = null;
-    });
+    // Dismissing the progress dialog abandons the dialog with it, whoever
+    // dismissed it. The fetch itself cannot be recalled, but the answer must not
+    // reopen a dialog that has been closed — unlike the scan's Stop, which
+    // exists precisely to come back with what it found.
+    cleanupRefetchDialogOwner = showActionRunningDialogWith(
+      l10n.loading,
+      l10n.dialogDismiss,
+      () => {
+        cleanupState = null;
+      }
+    );
     sendMessage({
       command: "branchCleanupOpen",
       repo: cleanupState.repo,
@@ -7930,17 +8172,36 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
  *  replaced by a progress one so the list can't be edited against verdicts that
  *  are still arriving. */
 function startBranchCleanupScan(repo: string, token: number) {
-  showActionRunningDialogWith(
+  cleanupScanDialogOwner = showActionRunningDialogWith(
     escapeHtml(fillTemplate(l10n.cleanupScanning, "0", "?")),
     l10n.cleanupScanStop,
-    () => sendMessage({ command: "branchCleanupScanCancel" })
+    (reason) => {
+      sendMessage({ command: "branchCleanupScanCancel" });
+      // Stop and Escape ask for what was found, and the cancelled answer brings
+      // the list back. The system closing the dialog asked for nothing: the
+      // answer would land over whatever the user is on by then, so the list is
+      // abandoned the way the refetch's hook abandons it (#134).
+      if (reason === "system") cleanupState = null;
+    }
   );
   sendMessage({ command: "branchCleanupScan", repo, token });
 }
 
+/** The deep scan's verdicts, finished or cut short by Stop. Over the scan's own
+ *  progress dialog, or into the empty slot Stop leaves — Stop's contract is to
+ *  come back with what was found. Never over a dialog that has taken the slot
+ *  since: that one belongs to someone else. */
+function handleBranchCleanupScan(msg: GG.ResponseBranchCleanupScan) {
+  if (progressDialogOwnedBy(cleanupScanDialogOwner) === null && isDialogOpen()) return;
+  updateBranchCleanup(msg.payload, msg.cancelled ? l10n.cleanupScanCancelled : null, msg.token);
+}
+
 function updateBranchCleanupScanProgress(done: number, total: number, token: number) {
   if (cleanupState === null || token !== cleanupState.token) return;
-  const running = document.getElementById("actionRunning");
+  // The scan's own dialog, not any progress dialog: Stop, Escape or a reload
+  // can close it while counts are still in flight, and the next one up is
+  // someone else's.
+  const running = progressDialogOwnedBy(cleanupScanDialogOwner);
   if (running === null) return;
   running.innerHTML =
     svgIcons.loading + escapeHtml(fillTemplate(l10n.cleanupScanning, String(done), String(total)));
@@ -8058,7 +8319,7 @@ function redundancyCommitRow(commit: RedundancyCommit): string {
   const date = getCommitDate(commit.date);
   const avatar = gitGraph.avatarHtml(commit.email);
   return (
-    '<tr class="commit" data-hash="' +
+    '<tr class="commit" tabindex="-1" data-hash="' +
     commit.hash +
     '"><td>' +
     escapeHtml(replaceEmojiShortcodes(commit.subject, viewState.customEmojiShortcodeMappings)) +
@@ -8131,6 +8392,152 @@ function showRedundancyCommitDetails(commitHash: string, details: GitCommitDetai
         '</div><div class="commitDetailsFiles">' +
         gitGraph.commitFilesHtml(details.fileChanges) +
         "</div></div>";
+  const fileList = cell.querySelector<HTMLElement>(".commitDetailsFiles");
+  if (fileList !== null) bindDialogFileList(fileList);
+}
+
+/** The keys a roving group inside the dialog owns (#145), handled — and their
+ *  default cancelled — when `e` is one. False leaves the key to the dialog's
+ *  own rules, which is how a modified key, or any key on anything else in the
+ *  dialog, still reaches them. */
+function dialogListKeydown(e: KeyboardEvent): boolean {
+  const target = e.target;
+  if (!(target instanceof HTMLElement) || !dialog.contains(target)) return false;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
+  const fileList = dialogFileListOf(target);
+  const handled = target.matches(REDUNDANCY_ROW)
+    ? redundancyRowKeydown(target, e.key)
+    : fileList !== null
+      ? dialogFileRowKeydown(fileList, target, e.key)
+      : false;
+  if (handled) e.preventDefault();
+  return handled;
+}
+
+/** A commit row of the redundancy dialog: Up/Down step between the rows, and
+ *  Enter or Space expand or collapse one, the way a click does. */
+function redundancyRowKeydown(row: HTMLElement, key: string): boolean {
+  if (key === "ArrowUp" || key === "ArrowDown") {
+    const rows = redundancyCommitRows();
+    const to = stepWithinGroup(rows.length, rows.indexOf(row), key === "ArrowUp" ? -1 : 1);
+    redundancyRowTabStop.focus(rows[to]);
+    return true;
+  }
+  if (key === "Enter" || key === " ") {
+    toggleRedundancyCommit(row);
+    return true;
+  }
+  return false;
+}
+
+/** The dialog's half of the document's `focusin`: whichever of its groups focus
+ *  lands in, however it got there, points its tab stop at it. */
+function syncDialogTabStop(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement) || !dialog.contains(target)) return;
+  if (target.matches(REDUNDANCY_ROW)) {
+    redundancyRowTabStop.set(target);
+    return;
+  }
+  const fileList = dialogFileListOf(target);
+  if (fileList !== null) dialogFileTabStop(fileList).set(target);
+}
+
+/* An expanded commit's file list in the redundancy dialog (#145). Each one is
+   its own roving group, on the WAI-ARIA APG's tree view pattern: one tab stop,
+   Up/Down between the rows that are showing, and — in the tree layout — Left
+   and Right folding, unfolding and climbing folders. The flat File List has no
+   folders, so only Up/Down mean anything there.
+
+   A file row does nothing, by keyboard or pointer: the Commit Details View's
+   file actions stay bound inside that panel (#128), and nothing here binds any
+   of its own. Folders are the dialog's to fold, through listeners bound on its
+   own rows. The panel's tab stop is `cdvFileTabStop` and is never touched here
+   (#113): `syncTabStop` asks `cdvFileRows`, which these rows are not among. */
+
+/** One tab stop per file list, keyed by the list's `.commitDetailsFiles`. */
+const dialogFileTabStops = new WeakMap<HTMLElement, RovingTabStop>();
+
+function dialogFileTabStop(fileList: HTMLElement): RovingTabStop {
+  let stop = dialogFileTabStops.get(fileList);
+  if (stop === undefined) {
+    stop = new RovingTabStop();
+    dialogFileTabStops.set(fileList, stop);
+  }
+  return stop;
+}
+
+/** The dialog file list `row` is a row of, or null when it is not one. */
+function dialogFileListOf(row: HTMLElement): HTMLElement | null {
+  if (!row.matches(".gitFolder, .gitFile")) return null;
+  const fileList = row.closest<HTMLElement>(".commitDetailsFiles");
+  return fileList !== null && dialog.contains(fileList) ? fileList : null;
+}
+
+/** Make a freshly rendered file list a group: folders focusable as files
+ *  already are, folders folding on a click, and the tab stop on the first row. */
+function bindDialogFileList(fileList: HTMLElement) {
+  fileList.querySelectorAll<HTMLElement>(".gitFolder").forEach((folder) => {
+    folder.tabIndex = -1;
+    folder.addEventListener("click", () =>
+      setDialogFolderOpen(fileList, folder, !isGitFolderOpen(folder))
+    );
+  });
+  const first = visibleGitFileTreeRows(fileList)[0];
+  if (first !== undefined) dialogFileTabStop(fileList).set(first);
+}
+
+/** Fold or unfold one of the list's folders. A fold can bury the row holding
+ *  the tab stop, and Tab would then have nowhere to come back to: the folder
+ *  takes it instead. */
+function setDialogFolderOpen(fileList: HTMLElement, folder: HTMLElement, open: boolean) {
+  setGitFolderOpen(folder, open);
+  const stop = dialogFileTabStop(fileList);
+  const held = stop.current;
+  if (held === null || held.closest(".hidden") !== null) stop.set(folder);
+}
+
+/** A row of a dialog file list. Enter and Space fold a folder and do nothing on
+ *  a file, but are taken either way: they are not the dialog's "confirm". */
+function dialogFileRowKeydown(fileList: HTMLElement, row: HTMLElement, key: string): boolean {
+  const stop = dialogFileTabStop(fileList);
+  const isFolder = row.matches(".gitFolder");
+  switch (key) {
+    case "ArrowUp":
+    case "ArrowDown": {
+      const rows = visibleGitFileTreeRows(fileList);
+      stop.focus(rows[stepWithinGroup(rows.length, rows.indexOf(row), key === "ArrowUp" ? -1 : 1)]);
+      return true;
+    }
+    case "ArrowRight": {
+      if (!isFolder) return false;
+      if (!isGitFolderOpen(row)) {
+        setDialogFolderOpen(fileList, row, true);
+      } else {
+        // An open folder's first child is the row after it: a folder exists
+        // only because something is in it.
+        const rows = visibleGitFileTreeRows(fileList);
+        const child = rows[rows.indexOf(row) + 1];
+        if (child !== undefined) stop.focus(child);
+      }
+      return true;
+    }
+    case "ArrowLeft": {
+      if (isFolder && isGitFolderOpen(row)) {
+        setDialogFolderOpen(fileList, row, false);
+        return true;
+      }
+      const parent = parentGitFolderRow(row);
+      if (parent === null) return false;
+      stop.focus(parent);
+      return true;
+    }
+    case "Enter":
+    case " ":
+      if (isFolder) setDialogFolderOpen(fileList, row, !isGitFolderOpen(row));
+      return true;
+    default:
+      return false;
+  }
 }
 
 /* Command Processing */
@@ -8282,7 +8689,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
       break;
     case "pushBranch":
-      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout);
+      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout, msg.staleInfoRef);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -8360,7 +8767,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       updateBranchCleanupScanProgress(msg.done, msg.total, msg.token);
       break;
     case "branchCleanupScan":
-      updateBranchCleanup(msg.payload, msg.cancelled ? l10n.cleanupScanCancelled : null, msg.token);
+      handleBranchCleanupScan(msg);
       break;
     case "deleteBranches":
       gitGraph.handleBatchActionResponse("deleteBranches", msg.results);
@@ -8480,14 +8887,22 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
 /** Handle a pushBranch response. A Force with lease refused because the remote
  *  tip was never integrated (ADR-0025) gets an explanation — git's own reason,
  *  "remote ref updated since checkout", names no next step — with git's line
- *  kept beneath it. The explanation names the Force option instead of offering
+ *  kept beneath it. So does one refused for "(stale info)", which names only
+ *  the remote's URL. The explanation names the Force option instead of offering
  *  it: overwriting someone's work stays a separate, deliberate choice. */
-function handlePushBranchResponse(status: GitCommandStatus, remoteUpdatedSinceCheckout: boolean) {
+function handlePushBranchResponse(
+  status: GitCommandStatus,
+  remoteUpdatedSinceCheckout: boolean,
+  staleInfoRef: string | null
+) {
+  const explanation = remoteUpdatedSinceCheckout
+    ? leaseRefusedExplanation()
+    : staleInfoRef !== null
+      ? leaseStaleInfoExplanation([staleInfoRef])
+      : null;
   refreshGraphOrDisplayError(
     status,
-    remoteUpdatedSinceCheckout
-      ? l10n.unableToPushBranch + "<br>" + leaseRefusedExplanation()
-      : l10n.unableToPushBranch
+    explanation === null ? l10n.unableToPushBranch : l10n.unableToPushBranch + "<br>" + explanation
   );
 }
 
@@ -8498,6 +8913,20 @@ function leaseRefusedExplanation(): string {
   return l10n.dialogPushForceLeaseRefused.replace(
     "{0}",
     "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>"
+  );
+}
+
+/** Why a Force with lease was refused for "(stale info)" — the tracking refs
+ *  named are missing locally or out of date — and what to do about it.
+ *  Asks to integrate, not just fetch: a fetch alone only trades this refusal
+ *  for {@link leaseRefusedExplanation}'s (ADR-0025). Shared like that one. */
+function leaseStaleInfoExplanation(trackingRefs: string[]): string {
+  // One pass, with a function: a ref name is free text to `replace`, and may
+  // hold "$&" or "{1}" itself.
+  const args = [trackingRefs.join(", "), l10n.dialogPushForceForce];
+  return l10n.dialogPushForceLeaseStaleInfo.replace(
+    /\{([01])\}/g,
+    (_, i: string) => "<b>" + escapeHtml(args[Number(i)]) + "</b>"
   );
 }
 
@@ -8752,11 +9181,20 @@ function hideContextMenu() {
 }
 
 /* Dialogs */
+/** Who took a dialog away without answering it, as its dismissal hook is told
+ *  (#134). `"user"` is the user walking away: the Dismiss button (Stop, for the
+ *  cleanup scan), Escape, a ref's double-click. `"system"` is the webview
+ *  closing it for reasons of its own, which the user did not choose and may not
+ *  have seen: a reload finishing the progress dialog it owns
+ *  ({@link hideReloadOwnedOverlays}), the panel losing its repository or
+ *  loading from scratch. An overwrite is neither — it runs no hook at all (see
+ *  `dialogDismissAction`). */
+type DismissalReason = "user" | "system";
 function showConfirmationDialog(
   message: string,
   confirmed: () => void,
   sourceElem: HTMLElement | null,
-  onDismiss?: () => void
+  onDismiss?: (reason: DismissalReason) => void
 ) {
   showDialog(
     message,
@@ -8936,6 +9374,9 @@ function showFormDialog(
       l10n.dialogRememberChoice +
       "</label></span></td></tr></table>";
   }
+  // A form lays its buttons out the native way, primary outermost: Cancel
+  // first, in the markup as well as on screen.
+  const dismissFirst = true;
   showDialog(
     html,
     actionName,
@@ -8960,14 +9401,17 @@ function showFormDialog(
       hideDialog();
       actioned(values);
     },
-    sourceElem
+    sourceElem,
+    undefined,
+    dismissFirst
   );
+  // A form starts on its first input (#141), not on the dialog it sits in.
+  document.getElementById("dialogInput0")?.focus();
 
   if (textRefInput > -1) {
     let dialogInput = <HTMLInputElement>document.getElementById("dialogInput" + textRefInput),
       dialogAction = document.getElementById("dialogAction")!;
     if (dialogInput.value === "") dialog.className = "active noInput";
-    dialogInput.focus();
     dialogInput.addEventListener("keyup", () => {
       const sub = viewState.referenceInputSpaceSubstitution;
       if (sub !== "None" && dialogInput.value.includes(" ")) {
@@ -9031,7 +9475,7 @@ function showErrorDialog(
   message: string,
   reason: string | null,
   sourceElem: HTMLElement | null,
-  onDismiss?: () => void,
+  onDismiss?: (reason: DismissalReason) => void,
   note: string | null = null
 ) {
   showDialog(
@@ -9048,6 +9492,11 @@ function showErrorDialog(
     onDismiss
   );
 }
+/** One sequence for every kind of progress dialog. Per-kind sequences already
+ *  keep a kind's stale answers out of its own later dialogs; what they cannot
+ *  do is keep one kind's answer out of another kind's dialog, because their
+ *  numbers overlap. */
+let progressDialogSeq = 0;
 /**
  * The one place a progress dialog is built.
  *
@@ -9059,6 +9508,13 @@ function showErrorDialog(
  * reload it was waiting for. So the markup is built here and the entry points
  * below differ only in what they pass in.
  *
+ * The mark says *a* progress dialog is up, not whose. That is what the
+ * returned owner token is for: it is written onto the mark as `data-token`
+ * (the conflict prediction's precedent), and {@link progressDialogOwnedBy} is
+ * how a host answer arriving later asks whether the dialog on screen is still
+ * the one its request raised. Every close destroys the mark and the token with
+ * it, so there is no owner to forget to clear.
+ *
  * `content` is inserted as HTML, so callers escape their own interpolations;
  * `dismissName` is the Dismiss button's label, which the cleanup scan replaces
  * with "Stop" because for that one wait, dismissing is what stops it. Null
@@ -9067,19 +9523,26 @@ function showErrorDialog(
 function showActionRunningDialogWith(
   content: string,
   dismissName: string | null,
-  onDismiss?: () => void
-) {
+  onDismiss?: (reason: DismissalReason) => void
+): number {
+  const owner = ++progressDialogSeq;
   showDialog(
-    '<span id="actionRunning">' + svgIcons.loading + content + "</span>",
+    '<span id="actionRunning" data-token="' + owner + '">' + svgIcons.loading + content + "</span>",
     null,
     dismissName,
     null,
     null,
     onDismiss
   );
+  return owner;
 }
-function showActionRunningDialog(command: string) {
-  showActionRunningDialogWith(command + " ...", l10n.dialogDismiss);
+/** The progress dialog `owner` raised, while it is still the one on screen. */
+function progressDialogOwnedBy(owner: number): HTMLElement | null {
+  const running = document.getElementById("actionRunning");
+  return running !== null && running.dataset.token === String(owner) ? running : null;
+}
+function showActionRunningDialog(command: string): number {
+  return showActionRunningDialogWith(command + " ...", l10n.dialogDismiss);
 }
 /** A progress dialog with no Dismiss, for an action the host cannot be asked to
  *  stop: closing it early would only hide work that goes on regardless. It
@@ -9093,7 +9556,8 @@ function showDialog(
   dismissName: string | null,
   actioned: (() => void) | null,
   sourceElem: HTMLElement | null,
-  onDismiss?: () => void
+  onDismiss?: (reason: DismissalReason) => void,
+  dismissFirst: boolean = false
 ) {
   // Writing over the batch retry offer takes away a question with neither
   // answer given, and the run behind it has no other way to hear about that
@@ -9108,15 +9572,27 @@ function showDialog(
   // actions from before whatever the dialog reports. A menu item's own dialog
   // never gets here with the menu open: the click closes the menu first.
   if (contextMenu.classList.contains("active")) hideContextMenu();
+  // Only the first of a run of dialogs has an opener: one raised over another
+  // takes focus from inside the dialog, which is about to be written over, and
+  // the place to come back to is still where the first one took it from.
+  if (!isDialogOpen()) {
+    dialogOpener = takeDialogOpener();
+    setBackgroundInert(true);
+  }
   dialogBacking.className = "active";
   dialog.className = "active";
-  const buttons =
-    (actionName !== null
-      ? '<div id="dialogAction" class="roundedBtn">' + actionName + "</div>"
-      : "") +
-    (dismissName !== null
-      ? '<div id="dialogDismiss" class="roundedBtn">' + dismissName + "</div>"
-      : "");
+  // The page holds still behind it (#230); main.css says how.
+  document.documentElement.classList.add("dialogOpen");
+  const action =
+    actionName !== null
+      ? '<button type="button" id="dialogAction" class="roundedBtn">' + actionName + "</button>"
+      : "";
+  const dismiss =
+    dismissName !== null
+      ? '<button type="button" id="dialogDismiss" class="roundedBtn">' + dismissName + "</button>"
+      : "";
+  // In the order they are shown, so that Tab visits them in that order too.
+  const buttons = dismissFirst ? dismiss + action : action + dismiss;
   // No row at all without buttons: an empty one keeps its top margin, and the
   // content would sit that much above the dialog's centre.
   dialog.innerHTML =
@@ -9124,8 +9600,17 @@ function showDialog(
   if (actionName !== null && actioned !== null)
     document.getElementById("dialogAction")!.addEventListener("click", actioned);
   dialogDismissAction = onDismiss ?? null;
-  document.getElementById("dialogDismiss")?.addEventListener("click", dismissDialog);
+  document.getElementById("dialogDismiss")?.addEventListener("click", () => dismissDialog("user"));
+  // Focus starts on the dialog itself, so Enter confirms and Tab enters at
+  // either end; a form dialog then moves it on to its first input. Without
+  // the scroll: the page is locked, and the browser bringing a focused element
+  // into view is the one scroll that lock cannot stop (#230).
+  dialog.focus({ preventScroll: true });
 
+  // A dialog arriving over another one takes its row's highlight too: the row
+  // the old dialog was about is no longer what any dialog is about, and nothing
+  // else would clear it short of a redraw.
+  if (dialogMenuSource !== null) dialogMenuSource.classList.remove("dialogActive");
   dialogMenuSource = sourceElem;
   if (dialogMenuSource !== null) dialogMenuSource.classList.add("dialogActive");
 }
@@ -9134,28 +9619,35 @@ function showDialog(
  *  a confirmed dialog was not dismissed. Anything closing a dialog the user did
  *  not answer wants {@link dismissDialog} instead. */
 function hideDialog() {
+  const wasOpen = isDialogOpen();
   dialogBacking.className = "";
   dialog.className = "";
+  document.documentElement.classList.remove("dialogOpen");
   dialog.innerHTML = "";
   dialogDismissAction = null;
   if (dialogMenuSource !== null) {
     dialogMenuSource.classList.remove("dialogActive");
     dialogMenuSource = null;
   }
-  // The slot is empty; a batch summary owed one is now due. As a microtask
-  // rather than a call, because closing is rarely the last thing a route does
-  // — the Yes that closes this dialog goes on to raise the next one — and the
-  // summary is only due if the slot is *still* free once it has (see
-  // `deliverOwedBatchSummary`, which checks).
-  queueMicrotask(() => gitGraph.deliverOwedBatchSummary());
+  if (wasOpen) {
+    // Live again first: an inert element cannot take focus back.
+    setBackgroundInert(false);
+    returnDialogFocus(dialogOpener);
+    dialogOpener = null;
+  }
+  // The slot is empty; a batch summary owed one is now due — once the closing
+  // route has finished, and only the summary owed as of now (see
+  // `deliverOwedBatchSummary`, which defers and checks both).
+  gitGraph.deliverOwedBatchSummary();
 }
-/** Close the dialog the way its own Dismiss button does, running whatever it
- *  declared for that. The hook is read before the close so that a hook which
- *  opens a dialog of its own is not undone by the close that invited it. */
-function dismissDialog() {
+/** Close the dialog without an answer, running whatever it declared for that
+ *  and telling it who closed it. The hook is read before the close so that a
+ *  hook which opens a dialog of its own is not undone by the close that
+ *  invited it. */
+function dismissDialog(reason: DismissalReason) {
   const onDismiss = dialogDismissAction;
   hideDialog();
-  if (onDismiss !== null) onDismiss();
+  if (onDismiss !== null) onDismiss(reason);
 }
 
 /** Whether a modal dialog is up. Three callers want quite different things of
@@ -9166,11 +9658,104 @@ function isDialogOpen() {
   return dialog.classList.contains("active");
 }
 
-/** Escape, and the other places that close both overlays on the user's behalf.
- *  A dismissal, not a plain close: reaching here means the user walked away
- *  from the dialog rather than answering it. */
-function hideDialogAndContextMenu() {
-  if (isDialogOpen()) dismissDialog();
+/* Modal focus (#141), on the WAI-ARIA APG's modal dialog pattern. The backing
+   takes the mouse; these take the keyboard: the background is `inert` for as
+   long as a dialog stands, Tab cycles inside the dialog, and focus goes back
+   to where it came from when the last dialog of a run closes. */
+
+/** Where a dialog took focus from, and how to find that place again if a
+ *  redraw replaces the element while the dialog stands: its graph row's key,
+ *  else its id (the footer's controls are known by theirs). */
+interface DialogOpener {
+  readonly elem: HTMLElement;
+  readonly rowKey: string | null;
+  readonly id: string;
+}
+
+/** The element holding focus as a dialog opens, or null when nothing does. */
+function takeDialogOpener(): DialogOpener | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || active === document.body) return null;
+  return { elem: active, rowKey: gitGraph.graphRowKeyOf(active), id: active.id };
+}
+
+/** Focus back to the opener; failing that, to the row or control that has
+ *  replaced it; failing that, to the commit table, which carries
+ *  `tabindex="-1"` for this the way the footer does for its own (#82). Nothing
+ *  held focus when the dialog opened, nothing is given it now. */
+function returnDialogFocus(opener: DialogOpener | null) {
+  if (opener === null) return;
+  // Connected is not enough: an element can still have stopped being
+  // focusable — a context menu source whose borrowed tabindex was handed back.
+  if (opener.elem.isConnected && focusTook(opener.elem)) return;
+  if (opener.rowKey !== null && gitGraph.focusGraphRowByKey(opener.rowKey)) return;
+  const sameId = opener.id !== "" ? document.getElementById(opener.id) : null;
+  if (sameId !== null && focusTook(sameId)) return;
+  document.getElementById("commitTable")?.focus({ preventScroll: true });
+}
+
+/** Focus `elem` without scrolling, and say whether it took. */
+function focusTook(elem: HTMLElement): boolean {
+  elem.focus({ preventScroll: true });
+  return document.activeElement === elem;
+}
+
+/** Make one child of `<body>` inert, or live again — never the dialog or its
+ *  backing, which are what stays in reach. */
+function markInert(elem: Element, inert: boolean) {
+  if (elem !== dialog && elem !== dialogBacking) elem.toggleAttribute("inert", inert);
+}
+
+/** Every child of `<body>` but the dialog and its backing, the toolbar's
+ *  popups and a docked Commit Details View included, out of reach of focus and
+ *  pointer alike. */
+function setBackgroundInert(inert: boolean) {
+  if (inert) {
+    lateBackgroundObserver.observe(document.body, { childList: true });
+  } else {
+    lateBackgroundObserver.takeRecords();
+    lateBackgroundObserver.disconnect();
+  }
+  for (const child of Array.from(document.body.children)) markInert(child, inert);
+}
+
+/** The dialog's Tab stops, in document order. Rendered ones only, where the
+ *  browser can say: Tab must not stop on what `display: none` hides. */
+function dialogTabStops(): HTMLElement[] {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, [tabindex]")
+  ).filter(
+    (elem) =>
+      elem.tabIndex >= 0 &&
+      !(elem as HTMLButtonElement).disabled &&
+      (typeof elem.checkVisibility !== "function" || elem.checkVisibility())
+  );
+}
+
+/** Tab and Shift+Tab, wrapping at either end. From the dialog itself, or from
+ *  anywhere else focus has ended up, they enter at the end they move towards. */
+function cycleDialogFocus(backwards: boolean) {
+  const stops = dialogTabStops();
+  if (stops.length === 0) {
+    dialog.focus({ preventScroll: true });
+    return;
+  }
+  const from = stops.indexOf(<HTMLElement>document.activeElement);
+  const to =
+    from === -1
+      ? backwards
+        ? stops.length - 1
+        : 0
+      : (from + (backwards ? -1 : 1) + stops.length) % stops.length;
+  stops[to].focus();
+}
+
+/** Escape, and the other places that close both overlays without an answer.
+ *  A dismissal, not a plain close; `reason` says whether the user walked away
+ *  (Escape, a ref's double-click) or the panel took the dialog down under them
+ *  (no repository, a load from scratch). */
+function hideDialogAndContextMenu(reason: DismissalReason) {
+  if (isDialogOpen()) dismissDialog(reason);
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
@@ -9187,16 +9772,20 @@ function hideDialogAndContextMenu() {
  * and with it any chance of answering Yes.
  *
  * `#actionRunning` is what separates those two, and that is the whole of what
- * it separates. It is an existence check, not an identity: it cannot tell this
- * reload's own progress dialog from one belonging to a host query that has
- * nothing to do with the reload. "Check for Unmerged Changes" and the cleanup
- * dialog's own opening request both raise one, and both still lose it to an
- * unrelated reload — after which their answers are dropped on arrival by the
- * same existence check (`showBranchRedundancy`, `handleBranchCleanupOpen`).
- * That predates this split, which only narrows what gets closed; the fix is to
- * correlate by token, and it is tracked on #127 rather than smuggled in here.
- * Every progress dialog is built by {@link showActionRunningDialogWith} rather
- * than by hand so that the mark is at least produced in one place.
+ * it separates. It is an existence check, not an identity, and deliberately
+ * so: nothing ties a reload to the action whose progress dialog it finishes —
+ * the host's `refresh` carries no such thing — so this cannot ask whether the
+ * dialog is *this reload's*. A host query's progress dialog ("Check for
+ * Unmerged Changes", the cleanup dialog's opening request, its deep scan) is
+ * closed here along with an action's. What the owner token on the mark does
+ * settle is what happens next: closing the dialog takes its owner with it, so
+ * the query's late answer is dropped on arrival rather than written into
+ * whatever progress dialog the user has raised since (#127). And the dialog's
+ * hook is told the system closed it, not the user (#134), so a hook whose
+ * answer differs — the cleanup scan's, whose Stop asks for the list back — does
+ * not treat this close as the user asking for anything. Every progress dialog
+ * is built by {@link showActionRunningDialogWith} rather than by hand so that
+ * the mark, and its owner, are produced in one place.
  *
  * The context menu is not held back with it, deliberately. Its contents are a
  * snapshot — what can be dropped, what is HEAD, which refs are cleanup
@@ -9207,21 +9796,24 @@ function hideDialogAndContextMenu() {
  * costs one right-click; a half-filled dialog cannot be reopened at all.
  */
 function hideReloadOwnedOverlays() {
-  if (document.getElementById("actionRunning") !== null) dismissDialog();
+  if (document.getElementById("actionRunning") !== null) dismissDialog("system");
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
 /* Global Listeners */
 // However focus arrives — a click, Tab, or the arrow keys — the group it landed
 // in points its tab stop at it, so Tab comes back to where the user left off.
-document.addEventListener("focusin", (e) => gitGraph.syncTabStop(e.target));
+document.addEventListener("focusin", (e) => {
+  gitGraph.syncTabStop(e.target);
+  syncDialogTabStop(e.target);
+});
 document.addEventListener("keyup", (e) => {
   // A dialog without Dismiss offers no way out, and Escape is not one either.
   if (
     e.key === "Escape" &&
     !(isDialogOpen() && document.getElementById("dialogDismiss") === null)
   ) {
-    hideDialogAndContextMenu();
+    hideDialogAndContextMenu("user");
   }
 });
 // Rows of overlap kept when Page Up/Down jumps a screenful, so the user has
@@ -9240,11 +9832,30 @@ function pageScrollStep() {
 }
 document.addEventListener("keydown", (e) => {
   if (isDialogOpen()) {
-    // Enter submits the dialog's primary (left) action, but not while an IME
+    if (e.key === "Tab") {
+      // The background is inert, so the browser's own Tab would walk off the
+      // end of the dialog and out of the webview altogether.
+      e.preventDefault();
+      cycleDialogFocus(e.shiftKey);
+      return;
+    }
+    // A list in the dialog is a roving group of its own (#145), and the keys it
+    // owns — Enter on a row among them — are not "confirm".
+    if (dialogListKeydown(e)) return;
+    // Enter submits the dialog's primary action, but not while an IME
     // composition is in progress (e.g. the Enter that confirms a CJK candidate
     // on macOS reports isComposing on keydown). The action's own click handler
     // no-ops when the form is empty/invalid, so firing it is safe.
+    //
+    // Except on a control that OWNS_ENTER. Pressing Action as well would answer
+    // a focused Dismiss twice over, both ways (#141). Everywhere else — the
+    // dialog itself, a text input, a checkbox — Enter stays "confirm", and the
+    // browser's own default is cancelled so it is the only thing Enter does.
     if (e.key === "Enter" && !e.isComposing) {
+      const target = e.target;
+      if (target instanceof Element && dialog.contains(target) && target.matches(OWNS_ENTER))
+        return;
+      e.preventDefault();
       const dialogAction = document.getElementById("dialogAction");
       if (dialogAction !== null) dialogAction.click();
     }

@@ -6,6 +6,7 @@ import { generateGitFileListHtml } from "@/webview/utils/fileTree";
 
 import {
   createVscodeMock,
+  graphRow,
   makeViewState,
   NEAR_BOTTOM,
   parkViewportAt,
@@ -124,10 +125,6 @@ const comparisonChanges: GitFileChange[] = [
   }
 ];
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
 /** The file rows the keyboard can reach, in visual order — the same list the
  *  arrow keys walk. */
 function fileRows() {
@@ -174,7 +171,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     let movedOnRestore: unknown[] = [];
 
     beforeAll(() => {
-      row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({ command: "commitDetails", commitDetails: tipDetails });
       expect(fileRows().map((f) => filePathOf(f))).toEqual(["src/a.ts", "src/b.ts", "README.md"]);
 
@@ -209,7 +206,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     });
 
     it("redraws the file list, replacing the row that held focus", () => {
-      expect(row("ccc333")).not.toBeNull();
+      expect(graphRow("ccc333")).not.toBeNull();
       expect(fileRows()).toHaveLength(3);
       expect(fileRows()).not.toContain(focusedBefore);
     });
@@ -246,7 +243,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     let focusedAfterRedraw: Element | null = null;
 
     beforeAll(() => {
-      row("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+      graphRow("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
       receive({
         command: "compareCommits",
         fromHash: "bbb222",
@@ -267,7 +264,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     });
 
     it("has no file list left to put focus back into", () => {
-      expect(row("bbb222")).toBeNull();
+      expect(document.querySelector('#commitTable tr.commit[data-hash="bbb222"]')).toBeNull();
       expect(document.getElementById("commitDetails")).toBeNull();
       expect(focusedAfterRedraw).toBe(document.body);
     });
@@ -275,7 +272,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     it("finishes the redraw rather than failing part-way through it", () => {
       // The restore runs before the graph's, so a miss that threw would leave
       // the table with no tab stop at all and Tab unable to reach the graph.
-      expect(graphTabStops()).toEqual([row("aaa111")]);
+      expect(graphTabStops()).toEqual([graphRow("aaa111")]);
       expect(mock.sentMessages.filter((m) => m.command === "reportError")).toEqual([]);
     });
 
@@ -283,7 +280,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
       // With no focused row to step from, the arrow keys step from the expanded
       // commit — the pre-existing fallback, reached unchanged.
       press("ArrowDown");
-      expect(document.activeElement).toBe(row("ccc333"));
+      expect(document.activeElement).toBe(graphRow("ccc333"));
     });
   });
 
@@ -296,7 +293,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     let focusedAfterLoad: Element | null = null;
 
     beforeAll(() => {
-      row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({ command: "commitDetails", commitDetails: tipDetails });
 
       document
@@ -433,21 +430,22 @@ describe("keyboard focus in the Commit Details View's file list", () => {
       // that it happens to sit on some row or other.
       expect(tabStopsBeforeDialog).toEqual([cdvFileForSamePath]);
       expect(tabStopsWhileDialogHasFocus).toEqual([cdvFileForSamePath]);
-      // And the dialog's own row never became one: its file list is inert, so
-      // the row is focusable (the generator ships every row at -1) but is not
-      // any group's tab stop.
-      expect(dialogFile.tabIndex).toBe(-1);
+      // The dialog's row did take a tab stop — its own list's, which is a roving
+      // group of its own since #145 — and that is a second group, not the
+      // panel's: the panel's single tab stop is still where it was, above.
+      expect(dialogFile.tabIndex).toBe(0);
     });
 
     it("still lets Tab back into the file list once the redraw has rebuilt it", () => {
       // The consequence the tab stop being stolen actually has. What this is
       // really about is that the count is not zero — zero is a file list Tab can
-      // no longer reach at all. The row it names is `restoreCdvFileTabStop`'s
-      // existing fallback, which does not carry the user's place across a
-      // redraw the way `restoreCdvFileFocus` does; naming it pins today's
-      // behaviour rather than endorsing it.
+      // no longer reach at all. And it is the panel's `src/b.ts`, in its new
+      // row: the stop the dialog kept its hands off is the one the redraw
+      // carries over (#129), so focus in the dialog did not cost the user their
+      // place in the list either.
       expect(fileRows()).toHaveLength(3);
-      expect(tabStopsAfterLoad).toEqual([fileRows()[0]]);
+      expect(tabStopsAfterLoad).toEqual([fileRows()[2]]);
+      expect(filePathOf(tabStopsAfterLoad[0])).toBe("src/b.ts");
     });
   });
 });

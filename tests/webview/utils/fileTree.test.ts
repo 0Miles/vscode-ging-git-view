@@ -8,11 +8,24 @@ import {
   generateGitFileListHtml,
   generateGitFileTree,
   generateGitFileTreeHtml,
+  parentGitFolderRow,
   serializeGitFileTree
 } from "@/webview/utils/fileTree";
 
 function file(newFilePath: string): GitFileChange {
   return { oldFilePath: newFilePath, newFilePath, type: "M", additions: 0, deletions: 0 };
+}
+
+/** Render into a detached container, the way a dialog's details cell holds one,
+ *  and look its folder and file rows up by path. */
+function render(html: string) {
+  const root = document.createElement("div");
+  root.innerHTML = html;
+  const folder = (path: string) =>
+    root.querySelector<HTMLElement>(`.gitFolder[data-folderpath="${encodeURIComponent(path)}"]`)!;
+  const fileRow = (path: string) =>
+    root.querySelector<HTMLElement>(`.gitFile[data-newfilepath="${encodeURIComponent(path)}"]`)!;
+  return { folder, fileRow };
 }
 
 describe("generateGitFileTree", () => {
@@ -199,6 +212,37 @@ describe("generateGitFileTreeHtml", () => {
       const html = generateGitFileListHtml([file("x.ts")], false);
       expect(html).toContain('class="gitFileOpen"');
       expect(html).toContain('class="gitFileCopyPath"');
+    });
+  });
+
+  // `parentGitFolderRow` walks the rendered markup by shape — a row's `<li>`,
+  // its list, the list's `<li>`, that one's heading — so these pin the walk
+  // against the generators' real output rather than a hand-written copy.
+  describe("parentGitFolderRow", () => {
+    it("finds a file's folder, a folder's folder, and nothing above the top level", () => {
+      const files = [file("src/a.ts"), file("src/lib/b.ts"), file("README.md")];
+      const { folder, fileRow } = render(
+        generateGitFileTreeHtml(generateGitFileTree(files), files, false)
+      );
+      expect(parentGitFolderRow(fileRow("src/lib/b.ts"))).toBe(folder("src/lib"));
+      expect(parentGitFolderRow(fileRow("src/a.ts"))).toBe(folder("src"));
+      expect(parentGitFolderRow(folder("src/lib"))).toBe(folder("src"));
+      expect(parentGitFolderRow(folder("src"))).toBeNull();
+      expect(parentGitFolderRow(fileRow("README.md"))).toBeNull();
+    });
+
+    it("climbs a compacted folder in one step, as the one row it renders as", () => {
+      const files = [file("a/b/c.ts"), file("a/b/d.ts")];
+      const tree = generateGitFileTree(files);
+      compactGitFileTree(tree);
+      const { folder, fileRow } = render(generateGitFileTreeHtml(tree, files, false));
+      expect(parentGitFolderRow(fileRow("a/b/c.ts"))).toBe(folder("a/b"));
+      expect(parentGitFolderRow(folder("a/b"))).toBeNull();
+    });
+
+    it("finds nothing in the flat File List, which has no folders", () => {
+      const { fileRow } = render(generateGitFileListHtml([file("src/lib/b.ts")], false));
+      expect(parentGitFolderRow(fileRow("src/lib/b.ts"))).toBeNull();
     });
   });
 

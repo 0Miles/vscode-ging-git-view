@@ -4,7 +4,20 @@ import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@/backen
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickElem,
+  clickId,
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  dialogRow,
+  graphRow,
+  makeViewState,
+  openMenuOn,
+  receive,
+  rightClick,
+  setupHtml
+} from "./setup";
 
 // `attachCdvFileListeners` binds the Commit Details View's file actions, and it
 // used to bind them through `addListenerToClass`, which is
@@ -151,28 +164,15 @@ const redundancyResult: BranchRedundancy = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-function click(elem: Element) {
-  elem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
-function rightClick(elem: Element) {
-  elem.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
 /** The keyboard's way of raising a context menu, mirroring `main.ts`'s private
  *  `MENU_KEY_EVENT`. Dispatched directly rather than via Shift+F10, because the
  *  document keydown handler that would normally synthesise it returns early
- *  while a dialog stands — so today no key reaches a dialog row at all (#141,
- *  #145). What is asserted here is the *binding*, which is what
- *  `addCdvContextMenuListener` wires and what would outlive either of those
- *  tickets landing. */
+ *  while a dialog stands, before the branch that reads Shift+F10. Since #145
+ *  the arrows and Enter reach a dialog row, through the dialog's own branch,
+ *  but the menu key still does not. What is asserted here is the *binding*,
+ *  which is what `addCdvContextMenuListener` wires and what would outlive the
+ *  menu key ever being routed there. */
 const MENU_KEY_EVENT = "ging.contextMenuKey";
-
-function row(hash: string) {
-  const elem = document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`);
-  expect(elem, hash).not.toBeNull();
-  return elem!;
-}
 
 /** A file row inside `root`, addressed by the path it carries. Both lists hold
  *  rows for `src/…`, so the selector has to say which list as well as which
@@ -203,22 +203,6 @@ function savedPanelFolderOpen(name: string): boolean | undefined {
   return folder !== undefined && folder.type === "folder" ? folder.open : undefined;
 }
 
-function openMenuOn(selector: string) {
-  const elem = document.querySelector<HTMLElement>(selector);
-  expect(elem, selector).not.toBeNull();
-  rightClick(elem!);
-}
-
-/** Activate a context-menu item by its label. `toBeDefined`, not
- *  `not.toBeNull`: `find` yields `undefined` when nothing matches (#131). */
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  click(item!);
-}
-
 function contextMenuEntries() {
   return Array.from(document.getElementById("contextMenu")!.children).map((li) =>
     (li.textContent ?? "").trim()
@@ -243,7 +227,7 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
     receive(commitsResponse);
 
     // The graph's Commit Details View, expanded on the tip commit.
-    click(row("aaa111"));
+    clickElem(graphRow("aaa111"));
     receive({ command: "commitDetails", commitDetails: tipDetails });
 
     // The branch-redundancy dialog, driven the way a user reaches it, down to
@@ -259,7 +243,7 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
       result: redundancyResult,
       token: (requested[0] as Extract<GG.RequestMessage, { command: "branchRedundancy" }>).token
     });
-    click(document.querySelector('#dialog .commitList tr.commit[data-hash="ddd444"]')!);
+    clickElem(dialogRow("ddd444"));
     receive({
       command: "redundancyCommitDetails",
       commitHash: "ddd444",
@@ -288,7 +272,7 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
     beforeAll(() => {
       redrawPanel();
       mock.clearMessages();
-      click(fileRow("#dialog", "dialog/only.ts"));
+      clickElem(fileRow("#dialog", "dialog/only.ts"));
       sent = [...mock.sentMessages];
     });
 
@@ -335,11 +319,13 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
 
     beforeAll(() => {
       mock.clearMessages();
-      click(folderRow("#dialog", "src"));
+      clickElem(folderRow("#dialog", "src"));
       dialogFolderCollapsed = folderRow("#dialog", "src").parentElement!.classList.contains(
         "closed"
       );
       panelFolderOpenInSavedTree = savedPanelFolderOpen("src");
+      // Put it back, so the scenarios after this one start from an open tree.
+      clickElem(folderRow("#dialog", "src"));
     });
 
     it("leaves the panel's own file tree untouched, and sends nothing", () => {
@@ -351,11 +337,13 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
       expect(mock.sentMessages).toEqual([]);
     });
 
-    it("does not fold the dialog's own folder either", () => {
-      // The dialog's rows are not the panel's to drive, and folding them was
-      // never the point of the handler that reached them — it was the half of
-      // its work that happened to be visible.
-      expect(dialogFolderCollapsed).toBe(false);
+    it("folds the dialog's own folder, by the dialog's own handler", () => {
+      // The panel's handler never was the one to do this — folding the
+      // dialog's folder was the half of its work that happened to be visible.
+      // Since #145 the dialog binds a fold of its own on its own rows, which
+      // touches nothing but the dialog's markup: the saved tree above is the
+      // proof that the panel's handler still stays out.
+      expect(dialogFolderCollapsed).toBe(true);
     });
   });
 
@@ -378,7 +366,7 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
         "gitFileCopyPath"
       ]) {
         mock.clearMessages();
-        click(control === "the row" ? target : target.querySelector(`.${control}`)!);
+        clickElem(control === "the row" ? target : target.querySelector(`.${control}`)!);
         sentBy[control] = [...mock.sentMessages];
       }
     });
@@ -402,7 +390,7 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
       redrawPanel();
       redrawPanel();
       mock.clearMessages();
-      click(fileRow("#dialog", "dialog/only.ts"));
+      clickElem(fileRow("#dialog", "dialog/only.ts"));
       sent = [...mock.sentMessages];
     });
 
@@ -428,20 +416,20 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
 
     beforeAll(() => {
       mock.clearMessages();
-      click(fileRow("#commitDetails", "src/a.ts"));
+      clickElem(fileRow("#commitDetails", "src/a.ts"));
       sentOnFileClick = [...mock.sentMessages];
 
       rightClick(fileRow("#commitDetails", "src/a.ts"));
       entriesOnRightClick = contextMenuEntries();
 
-      click(folderRow("#commitDetails", "src"));
+      clickElem(folderRow("#commitDetails", "src"));
       collapsedOnFolderClick = folderRow("#commitDetails", "src").parentElement!.classList.contains(
         "closed"
       );
       savedAfterCollapse = savedPanelFolderOpen("src");
       // Put it back, so the scenario after this one starts from the tree the
       // suite has described all along rather than one this test folded.
-      click(folderRow("#commitDetails", "src"));
+      clickElem(folderRow("#commitDetails", "src"));
       savedAfterReopen = savedPanelFolderOpen("src");
     });
 
@@ -492,15 +480,15 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
     beforeAll(() => {
       // Fold `src`, then redraw: the panel comes back with the fold persisted,
       // so `attachCdvFileListeners` runs while `src/a.ts` is inside `.hidden`.
-      click(folderRow("#commitDetails", "src"));
+      clickElem(folderRow("#commitDetails", "src"));
       redrawPanel();
       hiddenAtBindTime = fileRow("#commitDetails", "src/a.ts").closest(".hidden") !== null;
 
       // Now the user opens it. Nothing re-binds — the handler this row will use
       // is the one it was given while it was out of sight.
-      click(folderRow("#commitDetails", "src"));
+      clickElem(folderRow("#commitDetails", "src"));
       mock.clearMessages();
-      click(fileRow("#commitDetails", "src/a.ts"));
+      clickElem(fileRow("#commitDetails", "src/a.ts"));
       sent = [...mock.sentMessages];
     });
 
@@ -531,17 +519,17 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
     let dialogFolderCollapsed = false;
 
     beforeAll(() => {
-      click(document.getElementById("commitDetailsClose")!);
+      clickId("commitDetailsClose");
       expect(document.getElementById("commitDetails")).toBeNull();
       mock.clearMessages();
 
-      click(folderRow("#dialog", "src"));
+      clickElem(folderRow("#dialog", "src"));
       dialogFolderCollapsed = folderRow("#dialog", "src").parentElement!.classList.contains(
         "closed"
       );
       const target = fileRow("#dialog", "dialog/only.ts");
-      click(target);
-      click(target.querySelector(".gitFileOpen")!);
+      clickElem(target);
+      clickElem(target.querySelector(".gitFileOpen")!);
       sent = [...mock.sentMessages];
     });
 
@@ -550,8 +538,8 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
       // handler did, so this click used to throw `Cannot read properties of null
       // (reading 'fileTree')`, be caught by the global reporter (ADR-0016) and
       // arrive at the host once per redraw the dialog had lived through. The
-      // guard is not what removes it: with nothing bound there is nothing to
-      // throw.
+      // guard is not what removes it: with nothing of the panel's bound there is
+      // nothing to throw, and the dialog's own fold (#145) reads no panel state.
       expect(sent.filter((m) => m.command === "reportError")).toEqual([]);
     });
 
@@ -560,7 +548,10 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
       // throw — it asked the host to open a path at a revision that does not
       // exist. The quietest member of the family and the same defect.
       expect(sent).toEqual([]);
-      expect(dialogFolderCollapsed).toBe(false);
+    });
+
+    it("still folds the dialog's folder, which never depended on the panel", () => {
+      expect(dialogFolderCollapsed).toBe(true);
     });
   });
 });

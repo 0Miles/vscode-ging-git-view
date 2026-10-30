@@ -5,6 +5,7 @@ import type * as GG from "@/types";
 
 import {
   createVscodeMock,
+  graphRow,
   makeViewState,
   NEAR_BOTTOM,
   parkViewportAt,
@@ -145,10 +146,6 @@ function commitsResponse(loaded: GitCommitNode[]): GG.ResponseMessage {
   };
 }
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
 function currentMatchHash() {
   return document.querySelector<HTMLElement>("#commitTable tr.commit.findMatchCurrent")?.dataset
     .hash;
@@ -257,7 +254,7 @@ describe("bringing the current find match into view", () => {
       expect(mock.sentMessages.filter((m) => m.command === "loadCommits")).toMatchObject([
         { maxCommits: 400 }
       ]);
-      expect(row("ddd444")).not.toBeNull();
+      expect(graphRow("ddd444")).not.toBeNull();
     });
 
     it("moves nothing, least of all back to the current match", () => {

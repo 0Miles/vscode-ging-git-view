@@ -4,7 +4,16 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  openMenuOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A reload lands on its own schedule. The file watcher fires on any `.git`
 // write, so a commit made in the terminal — or a fetch finishing in another
@@ -27,12 +36,11 @@ import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } fro
 //
 // What each hook then does is its own business, and the tests below keep them
 // apart rather than treating "the hook ran" as the end of the story. The
-// refetch's clears `cleanupState`, and clearing it is what stops the answer
-// reopening the dialog — so that one is closed end to end. The scan's sends a
-// cancel, and Stop is a "come back with what you found" contract, so the answer
-// still arrives and still reopens the dialog; there is a test that says so, in
-// as many words, because the neighbouring one would otherwise read as covering
-// it.
+// refetch's clears `cleanupState` however the dialog went, and clearing it is
+// what stops the answer reopening the dialog. The scan's depends on who closed
+// it (#134): Stop and Escape are a "come back with what you found" contract, so
+// the answer still reopens the list; a reload asked for nothing back, so its
+// hook abandons the list the way the refetch's does.
 
 const L = getWebviewLocalizedStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
@@ -107,30 +115,6 @@ let cleanupSeq = 0;
 
 const sentOf = (command: string) => mock.sentMessages.filter((m) => m.command === command);
 
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
-function openMenuOn(selector: string) {
-  const elem = document.querySelector<HTMLElement>(selector);
-  expect(elem, selector).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
-/** Activate a context-menu item by its label. `toBeDefined`, not `not.toBeNull`:
- *  `find` yields `undefined` when nothing matches, and a null check would pass
- *  on it — leaving the scenario to fail later, somewhere that reads like the
- *  behaviour under test (issue #131). */
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 function dialogIsOpen() {
   return document.getElementById("dialog")!.classList.contains("active");
 }
@@ -177,6 +161,15 @@ function openCleanupDialog() {
     document.querySelector('#dialog .cleanupRow input[data-ref="merged"]'),
     "the cleanup dialog"
   ).not.toBeNull();
+}
+
+/** Press the open cleanup dialog's deep check and return the token its
+ *  request went out with, which the scan's answer has to carry back. */
+function startScan(): number {
+  clickId("cleanupDeepCheck");
+  const scan = sentOf("branchCleanupScan").at(-1);
+  expect(scan, "the scan request").toBeDefined();
+  return (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
 }
 
 // One webview for the file. A second `setupHtml` + import would replace the
@@ -226,7 +219,7 @@ describe("a background reload landing under an open dialog", () => {
   });
 
   it("closes the progress dialog its own action put up", () => {
-    click("fetchBtn");
+    clickId("fetchBtn");
     expect(progressDialogIsUp(), "the fetch never raised its progress dialog").toBe(true);
 
     backgroundReloadLands();
@@ -249,7 +242,7 @@ describe("a background reload landing under an open dialog", () => {
   describe("and the progress dialog it closes had a dismissal hook", () => {
     it("stops the branch cleanup scan it was showing progress for", () => {
       openCleanupDialog();
-      click("cleanupDeepCheck");
+      clickId("cleanupDeepCheck");
       expect(progressDialogIsUp(), "the scan never raised its progress dialog").toBe(true);
       expect(sentOf("branchCleanupScan")).toHaveLength(1);
       mock.clearMessages();
@@ -262,24 +255,16 @@ describe("a background reload landing under an open dialog", () => {
       expect(sentOf("branchCleanupScanCancel")).toHaveLength(1);
     });
 
-    // And what cancelling does *not* do, stated here rather than left to be
-    // discovered. Stop is a "come back with what you found" contract, so a
-    // cancelled scan is answered like a finished one, and that answer still
-    // carries the open dialog's token — so it fills the dialog back in, on top
-    // of whatever the user is now looking at. The hook stops the work; only the
-    // refetch's hook, which clears `cleanupState`, stops the reopen, because
-    // clearing that state is what it *is*.
-    //
-    // This is not a regression: before the hook ran at all, the scan simply ran
-    // to completion and reopened the dialog the same way. It is the gap the
-    // hook does not close, and it is asserted so that the next reader finds it
-    // written down instead of inferring from the test above that it is covered.
-    it("but the cancelled scan's answer still brings the dialog back", () => {
+    // Stopping the work is not the whole of it. A cancelled scan is answered
+    // like a finished one — Stop is a "come back with what you found" contract
+    // — and that answer still carries the open dialog's token, so it used to
+    // fill the dialog back in on top of whatever the user had moved on to. The
+    // hook now hears that it was the reload, not the user, that took the
+    // dialog away (#134), and a reload asked for nothing back: it abandons the
+    // cleanup dialog the way the refetch's hook always has.
+    it("and keeps the cancelled scan's answer from bringing the dialog back", () => {
       openCleanupDialog();
-      click("cleanupDeepCheck");
-      const scan = sentOf("branchCleanupScan").at(-1);
-      expect(scan, "the scan request").toBeDefined();
-      const token = (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
+      const token = startScan();
 
       backgroundReloadLands();
       expect(progressDialogIsUp(), "the scan dialog outlived the reload").toBe(false);
@@ -292,16 +277,12 @@ describe("a background reload landing under an open dialog", () => {
         token
       });
 
-      expect(dialogIsOpen()).toBe(true);
-      expect(
-        document.querySelector('#dialog .cleanupRow input[data-ref="merged"]'),
-        "the cleanup dialog came back"
-      ).not.toBeNull();
+      expect(dialogIsOpen(), "the cleanup dialog came back on its own").toBe(false);
     });
 
     it("keeps the refetch answer from reopening the dialog the user lost", () => {
       openCleanupDialog();
-      click("cleanupRefetch");
+      clickId("cleanupRefetch");
       expect(progressDialogIsUp(), "the refetch never raised its progress dialog").toBe(true);
       const request = sentOf("branchCleanupOpen").at(-1);
       expect(request, "the refetch request").toBeDefined();
@@ -325,7 +306,7 @@ describe("a background reload landing under an open dialog", () => {
 describe("closing a dialog with Escape", () => {
   it("stops the branch cleanup scan, the same as pressing Stop would", () => {
     openCleanupDialog();
-    click("cleanupDeepCheck");
+    clickId("cleanupDeepCheck");
     expect(progressDialogIsUp(), "the scan never raised its progress dialog").toBe(true);
     mock.clearMessages();
 
@@ -335,9 +316,26 @@ describe("closing a dialog with Escape", () => {
     expect(sentOf("branchCleanupScanCancel")).toHaveLength(1);
   });
 
+  // The other half of "the same as Stop", and the half a reload does not get:
+  // the user walked away from the wait, not from the list, so what the scan
+  // found comes back.
+  it("brings back what the stopped scan found, the same as Stop would", () => {
+    openCleanupDialog();
+    const token = startScan();
+
+    pressEscape();
+    receive({ command: "branchCleanupScan", payload: cleanupPayload, cancelled: true, token });
+
+    expect(
+      document.querySelector('#dialog .cleanupRow input[data-ref="merged"]'),
+      "the cleanup dialog did not come back"
+    ).not.toBeNull();
+    expect(dialogText()).toContain(L.cleanupScanCancelled);
+  });
+
   it("abandons the cleanup dialog the refetch was working for", () => {
     openCleanupDialog();
-    click("cleanupRefetch");
+    clickId("cleanupRefetch");
     const request = sentOf("branchCleanupOpen").at(-1);
     expect(request, "the refetch request").toBeDefined();
     const token = (request as Extract<GG.RequestMessage, { command: "branchCleanupOpen" }>).token;
@@ -370,9 +368,7 @@ describe("closing a dialog with Escape", () => {
   // it the moment the user closed the list.
   it("does not run the hook of a dialog that has since been replaced", () => {
     openCleanupDialog();
-    click("cleanupDeepCheck");
-    const scan = sentOf("branchCleanupScan").at(-1);
-    const token = (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
+    const token = startScan();
     // The scan comes back and renders the list over its own progress dialog.
     receive({ command: "branchCleanupScan", payload: cleanupPayload, cancelled: false, token });
     expect(
@@ -394,14 +390,14 @@ describe("closing a dialog with Escape", () => {
 // imitation at best, and go on surviving its own reload at worst.
 describe("every progress dialog carries the mark that says a reload owns it", () => {
   it("the plain one, raised by an action with nothing to undo", () => {
-    click("fetchBtn");
+    clickId("fetchBtn");
     expect(document.getElementById("actionRunning")).not.toBeNull();
     expect(dialogText()).toContain(L.fetching);
   });
 
   it("the dismissable one, raised by the cleanup refetch", () => {
     openCleanupDialog();
-    click("cleanupRefetch");
+    clickId("cleanupRefetch");
     expect(document.getElementById("actionRunning")).not.toBeNull();
     expect(document.getElementById("actionRunning")!.textContent).toBe(L.loading);
     expect(dialogText()).not.toContain(L.cleanupRefetch);
@@ -409,7 +405,7 @@ describe("every progress dialog carries the mark that says a reload owns it", ()
 
   it("the cleanup scan's, which relabels Dismiss as Stop and used to be hand-built", () => {
     openCleanupDialog();
-    click("cleanupDeepCheck");
+    clickId("cleanupDeepCheck");
     expect(document.getElementById("actionRunning")).not.toBeNull();
     // Its two departures from the other two, both pinned with `toBe` — the
     // scan's own dismiss label, and progress text that ends where the template

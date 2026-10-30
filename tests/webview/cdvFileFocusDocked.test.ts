@@ -5,6 +5,7 @@ import type * as GG from "@/types";
 
 import {
   createVscodeMock,
+  graphRow,
   makeViewState,
   NEAR_BOTTOM,
   parkViewportAt,
@@ -97,10 +98,6 @@ const tipDetails: GitCommitDetails = {
   ]
 };
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
 function fileRows() {
   return Array.from(document.querySelectorAll<HTMLElement>("#commitDetails .gitFile"));
 }
@@ -135,7 +132,7 @@ describe("file-list focus with the Commit Details View docked to the bottom", ()
     });
     receive(commitsResponse(commits));
 
-    row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     receive({ command: "commitDetails", commitDetails: tipDetails });
 
     focusedBefore = fileRows()[1];
@@ -154,7 +151,7 @@ describe("file-list focus with the Commit Details View docked to the bottom", ()
   });
 
   it("rebuilds the docked panel, replacing the row that held focus", () => {
-    expect(row("ccc333")).not.toBeNull();
+    expect(graphRow("ccc333")).not.toBeNull();
     expect(fileRows()).toHaveLength(3);
     expect(fileRows()).not.toContain(focusedBefore);
   });

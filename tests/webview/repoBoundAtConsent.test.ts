@@ -9,6 +9,7 @@ import {
   createVscodeMock,
   DEFAULT_REPO,
   makeViewState,
+  openMenuOn,
   receive,
   setupHtml
 } from "./setup";
@@ -113,12 +114,6 @@ const commitsResponse: GG.ResponseMessage = {
   moreCommitsAvailable: false,
   hard: true
 };
-
-function openMenuOn(selector: string) {
-  const elem = document.querySelector<HTMLElement>(selector);
-  expect(elem, selector).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
 
 function dialogIsOpen() {
   return document.getElementById("dialogAction") !== null;

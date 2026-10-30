@@ -4,7 +4,15 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickElem,
+  clickId,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The Repository Settings drawer (#183): a toolbar shortcut to the repo's own
 // overrides, applied as each control changes. It writes the repo state and
@@ -63,11 +71,6 @@ const commitsResponse: GG.ResponseMessage = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-function click(elem: Element | null, what: string) {
-  expect(elem, what).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 function gear() {
   return document.getElementById("repoSettingsBtn")!;
 }
@@ -81,7 +84,7 @@ function drawerOpen() {
 }
 
 function openDrawer() {
-  if (!drawerOpen()) click(gear(), "gear");
+  if (!drawerOpen()) clickId("repoSettingsBtn");
   expect(drawerOpen()).toBe(true);
 }
 
@@ -133,7 +136,7 @@ describe("the Repository Settings drawer", () => {
 
   describe("when the gear is clicked", () => {
     beforeAll(() => {
-      click(gear(), "gear");
+      clickId("repoSettingsBtn");
     });
 
     it("slides the drawer out, and says so on the gear", () => {
@@ -191,12 +194,14 @@ describe("the Repository Settings drawer", () => {
     });
 
     it("stays open for a click inside it", () => {
-      click(drawer().querySelector(".repoSettingsHeader"), "header");
+      const header = drawer().querySelector(".repoSettingsHeader");
+      expect(header, "header").not.toBeNull();
+      clickElem(header!);
       expect(drawerOpen()).toBe(true);
     });
 
     it("closes on a click anywhere else", () => {
-      click(document.getElementById("commitTable"), "table");
+      clickId("commitTable");
       expect(drawerOpen()).toBe(false);
       expect(gear().getAttribute("aria-expanded")).toBe("false");
     });
@@ -212,7 +217,7 @@ describe("the Repository Settings drawer", () => {
 
     it("toggles closed on a second click of the gear", () => {
       openDrawer();
-      click(gear(), "gear");
+      clickId("repoSettingsBtn");
       expect(drawerOpen()).toBe(false);
     });
   });
@@ -221,7 +226,7 @@ describe("the Repository Settings drawer", () => {
     let saveIndex: number;
     let loadIndex: number;
     beforeAll(() => {
-      click(document.getElementById("loadMoreCommitsBtn"), "Load More");
+      clickId("loadMoreCommitsBtn");
       receive(commitsResponse);
       openDrawer();
       mock.clearMessages();
@@ -368,7 +373,7 @@ describe("the Repository Settings drawer", () => {
   describe("the pencil", () => {
     beforeAll(() => {
       openDrawer();
-      click(document.getElementById("repoSettingsRename"), "pencil");
+      clickId("repoSettingsRename");
     });
 
     it("steps the drawer aside and asks for the name in a dialog", () => {
@@ -386,7 +391,7 @@ describe("the Repository Settings drawer", () => {
     it("writes the trimmed name and retitles the toolbar", () => {
       mock.clearMessages();
       document.querySelector<HTMLInputElement>('#dialog input[type="text"]')!.value = "  Renamed  ";
-      click(document.getElementById("dialogAction"), "Rename");
+      clickId("dialogAction");
       expect(savedRepoStates()).toMatchObject([{ customName: "Renamed" }]);
       expect(document.getElementById("repoTitleName")!.textContent).toBe("Renamed");
       expect(mock.sentOf("loadCommits")).toHaveLength(0);
@@ -395,10 +400,10 @@ describe("the Repository Settings drawer", () => {
     it("clears the name back to the folder's when left blank", () => {
       openDrawer();
       expect(drawer().querySelector(".repoSettingsName")!.textContent).toBe("Renamed");
-      click(document.getElementById("repoSettingsRename"), "pencil");
+      clickId("repoSettingsRename");
       mock.clearMessages();
       document.querySelector<HTMLInputElement>('#dialog input[type="text"]')!.value = " ";
-      click(document.getElementById("dialogAction"), "Rename");
+      clickId("dialogAction");
       expect(savedRepoStates()[0].customName).toBeNull();
       expect(document.getElementById("repoTitleName")!.textContent).toBe("my-repo");
     });

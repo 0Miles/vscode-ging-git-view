@@ -4,7 +4,7 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // Navigating while a load is in flight (#84). A navigation changes *which*
 // commits belong on screen — the repository, whether remote branches count —
@@ -80,12 +80,6 @@ async function bootSettled(moreCommitsAvailable = false) {
   await import("@/webview/main");
   receive(branchesResponse);
   receive(commitsResponse("a", moreCommitsAvailable));
-}
-
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 /** Put a repo state for REPO_A on the wire, the way the host re-sends the set
@@ -292,7 +286,7 @@ describe("a remote hidden while a commit load is in flight", () => {
 describe("a remote hidden after the loaded commit window was widened", () => {
   beforeAll(async () => {
     await bootSettled(true);
-    click("loadMoreCommitsBtn"); // 300 -> 400
+    clickId("loadMoreCommitsBtn"); // 300 -> 400
     receive(commitsResponse("a", true));
     // A load in flight again, so the reload below can only come from the
     // navigation: the plain refresh would be refused here, exactly as it is in
@@ -371,10 +365,10 @@ describe("a branch filter pushed while only the branch half is in flight", () =>
     await bootSettled();
     // An action the user took, with its progress dialog standing. The reload
     // that follows an action is what takes that dialog down.
-    click("fetchBtn");
+    clickId("fetchBtn");
     // A hard reload caught in its branch phase: the commit half does not exist
     // yet, so the abandonment below has only the branch half to settle.
-    click("refreshBtn");
+    clickId("refreshBtn");
     mock.clearMessages();
     // The Branches side-view pushes a filter in from outside the panel — it can
     // reach the extension while a modal dialog is up in here.
@@ -457,7 +451,7 @@ describe("a repo set the host found no live repository in", () => {
   it("asks the host to index nothing when Find is opened", () => {
     // The guard here read `=== null`, which the empty string walks past.
     mock.clearMessages();
-    click("findBtn");
+    clickId("findBtn");
     expect(sentOf("branchSearch")).toEqual([]);
   });
 
@@ -475,7 +469,7 @@ describe("a progress dialog standing when the repository goes away", () => {
     await bootSettled();
     // An action the user started while there was still a repository to start
     // it on. Its progress dialog is taken down by the reload that follows.
-    click("fetchBtn");
+    clickId("fetchBtn");
     receive({
       command: "loadRepos",
       repos: { [REPO_B]: { columnWidths: null } },

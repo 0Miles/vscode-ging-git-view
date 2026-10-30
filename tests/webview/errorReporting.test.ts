@@ -1,72 +1,18 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
 import type * as GG from "@/types";
 
-import { createVscodeMock, receive, setupHtml } from "./setup";
+import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
 
-const REPO = "/workspace/my-repo";
-
-const viewState: GG.GitGraphViewState = {
-  autoCenterCommitDetailsView: true,
-  commitDetailsViewLocation: "Inline",
-  referenceLabelAlignment: "Normal",
+const viewState = makeViewState({
   combineLocalAndRemoteBranchLabels: false,
-  dialogDeleteBranchForceDelete: false,
-  dialogCherryPickNoCommit: false,
-  dialogAddTagType: "annotated",
-  dialogCreateBranchCheckOut: false,
-  dialogMergeNoFastForward: true,
-  dialogMergeSquash: false,
-  dialogResetMode: "mixed",
-  dialogMemory: {},
-  contextMenuActionsVisibility: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-  customBranchGlobPatterns: [],
-  customEmojiShortcodeMappings: {},
-  dateFormat: "Date & Time",
-  dateCustomFormat: "DD MMM YYYY",
-  defaultColumnVisibility: { date: true, author: true, commit: true },
-  enhancedAccessibility: false,
-  fetchAvatars: false,
-  fileTreeCompactFolders: true,
-  fileViewType: "File Tree",
-  graphColours: ["#0085d9"],
-  graphStyle: "rounded",
-  initialLoadCommits: 300,
-  issueLinkingRegex: "",
-  issueLinkingUrl: "",
-  keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
   // The repo the host would seed for this set: `null` alongside a non-empty
   // `repos` is a shape the host no longer produces (`pickBootRepo` falls
   // through to the first live known repository), and taking it literally boots
   // the panel onto no repository at all — which sends no load, so there is no
   // answer for this suite's broken response to be an answer *to*.
-  lastActiveRepo: REPO,
-  loadMoreAutomatically: true,
-  loadMoreCount: 100,
-  markdown: false,
-  muteCommitsNotAncestorsOfHead: false,
-  muteMergeCommits: true,
-  onLoadScrollToHead: false,
-  referenceInputSpaceSubstitution: "None",
-  repos: { [REPO]: { columnWidths: null } },
-  scmMultiRepoSelection: true,
-  showCurrentBranchByDefault: false,
-  uncommittedChangesAtHead: false,
-  showSpecificBranches: [],
-  showRemoteBranches: true,
-  repoSettingDefaults: {
-    onlyFollowFirstParent: false,
-    includeReflogCommits: false,
-    showStashes: true,
-    showTagOnlyCommits: true,
-    showRemoteHeads: true,
-    showInactiveBranches: false,
-    showMergedBranches: false
-  },
-  showTags: true,
-  signCommits: false
-};
+  lastActiveRepo: DEFAULT_REPO
+});
 
 /** A response whose payload breaks the handler applying it — the shape of the
  *  failure this suite is about: a handler that throws part-way through, leaving

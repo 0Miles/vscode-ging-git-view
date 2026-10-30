@@ -73,3 +73,15 @@ export function isNotFullyMergedError(error: unknown): boolean {
 export function isRemoteUpdatedSinceCheckoutError(error: unknown): boolean {
   return rawGitErrorText(error).includes("remote ref updated since checkout");
 }
+
+/** Whether a force-with-lease push was refused before the integration check
+ *  ever ran, because the local remote-tracking ref does not match the remote:
+ *  there is none while the remote has the branch, or it is out of date (behind,
+ *  or the remote was rewound or has diverged).
+ *
+ *      ! [rejected]        x -> x (stale info)
+ *
+ *  Untranslated like {@link isRemoteUpdatedSinceCheckoutError}'s reason. */
+export function isStaleLeaseInfoError(error: unknown): boolean {
+  return rawGitErrorText(error).includes("(stale info)");
+}

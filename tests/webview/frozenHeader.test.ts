@@ -2,7 +2,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import type { GitCommitNode } from "@/backend/types";
 
-import { VIEWPORT_HEIGHT, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  VIEWPORT_HEIGHT,
+  createVscodeMock,
+  graphRow,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 /* The control bar and the column headers are frozen at the top of the view
  * (#206): rows scroll *under* them. The browser's own scroll-into-view learns
@@ -28,10 +35,6 @@ const commits: GitCommitNode[] = ["aaa111", "bbb222", "ccc333"].map((hash, i, al
   message: "Commit " + hash,
   refs: i === 0 ? [{ hash, name: "main", type: "head" }] : []
 }));
-
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
 
 function press(key: string) {
   document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
@@ -90,7 +93,7 @@ describe("the frozen header", () => {
     // of the page. Bringing it "into view" would haul the page all the way
     // back up for a row the user is already looking at.
     it("walks onto the header row, into a column and back out without scrolling", () => {
-      row("aaa111").focus();
+      graphRow("aaa111").focus();
       scrolledIntoView.length = 0;
       press("ArrowUp");
       expect(document.activeElement).toBe(headerRow());
@@ -105,7 +108,7 @@ describe("the frozen header", () => {
       headerRow().focus();
       scrolledIntoView.length = 0;
       press("ArrowDown");
-      expect(scrolledIntoView).toEqual([row("aaa111")]);
+      expect(scrolledIntoView).toEqual([graphRow("aaa111")]);
     });
   });
 
@@ -115,7 +118,7 @@ describe("the frozen header", () => {
       // to re-orient against: 768 - 63 - 48.
       const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
       try {
-        row("aaa111").focus();
+        graphRow("aaa111").focus();
         press("PageDown");
         expect(scrollBy).toHaveBeenLastCalledWith(0, VIEWPORT_HEIGHT - FROZEN - 48);
         press("PageUp");

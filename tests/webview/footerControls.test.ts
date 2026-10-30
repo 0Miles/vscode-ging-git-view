@@ -4,7 +4,7 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 
 // The graph footer's two controls: Load More, and the way back from a widened
 // loaded commit window. ADR-0019 keeps automatic loading on the condition that
@@ -86,16 +86,6 @@ function resetBtn() {
   return document.getElementById("resetLoadedCommitWindowBtn");
 }
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 function loadCommitsRequests() {
   return mock.sentMessages.filter((m) => m.command === "loadCommits");
 }
@@ -171,7 +161,7 @@ describe("the graph footer's controls", () => {
     receive(branchesResponse);
     receive(commitsResponse());
     // Widen the window once, so both controls are on screen at the same time.
-    click("loadMoreCommitsBtn");
+    clickId("loadMoreCommitsBtn");
     receive(commitsResponse());
   });
 
@@ -285,8 +275,8 @@ describe("the graph footer's controls", () => {
         // footer sits under. `focusGraphRow` brings it into view, which it is
         // entitled to — a key press is an operation, and operations may move
         // the viewport.
-        expect(document.activeElement).toBe(row("bbb222"));
-        expect(scrolledIntoView).toEqual([row("bbb222")]);
+        expect(document.activeElement).toBe(graphRow("bbb222"));
+        expect(scrolledIntoView).toEqual([graphRow("bbb222")]);
       });
 
       it("takes the key, as ADR-0014 has it take every Up and Down that means something", () => {
@@ -404,7 +394,7 @@ describe("the graph footer's controls", () => {
       // holds a container, not an action, and following it with the viewport
       // would undo the press. Pinned positively, so that "the footer scrolled
       // nothing" cannot be satisfied by a redraw that scrolled nothing at all.
-      expect(scrolledIntoView).toEqual([row("aaa111")]);
+      expect(scrolledIntoView).toEqual([graphRow("aaa111")]);
       expect(scrollTo).not.toHaveBeenCalled();
       expect(focusCalls).toEqual([
         { target: footer(), preventScroll: true },
@@ -417,7 +407,7 @@ describe("the graph footer's controls", () => {
     let focusedAfterLoad: Element | null = null;
 
     beforeAll(() => {
-      click("loadMoreCommitsBtn"); // widen it again, to 400, so a way back exists
+      clickId("loadMoreCommitsBtn"); // widen it again, to 400, so a way back exists
       receive(commitsResponse());
       loadMoreBtn()!.focus();
 
