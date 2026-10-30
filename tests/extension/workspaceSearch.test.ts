@@ -6,7 +6,7 @@ import { Config } from "@/config";
 import { RepoManager } from "@/extension/repoManager";
 import { createRepoSearch } from "@/extension/workspaceSearch";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { copyRepo, makeRepo, rmrf, SEED_TIMEOUT_MS } from "@tests/backend/helpers";
 
 function makeStubs(initialRepoPaths: string[] = [], maxDepth = 2, gitPath = "git") {
   const repos: Record<string, { columnWidths: null }> = {};
@@ -48,10 +48,22 @@ function makeStubs(initialRepoPaths: string[] = [], maxDepth = 2, gitPath = "git
 }
 
 suite("workspaceSearch / searchDirectoryForRepos", () => {
+  let seed: string;
   let repo: string;
 
+  // The three spawns are paid once, in a hook given room for them; each test's
+  // `setup` then copies the seed for one spawn (#283).
+  suiteSetup(function () {
+    this.timeout(SEED_TIMEOUT_MS);
+    seed = makeRepo();
+  });
+
+  suiteTeardown(() => {
+    rmrf(seed);
+  });
+
   setup(() => {
-    repo = makeRepo();
+    repo = copyRepo(seed);
   });
 
   // rmrf, not rmSync: a bare rmSync cannot delete git's read-only objects in the
