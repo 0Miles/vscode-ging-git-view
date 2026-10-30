@@ -52,9 +52,9 @@ describe("makeRepo", () => {
 
   // The spawn budget is what keeps the extension tests' setup hooks under Mocha's
   // 2000ms; see makeRepo's doc comment (#116).
-  it("spawns git at most three times", () => {
+  it("spawns git exactly three times", () => {
     vi.mocked(cp.execFileSync).mockClear();
     repo = makeRepo();
-    expect(vi.mocked(cp.execFileSync).mock.calls.length).toBeLessThanOrEqual(3);
+    expect(vi.mocked(cp.execFileSync).mock.calls.length).toBe(3);
   });
 });
