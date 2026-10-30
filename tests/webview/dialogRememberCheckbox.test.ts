@@ -41,16 +41,6 @@ const commits: GitCommitNode[] = [
   }
 ];
 
-function openCommitMenu(hash: string) {
-  rightClick(graphRow(hash));
-}
-
-/** Matched on the start of the label: the whole of it carries more than the
- *  verb (Merge's "into current branch", the ellipsis). */
-function clickMenuItem(startsWith: string) {
-  clickElem(menuItemStartingWith(startsWith));
-}
-
 describe("'Remember my choice' checkbox visibility", () => {
   let mock: ReturnType<typeof createVscodeMock>;
 
@@ -80,8 +70,10 @@ describe("'Remember my choice' checkbox visibility", () => {
   });
 
   it("shows the checkbox on an option-bearing dialog (Merge)", () => {
-    openCommitMenu("par1");
-    clickMenuItem("Merge");
+    rightClick(graphRow("par1"));
+    // Matched on the start of the label: the whole of it carries more than
+    // the verb (Merge's "into current branch", the ellipsis).
+    clickElem(menuItemStartingWith("Merge"));
 
     // The three merge option checkboxes render as dialogInput0..2,
     // and the remember toggle renders alongside them.
@@ -93,8 +85,8 @@ describe("'Remember my choice' checkbox visibility", () => {
     // Dismiss the merge dialog first.
     document.getElementById("dialogDismiss")?.dispatchEvent(new MouseEvent("click"));
 
-    openCommitMenu("child1");
-    clickMenuItem("Revert");
+    rightClick(graphRow("child1"));
+    clickElem(menuItemStartingWith("Revert"));
 
     expect(document.getElementById("dialogRememberChoice")).toBeNull();
   });
