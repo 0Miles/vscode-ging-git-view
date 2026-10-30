@@ -13,7 +13,10 @@ import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./
 // "go there" and "a load is in the way". This file pins what was left:
 //
 // - the answer that says the branch is gone, so the step has nowhere to go and
-//   Find must stay where it was (#246).
+//   Find must stay where it was (#246);
+// - a later press that steps past the wish onto a match no branch names, which
+//   is a move made on the spot — so the wish it went past must not come back
+//   and undo it when the answer lands (#247).
 //
 // One webview is booted for the whole file and the scenarios run in order;
 // re-importing per scenario would leave the previous instance listening on
@@ -173,5 +176,35 @@ describe("a step onto a branch that is gone by the time the answer lands", () =>
     clickId("findNext");
     expect(counter()).toBe(counterFor(2, 2));
     expect(currentMatchHash()).toBe("ccc333");
+  });
+});
+
+describe("a second press past a step still waiting on its answer", () => {
+  let afterSecondPress = "";
+
+  beforeAll(() => {
+    searchWithTheBranch();
+    clickId("findNext"); // onto fix/base, a wish until the index comes back
+    clickId("findNext"); // and on, from that wish, to the base — no branch there
+    afterSecondPress = counter() ?? "";
+    deliverBranchIndex([baseBranch]); // the first press's answer lands
+  });
+
+  it("counts the second press from where the first was heading", () => {
+    // The precondition: presses compound while an answer is out.
+    expect(afterSecondPress).toBe(counterFor(3, 3));
+  });
+
+  it("is not undone when the first press's answer lands", () => {
+    // The second press moved Find on the spot. The wish it stepped past was
+    // still standing, and its answer took Find back to the branch.
+    expect(counter()).toBe(counterFor(3, 3));
+    expect(currentMatchHash()).toBe("ccc333");
+  });
+
+  it("leaves Find stepping from there", () => {
+    clickId("findNext"); // wraps to the tip, no branch there either
+    expect(counter()).toBe(counterFor(1, 3));
+    expect(currentMatchHash()).toBe("aaa111");
   });
 });

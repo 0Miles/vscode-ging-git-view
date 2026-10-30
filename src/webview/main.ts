@@ -6098,6 +6098,11 @@ class GitGraphView {
     // branch to revalidate means no round trip, so the guard and the state
     // change are already in the same synchronous stretch (ADR-0019).
     if (this.loadFindMatch(match, direction) === "hold") return;
+    // This press counted from a step still waiting on its answer, and went
+    // past it. That step is superseded, not merely overtaken: left standing,
+    // its answer would land after this move and take Find back to the branch,
+    // undoing the press that counted from it (#247).
+    this.pendingFindNavigation = null;
     this.findCurrent = next;
     this.findDirection = direction;
     this.applyFindHighlights(true);
