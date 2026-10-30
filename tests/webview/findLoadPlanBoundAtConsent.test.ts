@@ -221,8 +221,10 @@ function raiseFindLoadConfirmation(back = false) {
   expect(document.getElementById("dialogAction"), "the confirmation dialog").not.toBeNull();
 }
 
-/** One turn of the wheel over the overlay, which chains to the document and
- *  fires `scroll` at the near-the-bottom threshold. Returns whether automatic
+/** One turn of the wheel over the overlay, which chained to the document and
+ *  fired `scroll` at the near-the-bottom threshold — before #230 held the page
+ *  still behind a dialog; the event stands in for any scroll that still gets
+ *  through. Returns whether automatic
  *  loading asked for anything — it may not, the dialog being up (#124).
  *
  *  A page that was asked for is answered before returning, so that the turns

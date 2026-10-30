@@ -307,8 +307,11 @@ describe("automatic loading on scroll", () => {
 
   // A modal dialog is the one state in which a scroll event is certainly not
   // browsing the graph: `#dialogBacking` is an unscrollable full-screen
-  // overlay, so a wheel over it chains to the document and `scroll` fires
-  // while the user is reading a question about something else entirely.
+  // overlay, so a wheel over it chained to the document and `scroll` fired
+  // while the user was reading a question about something else entirely.
+  // Since #230 the page itself holds still behind a dialog, but a scroll can
+  // still arrive — focus moving to a background control brings it into view —
+  // and the gate is what keeps that one from loading.
   //
   // ADR-0019's grounds for keeping automatic loading are that the loaded
   // commit window it widens stays visible and has a way back — and the footer

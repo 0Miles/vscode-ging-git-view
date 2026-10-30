@@ -5,6 +5,14 @@
 html {
   overflow-y: scroll;
 }
+/* A modal dialog holds the page still behind it (#230): its scrollbar, the
+   wheel over the backing and the scrolling keys would otherwise move the graph
+   under the question. The gutter stays, so the width does not jump as the
+   scrollbar goes; the scroll position is kept and stands when it comes back. */
+html.dialogOpen {
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
 /* The "this is the selected thing" colours, shared by the commit row whose
    details are open and by the toolbar's branch-filter chip. Quick Pick's focused
    item first, list selection next, a neutral tint last. Defined once so the two
@@ -1315,6 +1323,9 @@ body.vscode-high-contrast #contextMenu {
   z-index: 401;
   box-shadow: 0 0 30px 5px var(--vscode-widget-shadow);
   overflow-y: auto;
+  /* A long dialog scrolls itself; reaching its end does not hand the rest of
+     the wheel to the page behind it. */
+  overscroll-behavior: contain;
 }
 /* …while form dialogs follow the native dialog layout: body text and controls
    align left, buttons align right with the primary action outermost. */
