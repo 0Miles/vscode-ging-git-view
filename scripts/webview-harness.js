@@ -84,11 +84,13 @@ function loadViewStateFixture() {
   return require(outfile);
 }
 
-/** The palette a user who never touched `ging-git-view.graph.palette` gets,
- *  read from the manifest that ships it. The fixture's single colour is enough
- *  for the suites, but every graph column here would draw in it.
+/**
+ * The palette a user who never touched `ging-git-view.graph.palette` gets,
+ * read from the manifest that ships it. The fixture's single colour is enough
+ * for the suites, but every graph column here would draw in it.
  *
- *  @returns {string[]} */
+ * @returns {string[]}
+ */
 function shippedPalette() {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   return manifest.contributes.configuration.properties["ging-git-view.graph.palette"].default;
