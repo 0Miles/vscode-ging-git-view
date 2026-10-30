@@ -1234,6 +1234,34 @@ class GitGraphView {
     this.requestLoadCommits(true, () => this.endBusyLoad());
   }
 
+  /** The Repository Setting defaults changed in VSCode's settings (#211).
+   *
+   *  The graph reloads only if a moved default steers the load of the repo it
+   *  shows — one that repo has no override for. A repo that overrides it loads
+   *  as it did, and the side-view's two defaults steer nothing here. Any other
+   *  repo picks the new defaults up the next time it is switched to, since the
+   *  host resolves the scope afresh on every load.
+   *
+   *  Recognised by comparison, like the repo state {@link loadRepos} receives,
+   *  and for the same reason it is a navigation that does not shrink the
+   *  loaded commit window: it arrives from outside the panel, as a fact rather
+   *  than as a call (ADR-0024). */
+  public setRepoSettingDefaults(defaults: GG.RepoSettingDefaults) {
+    const before = viewState.repoSettingDefaults;
+    viewState.repoSettingDefaults = defaults;
+    this.refreshRepoSettings();
+    const state = this.gitRepos[this.currentRepo];
+    if (state === undefined) return;
+    const moved = REPO_SETTING_TOGGLES.some(
+      (t) =>
+        t.reload === "commits" &&
+        t.field !== "showRemoteBranches" &&
+        before[t.field] !== defaults[t.field] &&
+        (state[t.field] ?? null) === null
+    );
+    if (moved) this.navigateReload();
+  }
+
   /** Send a branch-deletion request, remembering its parameters so a failed
    *  non-force delete can offer a one-click force delete. */
   private sendDeleteBranch(
@@ -8264,6 +8292,9 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "setScmMultiRepoSelection":
       gitGraph.setScmMultiRepoSelection(msg.enabled);
+      break;
+    case "setRepoSettingDefaults":
+      gitGraph.setRepoSettingDefaults(msg.defaults);
       break;
     case "runRefAction":
       gitGraph.runRefAction(msg);

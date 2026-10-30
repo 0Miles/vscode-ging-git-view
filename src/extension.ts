@@ -26,7 +26,7 @@ import {
   isBatchAction
 } from "./backend/utils/refActionCatalogue";
 import { repoContainingPath, resolveToKnownRepo } from "./backend/utils/repoMatch";
-import { config, SCM_SELECTION_MODE_SETTING } from "./config";
+import { config, REPO_SETTING_DEFAULT_SETTINGS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
@@ -336,6 +336,20 @@ export function activate(context: vscode.ExtensionContext) {
       currentBridge?.post({
         command: "setScmMultiRepoSelection",
         enabled: config.scmMultiRepoSelection()
+      });
+    })
+  );
+
+  // A Repository Setting's default changed in VSCode's settings (#211). The
+  // drawer's own toggles reload the graph themselves; this way in has nobody
+  // to, so the graph is handed the new defaults and decides — it knows which
+  // repo it shows and whether that repo overrides what moved.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!REPO_SETTING_DEFAULT_SETTINGS.some((s) => e.affectsConfiguration(s))) return;
+      currentBridge?.post({
+        command: "setRepoSettingDefaults",
+        defaults: config.repoSettingDefaults()
       });
     })
   );
