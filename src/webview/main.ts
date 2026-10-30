@@ -2503,6 +2503,8 @@ class GitGraphView {
     // At most one of the two keys is non-null: a file row is never inside a
     // commit row.
     const focusedFileKey = this.focusedCdvFileKey();
+    // And the panel's links, which no roving group holds (#251).
+    const focusedLinkKey = this.focusedCdvLinkKey();
     const hiddenDate = this.columnVisibility.date ? "" : " hidden";
     const hiddenAuthor = this.columnVisibility.author ? "" : " hidden";
     const hiddenCommit = this.columnVisibility.commit ? "" : " hidden";
@@ -2597,10 +2599,14 @@ class GitGraphView {
             consumed.add(r.name);
             // Nested .gitRef.remote so the existing context-menu / double-click
             // handlers resolve a click on the badge to the remote branch.
+            // Focusable like every other chip (see `refSpan`): a menu closed
+            // on a chip that had to borrow a tabindex took the loan back from
+            // the element it had just focused, and Chromium dropped focus to
+            // <body> (#251).
             badges +=
               '<span class="gitRef remote gitRefCombined' +
               (isDimmedRef(r.name) ? " dimmedRef" : "") +
-              '" data-name="' +
+              '" tabindex="-1" data-name="' +
               escapeHtml(r.name) +
               '">' +
               escapeHtml(r.remote) +
@@ -2611,7 +2617,7 @@ class GitGraphView {
           '<span class="gitRef head' +
           (head.active ? " active" : "") +
           (isDimmedRef(head.name) ? " dimmedRef" : "") +
-          '" data-name="' +
+          '" tabindex="-1" data-name="' +
           escapeHtml(head.name) +
           '">' +
           svgIcons.branch +
@@ -2795,6 +2801,7 @@ class GitGraphView {
     // as its one reachable miss. The graph's tab stop can likewise land back on
     // the expanded commit rather than on the top of the graph.
     this.restoreCdvFileFocus(focusedFileKey);
+    this.restoreCdvLinkFocus(focusedLinkKey);
     this.restoreGraphFocus(focusedKey, focusMayScroll);
 
     this.addGraphContextMenuListener("tableColHeader", (e: Event) => {
@@ -6612,6 +6619,54 @@ class GitGraphView {
     const refocused = this.cdvFileRows().find((file) => cdvFileKey(file) === fileKey);
     if (refocused === undefined) return;
     this.cdvFileTabStop.focusInPlace(refocused);
+  }
+
+  /** The Commit Details View's summary links to `href`, in document order. */
+  private cdvLinksTo(href: string): HTMLElement[] {
+    const panel = this.cdvPanel();
+    if (panel === null) return [];
+    return Array.from(panel.querySelectorAll<HTMLElement>(".commitBodyLink")).filter(
+      (link) => link.getAttribute("href") === href
+    );
+  }
+
+  /** Which of the Commit Details View's `.commitBodyLink`s holds focus, or null
+   *  when none does — read before the redraw, like {@link focusedCdvFileKey}.
+   *  A link is named by where it points and which of the links pointing there
+   *  it is: a message can cite one address twice, and an author can be their
+   *  own committer. Asked of the panel, so a link in the branch-redundancy
+   *  dialog's copy of a summary is not one (see {@link cdvPanel}). */
+  private focusedCdvLinkKey(): { href: string; index: number } | null {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !active.matches(".commitBodyLink")) return null;
+    const href = active.getAttribute("href") ?? "";
+    const index = this.cdvLinksTo(href).indexOf(active);
+    return index === -1 ? null : { href, index };
+  }
+
+  /** {@link restoreCdvFileFocus} for the summary's links, which belong to no
+   *  roving group and so had nothing to put focus back on them: it fell to
+   *  `<body>` on every redraw, with a context menu open on the link or not
+   *  (#251). In place, for the reason the file list's is.
+   *
+   *  A miss is not left at `<body>`. The summary is redrawn from the same
+   *  cached details, so only something that rewrites the links themselves can
+   *  cause one; focus then goes to the nearest place still standing — the
+   *  file list's tab stop in the same panel, else the expanded commit's row. */
+  private restoreCdvLinkFocus(key: { href: string; index: number } | null) {
+    if (key === null) return;
+    const link = this.cdvLinksTo(key.href)[key.index];
+    if (link !== undefined) {
+      link.focus({ preventScroll: true });
+      return;
+    }
+    const file = this.cdvFileTabStop.current;
+    if (file !== null) {
+      this.cdvFileTabStop.focusInPlace(file);
+      return;
+    }
+    const row = this.expandedCommit?.srcElem ?? null;
+    if (row !== null && row.isConnected) this.graphTabStop.focusInPlace(row);
   }
 
   /** Give the Commit Details View's file list a tab stop, so Tab can reach it
