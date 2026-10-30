@@ -7606,6 +7606,8 @@ let cleanupOpenRepo: string | null = null;
 let cleanupOpenDialogOwner = 0;
 /** The progress dialog the running deep scan reports into. */
 let cleanupScanDialogOwner = 0;
+/** The progress dialog the open dialog's "fetch and recompute" raised. */
+let cleanupRefetchDialogOwner = 0;
 
 /** Ask the host for a payload and open the dialog on it. The graph's context
  *  menu route (the side-view command has the payload already). */
@@ -7628,7 +7630,12 @@ function requestBranchCleanup(repo: string) {
 function handleBranchCleanupOpen(msg: GG.ResponseBranchCleanupOpen) {
   const notice = msg.fetchFailed ? l10n.cleanupFetchFailed : null;
   if (cleanupState !== null && msg.token === cleanupState.token) {
-    updateBranchCleanup(msg.payload, notice, msg.token);
+    // Only over the refetch's own progress dialog. Its hook clears
+    // `cleanupState` when the user walks away, but a dialog that replaces it
+    // runs no hook, and the answer would render the list over that one.
+    if (progressDialogOwnedBy(cleanupRefetchDialogOwner) !== null) {
+      updateBranchCleanup(msg.payload, notice, msg.token);
+    }
     return;
   }
   if (
@@ -7908,9 +7915,13 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
     // itself cannot be recalled, but the answer must not reopen a dialog the
     // user has closed — unlike the scan's Stop, which exists precisely to come
     // back with what it found.
-    showActionRunningDialogWith(l10n.loading, l10n.dialogDismiss, () => {
-      cleanupState = null;
-    });
+    cleanupRefetchDialogOwner = showActionRunningDialogWith(
+      l10n.loading,
+      l10n.dialogDismiss,
+      () => {
+        cleanupState = null;
+      }
+    );
     sendMessage({
       command: "branchCleanupOpen",
       repo: cleanupState.repo,
@@ -7930,6 +7941,15 @@ function startBranchCleanupScan(repo: string, token: number) {
     () => sendMessage({ command: "branchCleanupScanCancel" })
   );
   sendMessage({ command: "branchCleanupScan", repo, token });
+}
+
+/** The deep scan's verdicts, finished or cut short by Stop. Over the scan's own
+ *  progress dialog, or into the empty slot Stop leaves — Stop's contract is to
+ *  come back with what was found. Never over a dialog that has taken the slot
+ *  since: that one belongs to someone else. */
+function handleBranchCleanupScan(msg: GG.ResponseBranchCleanupScan) {
+  if (progressDialogOwnedBy(cleanupScanDialogOwner) === null && isDialogOpen()) return;
+  updateBranchCleanup(msg.payload, msg.cancelled ? l10n.cleanupScanCancelled : null, msg.token);
 }
 
 function updateBranchCleanupScanProgress(done: number, total: number, token: number) {
@@ -8357,7 +8377,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       updateBranchCleanupScanProgress(msg.done, msg.total, msg.token);
       break;
     case "branchCleanupScan":
-      updateBranchCleanup(msg.payload, msg.cancelled ? l10n.cleanupScanCancelled : null, msg.token);
+      handleBranchCleanupScan(msg);
       break;
     case "deleteBranches":
       gitGraph.handleBatchActionResponse("deleteBranches", msg.results);

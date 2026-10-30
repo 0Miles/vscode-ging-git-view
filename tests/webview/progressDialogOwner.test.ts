@@ -100,6 +100,17 @@ function dialogIsOpen() {
   return document.getElementById("dialog")!.classList.contains("active");
 }
 
+/** The cleanup dialog as the side view delivers it, ready to refetch or scan. */
+function openCleanupFromHost() {
+  receive({
+    command: "showBranchCleanup",
+    repo: DEFAULT_REPO,
+    seq: ++cleanupSeq,
+    payload: cleanupPayload
+  });
+  expect(document.querySelector("#dialog .cleanupRow"), "the cleanup dialog").not.toBeNull();
+}
+
 /** Someone else's progress dialog: the toolbar's Fetch. */
 function fetchDialogTakesOver() {
   document.getElementById("fetchBtn")!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -200,6 +211,54 @@ describe.each(closeRoutes)("a query's progress dialog closed by %s", (_route, cl
 
     expectFetchDialogUntouched();
   });
+
+  // Stop's contract is to come back with what was found — into an empty slot,
+  // not over a dialog the user has opened since.
+  it("keeps the deep scan's result out of the next progress dialog", () => {
+    openCleanupFromHost();
+    document.getElementById("cleanupDeepCheck")!.dispatchEvent(new MouseEvent("click"));
+    const token = tokenOf("branchCleanupScan");
+
+    close();
+    fetchDialogTakesOver();
+    receive({ command: "branchCleanupScan", payload: cleanupPayload, cancelled: true, token });
+
+    expectFetchDialogUntouched();
+  });
+});
+
+// Replacement runs no dismissal hook, so the cleanup dialog's state survives it
+// and only the owner can tell the answer that the dialog it waited on is gone.
+describe("a cleanup progress dialog replaced by a host-raised dialog", () => {
+  const hostDialogTakesOver = () => {
+    receive({ command: "copyToClipboard", type: "Commit Hash", success: false });
+    expect(dialogText()).toContain(errorText);
+  };
+  const errorText = L.unableToCopyToClipboard.replace("{0}", L.typeCommitHash);
+
+  it("keeps the refetch answer from rendering over it", () => {
+    openCleanupFromHost();
+    document.getElementById("cleanupRefetch")!.dispatchEvent(new MouseEvent("click"));
+    const token = tokenOf("branchCleanupOpen");
+
+    hostDialogTakesOver();
+    receive({ command: "branchCleanupOpen", payload: cleanupPayload, fetchFailed: false, token });
+
+    expect(dialogText()).toContain(errorText);
+    expect(document.querySelector("#dialog .cleanupRow")).toBeNull();
+  });
+
+  it("keeps the deep scan's result from rendering over it", () => {
+    openCleanupFromHost();
+    document.getElementById("cleanupDeepCheck")!.dispatchEvent(new MouseEvent("click"));
+    const token = tokenOf("branchCleanupScan");
+
+    hostDialogTakesOver();
+    receive({ command: "branchCleanupScan", payload: cleanupPayload, cancelled: false, token });
+
+    expect(dialogText()).toContain(errorText);
+    expect(document.querySelector("#dialog .cleanupRow")).toBeNull();
+  });
 });
 
 // The other side of the same check: the answer still lands while its own dialog
@@ -250,5 +309,45 @@ describe("a query whose progress dialog is still up", () => {
     expect(document.getElementById("actionRunning")!.textContent).toBe(
       L.cleanupScanning.replace("{0}", "3").replace("{1}", "7")
     );
+  });
+
+  it("updates the cleanup dialog in place on the refetch answer", () => {
+    openCleanupFromHost();
+    document.getElementById("cleanupRefetch")!.dispatchEvent(new MouseEvent("click"));
+    receive({
+      command: "branchCleanupOpen",
+      payload: cleanupPayload,
+      fetchFailed: false,
+      token: tokenOf("branchCleanupOpen")
+    });
+
+    expect(document.querySelector("#dialog .cleanupRow")).not.toBeNull();
+  });
+
+  it("brings the list back with the scan's result", () => {
+    openCleanupFromHost();
+    document.getElementById("cleanupDeepCheck")!.dispatchEvent(new MouseEvent("click"));
+    receive({
+      command: "branchCleanupScan",
+      payload: cleanupPayload,
+      cancelled: false,
+      token: tokenOf("branchCleanupScan")
+    });
+
+    expect(document.querySelector("#dialog .cleanupRow")).not.toBeNull();
+  });
+
+  // Stop empties the slot rather than handing it to anyone, so the answer it
+  // asked for still has somewhere to go.
+  it("brings the list back after Stop, into the slot Stop left empty", () => {
+    openCleanupFromHost();
+    document.getElementById("cleanupDeepCheck")!.dispatchEvent(new MouseEvent("click"));
+    const token = tokenOf("branchCleanupScan");
+    document.getElementById("dialogDismiss")!.dispatchEvent(new MouseEvent("click"));
+    expect(dialogIsOpen(), "Stop did not close the progress dialog").toBe(false);
+
+    receive({ command: "branchCleanupScan", payload: cleanupPayload, cancelled: true, token });
+
+    expect(document.querySelector("#dialog .cleanupRow")).not.toBeNull();
   });
 });
