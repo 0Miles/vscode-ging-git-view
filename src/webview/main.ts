@@ -1347,15 +1347,18 @@ class GitGraphView {
       // Bound at consent like every other confirmation ({@link confirmForRepo}),
       // only earlier: the repository this question is about is the one the
       // refused delete went to, and currentRepo has had the host's whole
-      // round-trip to move since. So the pending record carries it.
-      showConfirmationDialog(
-        l10n.dialogForceDeleteBranchConfirm.replace(
-          "{0}",
-          "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
-        ),
-        () =>
-          this.sendDeleteBranch(pending.repo, pending.branchName, true, pending.deleteOnRemotes),
-        null
+      // round-trip to move since. So the pending record carries it — which is
+      // also what lets the offer wait behind a dialog of the user's (#243).
+      raiseAnswerDialog(() =>
+        showConfirmationDialog(
+          l10n.dialogForceDeleteBranchConfirm.replace(
+            "{0}",
+            "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
+          ),
+          () =>
+            this.sendDeleteBranch(pending.repo, pending.branchName, true, pending.deleteOnRemotes),
+          null
+        )
       );
     } else {
       refreshGraphOrDisplayError(status, l10n.unableToDeleteBranch);
@@ -4634,6 +4637,15 @@ class GitGraphView {
         showActionRunningDialog(spec.running);
         break;
       case "offerRetry":
+        // An offer cannot wait behind a dialog of the user's the way a report
+        // can (#243): the run would sit in `offeringRetry` with no question on
+        // screen, and the next batch's `start` reads exactly that as a run
+        // already over. So it is given up on arrival — the run abandoned, and
+        // what round 1 did owed like any abandoned run's summary.
+        if (usersDialogStands()) {
+          this.abandonBatchRun();
+          break;
+        }
         // No repo capture here: the run already carries the one its first round
         // was started for, and hands it back on the retry round's `send`.
         showConfirmationDialog(
@@ -4802,16 +4814,20 @@ class GitGraphView {
       this.refresh(true, true); // keep the scroll position, as single actions do
       return;
     }
-    showErrorDialog(
-      spec.errorTitle +
-        "<br>" +
-        l10n.dialogBatchResult
-          .replace("{0}", String(results.length - failed.length))
-          .replace("{1}", String(failed.length)),
-      failed.map((r) => displayRef(r.ref) + ": " + r.status).join("\n"),
-      null,
-      () => this.refresh(false),
-      spec.failureNote?.(failed) ?? null
+    // The results are the host's answer, and may land after the user has
+    // dismissed the progress dialog and opened something else (#243).
+    raiseAnswerDialog(() =>
+      showErrorDialog(
+        spec.errorTitle +
+          "<br>" +
+          l10n.dialogBatchResult
+            .replace("{0}", String(results.length - failed.length))
+            .replace("{1}", String(failed.length)),
+        failed.map((r) => displayRef(r.ref) + ": " + r.status).join("\n"),
+        null,
+        () => this.refresh(false),
+        spec.failureNote?.(failed) ?? null
+      )
     );
   }
   /** Display label for the checked-out branch in dialogs: its actual name when
@@ -5921,7 +5937,7 @@ class GitGraphView {
   ) {
     if (token !== this.branchSearchToken) return;
     if (status !== null) {
-      showErrorDialog(l10n.unableToSearchBranches, status, null);
+      raiseAnswerError(l10n.unableToSearchBranches, status);
       return;
     }
     const pendingNavigation = this.pendingFindNavigation;
@@ -7543,6 +7559,47 @@ function payOwedDialog() {
     due();
   });
 }
+/** Whether the dialog up is the user's: one that asks or tells them something,
+ *  as against a progress dialog, which is the webview narrating a wait. The
+ *  same line {@link hideReloadOwnedOverlays} draws, by the same mark, and for
+ *  the same reason it is an existence check rather than an identity. */
+function usersDialogStands(): boolean {
+  return isDialogOpen() && document.getElementById("actionRunning") === null;
+}
+/**
+ * Raise a dialog a host answer brings: now, over an empty slot or a progress
+ * dialog; owed until the slot frees, over a dialog of the user's (#243).
+ *
+ * An answer arrives when the host is done, not when the user is, and
+ * {@link showDialog} writes over whatever is up and runs no hook for it. Over
+ * the action's own progress dialog that is the point — the answer is what the
+ * wait was for. But a progress dialog can be dismissed while the work goes on,
+ * a request may raise none at all, and either leaves the user free to open a
+ * question of their own before the answer lands; written over, that question
+ * goes with its answers, and a form with what was typed into it. The answers
+ * that can tell their own dialog by owner already do (#127, `progressDialogOwnedBy`),
+ * and drop themselves when it has gone. These cannot be dropped: they are
+ * what the user is owed for a request they made — git's refusal, the details
+ * asked for — so they wait, behind anything owed before them.
+ *
+ * Not in `showDialog` itself. A delegated action's dialog takes the slot by
+ * design, abandoning a retry offer it lands on (see `abandonBatchRun`); the
+ * owner-checked answers replace the dialog they own; and every other raise
+ * comes from a gesture, which a standing dialog leaves no way to make (#141).
+ * The rule belongs to the answers, so it is written where they arrive.
+ */
+function raiseAnswerDialog(raise: () => void) {
+  if (usersDialogStands()) oweDialog(raise);
+  else raise();
+}
+/** {@link raiseAnswerDialog} for the commonest answer: the request was refused. */
+function raiseAnswerError(
+  message: string,
+  reason: string | null = null,
+  onDismiss?: (reason: DismissalReason) => void
+) {
+  raiseAnswerDialog(() => showErrorDialog(message, reason, null, onDismiss));
+}
 /** Marks what arrives in `<body>` while a dialog stands — a docked Commit
  *  Details View rebuilt by a background reload — inert like the rest. */
 const lateBackgroundObserver = new MutationObserver((records) => {
@@ -8711,7 +8768,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "commitDetails":
       if (msg.commitDetails === null) {
         gitGraph.hideCommitDetails();
-        showErrorDialog(l10n.unableToLoadCommitDetails, null, null);
+        raiseAnswerError(l10n.unableToLoadCommitDetails);
       } else {
         gitGraph.showCommitDetails(
           msg.commitDetails,
@@ -8724,7 +8781,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
         // Close the (not-yet-rendered) comparison so the second row doesn't stay
         // highlighted with no panel, mirroring the commitDetails error path.
         gitGraph.hideCommitDetails();
-        showErrorDialog(l10n.unableToLoadCommitDetails, null, null);
+        raiseAnswerError(l10n.unableToLoadCommitDetails);
       } else {
         gitGraph.showCommitComparison(
           msg.fromHash,
@@ -8774,10 +8831,8 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
           "Tag Name": l10n.typeTagName,
           "Branch Name": l10n.typeBranchName
         };
-        showErrorDialog(
-          l10n.unableToCopyToClipboard.replace("{0}", typeLabel[msg.type] ?? msg.type),
-          null,
-          null
+        raiseAnswerError(
+          l10n.unableToCopyToClipboard.replace("{0}", typeLabel[msg.type] ?? msg.type)
         );
       }
       break;
@@ -8822,18 +8877,19 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "branchSearch":
       gitGraph.loadBranchSearchIndex(msg.branches, msg.token, msg.status);
       break;
-    case "tagDetails":
-      if (msg.details === null) {
-        showErrorDialog(l10n.unableToLoadTagDetails, null, null);
-      } else {
-        showTagDetailsDialog(msg.details);
-      }
+    case "tagDetails": {
+      const details = msg.details;
+      raiseAnswerDialog(() => {
+        if (details === null) showErrorDialog(l10n.unableToLoadTagDetails, null, null);
+        else showTagDetailsDialog(details);
+      });
       break;
+    }
     case "createArchive":
-      if (msg.success === false) showErrorDialog(l10n.unableToCreateArchive, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToCreateArchive);
       break;
     case "exportPatch":
-      if (msg.success === false) showErrorDialog(l10n.unableToExportPatch, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToExportPatch);
       break;
     case "loadRepos":
       gitGraph.loadRepos(msg.repos, msg.lastActiveRepo);
@@ -8878,16 +8934,16 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.refresh(false);
       break;
     case "viewDiff":
-      if (msg.success === false) showErrorDialog(l10n.unableToViewDiff, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToViewDiff);
       break;
     case "openFile":
-      if (msg.success === false) showErrorDialog(l10n.unableToOpenFile, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToOpenFile);
       break;
     case "viewFileAtRevision":
-      if (msg.success === false) showErrorDialog(l10n.unableToOpenFile, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToOpenFile);
       break;
     case "viewDiffWithWorking":
-      if (msg.success === false) showErrorDialog(l10n.unableToViewDiff, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToViewDiff);
       break;
     default: {
       // The floor under the whole dispatch. Without it a response command with
@@ -8976,7 +9032,7 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
     // revert leaves an operation in progress, and the file watcher is muted
     // during the action, so this is what surfaces the conflict banner without a
     // manual refresh. (Harmless for non-operation failures — state is unchanged.)
-    showErrorDialog(errorMessage, status, null, () => gitGraph.refresh(false));
+    raiseAnswerError(errorMessage, status, () => gitGraph.refresh(false));
   }
 }
 
