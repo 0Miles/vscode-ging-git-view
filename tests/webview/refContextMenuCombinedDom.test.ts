@@ -3,7 +3,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  makeViewState,
+  openMenuOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The combined-label path of the ref context menu: with
 // combineLocalAndRemoteBranchLabels on (the shipped default), a remote branch
@@ -82,10 +89,7 @@ describe("ref context menu on a combined local+remote label", () => {
   });
 
   it("serves the remote-branch menu from a right-click on the badge", () => {
-    const badge = document.querySelector<HTMLElement>(
-      '.gitRef.remote.gitRefCombined[data-name="origin/main"]'
-    )!;
-    badge.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    openMenuOn('.gitRef.remote.gitRefCombined[data-name="origin/main"]');
     expect(menuEntries()).toEqual([
       L.checkoutBranch + E,
       L.merge + E,
@@ -100,10 +104,7 @@ describe("ref context menu on a combined local+remote label", () => {
 
     // The copy item acts on the badge's remote ref, not the enclosing "main".
     mock.clearMessages();
-    const copyItem = Array.from(
-      document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-    ).find((li) => (li.textContent ?? "").trim() === L.copyBranchName)!;
-    copyItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    clickItem(L.copyBranchName);
     expect(mock.sentMessages).toContainEqual({
       command: "copyToClipboard",
       type: "Branch Name",
@@ -112,10 +113,7 @@ describe("ref context menu on a combined local+remote label", () => {
   });
 
   it("still serves the checked-out local menu from the chip's own label", () => {
-    const label = document.querySelector<HTMLElement>(
-      '.gitRef.head[data-name="main"] .gitRefName'
-    )!;
-    label.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    openMenuOn('.gitRef.head[data-name="main"] .gitRefName');
     expect(menuEntries()).toEqual([
       L.renameBranch + E,
       L.pushBranch + E,

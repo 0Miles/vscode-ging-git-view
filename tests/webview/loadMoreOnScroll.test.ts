@@ -5,11 +5,15 @@ import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
+  clickId,
+  clickItem,
   createVscodeMock,
+  graphRow,
   makeViewState,
   NEAR_BOTTOM,
   parkViewportAt,
   receive,
+  rightClick,
   setupHtml
 } from "./setup";
 
@@ -112,34 +116,12 @@ const tipDetails: GitCommitDetails = {
   ]
 };
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
 function press(key: string) {
   document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 }
 
 function tabStops() {
   return Array.from(document.querySelectorAll<HTMLElement>('#commitTable [tabindex="0"]'));
-}
-
-/** Activate a context-menu item by its label. `toBeDefined`, not
- *  `not.toBeNull`: `find` yields `undefined` when nothing matches, and a null
- *  check would pass on it — leaving the scenario to fail later, somewhere that
- *  reads like the behaviour under test (issue #131). */
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 function dialogIsOpen() {
@@ -179,7 +161,7 @@ describe("automatic loading on scroll", () => {
     beforeAll(() => {
       // A CDV open above the viewport is what used to drag the user back: its
       // re-render re-ran the scroll that brings a CDV into view.
-      row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({ command: "commitDetails", commitDetails: tipDetails });
 
       parkViewportAt(NEAR_BOTTOM);
@@ -231,7 +213,7 @@ describe("automatic loading on scroll", () => {
       // The canonical ADR-0014 case: keyboard only, nothing expanded.
       document.getElementById("commitDetailsClose")!.click();
 
-      row("aaa111").focus();
+      graphRow("aaa111").focus();
       press("ArrowDown"); // onto the last loaded commit
       parkViewportAt(NEAR_BOTTOM);
       mock.clearMessages();
@@ -254,13 +236,13 @@ describe("automatic loading on scroll", () => {
 
     it("loads the next page", () => {
       expect(loadCommitsRequests()).toMatchObject([{ maxCommits: 500 }]);
-      expect(row("ccc333")).not.toBeNull();
+      expect(graphRow("ccc333")).not.toBeNull();
     });
 
     it("leaves focus on the same commit, whose row the redraw destroyed", () => {
       expect((<HTMLElement>focusedAfterLoad).dataset.hash).toBe("bbb222");
-      expect(focusedAfterLoad).toBe(row("bbb222"));
-      expect(tabStops()).toEqual([row("bbb222")]);
+      expect(focusedAfterLoad).toBe(graphRow("bbb222"));
+      expect(tabStops()).toEqual([graphRow("bbb222")]);
     });
 
     it("puts focus back without moving anything", () => {
@@ -272,7 +254,7 @@ describe("automatic loading on scroll", () => {
 
     it("carries on down from there rather than back to the first row", () => {
       press("ArrowDown");
-      expect(document.activeElement).toBe(row("ccc333"));
+      expect(document.activeElement).toBe(graphRow("ccc333"));
     });
   });
 
@@ -280,7 +262,7 @@ describe("automatic loading on scroll", () => {
     let focusedAfterLoad: Element | null = null;
 
     beforeAll(() => {
-      row("bbb222").focus();
+      graphRow("bbb222").focus();
       parkViewportAt(NEAR_BOTTOM);
       mock.clearMessages();
 
@@ -296,12 +278,12 @@ describe("automatic loading on scroll", () => {
     });
 
     it("still leaves the graph a tab stop, on the first commit", () => {
-      expect(tabStops()).toEqual([row("aaa111")]);
+      expect(tabStops()).toEqual([graphRow("aaa111")]);
     });
 
     it("enters the grid from the top on the next arrow key, as it always did", () => {
       press("ArrowDown");
-      expect(document.activeElement).toBe(row("aaa111"));
+      expect(document.activeElement).toBe(graphRow("aaa111"));
     });
   });
 
@@ -332,7 +314,7 @@ describe("automatic loading on scroll", () => {
 
     beforeAll(() => {
       // A real dialog, raised the way the user raises one.
-      row("aaa111").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+      rightClick(graphRow("aaa111"));
       clickItem(L.addTag + E);
       expect(dialogIsOpen(), "the dialog the scenario is about").toBe(true);
 
@@ -393,7 +375,7 @@ describe("automatic loading on scroll", () => {
     beforeAll(() => {
       // A refresh whose branches half has landed and whose commits half has
       // not: exactly one load in flight, and nothing standing on screen.
-      click("refreshBtn");
+      clickId("refreshBtn");
       receive(branchesResponse);
       expect(dialogIsOpen(), "nothing standing when the scroll arrives").toBe(false);
 

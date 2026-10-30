@@ -4,7 +4,15 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  createVscodeMock,
+  DEFAULT_REPO,
+  graphRow,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The loaded commit window on screen. Widening it is cheap — one press, or a
 // held PageDown once automatic loading is on — and it survives every panel
@@ -79,18 +87,8 @@ let mock: ReturnType<typeof createVscodeMock>;
 const scrolledIntoView: Element[] = [];
 const scrollTo = vi.fn();
 
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 function loadCommitsRequests() {
   return mock.sentMessages.filter((m) => m.command === "loadCommits");
-}
-
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
 }
 
 function tabStops() {
@@ -112,7 +110,7 @@ function windowCount() {
  *  the commits half. Everything already rendered stands untouched until the
  *  commits arrive. */
 function startInFlightLoad() {
-  click("refreshBtn");
+  clickId("refreshBtn");
   receive(branchesResponse);
 }
 
@@ -157,7 +155,7 @@ describe("the loaded commit window on screen", () => {
 
   describe("once Load More has widened it", () => {
     beforeAll(() => {
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       receive(commitsResponse());
     });
 
@@ -179,7 +177,7 @@ describe("the loaded commit window on screen", () => {
   // most wants it: they just widened the window another page.
   describe("while a Load More page is on its way", () => {
     beforeAll(() => {
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
     });
 
     it("swaps the button for the spinner but keeps the line and its way back", () => {
@@ -219,11 +217,11 @@ describe("the loaded commit window on screen", () => {
 
     beforeAll(() => {
       receive(commitsResponse()); // there is more history again
-      row("bbb222").focus();
+      graphRow("bbb222").focus();
       mock.clearMessages();
       scrollTo.mockClear();
       scrolledIntoView.length = 0;
-      click("resetLoadedCommitWindowBtn");
+      clickId("resetLoadedCommitWindowBtn");
       requestedOnPress = loadCommitsRequests();
       lineOnPress = windowCount();
       receive(commitsResponse());
@@ -242,15 +240,15 @@ describe("the loaded commit window on screen", () => {
     });
 
     it("leaves focus on the same commit, whose row the redraw destroyed", () => {
-      expect(document.activeElement).toBe(row("bbb222"));
-      expect(tabStops()).toEqual([row("bbb222")]);
+      expect(document.activeElement).toBe(graphRow("bbb222"));
+      expect(tabStops()).toEqual([graphRow("bbb222")]);
     });
 
     it("brings the viewport to that row, so the two cannot contradict", () => {
       // ADR-0014 read literally: an operation goes back to where the operation
       // was, which is the row holding focus — not the top of the graph, which
       // would leave focus and viewport hundreds of rows apart.
-      expect(scrolledIntoView.at(-1)).toBe(row("bbb222"));
+      expect(scrolledIntoView.at(-1)).toBe(graphRow("bbb222"));
     });
 
     it("moves it by bringing that row into view, never by restoring an offset", () => {
@@ -270,11 +268,11 @@ describe("the loaded commit window on screen", () => {
     let refusal = "";
 
     beforeAll(() => {
-      click("loadMoreCommitsBtn"); // widen it again, to 400
+      clickId("loadMoreCommitsBtn"); // widen it again, to 400
       receive(commitsResponse());
       startInFlightLoad();
       mock.clearMessages();
-      click("resetLoadedCommitWindowBtn");
+      clickId("resetLoadedCommitWindowBtn");
       requestedOnPress = loadCommitsRequests();
       lineOnPress = windowCount();
       refusal = dialogText();
@@ -305,7 +303,7 @@ describe("the loaded commit window on screen", () => {
 
       it("left the loaded commit window itself untouched", () => {
         mock.clearMessages();
-        click("loadMoreCommitsBtn");
+        clickId("loadMoreCommitsBtn");
         // 500, not 400: the window still stands where Load More left it. Had
         // the dropped press shrunk it to 300 first, this would ask for 400 —
         // for a graph still showing the 400-commit page, with the line gone
@@ -316,7 +314,7 @@ describe("the loaded commit window on screen", () => {
       it("takes the reset again once nothing is in flight", () => {
         receive(commitsResponse());
         mock.clearMessages();
-        click("resetLoadedCommitWindowBtn");
+        clickId("resetLoadedCommitWindowBtn");
         expect(loadCommitsRequests()).toMatchObject([{ maxCommits: 300 }]);
       });
     });
@@ -332,13 +330,13 @@ describe("the loaded commit window on screen", () => {
 
     beforeAll(() => {
       receive(commitsResponse()); // settle the previous reset
-      click("loadMoreCommitsBtn"); // widen it again, to 400
+      clickId("loadMoreCommitsBtn"); // widen it again, to 400
       receive(commitsResponse());
 
-      row("bbb222").focus();
+      graphRow("bbb222").focus();
       scrollTo.mockClear();
       scrolledIntoView.length = 0;
-      click("resetLoadedCommitWindowBtn");
+      clickId("resetLoadedCommitWindowBtn");
       receive(commitsResponse(true, tipOnly));
       focusedAfterReset = document.activeElement;
     });
@@ -349,8 +347,8 @@ describe("the loaded commit window on screen", () => {
     });
 
     it("brings the viewport to the row the graph now begins at", () => {
-      expect(tabStops()).toEqual([row("aaa111")]);
-      expect(scrolledIntoView.at(-1)).toBe(row("aaa111"));
+      expect(tabStops()).toEqual([graphRow("aaa111")]);
+      expect(scrolledIntoView.at(-1)).toBe(graphRow("aaa111"));
       expect(scrollTo).not.toHaveBeenCalled();
     });
   });
@@ -367,13 +365,13 @@ describe("the loaded commit window on screen", () => {
 
     beforeAll(() => {
       receive(commitsResponse()); // settle the previous reset, both commits back
-      click("loadMoreCommitsBtn"); // widen it again, to 400
+      clickId("loadMoreCommitsBtn"); // widen it again, to 400
       receive(commitsResponse());
 
-      row("bbb222").focus();
+      graphRow("bbb222").focus();
       scrollTo.mockClear();
       scrolledIntoView.length = 0;
-      click("resetLoadedCommitWindowBtn");
+      clickId("resetLoadedCommitWindowBtn");
 
       // A remote list lands first and re-renders the graph on its own account:
       // branch labels are laid out from the remote names.
@@ -389,8 +387,8 @@ describe("the loaded commit window on screen", () => {
     });
 
     it("still moves the viewport when the reset's own page lands", () => {
-      expect(focusedAfterReset).toBe(row("bbb222"));
-      expect(scrolledIntoView.at(-1)).toBe(row("bbb222"));
+      expect(focusedAfterReset).toBe(graphRow("bbb222"));
+      expect(scrolledIntoView.at(-1)).toBe(graphRow("bbb222"));
       expect(scrollTo).not.toHaveBeenCalled();
     });
   });

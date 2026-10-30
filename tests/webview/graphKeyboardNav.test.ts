@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@/backend/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 
 const viewState = makeViewState();
 
@@ -60,10 +60,6 @@ function press(key: string, init: KeyboardEventInit = {}) {
   document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, ...init }));
 }
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
 function headerRow() {
   return document.querySelector<HTMLElement>("#commitTable #tableColHeaders")!;
 }
@@ -116,45 +112,45 @@ describe("commit table keyboard navigation", () => {
     menu().innerHTML = "";
     // Start every case from the top of the graph rather than wherever the
     // previous one left the roving tab stop.
-    row("abc123").focus();
+    graphRow("abc123").focus();
   });
 
   describe("roving tabindex", () => {
     it("renders every row focusable but keeps exactly one tab stop", () => {
-      expect(row("abc123").getAttribute("tabindex")).not.toBeNull();
-      expect(row("def456").getAttribute("tabindex")).not.toBeNull();
+      expect(graphRow("abc123").getAttribute("tabindex")).not.toBeNull();
+      expect(graphRow("def456").getAttribute("tabindex")).not.toBeNull();
       expect(headerRow().getAttribute("tabindex")).not.toBeNull();
       expect(tabStops()).toHaveLength(1);
     });
 
     it("moves the tab stop to whatever last held focus", () => {
       press("ArrowDown");
-      expect(document.activeElement).toBe(row("def456"));
-      expect(tabStops()).toEqual([row("def456")]);
+      expect(document.activeElement).toBe(graphRow("def456"));
+      expect(tabStops()).toEqual([graphRow("def456")]);
     });
 
     it("marks the table up as a grid", () => {
       const table = document.querySelector("#commitTable table")!;
       expect(table.getAttribute("role")).toBe("grid");
-      expect(row("abc123").getAttribute("role")).toBe("row");
-      expect(row("abc123").querySelector("td")!.getAttribute("role")).toBe("gridcell");
+      expect(graphRow("abc123").getAttribute("role")).toBe("row");
+      expect(graphRow("abc123").querySelector("td")!.getAttribute("role")).toBe("gridcell");
     });
   });
 
   describe("Up/Down move between rows", () => {
     it("steps down to the next commit and back up again", () => {
       press("ArrowDown");
-      expect(document.activeElement).toBe(row("def456"));
+      expect(document.activeElement).toBe(graphRow("def456"));
       press("ArrowDown");
-      expect(document.activeElement).toBe(row("ghi789"));
+      expect(document.activeElement).toBe(graphRow("ghi789"));
       press("ArrowUp");
-      expect(document.activeElement).toBe(row("def456"));
+      expect(document.activeElement).toBe(graphRow("def456"));
     });
 
     it("stops at the last row instead of wrapping", () => {
-      row("ghi789").focus();
+      graphRow("ghi789").focus();
       press("ArrowDown");
-      expect(document.activeElement).toBe(row("ghi789"));
+      expect(document.activeElement).toBe(graphRow("ghi789"));
     });
 
     it("reaches the column header row above the first commit", () => {
@@ -193,7 +189,7 @@ describe("commit table keyboard navigation", () => {
       vi.spyOn(window, "scrollBy").mockImplementation(() => {});
       try {
         press("PageDown");
-        expect(document.activeElement).toBe(row("abc123"));
+        expect(document.activeElement).toBe(graphRow("abc123"));
       } finally {
         vi.restoreAllMocks();
       }
@@ -202,12 +198,12 @@ describe("commit table keyboard navigation", () => {
 
   describe("Left/Right walk what a row contains", () => {
     it("enters the row's ref chip and steps back out to the row", () => {
-      const chip = row("abc123").querySelector<HTMLElement>(".gitRef")!;
+      const chip = graphRow("abc123").querySelector<HTMLElement>(".gitRef")!;
 
       press("ArrowRight");
       expect(document.activeElement).toBe(chip);
       press("ArrowLeft");
-      expect(document.activeElement).toBe(row("abc123"));
+      expect(document.activeElement).toBe(graphRow("abc123"));
     });
 
     it("reaches the column headers from the header row", () => {
@@ -219,9 +215,9 @@ describe("commit table keyboard navigation", () => {
     });
 
     it("leaves a row with nothing in it alone", () => {
-      row("def456").focus();
+      graphRow("def456").focus();
       press("ArrowRight");
-      expect(document.activeElement).toBe(row("def456"));
+      expect(document.activeElement).toBe(graphRow("def456"));
     });
   });
 
@@ -238,7 +234,7 @@ describe("commit table keyboard navigation", () => {
     });
 
     it("gives the ref chip its own menu rather than the row's", () => {
-      row("abc123").querySelector<HTMLElement>(".gitRef")!.focus();
+      graphRow("abc123").querySelector<HTMLElement>(".gitRef")!.focus();
       press("ContextMenu");
       expect(menu().classList.contains("active")).toBe(true);
       // The branch chip's menu, not the commit's behind it.
@@ -247,7 +243,7 @@ describe("commit table keyboard navigation", () => {
     });
 
     it("anchors the menu to the focused row, not to the pointer", () => {
-      const target = row("def456");
+      const target = graphRow("def456");
       target.focus();
       // jsdom performs no layout, so give the row a box to hang the menu off.
       target.getBoundingClientRect = () =>
@@ -266,7 +262,7 @@ describe("commit table keyboard navigation", () => {
     function openDetails(hash: string) {
       // Clicking the row that is already expanded closes it, so start closed.
       document.getElementById("commitDetailsClose")?.click();
-      row(hash).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow(hash).dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({ command: "commitDetails", commitDetails: detailsFor(hash) });
     }
 
@@ -276,10 +272,10 @@ describe("commit table keyboard navigation", () => {
     });
 
     it("swaps the panel to the commit the arrow keys land on", () => {
-      row("abc123").focus();
+      graphRow("abc123").focus();
       press("ArrowDown");
 
-      expect(document.activeElement).toBe(row("def456"));
+      expect(document.activeElement).toBe(graphRow("def456"));
       expect(mock.sentMessages).toContainEqual(
         expect.objectContaining({ command: "commitDetails", commitHash: "def456" })
       );

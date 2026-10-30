@@ -4,7 +4,19 @@ import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@/backen
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickElem,
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  dialogRow,
+  graphRow,
+  makeViewState,
+  openMenuOn,
+  receive,
+  rightClick,
+  setupHtml
+} from "./setup";
 
 // The graph binds its commit rows' click and context menu in `renderTable`, and
 // it used to bind them through `addListenerToClass` / `addContextMenuListener`,
@@ -148,14 +160,6 @@ const redundancyResult: BranchRedundancy = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-function click(elem: Element) {
-  elem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
-function rightClick(elem: Element) {
-  elem.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
 /** The keyboard's way of raising a context menu, mirroring `main.ts`'s private
  *  `MENU_KEY_EVENT`. Dispatched directly rather than via Shift+F10, because the
  *  document keydown handler that would normally synthesise it returns early
@@ -164,23 +168,6 @@ function rightClick(elem: Element) {
  *  `addGraphContextMenuListener` wires and what would outlive either of those
  *  tickets landing. */
 const MENU_KEY_EVENT = "ging.contextMenuKey";
-
-/** A commit row of the graph's, addressed through the table so the selector says
- *  which surface it wants. Both surfaces render `tr.commit[data-hash]` — that is
- *  the whole subject of this suite. */
-function graphRow(hash: string) {
-  const elem = document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`);
-  expect(elem, hash).not.toBeNull();
-  return elem!;
-}
-
-function dialogRow(hash: string) {
-  const elem = document.querySelector<HTMLElement>(
-    `#dialog .commitList tr.commit[data-hash="${hash}"]`
-  );
-  expect(elem, hash).not.toBeNull();
-  return elem!;
-}
 
 /** A `.commitBodyLink` under `root`, addressed by the address it points at:
  *  `commitSummaryHtml` emits one per commit for the author and one for the
@@ -191,22 +178,6 @@ function bodyLink(root: string, email: string) {
   );
   expect(elem, `${root} ${email}`).not.toBeNull();
   return elem!;
-}
-
-/** Activate a context-menu item by its label. `toBeDefined`, not
- *  `not.toBeNull`: `find` yields `undefined` when nothing matches (#131). */
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  click(item!);
-}
-
-function openMenuOn(selector: string) {
-  const elem = document.querySelector<HTMLElement>(selector);
-  expect(elem, selector).not.toBeNull();
-  rightClick(elem!);
 }
 
 /** Every child of the open menu, dividers included, so that "nothing opened" is
@@ -264,7 +235,7 @@ describe("the graph's commit actions, with a dialog showing commit rows of its o
     // The graph's Commit Details View, expanded on the tip commit. It has to be
     // open for `renderCommitDetailsPanel` — and so the `.commitBodyLink`
     // binding — to run at all on a redraw.
-    click(graphRow("aaa111"));
+    clickElem(graphRow("aaa111"));
     receive({ command: "commitDetails", commitDetails: tipDetails });
 
     // The branch-redundancy dialog, driven the way a user reaches it, down to
@@ -280,7 +251,7 @@ describe("the graph's commit actions, with a dialog showing commit rows of its o
       result: redundancyResult,
       token: (requested[0] as Extract<GG.RequestMessage, { command: "branchRedundancy" }>).token
     });
-    click(dialogRow("ddd444"));
+    clickElem(dialogRow("ddd444"));
     receive({
       command: "redundancyCommitDetails",
       commitHash: "ddd444",
@@ -405,13 +376,13 @@ describe("the graph's commit actions, with a dialog showing commit rows of its o
     beforeAll(() => {
       hideMenu();
       mock.clearMessages();
-      click(dialogRow("ddd444"));
+      clickElem(dialogRow("ddd444"));
       sent = [...mock.sentMessages];
       panelSurvived = document.getElementById("commitDetails") !== null;
       dialogRowCollapsed = !dialogRow("ddd444").classList.contains("commitDetailsOpen");
       // Put it back, so the scenarios after this one see the expanded row the
       // suite has described all along rather than one this test folded.
-      click(dialogRow("ddd444"));
+      clickElem(dialogRow("ddd444"));
     });
 
     it("asks the host for nothing", () => {
@@ -443,9 +414,9 @@ describe("the graph's commit actions, with a dialog showing commit rows of its o
       redrawPanel();
       redrawPanel();
       mock.clearMessages();
-      click(dialogRow("ddd444"));
+      clickElem(dialogRow("ddd444"));
       sent = [...mock.sentMessages];
-      click(dialogRow("ddd444"));
+      clickElem(dialogRow("ddd444"));
       rightClick(dialogRow("ddd444"));
       entries = contextMenuEntries();
     });
@@ -466,7 +437,7 @@ describe("the graph's commit actions, with a dialog showing commit rows of its o
     beforeAll(() => {
       hideMenu();
       mock.clearMessages();
-      click(graphRow("bbb222"));
+      clickElem(graphRow("bbb222"));
       sent = [...mock.sentMessages];
     });
 

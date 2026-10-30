@@ -173,39 +173,85 @@ export function receive(msg: GG.ResponseMessage, opts: { keepToken?: boolean } =
   window.dispatchEvent(new MessageEvent("message", { data }));
 }
 
-/** Activate a context-menu item by its label.
+// The DOM helpers below were each held as local copies by several suites, some
+// down to the doc comment, and some under other names. They are here for the
+// reason `makeViewState` is: a guard that is wrong in one copy is wrong in all
+// of them.
+//
+// Clicking comes under two names because suites click two different things: an
+// element they already hold, and a control they know only by its id. Suites had
+// each kept a `click` of their own, under incompatible signatures, so the same
+// name meant different things depending on which file was open.
+
+/** Click an element the suite already holds. */
+export function clickElem(elem: Element) {
+  elem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+/** Click the control with this id, failing on the id when there is none. */
+export function clickId(id: string) {
+  const elem = document.getElementById(id);
+  expect(elem, id).not.toBeNull();
+  clickElem(elem!);
+}
+
+/** Right-click an element the suite already holds. */
+export function rightClick(elem: Element) {
+  elem.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+}
+
+/** Raise the context menu of whatever `selector` names, failing on the selector
+ *  when nothing matches. */
+export function openMenuOn(selector: string) {
+  const elem = document.querySelector<HTMLElement>(selector);
+  expect(elem, selector).not.toBeNull();
+  rightClick(elem!);
+}
+
+/** A commit row of the graph's, addressed through the table so the selector says
+ *  which surface it wants: a dialog's commit list renders `tr.commit[data-hash]`
+ *  too. */
+export function graphRow(hash: string) {
+  const elem = document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`);
+  expect(elem, hash).not.toBeNull();
+  return elem!;
+}
+
+/** A commit row of the open dialog's commit list — the other surface `graphRow`
+ *  keeps out. */
+export function dialogRow(hash: string) {
+  const elem = document.querySelector<HTMLElement>(
+    `#dialog .commitList tr.commit[data-hash="${hash}"]`
+  );
+  expect(elem, hash).not.toBeNull();
+  return elem!;
+}
+
+/** Activate a context-menu item by its label, matched against the whole row.
  *
- *  `toBeDefined`, not `not.toBeNull`: `find` yields `undefined` when nothing
- *  matches, and a null check waves that straight through — leaving the miss to
- *  surface a line later on `dispatchEvent`, as a TypeError naming neither the
- *  label nor the fact that the menu simply did not carry it (issue #131). A
- *  fixture that has drifted then reads like a listener that stopped working.
- *
- *  It is here for the reason `makeViewState` is: five suites held byte-identical
- *  copies, so one wrong assertion was wrong in five places and had to be
- *  corrected in five.
- *
- *  Six local copies remain, and this is not the finished inventory — issue #154
- *  is where the whole set gets settled, including whether the guard should throw
- *  rather than assert. Three of them are byte-identical to this one
- *  (`dialogSurvivesBackgroundReload`, `loadMoreOnScroll`,
- *  `stashSelectorBoundAtConsent`); nothing distinguishes them, and they are out
- *  of this change only because #131 named a different six files. The other three
- *  (`cdvFileListenerScope`, `graphCommitListenerScope`,
- *  `graphCommitListenerScopeDocked`) end differently, handing the element to a
- *  local `click(elem)` rather than dispatching here, so folding them in means
- *  first deciding whether that indirection survives. `droppedLoadRequests` is a
- *  fourth shape rather than a copy: `chooseCommitOrder` opens the menu itself and
- *  matches on `.contextMenuItemLabel` instead of the whole row, and its assertion
- *  was already right before #131 was filed.
+ *  A miss throws, naming the label and every item the menu does carry. `find`
+ *  yields `undefined` when nothing matches; left unguarded, that surfaces a line
+ *  later on `dispatchEvent` as a TypeError naming neither the label nor the fact
+ *  that the menu simply did not carry it (issue #131), and a fixture that has
+ *  drifted reads like a listener that stopped working. What the menu offered
+ *  instead is the next thing anyone reading the failure needs, and without it
+ *  finding out costs a second run (#154). A throw carries that as written;
+ *  `expect(item, …).toBeDefined()` would trail it with "expected undefined to be
+ *  defined", which says nothing the message has not. `contextMenuGutter` and
+ *  `dialogRememberCheckbox` had already settled on the same message.
  *
  *  No suite reaches the guard: every label they pass is one their menu really
  *  carries. `missingMenuItem` is what exercises the miss, and without it a green
- *  run cannot tell an assertion that fires from one that only looks like it. */
+ *  run cannot tell a guard that fires from one that only looks like it. */
 export function clickItem(label: string) {
-  const item = Array.from(
+  const entries = Array.from(
     document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  ).map((li) => ({ li, text: (li.textContent ?? "").trim() }));
+  const item = entries.find((entry) => entry.text === label);
+  if (item === undefined) {
+    throw new Error(
+      `menu item "${label}" not found; items: ${entries.map((entry) => entry.text).join(" | ")}`
+    );
+  }
+  clickElem(item.li);
 }

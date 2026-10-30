@@ -2,7 +2,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 
-import { VIEWPORT_HEIGHT, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  VIEWPORT_HEIGHT,
+  createVscodeMock,
+  graphRow,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 /* Docked to the bottom, the Commit Details View is a fixed panel over the
  * bottom of the window, and rows scroll *under* it the way they scroll under
@@ -42,10 +49,6 @@ const details: GitCommitDetails = {
   body: "Body",
   fileChanges: []
 };
-
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
 
 function press(key: string) {
   document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
@@ -100,7 +103,7 @@ describe("Page Up/Down with the Commit Details View docked to the bottom", () =>
   });
 
   it("jumps by what is visible between the header and the panel", () => {
-    row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     receive({ command: "commitDetails", commitDetails: details });
     expect(document.getElementById("commitDetails")!.classList.contains("docked")).toBe(true);
 

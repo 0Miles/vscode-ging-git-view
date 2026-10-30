@@ -4,7 +4,16 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  openMenuOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A reload lands on its own schedule. The file watcher fires on any `.git`
 // write, so a commit made in the terminal — or a fetch finishing in another
@@ -107,30 +116,6 @@ let cleanupSeq = 0;
 
 const sentOf = (command: string) => mock.sentMessages.filter((m) => m.command === command);
 
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
-function openMenuOn(selector: string) {
-  const elem = document.querySelector<HTMLElement>(selector);
-  expect(elem, selector).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
-/** Activate a context-menu item by its label. `toBeDefined`, not `not.toBeNull`:
- *  `find` yields `undefined` when nothing matches, and a null check would pass
- *  on it — leaving the scenario to fail later, somewhere that reads like the
- *  behaviour under test (issue #131). */
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 function dialogIsOpen() {
   return document.getElementById("dialog")!.classList.contains("active");
 }
@@ -226,7 +211,7 @@ describe("a background reload landing under an open dialog", () => {
   });
 
   it("closes the progress dialog its own action put up", () => {
-    click("fetchBtn");
+    clickId("fetchBtn");
     expect(progressDialogIsUp(), "the fetch never raised its progress dialog").toBe(true);
 
     backgroundReloadLands();
@@ -249,7 +234,7 @@ describe("a background reload landing under an open dialog", () => {
   describe("and the progress dialog it closes had a dismissal hook", () => {
     it("stops the branch cleanup scan it was showing progress for", () => {
       openCleanupDialog();
-      click("cleanupDeepCheck");
+      clickId("cleanupDeepCheck");
       expect(progressDialogIsUp(), "the scan never raised its progress dialog").toBe(true);
       expect(sentOf("branchCleanupScan")).toHaveLength(1);
       mock.clearMessages();
@@ -276,7 +261,7 @@ describe("a background reload landing under an open dialog", () => {
     // written down instead of inferring from the test above that it is covered.
     it("but the cancelled scan's answer still brings the dialog back", () => {
       openCleanupDialog();
-      click("cleanupDeepCheck");
+      clickId("cleanupDeepCheck");
       const scan = sentOf("branchCleanupScan").at(-1);
       expect(scan, "the scan request").toBeDefined();
       const token = (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
@@ -301,7 +286,7 @@ describe("a background reload landing under an open dialog", () => {
 
     it("keeps the refetch answer from reopening the dialog the user lost", () => {
       openCleanupDialog();
-      click("cleanupRefetch");
+      clickId("cleanupRefetch");
       expect(progressDialogIsUp(), "the refetch never raised its progress dialog").toBe(true);
       const request = sentOf("branchCleanupOpen").at(-1);
       expect(request, "the refetch request").toBeDefined();
@@ -325,7 +310,7 @@ describe("a background reload landing under an open dialog", () => {
 describe("closing a dialog with Escape", () => {
   it("stops the branch cleanup scan, the same as pressing Stop would", () => {
     openCleanupDialog();
-    click("cleanupDeepCheck");
+    clickId("cleanupDeepCheck");
     expect(progressDialogIsUp(), "the scan never raised its progress dialog").toBe(true);
     mock.clearMessages();
 
@@ -337,7 +322,7 @@ describe("closing a dialog with Escape", () => {
 
   it("abandons the cleanup dialog the refetch was working for", () => {
     openCleanupDialog();
-    click("cleanupRefetch");
+    clickId("cleanupRefetch");
     const request = sentOf("branchCleanupOpen").at(-1);
     expect(request, "the refetch request").toBeDefined();
     const token = (request as Extract<GG.RequestMessage, { command: "branchCleanupOpen" }>).token;
@@ -370,7 +355,7 @@ describe("closing a dialog with Escape", () => {
   // it the moment the user closed the list.
   it("does not run the hook of a dialog that has since been replaced", () => {
     openCleanupDialog();
-    click("cleanupDeepCheck");
+    clickId("cleanupDeepCheck");
     const scan = sentOf("branchCleanupScan").at(-1);
     const token = (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
     // The scan comes back and renders the list over its own progress dialog.
@@ -394,14 +379,14 @@ describe("closing a dialog with Escape", () => {
 // imitation at best, and go on surviving its own reload at worst.
 describe("every progress dialog carries the mark that says a reload owns it", () => {
   it("the plain one, raised by an action with nothing to undo", () => {
-    click("fetchBtn");
+    clickId("fetchBtn");
     expect(document.getElementById("actionRunning")).not.toBeNull();
     expect(dialogText()).toContain(L.fetching);
   });
 
   it("the dismissable one, raised by the cleanup refetch", () => {
     openCleanupDialog();
-    click("cleanupRefetch");
+    clickId("cleanupRefetch");
     expect(document.getElementById("actionRunning")).not.toBeNull();
     expect(document.getElementById("actionRunning")!.textContent).toBe(L.loading);
     expect(dialogText()).not.toContain(L.cleanupRefetch);
@@ -409,7 +394,7 @@ describe("every progress dialog carries the mark that says a reload owns it", ()
 
   it("the cleanup scan's, which relabels Dismiss as Stop and used to be hand-built", () => {
     openCleanupDialog();
-    click("cleanupDeepCheck");
+    clickId("cleanupDeepCheck");
     expect(document.getElementById("actionRunning")).not.toBeNull();
     // Its two departures from the other two, both pinned with `toBe` — the
     // scan's own dismiss label, and progress text that ends where the template
