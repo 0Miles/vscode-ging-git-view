@@ -6769,23 +6769,44 @@ class GitGraphView {
     // loading is browsing, and browsing must not move anything). So it runs
     // once per CDV, and again only when the CDV becomes a different one.
     const cdv = this.cdvIdentity();
-    if (!docked && cdv !== this.cdvBroughtIntoView) {
+    if (cdv !== this.cdvBroughtIntoView) {
       this.cdvBroughtIntoView = cdv;
-      // What has to be in sight is the commit's row down to the panel's
-      // bottom, measured on screen rather than worked out from the panel's
-      // `offsetTop`: that is measured from the table, and the table starts
-      // lower by the conflict banner's height while one is shown (#228); the
-      // panel's height, too, is the user's to drag. The visible rows begin
-      // below the frozen header (#206); nothing covers the bottom edge.
-      const delta = revealDelta(
-        {
-          top: this.expandedCommit.srcElem.getBoundingClientRect().top,
-          bottom: newElem.getBoundingClientRect().bottom
-        },
-        { top: frozenHeaderHeight(newElem), bottom: window.innerHeight },
-        this.config.autoCenterCommitDetailsView
-      );
-      if (delta !== 0) window.scrollTo(0, window.pageYOffset + delta);
+      const commitRow = this.expandedCommit.srcElem;
+      const centre = this.config.autoCenterCommitDetailsView;
+      if (docked && !centre) {
+        // Docked, the panel opens over the bottom of the window rather than
+        // under the row, so a row clicked low down is the one it covers
+        // (#231). Not centring, the row only has to come out from under it,
+        // and this is the very scroll the arrow keys make when they step onto
+        // a row (#217's margin keeps it above the panel). With the panel
+        // open, every arrow press also reopens it on the new row; a scroll of
+        // any other size here would then nudge the page a second time, a
+        // beat after the first, on every step past the panel's edge.
+        if (typeof commitRow.scrollIntoView === "function") {
+          commitRow.scrollIntoView({ block: "nearest" });
+        }
+      } else {
+        // Inline, what has to be in sight is the commit's row down to the
+        // panel's bottom, measured on screen rather than worked out from the
+        // panel's `offsetTop`: that is measured from the table, and the table
+        // starts lower by the conflict banner's height while one is shown
+        // (#228); the panel's height, too, is the user's to drag. Docked, the
+        // panel is not under the row, so it is the row alone (#231). Either
+        // way the visible rows run from under the frozen header (#206) to
+        // above the docked panel, if there is one (#217) — both read off a
+        // commit row: a docked panel is a <div> under <body>, outside the
+        // table and its scroll margins.
+        const rowBox = commitRow.getBoundingClientRect();
+        const delta = revealDelta(
+          {
+            top: rowBox.top,
+            bottom: docked ? rowBox.bottom : newElem.getBoundingClientRect().bottom
+          },
+          { top: frozenHeaderHeight(), bottom: window.innerHeight - dockedCdvHeight() },
+          centre
+        );
+        if (delta !== 0) window.scrollTo(0, window.pageYOffset + delta);
+      }
     }
 
     document.getElementById("commitDetailsClose")!.addEventListener("click", () => {
