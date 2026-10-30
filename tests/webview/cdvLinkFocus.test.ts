@@ -2,7 +2,15 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 
-import { createVscodeMock, graphRow, makeViewState, receive, rightClick, setupHtml } from "./setup";
+import {
+  clickElem,
+  createVscodeMock,
+  graphRow,
+  makeViewState,
+  receive,
+  rightClick,
+  setupHtml
+} from "./setup";
 
 // A link in the Commit Details View's summary — the author's and committer's
 // addresses, a URL or an issue in the message — is a real `<a href>`, so Tab
@@ -91,7 +99,7 @@ describe("focus on a link in the Commit Details View across a redraw", () => {
       moreCommitsAvailable: false,
       hard: true
     });
-    graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    clickElem(graphRow("aaa111"));
     receive({ command: "commitDetails", commitDetails: tipDetails });
     expect(links(DOCS)).toHaveLength(2);
   });

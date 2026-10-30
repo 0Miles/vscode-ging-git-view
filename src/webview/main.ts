@@ -166,6 +166,10 @@ function dockedCdvHeight(
 /** A stretch of the viewport, top to bottom, in px down from its top edge. */
 type VerticalSpan = { top: number; bottom: number };
 
+/** A link in the Commit Details View's summary, as a redraw finds it again:
+ *  where it points, and which of the links pointing there it is (#251). */
+type CdvLinkKey = { href: string; index: number };
+
 /** How far to scroll the page — down when positive — to bring `block` into
  *  `visible`, the stretch of the viewport rows can be seen in (below the
  *  frozen header, above anything docked over the bottom). Both are in viewport
@@ -6651,7 +6655,7 @@ class GitGraphView {
    *  it is: a message can cite one address twice, and an author can be their
    *  own committer. Asked of the panel, so a link in the branch-redundancy
    *  dialog's copy of a summary is not one (see {@link cdvPanel}). */
-  private focusedCdvLinkKey(): { href: string; index: number } | null {
+  private focusedCdvLinkKey(): CdvLinkKey | null {
     const active = document.activeElement;
     if (!(active instanceof HTMLElement) || !active.matches(".commitBodyLink")) return null;
     const href = active.getAttribute("href") ?? "";
@@ -6668,7 +6672,7 @@ class GitGraphView {
    *  cached details, so only something that rewrites the links themselves can
    *  cause one; focus then goes to the nearest place still standing — the
    *  file list's tab stop in the same panel, else the expanded commit's row. */
-  private restoreCdvLinkFocus(key: { href: string; index: number } | null) {
+  private restoreCdvLinkFocus(key: CdvLinkKey | null) {
     if (key === null) return;
     const link = this.cdvLinksTo(key.href)[key.index];
     if (link !== undefined) {
