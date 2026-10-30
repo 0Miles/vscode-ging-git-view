@@ -1936,18 +1936,29 @@ class GitGraphView {
   /** Request the branch list, reporting whether it was actually sent. Dropped
    *  while {@link branchLoadInFlight}, on the same terms as
    *  {@link requestLoadCommits}: nothing is sent and `loadedCallback` never
-   *  runs. */
+   *  runs.
+   *
+   *  A request the bridge throws on is not in flight either, so the gate is
+   *  opened again before the throw goes on (#241). Unlike the commit side's,
+   *  the callback is not run: its tail is the commit half of the load, not a
+   *  close-out, so running it would send that half for a load whose first half
+   *  never went out. The caller, which holds the claim, closes the reload. */
   private requestLoadBranches(
     hard: boolean,
     loadedCallback: (changes: boolean, isRepo: boolean) => void
   ): boolean {
     if (this.branchLoadInFlight) return false;
     this.loadBranchesCallback = loadedCallback;
-    sendMessage({ command: "selectRepo", repo: this.currentRepo });
-    sendMessage({ command: "loadRemotes" });
-    // No showRemoteBranches: the host resolves the repo's own state, which is
-    // what this copy echoes anyway (ADR-0013).
-    sendMessage({ command: "loadBranches", hard: hard, token: this.loadToken });
+    try {
+      sendMessage({ command: "selectRepo", repo: this.currentRepo });
+      sendMessage({ command: "loadRemotes" });
+      // No showRemoteBranches: the host resolves the repo's own state, which is
+      // what this copy echoes anyway (ADR-0013).
+      sendMessage({ command: "loadBranches", hard: hard, token: this.loadToken });
+    } catch (error) {
+      this.loadBranchesCallback = null;
+      throw error;
+    }
     return true;
   }
   public loadRemotes(remotes: string[], pushDefault: string | null) {
@@ -2064,20 +2075,37 @@ class GitGraphView {
    *  by then the state would already be wrong — so they check
    *  {@link commitLoadInFlight} up front instead. The return value is for the
    *  one caller that requests from inside a callback and so has nowhere
-   *  earlier to stand: {@link requestLoadBranchesAndCommits}. */
+   *  earlier to stand: {@link requestLoadBranchesAndCommits}.
+   *
+   *  A request the bridge throws on was accepted and then never went out, so
+   *  `loadedCallback` **does** run, with no changes to report, before the throw
+   *  goes on to be reported (ADR-0016) — the same "a load that never ran
+   *  brought no changes with it" {@link abandonLoadsInFlight} settles a load
+   *  with. Left set, it was the gate shut and the caller's busy claim up for the
+   *  life of the panel (#241). Not through {@link triggerLoadCommitsCallback}:
+   *  a delegated ref action has nothing new to find here, and running it from
+   *  under a bridge that has just failed would mask this throw with its own. */
   private requestLoadCommits(hard: boolean, loadedCallback: (changes: boolean) => void): boolean {
     if (this.commitLoadInFlight) return false;
     this.loadCommitsCallback = loadedCallback;
-    sendMessage({
-      command: "loadCommits",
-      repo: this.currentRepo!,
-      branchNames: this.currentBranches !== null ? this.currentBranches : [""],
-      maxCommits: this.maxCommits,
-      hard: hard,
-      token: this.loadToken,
-      commitOrder: this.gitRepos[this.currentRepo!]?.commitOrdering ?? undefined,
-      hiddenRemotes: this.gitRepos[this.currentRepo!]?.hiddenRemotes ?? undefined
-    });
+    try {
+      sendMessage({
+        command: "loadCommits",
+        repo: this.currentRepo!,
+        branchNames: this.currentBranches !== null ? this.currentBranches : [""],
+        maxCommits: this.maxCommits,
+        hard: hard,
+        token: this.loadToken,
+        commitOrder: this.gitRepos[this.currentRepo!]?.commitOrdering ?? undefined,
+        hiddenRemotes: this.gitRepos[this.currentRepo!]?.hiddenRemotes ?? undefined
+      });
+    } catch (error) {
+      this.loadCommitsCallback = null;
+      // As in {@link loadBranches}: a callback that throws here masks the
+      // bridge's own exception, and ADR-0016 reports only the second one.
+      loadedCallback(false);
+      throw error;
+    }
     return true;
   }
   private requestLoadBranchesAndCommits(hard: boolean) {
@@ -2107,12 +2135,12 @@ class GitGraphView {
     // is added, this is where it comes back.
     if (!this.currentRepo) return;
     this.beginBusyLoad();
-    // Refresh the conflict banner alongside every (re)load so it tracks the
-    // repo's operation state (.git changes trigger a refresh via the watcher).
-    sendMessage({ command: "operationState", repo: this.currentRepo });
-    const branchesSent = this.requestLoadBranches(
-      hard,
-      (branchChanges: boolean, isRepo: boolean) => {
+    let branchesSent: boolean;
+    try {
+      // Refresh the conflict banner alongside every (re)load so it tracks the
+      // repo's operation state (.git changes trigger a refresh via the watcher).
+      sendMessage({ command: "operationState", repo: this.currentRepo });
+      branchesSent = this.requestLoadBranches(hard, (branchChanges: boolean, isRepo: boolean) => {
         if (isRepo) {
           const finish = (commitChanges: boolean) => {
             this.endBusyLoad();
@@ -2150,8 +2178,17 @@ class GitGraphView {
           this.endBusyLoad();
           sendMessage({ command: "loadRepos", check: true });
         }
-      }
-    );
+      });
+    } catch (error) {
+      // The bridge threw on one of the messages above, so no branch load is out
+      // and nothing is coming to close this reload: it is closed here, as a
+      // load that never ran and so brought no changes — its claim dropped, and
+      // the dismissal `finish` owes on that same footing, which is `hard`
+      // alone. The throw goes on to be reported (ADR-0016) (#241).
+      this.endBusyLoad();
+      if (hard) hideReloadOwnedOverlays();
+      throw error;
+    }
     // The same asymmetry one level out: a dropped branches request takes the
     // whole reload with it, callback included, so this refresh has to drop its
     // own claim. Only its own — the request was dropped onto another refresh's
