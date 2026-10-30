@@ -6719,12 +6719,19 @@ class GitGraphView {
         // block is measured on screen rather than worked out from offsetTop:
         // the panel's height is the user's to drag, and the hard-coded middle
         // this replaced (offsetTop + 177, from the days of a 40px bar) sat the
-        // block 32px above centre (#216).
+        // block 32px above centre (#216). A panel dragged taller than the
+        // visible rows can't be centred without pushing the commit's row up
+        // under the header, so the row stops right below it instead: the row
+        // is what was clicked, and it stays in sight.
         const blockTop = this.expandedCommit.srcElem.getBoundingClientRect().top;
         const blockBottom = newElem.getBoundingClientRect().bottom;
         window.scrollTo(
           0,
-          window.pageYOffset + (blockTop + blockBottom) / 2 - (window.innerHeight + frozen) / 2
+          window.pageYOffset +
+            Math.min(
+              (blockTop + blockBottom) / 2 - (window.innerHeight + frozen) / 2,
+              blockTop - frozen
+            )
         );
       } else if (newElem.offsetTop + 8 - frozen < window.pageYOffset) {
         // The commit's row (offsetTop + 8) starts above the first visible row
