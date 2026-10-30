@@ -74,7 +74,7 @@
   "config.onlyFollowFirstParent": "在 GING 视图中查找要加载的 commit 时，只跟随 commit 的第一个父 commit （git log --first-parent）。可在仓库设置中针对单个仓库覆盖。默认值：false",
   "config.openToTheRepoOfTheActiveTextEditorDocument": "打开 Git 图形视图时，自动选取包含当前文本编辑器文件的仓库。默认值：false",
   "config.openNewTabEditorGroup": "指定查看文件变更时 Visual Studio Code diff 视图打开的编辑器组：当前（Active）、旁边（Beside）或指定的第一至第九组。",
-  "config.retainContextWhenHidden": "隐藏 Git 图形视图（例如切换到其他标签页）时保留其内容，使其几乎可立即恢复。在后台运行时会占用更多内存。默认值：false",
+  "config.retainContextWhenHidden": "隐藏 Git 图形视图（例如切换到其他选项卡）时保留其内容，使其几乎可立即恢复。在后台运行时会占用更多内存。默认值：false",
   "config.referenceInputSpaceSubstitution": "自动替换在 branch / tag 名称输入框中键入的空格（git 引用不能包含空格）。\"None\" 表示保持不变。默认值：None",
   "config.showCommitsOnlyReferencedByTags": "显示所有 branch 时，包含仅由 tag 引用（即无法从任何 branch 到达）的 commit。可在仓库设置中针对单个仓库覆盖。默认值：true",
   "config.showCurrentBranchByDefault": "打开 Git 图形时默认显示当前 branch。默认值：false（显示所有 branch）",
