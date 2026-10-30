@@ -29,6 +29,7 @@ import type { LocalizedStrings } from "@/extension/webviewL10n";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
 import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "./branchCleanup";
+import { attachBranchDrag, type BranchDrop } from "./branchDrag";
 import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
 import { createErrorReporter } from "./errorReporting";
 import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } from "./find";
@@ -547,6 +548,7 @@ class GitGraphView {
     document.body.classList.toggle("tagLabelsRightAligned", config.tagLabelsRightAligned);
     this.graph = new Graph("commitGraph", this.config);
     this.tableElem = document.getElementById("commitTable")!;
+    attachBranchDrag(this.tableElem, (drop) => this.moveBranchAction(drop));
     this.footerElem = document.getElementById("footer")!;
     this.scrollShadowElem = <HTMLInputElement>document.getElementById("scrollShadow")!;
     const refreshBtn = document.getElementById("refreshBtn")!;
@@ -3069,31 +3071,7 @@ class GitGraphView {
             visible: cmv.reset,
             title: l10n.reset + ELLIPSIS,
             icon: "history",
-            onClick: () => {
-              showSelectDialog(
-                l10n.dialogResetConfirm
-                  .replace("{0}", this.currentBranchLabel())
-                  .replace("{1}", "<b><i>" + abbrevCommit(hash) + "</i></b>"),
-                this.config.dialogResetMode,
-                [
-                  { name: l10n.dialogResetSoft, value: "soft" },
-                  { name: l10n.dialogResetMixed, value: "mixed" },
-                  { name: l10n.dialogResetHard, value: "hard" },
-                  { name: l10n.dialogResetKeep, value: "keep" }
-                ],
-                l10n.dialogYesReset,
-                (mode) => {
-                  sendMessage({
-                    command: "resetToCommit",
-                    repo: this.currentRepo!,
-                    commitHash: hash,
-                    resetMode: <GitResetMode>mode
-                  });
-                },
-                sourceElem,
-                "resetMode"
-              );
-            }
+            onClick: () => this.resetToCommitAction(hash, sourceElem)
           },
           // One rebase entry, whichever rebase is on offer (#173): with a range
           // to replay it says so and replays it, otherwise it replays the
@@ -3671,6 +3649,74 @@ class GitGraphView {
     // opening count and nothing is known to be loadable — so it renders the
     // same empty footer, from the state, instead of asserting emptiness.
     this.renderFooter();
+  }
+  /** Ask for a mode, then reset the checked-out branch to `hash` — the commit
+   *  menu's Reset, and what dropping the checked-out branch's label on a commit
+   *  opens too (#208). */
+  private resetToCommitAction(hash: string, sourceElem: HTMLElement) {
+    showSelectDialog(
+      l10n.dialogResetConfirm
+        .replace("{0}", this.currentBranchLabel())
+        .replace("{1}", "<b><i>" + abbrevCommit(hash) + "</i></b>"),
+      this.config.dialogResetMode,
+      [
+        { name: l10n.dialogResetSoft, value: "soft" },
+        { name: l10n.dialogResetMixed, value: "mixed" },
+        { name: l10n.dialogResetHard, value: "hard" },
+        { name: l10n.dialogResetKeep, value: "keep" }
+      ],
+      l10n.dialogYesReset,
+      (mode) => {
+        sendMessage({
+          command: "resetToCommit",
+          repo: this.currentRepo!,
+          commitHash: hash,
+          resetMode: <GitResetMode>mode
+        });
+      },
+      sourceElem,
+      "resetMode"
+    );
+  }
+  /** Confirm, then move a dragged branch to the commit it was dropped on
+   *  (#208). The checked-out branch is not moved but reset, so dropping it
+   *  asks what the commit menu's Reset asks: which mode. That is the webview's
+   *  reading of HEAD; the host reads HEAD again as `moveBranch` runs, so a
+   *  stale one still moves the branch that was dragged.
+   *
+   *  The dialog says "from A", and `branch -f` would move the branch from
+   *  wherever it really is by then — so, like the rebase-onto tip, a branch
+   *  that left A while the question was up is refused rather than moved
+   *  (ADR-0019). A repo switch is a refusal too: the branch is checked against
+   *  the loaded commits, which by then are another repository's. */
+  private moveBranchAction(drop: BranchDrop) {
+    if (this.gitBranchHead === drop.branchName) {
+      this.resetToCommitAction(drop.toHash, drop.label);
+      return;
+    }
+    const name = "<b><i>" + escapeHtml(drop.branchName) + "</i></b>";
+    this.confirmForRepo(
+      fillTemplate(
+        l10n.dialogMoveBranchConfirm,
+        name,
+        "<b><i>" + abbrevCommit(drop.fromHash) + "</i></b>",
+        "<b><i>" + abbrevCommit(drop.toHash) + "</i></b>"
+      ),
+      (repo) => {
+        if (this.currentRepo !== repo || !this.branchPointsAt(drop.branchName, drop.fromHash)) {
+          showErrorDialog(fillTemplate(l10n.dialogMoveBranchMoved, name), null, null);
+          return;
+        }
+        sendMessage({
+          command: "moveBranch",
+          repo,
+          branchName: drop.branchName,
+          commitHash: drop.toHash
+        });
+        showUnstoppableActionRunningDialog(l10n.movingBranch);
+      },
+      drop.label
+    );
   }
   private checkoutBranchAction(refName: string, isRemote: boolean) {
     if (!isRemote) {
@@ -8061,6 +8107,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "fastForwardBranch":
     case "mergeBranch":
     case "mergeCommit":
+    case "moveBranch":
     case "pullBranch":
     case "pushTag":
     case "renameBranch":
@@ -8327,6 +8374,7 @@ const ACTION_FAILURE: Record<
   fastForwardBranch: "unableToFastForward",
   mergeBranch: "unableToMergeBranch",
   mergeCommit: "unableToMergeCommit",
+  moveBranch: "unableToMoveBranch",
   pullBranch: "unableToPullBranch",
   pushTag: "unableToPushTag",
   renameBranch: "unableToRenameBranch",
@@ -8934,9 +8982,14 @@ function showErrorDialog(
  *
  * `content` is inserted as HTML, so callers escape their own interpolations;
  * `dismissName` is the Dismiss button's label, which the cleanup scan replaces
- * with "Stop" because for that one wait, dismissing is what stops it.
+ * with "Stop" because for that one wait, dismissing is what stops it. Null
+ * leaves the button out, for a wait that closing the dialog would not stop.
  */
-function showActionRunningDialogWith(content: string, dismissName: string, onDismiss?: () => void) {
+function showActionRunningDialogWith(
+  content: string,
+  dismissName: string | null,
+  onDismiss?: () => void
+) {
   showDialog(
     '<span id="actionRunning">' + svgIcons.loading + content + "</span>",
     null,
@@ -8949,10 +9002,16 @@ function showActionRunningDialogWith(content: string, dismissName: string, onDis
 function showActionRunningDialog(command: string) {
   showActionRunningDialogWith(command + " ...", l10n.dialogDismiss);
 }
+/** A progress dialog with no Dismiss, for an action the host cannot be asked to
+ *  stop: closing it early would only hide work that goes on regardless. It
+ *  closes the way the others do — the refresh after success, or the error. */
+function showUnstoppableActionRunningDialog(command: string) {
+  showActionRunningDialogWith(command + " ...", null);
+}
 function showDialog(
   html: string,
   actionName: string | null,
-  dismissName: string,
+  dismissName: string | null,
   actioned: (() => void) | null,
   sourceElem: HTMLElement | null,
   onDismiss?: () => void
@@ -8966,19 +9025,21 @@ function showDialog(
   if (document.getElementById("batchRetryOffer") !== null) gitGraph.abandonBatchRun();
   dialogBacking.className = "active";
   dialog.className = "active";
-  dialog.innerHTML =
-    html +
-    '<div class="dialogButtons">' +
+  const buttons =
     (actionName !== null
       ? '<div id="dialogAction" class="roundedBtn">' + actionName + "</div>"
       : "") +
-    '<div id="dialogDismiss" class="roundedBtn">' +
-    dismissName +
-    "</div></div>";
+    (dismissName !== null
+      ? '<div id="dialogDismiss" class="roundedBtn">' + dismissName + "</div>"
+      : "");
+  // No row at all without buttons: an empty one keeps its top margin, and the
+  // content would sit that much above the dialog's centre.
+  dialog.innerHTML =
+    html + (buttons !== "" ? '<div class="dialogButtons">' + buttons + "</div>" : "");
   if (actionName !== null && actioned !== null)
     document.getElementById("dialogAction")!.addEventListener("click", actioned);
   dialogDismissAction = onDismiss ?? null;
-  document.getElementById("dialogDismiss")!.addEventListener("click", dismissDialog);
+  document.getElementById("dialogDismiss")?.addEventListener("click", dismissDialog);
 
   dialogMenuSource = sourceElem;
   if (dialogMenuSource !== null) dialogMenuSource.classList.add("dialogActive");
@@ -9070,7 +9131,11 @@ function hideReloadOwnedOverlays() {
 // in points its tab stop at it, so Tab comes back to where the user left off.
 document.addEventListener("focusin", (e) => gitGraph.syncTabStop(e.target));
 document.addEventListener("keyup", (e) => {
-  if (e.key === "Escape") {
+  // A dialog without Dismiss offers no way out, and Escape is not one either.
+  if (
+    e.key === "Escape" &&
+    !(isDialogOpen() && document.getElementById("dialogDismiss") === null)
+  ) {
     hideDialogAndContextMenu();
   }
 });

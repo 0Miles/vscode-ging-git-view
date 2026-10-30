@@ -42,6 +42,8 @@ type ActionPayloads = {
     force: boolean;
   };
   mergeBranch: { branchName: string; createNewCommit: boolean; squash: boolean; noCommit: boolean };
+  /** Which git command moves it is decided by the host, off HEAD — see `moveBranch`. */
+  moveBranch: { branchName: string; commitHash: string };
   mergeCommit: { commitHash: string; createNewCommit: boolean; squash: boolean; noCommit: boolean };
   pullBranch: { branchName: string; remote: string };
   pushBranch: {

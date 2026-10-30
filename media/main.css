@@ -2027,6 +2027,34 @@ body.vscode-high-contrast #commitTable tr.commit.findMatchCurrent {
   outline-style: dotted;
 }
 
+/* Dragging a branch label onto a commit row (#208, see branchDrag.ts). The
+   cursor is set on every element so the rows' own pointer cursor does not win
+   over it, and text selection is off so the drag cannot start one. */
+body.branchDragging,
+body.branchDragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+#commitTable .gitRef.branchDragSource {
+  opacity: 0.5;
+}
+/* The copy of the label the pointer carries. */
+.gitRef.branchDragGhost {
+  position: fixed;
+  z-index: 100;
+  margin: 0;
+  pointer-events: none;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
+/* VS Code's own drop-target colours, as its trees show them while dragging. */
+#commitTable tr.commit.branchDropTarget td {
+  background-color: var(--vscode-list-dropBackground, rgba(128, 128, 128, 0.3));
+}
+#commitTable tr.commit.branchDropTarget {
+  outline: 1px solid var(--vscode-list-focusOutline, var(--vscode-focusBorder, transparent));
+  outline-offset: -1px;
+}
+
 /* Keyboard focus. Commit rows, ref chips, column headers and Commit Details
    View file rows carry a roving tabindex (see main.ts) so that the menu each of
    them owns can be raised without a mouse; this is what tells the user which one

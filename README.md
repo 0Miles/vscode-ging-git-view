@@ -55,6 +55,7 @@ tradeoffs, and release process clearer.
 - **Graph view**: See branches, tags, stashes, and uncommitted changes in one graph
 - **Commit details**: Click a commit to see message, files, and diffs
 - **Branch actions**: Create, checkout, rename, delete, merge, rebase, and push
+- **Move a branch by dragging**: Drag a local branch's label onto another commit to point the branch there, after a confirmation (`git branch -f`). Dropping the checked-out branch opens the Reset dialog for that commit instead
 - **Tag actions**: Create, delete, and push tags
 - **Commit actions**: Checkout, cherry-pick, revert, and reset
 - **Rebase**: The dialog lists the commits git will actually replay and lets you untick any of them, with the command that will run printed above the list

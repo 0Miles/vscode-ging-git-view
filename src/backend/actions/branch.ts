@@ -1,5 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
+import { resetToCommit } from "@/backend/actions/commit";
 import type {
   ActionPayload,
   BatchActionPayload,
@@ -254,6 +255,29 @@ export async function renameBranch(
   input: ActionPayload<"renameBranch">
 ): Promise<void> {
   await git.raw(["branch", "-m", input.oldName, input.newName]);
+}
+
+/** Point a local branch at another commit — what dropping its label on a
+ *  commit row asks for (#208). Any branch but the checked-out one moves with
+ *  `branch -f`, which git refuses for a branch checked out in another worktree.
+ *
+ *  The webview sends the checked-out branch to Reset instead, but HEAD is read
+ *  again here, as the command runs: if it changed since the webview looked,
+ *  the dragged branch is the checked-out one now, and it moves with
+ *  `reset --keep`, which keeps uncommitted changes and refuses to overwrite
+ *  one. Taking HEAD from the webview would instead reset whichever branch
+ *  really is checked out — a different branch than the one the user dragged. */
+export async function moveBranch(
+  git: SimpleGit,
+  input: ActionPayload<"moveBranch">
+): Promise<void> {
+  // `--symbolic-full-name` answers `HEAD` itself when detached, never failing.
+  const head = (await git.raw(["rev-parse", "--symbolic-full-name", "HEAD"])).trim();
+  if (head === "refs/heads/" + input.branchName) {
+    await resetToCommit(git, { commitHash: input.commitHash, resetMode: "keep" });
+  } else {
+    await git.raw(["branch", "-f", input.branchName, input.commitHash]);
+  }
 }
 
 /** Fast-forward a (non-checked-out) local branch up to its configured upstream

@@ -13,6 +13,7 @@ import {
   fastForwardBranch,
   fastForwardBranches,
   fetchIntoLocalBranch,
+  moveBranch,
   pullBranch,
   pushBranch,
   pushBranches,
@@ -259,6 +260,7 @@ export function registerMessageHandlers(
   );
   registerAction("pullBranch", (msg) => pullBranch(gitClient.getInstance(), msg));
   registerAction("renameBranch", (msg) => renameBranch(gitClient.getInstance(), msg));
+  registerAction("moveBranch", (msg) => moveBranch(gitClient.getInstance(), msg));
   registerAction("checkoutBranch", (msg) => checkoutBranch(gitClient.getInstance(), msg));
   registerAction("checkoutCommit", (msg) => checkoutCommit(gitClient.getInstance(), msg));
   registerAction("cherrypickCommit", (msg) =>
