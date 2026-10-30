@@ -18,16 +18,16 @@ const commit = (
   signatureStatus: ""
 });
 
-/** A stash row `loadCommits` spliced in by date — not a `git log` entry. */
-const splicedStash = (hash: string, message: string, selector: string): GitCommitNode => ({
-  ...commit(hash, message, [{ hash, name: selector, type: "stash" }]),
-  spliced: true
-});
-
 /** A stash that `--reflog` already listed as a `git log` entry, so the splice
  *  only labelled it (#105): it wears the stash ref and still counts in `git log`. */
 const loggedStash = (hash: string, message: string, selector: string): GitCommitNode =>
   commit(hash, message, [{ hash, name: selector, type: "stash" }]);
+
+/** A stash row `loadCommits` spliced in by date — not a `git log` entry. */
+const splicedStash = (hash: string, message: string, selector: string): GitCommitNode => ({
+  ...loggedStash(hash, message, selector),
+  spliced: true
+});
 
 describe("buildFindMatches", () => {
   it("merges commit and branch hits by hash in graph order", () => {
