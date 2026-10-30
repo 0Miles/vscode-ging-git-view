@@ -15,7 +15,7 @@ import {
 import type { ActionPayload } from "@/backend/types";
 import { formatGitError, isRemoteUpdatedSinceCheckoutError } from "@/backend/utils/gitError";
 
-import { bareGit, git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { bareGit, git, makeRepo, rejection, rmrf } from "@tests/backend/helpers";
 
 // "Force with lease" means the remote tip has been *integrated* into the local
 // branch, not merely fetched (ADR-0025). Each scenario builds its own repo,
@@ -91,15 +91,6 @@ function teammatePushes({ teammate }: World) {
 
 async function pushMain(repo: string, forceMode: ActionPayload<"pushBranch">["forceMode"]) {
   await pushBranch(simpleGit(repo), { branchName: "main", remotes: ["origin"], forceMode });
-}
-
-async function rejection(push: Promise<void>): Promise<unknown> {
-  try {
-    await push;
-  } catch (e: unknown) {
-    return e;
-  }
-  throw new Error("expected the push to be rejected");
 }
 
 describe("pushBranch with force-with-lease", () => {
