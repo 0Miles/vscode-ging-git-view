@@ -5,6 +5,14 @@
 html {
   overflow-y: scroll;
 }
+/* A modal dialog holds the page still behind it (#230): its scrollbar, the
+   wheel over the backing and the scrolling keys would otherwise move the graph
+   under the question. The gutter stays, so the width does not jump as the
+   scrollbar goes; the scroll position is kept and stands when it comes back. */
+html.dialogOpen {
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
 /* The "this is the selected thing" colours, shared by the commit row whose
    details are open and by the toolbar's branch-filter chip. Quick Pick's focused
    item first, list selection next, a neutral tint last. Defined once so the two
@@ -350,7 +358,7 @@ body.cdvDocked #commitTable .gitRef {
   vertical-align: top;
 }
 #commitDetails td {
-  /* Layering follows the Quick Pick: the details panel is a *surface* (like
+  /* Layering follows the Quick Pick: the Commit Details View is a *surface* (like
      the quick-input widget itself), one elevation step above the view — not a
      hovered or selected list item. */
   background-color: var(
@@ -1315,17 +1323,26 @@ body.vscode-high-contrast #contextMenu {
   z-index: 401;
   box-shadow: 0 0 30px 5px var(--vscode-widget-shadow);
   overflow-y: auto;
+  /* A long dialog scrolls itself; reaching its end does not hand the rest of
+     the wheel to the page behind it. */
+  overscroll-behavior: contain;
 }
 /* …while form dialogs follow the native dialog layout: body text and controls
-   align left, buttons align right with the primary action outermost. */
+   align left, buttons align right with the primary action outermost. The
+   outermost place is the markup's doing (`showFormDialog` emits Cancel first),
+   not an `order` here: Tab follows the markup, and must visit the buttons in
+   the order they are shown (#145). */
 #dialog.active:has(table.dialogForm) {
   text-align: left;
 }
 #dialog.active:has(table.dialogForm) .dialogButtons {
   justify-content: flex-end;
 }
-#dialog.active:has(table.dialogForm) #dialogAction {
-  order: 2;
+/* Focus rests on the dialog itself whenever it asks for no input (#141). That
+   is a place to start from, not a control, and the dialog's own border already
+   says where it is; a ring around the whole of it would only say so twice. */
+#dialog:focus {
+  outline: none;
 }
 
 #dialog > table.dialogForm {
@@ -1822,10 +1839,11 @@ body.vscode-high-contrast-light #repoSettingsDrawer select {
    below. */
 .roundedBtn {
   /* UA reset, first so the declarations below still win. The footer's two
-     members are real `<button>`s (#88) while the dialog's and the conflict
-     banner's are still `<div>`s, and a `<button>` arrives carrying a platform
-     appearance, a border box, and every one of the inherited text properties
-     replaced with a value of its own — the HTML Standard's form-control
+     members are real `<button>`s (#88), and so are the dialog's (#141) and
+     the cleanup dialog's tools (#145), while the conflict banner's are still
+     `<div>`s; a `<button>` arrives carrying a platform appearance, a border
+     box, and every one of the inherited text properties replaced with a
+     value of its own — the HTML Standard's form-control
      rendering rule, which is why a button does not take the page's font.
      Restated here as what a `div` would have had, member by member, so that
      the two kinds are indistinguishable and the id rules below go on sizing
@@ -2077,8 +2095,10 @@ body.branchDragging * {
 /* Keyboard focus. Commit rows, ref chips, column headers and Commit Details
    View file rows carry a roving tabindex (see main.ts) so that the menu each of
    them owns can be raised without a mouse; this is what tells the user which one
-   a Shift+F10 would act on. Only :focus-visible — a click already says where it
-   landed, and rows are focused on mousedown.
+   a Shift+F10 would act on. The branch-redundancy dialog's commit rows and file
+   lists are roving groups of their own (#145), with no menus but the same
+   need to show where the arrow keys are. Only :focus-visible — a click already
+   says where it landed, and rows are focused on mousedown.
 
    Two layers, because one isn't enough across a table this wide: a fill that
    carries at a glance, and a ring that reads on the row already wearing the
@@ -2090,7 +2110,10 @@ body.branchDragging * {
 #commitTable tr.commit:focus-visible:not(.commitDetailsOpen) td,
 #commitTable tr.unsavedChanges:focus-visible td,
 #commitTable #tableColHeaders:focus-visible th,
-#commitDetails .gitFile:focus-visible {
+#commitDetails .gitFile:focus-visible,
+#dialog .commitList tr.commit:focus-visible:not(.commitDetailsOpen) td,
+#dialog .commitDetailsFiles .gitFile:focus-visible,
+#dialog .commitDetailsFiles .gitFolder:focus-visible {
   /* The hover colour rather than list.focusBackground: focus lands on rows the
      user has not selected, and it must never out-shout --ging-selected-
      background on the row whose details are actually open. */
@@ -2112,7 +2135,10 @@ body.branchDragging * {
 #commitTable #tableColHeaders:focus-visible,
 #commitTable .tableColHeader:focus-visible,
 #commitTable .gitRef:focus-visible,
-#commitDetails .gitFile:focus-visible {
+#commitDetails .gitFile:focus-visible,
+#dialog .commitList tr.commit:focus-visible,
+#dialog .commitDetailsFiles .gitFile:focus-visible,
+#dialog .commitDetailsFiles .gitFolder:focus-visible {
   outline: 2px solid var(--vscode-list-focusOutline, var(--vscode-focusBorder, #007fd4));
   outline-offset: -1px;
 }

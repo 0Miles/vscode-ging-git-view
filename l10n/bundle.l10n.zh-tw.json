@@ -275,7 +275,7 @@
   "detail.date": "日期：",
   "detail.signature": "簽章：",
   "detail.committer": "Committer：",
-  "uncommittedChanges": "Uncommitted 變更（{0})",
+  "uncommittedChanges": "Uncommitted 變更（{0}）",
   "tooltip.binaryFile": "此為二進位檔案，無法檢視 diff。",
   "tooltip.commitHead": "此 commit 由 HEAD 參考（目前 checkout 的 commit）。",
   "signature.good": "簽章有效",
@@ -328,7 +328,7 @@
   "userDetails.unableToSet": "無法設定 Git 使用者資訊",
   "fetch.noRemotes": "此存放庫未設定任何 remote。",
   "fetch.pickRemote": "選擇要 fetch 的 remote",
-  "fetch.pruneTagsDisabled": "Fetch 現在預設會 prune 已刪除的 remote 追蹤分支。你的「prune tags」設定在 prune 關閉時是沒有作用的,現在會開始刪除本機 tag —— GING 已先幫你關掉它,以免有東西不見。若你確實想要一併 prune tag,再自行開啟。",
+  "fetch.pruneTagsDisabled": "Fetch 現在預設會 prune 已刪除的 remote 追蹤分支。你的「prune tags」設定在 prune 關閉時是沒有作用的，現在會開始刪除本機 tag —— GING 已先幫你關掉它，以免有東西不見。若你確實想要一併 prune tag，再自行開啟。",
   "fetch.openSettings": "開啟設定",
   "remotes.add": "$(add) 新增 remote",
   "remotes.pickPrompt": "選擇一個 remote，或新增 remote",
@@ -422,6 +422,7 @@
   "dialog.pushForce.force": "強制",
   "dialog.pushForce.lease": "帶租約強制（force with lease）",
   "dialog.pushForce.leaseRefused": "Git 無法確認你已整合 remote 目前的版本 —— 通常是 fetch 或 auto-fetch 帶進了你還沒整合的 commit。請先 pull 或 rebase，再重新 push。確定要覆蓋的話，請改選 {0}。",
+  "dialog.pushForce.leaseStaleInfo": "Git 沒有 {0} 的最新狀態 —— 本機沒有它的 remote 追蹤參考，或已經過時。請先 fetch 該 remote 並整合它的 commit（pull 或 rebase），再重新 push。確定要覆蓋的話，請改選 {1}。",
   "detail.commitDate": "Commit 日期：",
   "detail.comparingCommits": "正在顯示從 {0} 到 {1} 的所有變更。",
   "branchView.current": "目前",
@@ -453,6 +454,6 @@
   "dialog.cleanup.nothingChecked": "請至少勾選一個要刪除的 branch。",
   "branchView.cleanup.none": "此存放庫沒有建議清理的 branch。",
   "branchView.cleanup.failed": "無法檢查可清理的 branch",
-  "error.webviewFailed": "GING 發生未預期的錯誤,有動作沒有完成。詳細內容記在 GING 輸出頻道。",
+  "error.webviewFailed": "GING 發生未預期的錯誤，有動作沒有完成。詳細內容記在 GING 輸出頻道。",
   "error.showLog": "顯示記錄"
 }
