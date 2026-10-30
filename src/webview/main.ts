@@ -4494,10 +4494,11 @@ class GitGraphView {
    *  There is deliberately no guard here for "a retry offer is still on
    *  screen", though `BatchRun.start` treating a standing `offeringRetry` as an
    *  ended run would otherwise make one look necessary — the reachability the
-   *  guard would answer is the reason #127 and #141 were raised, and it is real
-   *  as a *gesture*: the context menu sits above the dialog and stays
-   *  clickable, and background controls stay tabbable behind it, so the user
-   *  can absolutely reach for a second batch with the offer in front of them.
+   *  guard would answer is the reason #127 and #141 were raised, and it was
+   *  real as a *gesture*: the context menu sat above the dialog and stayed
+   *  clickable, and background controls stayed tabbable behind it, so the user
+   *  could reach for a second batch with the offer in front of them. Both doors
+   *  are shut now (#218, #141); the argument below never rested on them.
    *  What they cannot do is arrive *here* that way. Every caller below is
    *  inside a dialog's own action callback, because ADR-0009 sends exactly the
    *  batch actions that ask through the webview, so each one raises its
@@ -5231,25 +5232,17 @@ class GitGraphView {
       // Since #230 the page itself holds still behind a dialog
       // (`html.dialogOpen`), so the wheel no longer gets here at all. The gate
       // stays for the scrolls that lock cannot stop: the browser bringing a
-      // focused background control into view is one, measured in Chromium.
+      // focused background control into view was one, measured in Chromium.
       //
-      // The gate closed the wheel and *only* the wheel, which is worth saying
-      // plainly because the obvious reading of it is wrong. The footer's Load
-      // More is a real `<button>` with a tabindex, and `showDialog` sets two
-      // class names and an `innerHTML` — no `inert` on the background, no
-      // focus trap. So Tab still reaches that button behind the overlay and
-      // Space still activates it natively; the keydown handler's dialog branch
-      // returns without `preventDefault`, which cannot stop an activation it
-      // never saw. The window therefore still widens behind a dialog by
-      // keyboard, out of sight, and ADR-0019's condition is still only half
-      // restored.
-      //
-      // #141 is the other half, and it is deliberately not scoped to this
-      // window: the defect it names is that `showDialog` provides no focus
-      // containment at all, so *every* background control stays tabbable and
-      // pressable while a dialog is up. Load More is the symptom that reaches
-      // this listener's subject, not the size of the problem. Nothing here can
-      // fix that — a term in this condition cannot make a dialog modal.
+      // The gate closed the wheel and *only* the wheel. The keyboard's door was
+      // the footer's Load More, a real `<button>` that Tab reached and Space
+      // pressed behind the overlay, because `showDialog` contained no focus at
+      // all. #141 closed that one where it belonged, in the dialog rather than
+      // in this condition: the background is `inert` while a dialog stands and
+      // Tab cycles inside it, so no background control takes focus — and none
+      // is scrolled into view by taking it — until the dialog is gone. The
+      // gate is kept anyway: it costs one term, and it does not depend on
+      // every scroll source having been found.
       //
       // `"browsing"` is what keeps a refused load silent on this path while the
       // footer button reports its own (#137). It is not a nicety: this listener
@@ -5386,9 +5379,11 @@ class GitGraphView {
    *  it stands this very listener is gated (#124), so one page too many would
    *  stop every page after it.
    *
-   *  Speaking from behind a standing dialog costs that dialog — #141 is why the
-   *  user can get here, #127 is why arriving destroys the standing question; the
-   *  measurement and why silence is not the cure are in ADR-0019. */
+   *  Speaking from behind a standing dialog costs that dialog — #141 was why
+   *  the user could get here, #127 is why arriving destroys the standing
+   *  question; the measurement and why silence is not the cure are in ADR-0019.
+   *  Since #141 the button is `inert` while a dialog stands, so the press can no
+   *  longer come from behind one. */
   private loadMoreCommits(trigger: LoadMoreTrigger) {
     if (this.commitLoadInFlight) {
       if (trigger === "operation") showErrorDialog(l10n.dialogLoadMoreBusy, null, null);
@@ -5438,11 +5433,11 @@ class GitGraphView {
    *  appearing to hold. Nothing is lost by saying so: the same press works a
    *  moment later.
    *
-   *  Speaking from behind a standing dialog costs that dialog — #141 is why the
-   *  user can get here, #127 is why arriving destroys the standing question; the
-   *  measurement and why silence is not the cure are in ADR-0019. It applies to
-   *  this button as much as to Load More beside it: same footer, same overlay,
-   *  same tab order. */
+   *  Speaking from behind a standing dialog costs that dialog — #141 was why
+   *  the user could get here, #127 is why arriving destroys the standing
+   *  question; the measurement and why silence is not the cure are in ADR-0019.
+   *  What holds for Load More beside it holds here: same footer, same overlay,
+   *  and since #141 the same `inert` while a dialog stands. */
   private resetLoadedCommitWindow() {
     if (this.commitLoadInFlight) {
       showErrorDialog(l10n.dialogResetWindowBusy, null, null);
@@ -5889,12 +5884,12 @@ class GitGraphView {
       // a few lines down when the match has been amended away: the very same
       // press, once the load in flight lands.
       //
-      // Speaking from behind a standing dialog costs that dialog — #141 is why
-      // the user can get here, #127 is why arriving destroys the standing
+      // Speaking from behind a standing dialog costs that dialog — #141 was why
+      // the user could get here, #127 is why arriving destroys the standing
       // question; the measurement and why silence is not the cure are in
-      // ADR-0019. Live on this path too: the document keydown handler returns
-      // early while a dialog is up, but the Find input has a keyup listener of
-      // its own, so Enter still steps from behind an overlay.
+      // ADR-0019. This path was live too — the Find input's own keyup listener
+      // stepped on Enter from behind an overlay — until #141 made the Find
+      // widget `inert` with the rest of the background.
       showErrorDialog(l10n.dialogFindStepBusy, null, null);
       return "hold";
     }
@@ -5914,11 +5909,12 @@ class GitGraphView {
       // rather than that one is running: when the question went up there was
       // none, and the user has no other way to learn that changed.
       //
-      // Speaking from behind a standing dialog costs that dialog — #141 is why
-      // the user can get here, #127 is why arriving destroys the standing
+      // Speaking from behind a standing dialog costs that dialog — #141 was why
+      // the user could get here, #127 is why arriving destroys the standing
       // question; the measurement and why silence is not the cure are in
       // ADR-0019. Cheapest to see here of the four: this runs from the answer
-      // to a dialog, so another may well have been raised over it in between.
+      // to a dialog, so another may well have been raised over it in between —
+      // by the host, which #141's `inert` does nothing to stop.
       if (this.commitLoadInFlight) {
         showErrorDialog(l10n.dialogFindLoadBusy, null, null);
         return;
@@ -5929,11 +5925,11 @@ class GitGraphView {
       // they stood when the question went up, and both still move while the
       // dialog stands.
       // The loaded commit window: automatic loading no longer widens it there
-      // — #124 gated the scroll listener on the dialog — but the footer's Load
-      // More still does, because `showDialog` provides no focus containment
-      // (#141: no `inert`, no focus trap, no focus move, so every background
-      // control stays tabbable and pressable) and the overlay hides that
-      // button without disabling it. And the match: a background reload lands on the file
+      // — #124 gated the scroll listener on the dialog — and since #141 the
+      // footer's Load More cannot either, being `inert` behind the dialog with
+      // the rest of the background. The re-take is kept for it all the same:
+      // it is the rule ADR-0019 states, not a patch for one route to the
+      // window, and the rule outlives the routes. And the match: a background reload lands on the file
       // watcher's schedule, not the user's, so a rebase or an amend in the
       // terminal can redraw the very commit this plan was sized to go and
       // fetch.
@@ -6137,6 +6133,24 @@ class GitGraphView {
   private focusedRowKey(): string | null {
     const row = focusedRow(this.graphRows());
     return row === undefined ? null : graphRowKey(row);
+  }
+
+  /** The key of the graph row `elem` is, or sits in — null when it is not in
+   *  the graph. What a modal dialog keeps of the element it took focus from, so
+   *  that a redraw replacing that element while the dialog stands does not cost
+   *  the user their place (#141). */
+  public graphRowKeyOf(elem: HTMLElement): string | null {
+    const row = this.graphRows().find((r) => r === elem || r.contains(elem));
+    return row === undefined ? null : graphRowKey(row);
+  }
+
+  /** Put focus back on the row `key` names, in place. False when no such row
+   *  is drawn any more. */
+  public focusGraphRowByKey(key: string): boolean {
+    const row = this.graphRows().find((r) => graphRowKey(r) === key);
+    if (row === undefined) return false;
+    this.graphTabStop.focusInPlace(row);
+    return true;
   }
 
   /** Where the arrow keys step from: the row holding focus, falling back to the
@@ -7163,6 +7177,11 @@ class GitGraphView {
    *  early return outranks the branches — not because the rows are unreachable.
    *  The first two legs are this ticket's and hold on their own.
    *
+   *  #141 has landed, and the third leg held: its Tab and Enter handling went
+   *  *inside* that early return rather than in front of it, and its Tab stops
+   *  are `tabIndex >= 0` only, so these `-1` rows are still never stepped onto.
+   *  #145 is the one left to check.
+   *
    *  This comment claimed inertness for years on a different ground that was never
    *  true — that the row actions are bound to the graph's expanded row — while
    *  the binding actually went through `addListenerToClass`, i.e.
@@ -7268,7 +7287,18 @@ let dialog = document.getElementById("dialog")!,
    *  dialog it was awaited by is not a dismissal — `handleBranchCleanupOpen`
    *  builds the new `cleanupState` before rendering over the refetch dialog,
    *  and running that dialog's hook would null it straight back out. */
-  dialogDismissAction: ((reason: DismissalReason) => void) | null = null;
+  dialogDismissAction: ((reason: DismissalReason) => void) | null = null,
+  /** Where the standing run of dialogs took focus from; see {@link showDialog}. */
+  dialogOpener: DialogOpener | null = null;
+/** Marks what arrives in `<body>` while a dialog stands — a docked Commit
+ *  Details View rebuilt by a background reload — inert like the rest. */
+const lateBackgroundObserver = new MutationObserver((records) => {
+  for (const record of records) {
+    record.addedNodes.forEach((node) => {
+      if (node instanceof Element && node.parentElement === document.body) markInert(node, true);
+    });
+  }
+});
 // "Remember my choice" values per dialog key, seeded from the extension host at
 // load and updated optimistically on each confirm (the save message is one-way).
 let dialogMemory: GG.DialogMemoryStore = viewState.dialogMemory ?? {};
@@ -9029,12 +9059,13 @@ function showFormDialog(
     },
     sourceElem
   );
+  // A form starts on its first input (#141), not on the dialog it sits in.
+  document.getElementById("dialogInput0")?.focus();
 
   if (textRefInput > -1) {
     let dialogInput = <HTMLInputElement>document.getElementById("dialogInput" + textRefInput),
       dialogAction = document.getElementById("dialogAction")!;
     if (dialogInput.value === "") dialog.className = "active noInput";
-    dialogInput.focus();
     dialogInput.addEventListener("keyup", () => {
       const sub = viewState.referenceInputSpaceSubstitution;
       if (sub !== "None" && dialogInput.value.includes(" ")) {
@@ -9194,16 +9225,23 @@ function showDialog(
   // actions from before whatever the dialog reports. A menu item's own dialog
   // never gets here with the menu open: the click closes the menu first.
   if (contextMenu.classList.contains("active")) hideContextMenu();
+  // Only the first of a run of dialogs has an opener: one raised over another
+  // takes focus from inside the dialog, which is about to be written over, and
+  // the place to come back to is still where the first one took it from.
+  if (!isDialogOpen()) {
+    dialogOpener = takeDialogOpener();
+    setBackgroundInert(true);
+  }
   dialogBacking.className = "active";
   dialog.className = "active";
   // The page holds still behind it (#230); main.css says how.
   document.documentElement.classList.add("dialogOpen");
   const buttons =
     (actionName !== null
-      ? '<div id="dialogAction" class="roundedBtn">' + actionName + "</div>"
+      ? '<button type="button" id="dialogAction" class="roundedBtn">' + actionName + "</button>"
       : "") +
     (dismissName !== null
-      ? '<div id="dialogDismiss" class="roundedBtn">' + dismissName + "</div>"
+      ? '<button type="button" id="dialogDismiss" class="roundedBtn">' + dismissName + "</button>"
       : "");
   // No row at all without buttons: an empty one keeps its top margin, and the
   // content would sit that much above the dialog's centre.
@@ -9213,6 +9251,11 @@ function showDialog(
     document.getElementById("dialogAction")!.addEventListener("click", actioned);
   dialogDismissAction = onDismiss ?? null;
   document.getElementById("dialogDismiss")?.addEventListener("click", () => dismissDialog("user"));
+  // Focus starts on the dialog itself, so Enter confirms and Tab enters at
+  // either end; a form dialog then moves it on to its first input. Without
+  // the scroll: the page is locked, and the browser bringing a focused element
+  // into view is the one scroll that lock cannot stop (#230).
+  dialog.focus({ preventScroll: true });
 
   // A dialog arriving over another one takes its row's highlight too: the row
   // the old dialog was about is no longer what any dialog is about, and nothing
@@ -9226,6 +9269,7 @@ function showDialog(
  *  a confirmed dialog was not dismissed. Anything closing a dialog the user did
  *  not answer wants {@link dismissDialog} instead. */
 function hideDialog() {
+  const wasOpen = isDialogOpen();
   dialogBacking.className = "";
   dialog.className = "";
   document.documentElement.classList.remove("dialogOpen");
@@ -9234,6 +9278,12 @@ function hideDialog() {
   if (dialogMenuSource !== null) {
     dialogMenuSource.classList.remove("dialogActive");
     dialogMenuSource = null;
+  }
+  if (wasOpen) {
+    // Live again first: an inert element cannot take focus back.
+    setBackgroundInert(false);
+    returnDialogFocus(dialogOpener);
+    dialogOpener = null;
   }
   // The slot is empty; a batch summary owed one is now due — once the closing
   // route has finished, and only the summary owed as of now (see
@@ -9256,6 +9306,96 @@ function dismissDialog(reason: DismissalReason) {
  *  which is why this is the question rather than a third spelling of it. */
 function isDialogOpen() {
   return dialog.classList.contains("active");
+}
+
+/* Modal focus (#141), on the WAI-ARIA APG's modal dialog pattern. The backing
+   takes the mouse; these take the keyboard: the background is `inert` for as
+   long as a dialog stands, Tab cycles inside the dialog, and focus goes back
+   to where it came from when the last dialog of a run closes. */
+
+/** Where a dialog took focus from, and how to find that place again if a
+ *  redraw replaces the element while the dialog stands: its graph row's key,
+ *  else its id (the footer's controls are known by theirs). */
+interface DialogOpener {
+  readonly elem: HTMLElement;
+  readonly rowKey: string | null;
+  readonly id: string;
+}
+
+/** The element holding focus as a dialog opens, or null when nothing does. */
+function takeDialogOpener(): DialogOpener | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || active === document.body) return null;
+  return { elem: active, rowKey: gitGraph.graphRowKeyOf(active), id: active.id };
+}
+
+/** Focus back to the opener; failing that, to the row or control that has
+ *  replaced it; failing that, to the commit table, which carries
+ *  `tabindex="-1"` for this the way the footer does for its own (#82). Nothing
+ *  held focus when the dialog opened, nothing is given it now. */
+function returnDialogFocus(opener: DialogOpener | null) {
+  if (opener === null) return;
+  if (opener.elem.isConnected) {
+    opener.elem.focus({ preventScroll: true });
+    // A connected element can still have stopped being focusable — a context
+    // menu source whose borrowed tabindex was handed back.
+    if (document.activeElement === opener.elem) return;
+  }
+  if (opener.rowKey !== null && gitGraph.focusGraphRowByKey(opener.rowKey)) return;
+  const sameId = opener.id !== "" ? document.getElementById(opener.id) : null;
+  if (sameId !== null) {
+    sameId.focus({ preventScroll: true });
+    if (document.activeElement === sameId) return;
+  }
+  document.getElementById("commitTable")?.focus({ preventScroll: true });
+}
+
+function markInert(elem: Element, inert: boolean) {
+  if (elem !== dialog && elem !== dialogBacking) elem.toggleAttribute("inert", inert);
+}
+
+/** Every child of `<body>` but the dialog and its backing, the toolbar's
+ *  popups and a docked Commit Details View included, out of reach of focus and
+ *  pointer alike. */
+function setBackgroundInert(inert: boolean) {
+  if (inert) {
+    lateBackgroundObserver.observe(document.body, { childList: true });
+  } else {
+    lateBackgroundObserver.takeRecords();
+    lateBackgroundObserver.disconnect();
+  }
+  for (const child of Array.from(document.body.children)) markInert(child, inert);
+}
+
+/** The dialog's Tab stops, in document order. Rendered ones only, where the
+ *  browser can say: Tab must not stop on what `display: none` hides. */
+function dialogTabStops(): HTMLElement[] {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, [tabindex]")
+  ).filter(
+    (elem) =>
+      elem.tabIndex >= 0 &&
+      !(elem as HTMLButtonElement).disabled &&
+      (typeof elem.checkVisibility !== "function" || elem.checkVisibility())
+  );
+}
+
+/** Tab and Shift+Tab, wrapping at either end. From the dialog itself, or from
+ *  anywhere else focus has ended up, they enter at the end they move towards. */
+function cycleDialogFocus(backwards: boolean) {
+  const stops = dialogTabStops();
+  if (stops.length === 0) {
+    dialog.focus({ preventScroll: true });
+    return;
+  }
+  const from = stops.indexOf(<HTMLElement>document.activeElement);
+  const to =
+    from === -1
+      ? backwards
+        ? stops.length - 1
+        : 0
+      : (from + (backwards ? -1 : 1) + stops.length) % stops.length;
+  stops[to].focus();
 }
 
 /** Escape, and the other places that close both overlays without an answer.
@@ -9337,11 +9477,33 @@ function pageScrollStep() {
 }
 document.addEventListener("keydown", (e) => {
   if (isDialogOpen()) {
+    if (e.key === "Tab") {
+      // The background is inert, so the browser's own Tab would walk off the
+      // end of the dialog and out of the webview altogether.
+      e.preventDefault();
+      cycleDialogFocus(e.shiftKey);
+      return;
+    }
     // Enter submits the dialog's primary (left) action, but not while an IME
     // composition is in progress (e.g. the Enter that confirms a CJK candidate
     // on macOS reports isComposing on keydown). The action's own click handler
     // no-ops when the form is empty/invalid, so firing it is safe.
+    //
+    // Except on a control whose own Enter means something: a focused button
+    // presses itself, a link follows, a textarea breaks the line. Pressing
+    // Action as well would answer a focused Dismiss twice over, both ways
+    // (#141). Everywhere else — the dialog itself, a text input, a checkbox —
+    // Enter stays "confirm", and the browser's own default is cancelled so it
+    // is the only thing Enter does.
     if (e.key === "Enter" && !e.isComposing) {
+      const target = e.target;
+      if (
+        target instanceof Element &&
+        dialog.contains(target) &&
+        target.matches("button, a, textarea")
+      )
+        return;
+      e.preventDefault();
       const dialogAction = document.getElementById("dialogAction");
       if (dialogAction !== null) dialogAction.click();
     }

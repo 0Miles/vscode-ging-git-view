@@ -320,14 +320,10 @@ describe("automatic loading on scroll", () => {
   // covered up.
   //
   // Scoped to the wheel, and the scoping is the point rather than an omission.
-  // `showDialog` provides no focus containment — no `inert` on the background,
-  // no focus trap, no focus move — so a dialog is not modal to the keyboard at
-  // all, and every background control stays tabbable and pressable behind it
-  // (#141). The footer's Load More is simply the one of those that reaches
-  // this suite's subject: Tab and Space still widen the window from behind the
-  // overlay, which findLoadPlanBoundAtConsent drives its scenarios with, so it
-  // is pinned somewhere rather than assumed here. A defect in the dialog, not
-  // in this listener.
+  // The keyboard's door — Tab and Space reaching the footer's Load More from
+  // behind the overlay — was a defect in the dialog, not in this listener, and
+  // was shut there: since #141 the background is `inert` while a dialog
+  // stands (modalFocusTrap pins it).
   describe("reaching the bottom while a modal dialog is up", () => {
     let requestedBehindTheDialog: GG.RequestMessage[] = [];
     let windowBehindTheDialog: string | null = null;
