@@ -178,6 +178,15 @@ function openCleanupDialog() {
   ).not.toBeNull();
 }
 
+/** Press the open cleanup dialog's deep check and return the token its
+ *  request went out with, which the scan's answer has to carry back. */
+function startScan(): number {
+  click("cleanupDeepCheck");
+  const scan = sentOf("branchCleanupScan").at(-1);
+  expect(scan, "the scan request").toBeDefined();
+  return (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
+}
+
 // One webview for the file. A second `setupHtml` + import would replace the
 // body under the first instance while leaving it listening on `window`, so
 // every message would then be handled twice — once by an instance whose element
@@ -270,10 +279,7 @@ describe("a background reload landing under an open dialog", () => {
     // cleanup dialog the way the refetch's hook always has.
     it("and keeps the cancelled scan's answer from bringing the dialog back", () => {
       openCleanupDialog();
-      click("cleanupDeepCheck");
-      const scan = sentOf("branchCleanupScan").at(-1);
-      expect(scan, "the scan request").toBeDefined();
-      const token = (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
+      const token = startScan();
 
       backgroundReloadLands();
       expect(progressDialogIsUp(), "the scan dialog outlived the reload").toBe(false);
@@ -330,10 +336,7 @@ describe("closing a dialog with Escape", () => {
   // found comes back.
   it("brings back what the stopped scan found, the same as Stop would", () => {
     openCleanupDialog();
-    click("cleanupDeepCheck");
-    const scan = sentOf("branchCleanupScan").at(-1);
-    expect(scan, "the scan request").toBeDefined();
-    const token = (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
+    const token = startScan();
 
     pressEscape();
     receive({ command: "branchCleanupScan", payload: cleanupPayload, cancelled: true, token });
@@ -380,9 +383,7 @@ describe("closing a dialog with Escape", () => {
   // it the moment the user closed the list.
   it("does not run the hook of a dialog that has since been replaced", () => {
     openCleanupDialog();
-    click("cleanupDeepCheck");
-    const scan = sentOf("branchCleanupScan").at(-1);
-    const token = (scan as Extract<GG.RequestMessage, { command: "branchCleanupScan" }>).token;
+    const token = startScan();
     // The scan comes back and renders the list over its own progress dialog.
     receive({ command: "branchCleanupScan", payload: cleanupPayload, cancelled: false, token });
     expect(

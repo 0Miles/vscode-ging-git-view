@@ -341,28 +341,103 @@ describe("a batch retry offer whose dialog is taken away", () => {
     settleRefresh();
   });
 
-  // Last, because it leaves the panel with no repository.
-  //
-  // The panel losing its repository takes the offer down from underneath, the
-  // same as an overwrite does: nobody answered it, and nobody will. So it is
-  // the abandoned ending, not the declined one — the summary is owed (#134).
-  // Answering it as a Cancel raised the summary into the slot the removal had
-  // just emptied, a dialog nobody asked for over a panel that has just said it
-  // has no repository.
-  it("is abandoned, not declined, when the panel loses its repository", async () => {
-    offerRetry();
+  describe("when the panel loses its repository under it", () => {
+    function loseRepository() {
+      receive({ command: "loadRepos", repos: {}, lastActiveRepo: null });
+    }
 
-    receive({ command: "loadRepos", repos: {}, lastActiveRepo: null });
-    await flushMicrotasks();
+    /** Put the repository back and settle the navigation's reload, so the
+     *  scenarios after this one start from a panel with a graph. The reload is
+     *  a navigation, so it carries a fresh token and the fixed-token answers
+     *  above would be dropped as stale. */
+    function regainRepository() {
+      mock.clearMessages();
+      receive({
+        command: "loadRepos",
+        repos: { [DEFAULT_REPO]: { columnWidths: null } },
+        lastActiveRepo: DEFAULT_REPO
+      });
+      const tokenOf = (command: string) =>
+        (mock.sentMessages.findLast((m) => m.command === command) as { token: number }).token;
+      receive({
+        command: "loadBranches",
+        token: tokenOf("loadBranches"),
+        branches: ["main", "feature-a", "feature-b"],
+        head: "main",
+        hard: true,
+        isRepo: true,
+        filter: []
+      });
+      receive({
+        command: "loadCommits",
+        token: tokenOf("loadCommits"),
+        commits,
+        head: "head1",
+        moreCommitsAvailable: false,
+        hard: true
+      });
+    }
 
-    expect(document.getElementById("dialog")!.classList.contains("active")).toBe(false);
-    expect(dialogText()).not.toContain("1 succeeded, 1 failed");
+    // The removal takes the offer down from underneath, the same as an
+    // overwrite does: nobody answered it, and nobody will. So it is the
+    // abandoned ending, not the declined one — the summary is owed (#134).
+    // Answering it as a Cancel raised the summary into the slot the removal
+    // had just emptied: the very close that took the question away put a
+    // dialog straight back.
+    it("abandons the run rather than declining it, and owes the summary", async () => {
+      offerRetry();
 
-    // Owed rather than dropped: the next time the slot frees, it is paid.
-    receive({ command: "copyToClipboard", type: "Commit Hash", success: false });
-    dismissDialog();
-    await flushMicrotasks();
-    expect(dialogText()).toContain("1 succeeded, 1 failed");
-    expect(dialogText()).toContain("feature-b");
+      loseRepository();
+      await flushMicrotasks();
+
+      expect(document.getElementById("dialog")!.classList.contains("active")).toBe(false);
+      expect(dialogText()).not.toContain("1 succeeded, 1 failed");
+
+      // Owed rather than dropped: the next time the slot frees, it is paid.
+      receive({ command: "copyToClipboard", type: "Commit Hash", success: false });
+      dismissDialog();
+      await flushMicrotasks();
+      expect(dialogText()).toContain("1 succeeded, 1 failed");
+      expect(dialogText()).toContain("feature-b");
+
+      dismissDialog();
+      regainRepository();
+    });
+
+    // The same, with an earlier run's summary already owed when the offer is
+    // taken away. Something being owed when the slot empties is not the same as
+    // *this* being owed: the summary the removal itself runs up must still wait
+    // for the slot to free again.
+    it("still owes the summary when an earlier one was already owed", async () => {
+      offerRetry();
+      // A second batch's question takes the first offer away (owed), and its
+      // Yes raises the progress dialog into the slot straight away (still owed).
+      receiveBatchDelete(["feature-a", "feature-b"]);
+      settleRefresh();
+      confirmDialog();
+      await flushMicrotasks();
+      receive({
+        command: "deleteBranches",
+        results: [
+          { ref: "feature-a", status: null, notFullyMerged: false },
+          { ref: "feature-b", status: "error: not fully merged", notFullyMerged: true }
+        ]
+      });
+      expect(document.getElementById("batchRetryOffer"), "the second offer").not.toBeNull();
+
+      loseRepository();
+      await flushMicrotasks();
+
+      expect(document.getElementById("dialog")!.classList.contains("active")).toBe(false);
+
+      regainRepository();
+      // Whatever is owed by now is paid at the next free slot, whichever run
+      // it is — leave none behind for the scenarios after this one.
+      receive({ command: "copyToClipboard", type: "Commit Hash", success: false });
+      dismissDialog();
+      await flushMicrotasks();
+      dismissDialog();
+      settleRefresh();
+    });
   });
 });

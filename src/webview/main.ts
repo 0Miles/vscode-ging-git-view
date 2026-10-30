@@ -4544,8 +4544,8 @@ class GitGraphView {
           // answered by nobody, which is an abandoned run and owes its summary
           // rather than raising it into the slot just emptied (#134).
           (reason) => {
-            if (reason === "user") this.runBatchCommand(this.batchRun.onRetryDeclined(), action);
-            else this.abandonBatchRun();
+            if (reason === "system") this.abandonBatchRun();
+            else this.runBatchCommand(this.batchRun.onRetryDeclined(), action);
           }
         );
         break;
@@ -4595,24 +4595,29 @@ class GitGraphView {
     this.owedSummary = { results: command.results, action: command.action };
     this.refresh(false);
   }
-  /** Whether a batch summary is waiting for the slot. */
-  public owesBatchSummary(): boolean {
-    return this.owedSummary !== null;
-  }
   /** Raise a summary that had nowhere to go when its run ended.
    *
-   *  Queued from {@link hideDialog} — the one place the dialog slot is emptied
+   *  Called from {@link hideDialog} — the one place the dialog slot is emptied
    *  — and run as a microtask, so that whatever the closing route does *next*
    *  has already had its turn: a Yes that fires off the next action and raises
    *  its progress dialog, a dismissal hook that opens a dialog of its own. If
    *  one of those claimed the slot, the summary stays owed and waits for the
    *  next close.
    *
+   *  Only the summary that was owed when the slot emptied, though, and that is
+   *  why it is captured here rather than read when the microtask runs. One
+   *  that this very close runs up — the system taking a retry offer away,
+   *  whose hook abandons the run after the close (#134) — is owed to the slot
+   *  freeing *again*: this close was the removal, and paying it here would put
+   *  a dialog straight back into the slot the removal emptied. Something else
+   *  being owed already does not change that, so the test is identity, not
+   *  presence.
+   *
    *  It is deliberately not hung off `dialogDismissAction`. The slot frees for
    *  the user's dismissal, the system's, an answer, and a summary owed is owed
    *  whichever of those happened. What this waits for is the slot, not anyone's
    *  dismissal — except that the close which *ran up* the debt does not pay
-   *  it (see {@link hideDialog}).
+   *  it.
    *
    *  If the panel never frees the slot the summary is never shown, and it does
    *  not survive a reload. That is the accepted floor: the run is already
@@ -4621,9 +4626,12 @@ class GitGraphView {
    *  before, now only in the case where the user never closes another dialog. */
   public deliverOwedBatchSummary() {
     const owed = this.owedSummary;
-    if (owed === null || isDialogOpen()) return;
-    this.owedSummary = null;
-    this.reportBatchResults(owed.results, this.batchSpec(owed.action));
+    if (owed === null) return;
+    queueMicrotask(() => {
+      if (this.owedSummary !== owed || isDialogOpen()) return;
+      this.owedSummary = null;
+      this.reportBatchResults(owed.results, this.batchSpec(owed.action));
+    });
   }
   private deleteBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     const inputs: DialogInput[] = [
@@ -7227,10 +7235,10 @@ let dialog = document.getElementById("dialog")!,
   /** The open dialog's dismissal hook, if it declared one.
    *
    *  Held here rather than only inside the Dismiss button's click closure,
-   *  because the button is not the only way a dialog closes: Escape closes one,
-   *  and so does a background reload that finds its own progress dialog still
-   *  up. A hook wired to one route out of three is not a hook, it is a
-   *  coincidence.
+   *  because the button is not the only way a dialog closes unanswered: Escape
+   *  closes one, and so do a background reload that finds its own progress
+   *  dialog still up and the panel losing its repository. A hook wired to one
+   *  of those routes is not a hook, it is a coincidence.
    *
    *  The five of them do quite different things, and it is worth not flattening
    *  that. The cleanup refetch clears the state a late answer would otherwise
@@ -7241,7 +7249,8 @@ let dialog = document.getElementById("dialog")!,
    *  share is only the occasion — the dialog is gone unanswered.
    *
    *  Who took it away is passed in ({@link DismissalReason}), because two of
-   *  them answer differently for it (#134). The cleanup scan's Stop is a "come
+   *  them answer differently for it (#134); the other three do the same either
+   *  way. The cleanup scan's Stop is a "come
    *  back with what you found" contract, so after the user's dismissal the
    *  answer fills the list back in; after the system's nobody asked for it, and
    *  it would land over whatever the user is on by then. The retry offer taken
@@ -9218,18 +9227,10 @@ function hideDialog() {
     dialogMenuSource.classList.remove("dialogActive");
     dialogMenuSource = null;
   }
-  // The slot is empty; a batch summary owed one is now due. As a microtask
-  // rather than a call, because closing is rarely the last thing a route does
-  // — the Yes that closes this dialog goes on to raise the next one — and the
-  // summary is only due if the slot is *still* free once it has (see
-  // `deliverOwedBatchSummary`, which checks).
-  //
-  // Only a summary already owed when the slot emptied, though. One that this
-  // very close runs up — the system taking a retry offer away, whose hook
-  // abandons the run after the close (#134) — is owed to the slot freeing
-  // *again*: this close was the removal, and paying it here would raise the
-  // dialog the removal was for taking down.
-  if (gitGraph.owesBatchSummary()) queueMicrotask(() => gitGraph.deliverOwedBatchSummary());
+  // The slot is empty; a batch summary owed one is now due — once the closing
+  // route has finished, and only the summary owed as of now (see
+  // `deliverOwedBatchSummary`, which defers and checks both).
+  gitGraph.deliverOwedBatchSummary();
 }
 /** Close the dialog without an answer, running whatever it declared for that
  *  and telling it who closed it. The hook is read before the close so that a
