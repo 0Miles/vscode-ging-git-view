@@ -142,9 +142,15 @@ function track(
 
 /** A copy of `label` for the pointer to carry — what makes the press read as a
  *  drag at all, since the label itself stays where it is. It lives on the body,
- *  outside `#commitTable`, so nothing that looks the graph's labels up finds it;
- *  and it takes no pointer events, so the row under it stays the drop target.
- *  The branch colour is inherited from the row, so it is carried over by hand. */
+ *  outside `#commitTable`, so nothing that looks the graph's labels up or binds
+ *  to them reaches it; and it takes no pointer events, so the row under it
+ *  stays the drop target. The branch colour is inherited from the row, so it is
+ *  carried over by hand.
+ *
+ *  It is still a `.gitRef` the graph did not draw, and it is why the chip's
+ *  handlers bind within the table rather than across the document (#166): a
+ *  redraw during a drag used to bind them to this copy too, double-click to
+ *  checkout among them. */
 function makeGhost(label: HTMLElement): HTMLElement {
   const ghost = label.cloneNode(true) as HTMLElement;
   for (const elem of [ghost, ...Array.from(ghost.querySelectorAll<HTMLElement>("*"))]) {

@@ -14,22 +14,28 @@
  *  (`#commitDetails`). Two scopes, because the two surfaces are not nested: a
  *  docked Commit Details View is appended to `<body>`, outside the table.
  *
- *  **What still binds through here, and what each one's safety rests on.** This
- *  list lives here rather than beside the scoped helpers, because here is where
+ *  **#166 took the graph's last six.** The ref chip's `click`, `dblclick` and
+ *  menu, the uncommitted-changes row's menu, the column header's menu and the
+ *  resize handle's `mousedown` all bind within `#commitTable` now, and
+ *  `addContextMenuListener`, the menu-pair wrapper the three menus went
+ *  through, was left with no callers and deleted. Their
+ *  safety had rested on "only one view renders this class", and for `gitRef`
+ *  that was already untrue: a branch drag clones the chip onto `<body>`
+ *  (`branchDrag.ts`), and a redraw during the drag bound the chip's handlers to
+ *  the copy — double-click to checkout among them. Only `pointer-events: none`
+ *  kept a pointer off it.
+ *
+ *  **What still binds through here, and what its safety rests on.** This list
+ *  lives here rather than beside the scoped helpers, because here is where
  *  someone adding a call site is looking:
  *
- *  - `gitRef` — `click` and `dblclick` in `renderTable`, and a menu via
- *    `addContextMenuListener`;
- *  - `unsavedChanges` and `tableColHeader` — menus, also from `renderTable`;
- *  - `resizeCol` — `mousedown`, in `makeTableResizable` (which `renderTable`
- *    calls, but the binding is not in `renderTable`);
  *  - `contextMenuItem` — in `showContextMenu`, on markup it has just written.
  *
- *  Every one of them is rendered by exactly one view today, and that is the only
- *  reason they are fine. `tr.commit` was on this list until the redundancy
- *  dialog started drawing commit rows of its own. So before rendering any of
- *  these classes somewhere new, move its binding to a scoped helper first: the
- *  cost of not doing so, for `gitRef`, is a `dblclick` that checks a branch out.
+ *  That one is safe for a different reason from the ones that left: it binds
+ *  what its own caller wrote a line earlier, not what some view happens to
+ *  render. Before adding anything else here, move it to a scoped helper instead;
+ *  `tr.commit` and `gitRef` both looked exactly like this list until a second
+ *  copy of the class turned up.
  *
  *  So before adding a call, ask what else renders the class, and pick the scope
  *  from the answer. A root parameter on this function would not ask it for you,

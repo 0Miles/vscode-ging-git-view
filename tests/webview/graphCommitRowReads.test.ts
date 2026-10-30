@@ -180,8 +180,8 @@ function moveDialogAheadOfTheGraph() {
  *  that these reads are one markup change away from reaching the wrong element —
  *  a claim a fixture that quietly withheld the attribute could not test. Note
  *  that this is only true of the *reads*: the `gitRef` **bindings** are a
- *  separate, still-unscoped family the ticket leaves for later, and nothing here
- *  binds anything to these chips.
+ *  separate family, scoped by #166 and pinned in `graphTableListenerScope`, and
+ *  nothing here binds anything to these chips.
  *
  *  Left standing until the final scenario, which drops it for the dialog the
  *  product really draws. */

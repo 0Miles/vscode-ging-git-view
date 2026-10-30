@@ -224,12 +224,6 @@ function rowWidgets(row: HTMLElement): HTMLElement[] {
  *  pointer. */
 const MENU_KEY_EVENT = "ging.contextMenuKey";
 
-/** Wire a context-menu handler to both ways of raising one. */
-function addContextMenuListener(className: string, listener: EventListener) {
-  addListenerToClass(className, "contextmenu", listener);
-  addListenerToClass(className, MENU_KEY_EVENT, listener);
-}
-
 /** ExpandedCommit in the JSON-safe form saved with vscode.setState: DOM
  *  references are dropped (renderTable re-binds them to the fresh rows) and
  *  the file tree's Maps are converted to arrays. */
@@ -2240,11 +2234,10 @@ class GitGraphView {
       .forEach((elem) => elem.addEventListener(event, listener));
   }
 
-  /** Wire a context-menu handler within `root` to both ways of raising one — the
-   *  scoped counterpart of `addContextMenuListener`. Both, not just the
-   *  pointer's: the keyboard's `MENU_KEY_EVENT` is dispatched at whatever holds
-   *  focus, and focus reaches the branch-redundancy dialog's rows the moment
-   *  anything gives them a tab stop (#141, #145). */
+  /** Wire a context-menu handler within `root` to both ways of raising one.
+   *  Both, not just the pointer's: the keyboard's `MENU_KEY_EVENT` is dispatched
+   *  at whatever holds focus, and focus reaches the branch-redundancy dialog's
+   *  rows the moment anything gives them a tab stop (#141, #145). */
   private addScopedContextMenuListener(
     root: HTMLElement,
     className: string,
@@ -2254,9 +2247,10 @@ class GitGraphView {
     this.addScopedListenerToClass(root, className, MENU_KEY_EVENT, listener);
   }
 
-  /** The graph's root, named: the only binder {@link renderTable} may use for a
-   *  class the graph's *rows* carry, binding within `#commitTable` instead of
-   *  across the whole document.
+  /** The graph's root, named: the only binder {@link renderTable} and
+   *  {@link makeTableResizable} may use for a class the graph's table carries —
+   *  rows, ref chips, headers, resize handles — binding within `#commitTable`
+   *  instead of across the whole document.
    *
    *  **A class name is never proof of the graph.** The branch-redundancy dialog
    *  builds its own commit list out of `redundancyCommitRow`, which emits
@@ -2274,11 +2268,12 @@ class GitGraphView {
    *  replaces its `innerHTML`, never the element, so the boundary outlives every
    *  redraw that runs through here.
    *
-   *  **Not every binding the graph makes goes through here.** What is left, and
-   *  what each one's safety rests on, is listed once beside `addListenerToClass`
-   *  in `utils/dom.ts` — next to the unscoped helper, which is where someone
-   *  adding a call site is actually looking. `tr.commit` was on that list until
-   *  the redundancy dialog started drawing commit rows.
+   *  **Every class the graph binds goes through here since #166.** The ref
+   *  chips, the uncommitted-changes row, the column headers and the resize
+   *  handles were the last to bind document-wide, on the ground that no other
+   *  view drew those classes — a ground a branch drag's ghost, a `.gitRef`
+   *  clone on `<body>`, had already broken. What still binds unscoped, and why,
+   *  is listed beside `addListenerToClass` in `utils/dom.ts`.
    *
    *  **Binding was only half of it, and #150 took the other half.** The reads
    *  that go looking for a commit row are scoped to the same `#commitTable`
@@ -2681,7 +2676,7 @@ class GitGraphView {
     this.restoreCdvFileFocus(focusedFileKey);
     this.restoreGraphFocus(focusedKey, focusMayScroll);
 
-    addContextMenuListener("tableColHeader", (e: Event) => {
+    this.addGraphContextMenuListener("tableColHeader", (e: Event) => {
       const headerElem = <HTMLElement>(<Element>e.target).closest(".tableColHeader")!;
       // Only the Date/Author/Commit headers carry a data-col and can be toggled.
       if (headerElem.dataset.col === undefined) return;
@@ -3232,7 +3227,7 @@ class GitGraphView {
         this.loadCommitDetails(sourceElem);
       }
     });
-    addContextMenuListener("unsavedChanges", (e: Event) => {
+    this.addGraphContextMenuListener("unsavedChanges", (e: Event) => {
       e.stopPropagation();
       const sourceElem = <HTMLElement>(<Element>e.target).closest(".unsavedChanges")!;
       const ucv = viewState.contextMenuActionsVisibility.uncommittedChanges; // #198
@@ -3273,7 +3268,7 @@ class GitGraphView {
         sourceElem
       );
     });
-    addContextMenuListener("gitRef", (e: Event) => {
+    this.addGraphContextMenuListener("gitRef", (e: Event) => {
       e.stopPropagation();
       const sourceElem = <HTMLElement>(<Element>e.target).closest(".gitRef")!;
       const refName = unescapeHtml(sourceElem.dataset.name!);
@@ -3477,8 +3472,8 @@ class GitGraphView {
         sourceElem
       );
     });
-    addListenerToClass("gitRef", "click", (e: Event) => e.stopPropagation());
-    addListenerToClass("gitRef", "dblclick", (e: Event) => {
+    this.addGraphListenerToClass("gitRef", "click", (e: Event) => e.stopPropagation());
+    this.addGraphListenerToClass("gitRef", "dblclick", (e: Event) => {
       e.stopPropagation();
       hideDialogAndContextMenu();
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitRef")!;
@@ -5024,8 +5019,12 @@ class GitGraphView {
    * the one place cells are not `nowrap`. See {@link render}.
    */
   private makeTableResizable(): () => void {
+    // The headers are read from the graph's own header row, for the reason the
+    // handles below are bound within `#commitTable`: a `.tableColHeader` ahead
+    // of the table anywhere in the page would otherwise be `cols[0]`, take a
+    // pair of handles, and be sized as the graph column (#166).
     let colHeadersElem = document.getElementById("tableColHeaders")!,
-      cols = <HTMLCollectionOf<HTMLElement>>document.getElementsByClassName("tableColHeader");
+      cols = <HTMLCollectionOf<HTMLElement>>colHeadersElem.getElementsByClassName("tableColHeader");
     // `?.`, because this runs on a redraw and a redraw does not imply a
     // repository: a panel the host could offer no live repo to keeps the graph
     // it had on screen ({@link refresh} does not blank), and there is then no
@@ -5097,7 +5096,7 @@ class GitGraphView {
       };
     }
 
-    addListenerToClass("resizeCol", "mousedown", (e) => {
+    this.addGraphListenerToClass("resizeCol", "mousedown", (e) => {
       col = parseInt((<HTMLElement>e.target).dataset.col!);
       mouseX = (<MouseEvent>e).clientX;
       if (columnWidths === null) {
@@ -5970,13 +5969,11 @@ class GitGraphView {
    *  this family reads the same, and so that the one thing they have in common
    *  is visible at a glance — they all name a row of a table.
    *
-   *  The ref half is scoped with it rather than left behind. Nothing but
-   *  `renderTable` renders a `.gitRef` today, so there is no second `.gitRef` to
-   *  reach — but `findBranchMatch` is set, ten lines down, only on refs inside a
-   *  row this now cannot find outside the table, and a clear with a wider reach
-   *  than the paint it undoes is the asymmetry both #128 and #144 were. This is
-   *  the *read*; `gitRef`'s **binding** is still document-wide and is somebody
-   *  else's ticket — see the inventory beside `addListenerToClass`. */
+   *  The ref half is scoped with it rather than left behind. `findBranchMatch`
+   *  is set, ten lines down, only on refs inside a row this now cannot find
+   *  outside the table, and a clear with a wider reach than the paint it undoes
+   *  is the asymmetry both #128 and #144 were. This is the *read*; #166 scoped
+   *  `gitRef`'s **bindings** to the same table. */
   private clearFindHighlights() {
     this.tableElem
       .querySelectorAll("tr.commit.findMatch, tr.commit.findMatchCurrent")
