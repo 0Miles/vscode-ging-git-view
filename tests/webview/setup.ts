@@ -27,12 +27,11 @@ export const NEAR_BOTTOM = PAGE_HEIGHT - 250 - VIEWPORT_HEIGHT;
  *
  *  Both names for it are written together because the webview reads each in a
  *  different place: `scrollY` for the near-the-bottom threshold, `pageYOffset`
- *  for context-menu placement *and* for deciding whether an opening Commit
- *  Details View needs bringing into view (`main.ts` around the
- *  `cdvBroughtIntoView` guard). That second reader is why the CDV suites care:
- *  their "never moves the viewport" assertions are about the branch those two
- *  comparisons choose. A viewport that is in two places at once would pick a
- *  branch neither suite is describing. */
+ *  for context-menu placement *and* as the place an opening Commit Details View
+ *  scrolls the page on from (`main.ts` around the `cdvBroughtIntoView` guard;
+ *  whether it scrolls at all is measured on screen). A viewport that is in two
+ *  places at once would describe a page no suite means: one reader would see
+ *  it in one place and the other in another. */
 export function parkViewportAt(offset: number) {
   Object.defineProperty(window, "scrollY", { value: offset, configurable: true });
   Object.defineProperty(window, "pageYOffset", { value: offset, configurable: true });

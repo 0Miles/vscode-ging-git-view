@@ -163,6 +163,30 @@ function dockedCdvHeight(
   return Number.isFinite(margin) ? margin : 0;
 }
 
+/** A stretch of the viewport, top to bottom, in px down from its top edge. */
+type VerticalSpan = { top: number; bottom: number };
+
+/** How far to scroll the page — down when positive — to bring `block` into
+ *  `visible`, the stretch of the viewport rows can be seen in (below the
+ *  frozen header, above anything docked over the bottom). Both are in viewport
+ *  coordinates, as `getBoundingClientRect` reports them; 0 means the page stays.
+ *
+ *  `centre` puts the block's middle at the middle of `visible`. Otherwise the
+ *  page moves only as far as it takes: a block starting above `visible` comes
+ *  down to its top, and one ending past its bottom comes up to leave a 16px gap
+ *  under it. Either way a block too tall to fit stops with its top right at
+ *  `visible`'s: the top is the row that was clicked, and it stays in sight
+ *  (#216, #228). */
+function revealDelta(block: VerticalSpan, visible: VerticalSpan, centre: boolean): number {
+  const toTop = block.top - visible.top;
+  if (centre) {
+    return Math.min((block.top + block.bottom) / 2 - (visible.top + visible.bottom) / 2, toTop);
+  }
+  if (toTop < 0) return toTop;
+  const toBottom = block.bottom - (visible.bottom - 16);
+  return toBottom > 0 ? Math.min(toBottom, toTop) : 0;
+}
+
 /** Whether `elem` is part of the frozen column-header row — the row or one of
  *  its cells — and so always on screen while the table is (#206). Nothing
  *  there may be scrolled into view: only the *cells* stick, a `tr` cannot, so
@@ -6926,52 +6950,43 @@ class GitGraphView {
     // loading is browsing, and browsing must not move anything). So it runs
     // once per CDV, and again only when the CDV becomes a different one.
     const cdv = this.cdvIdentity();
-    if (!docked && cdv !== this.cdvBroughtIntoView) {
+    if (cdv !== this.cdvBroughtIntoView) {
       this.cdvBroughtIntoView = cdv;
-      // The two branches that do not centre work in page positions, from the
-      // panel's `offsetTop`, which is measured from the table: the table starts
-      // below the 32px control bar (the conflict banner, when shown, is not
-      // counted here), so the panel's top is at offsetTop + 32 and the commit's
-      // 24px row above it at offsetTop + 8.
-      //
-      // The top of the viewport is not where the visible rows begin: the
-      // frozen header covers `frozen` px of it (#206). Both comparisons against
-      // the top edge, and the centring, measure from below the header; the
-      // bottom edge has nothing frozen over it, so that branch is unchanged.
-      const frozen = frozenHeaderHeight(newElem);
-      if (this.config.autoCenterCommitDetailsView) {
-        // Centre Commit Details View is on: put the middle of the block — the
-        // commit's row down to the panel's bottom — at the middle of the
-        // visible rows, (window height + frozen) / 2 down the viewport. The
-        // block is measured on screen rather than worked out from offsetTop:
-        // the panel's height is the user's to drag, and the hard-coded middle
-        // this replaced (offsetTop + 177, from the days of a 40px bar) sat the
-        // block 32px above centre (#216). A panel dragged taller than the
-        // visible rows can't be centred without pushing the commit's row up
-        // under the header, so the row stops right below it instead: the row
-        // is what was clicked, and it stays in sight.
-        const blockTop = this.expandedCommit.srcElem.getBoundingClientRect().top;
-        const blockBottom = newElem.getBoundingClientRect().bottom;
-        window.scrollTo(
-          0,
-          window.pageYOffset +
-            Math.min(
-              (blockTop + blockBottom) / 2 - (window.innerHeight + frozen) / 2,
-              blockTop - frozen
-            )
+      const commitRow = this.expandedCommit.srcElem;
+      const centre = this.config.autoCenterCommitDetailsView;
+      if (docked && !centre) {
+        // Docked, the panel opens over the bottom of the window rather than
+        // under the row, so a row clicked low down is the one it covers
+        // (#231). Not centring, the row only has to come out from under it,
+        // and this is the very scroll the arrow keys make when they step onto
+        // a row (#217's margin keeps it above the panel). With the panel
+        // open, every arrow press also reopens it on the new row; a scroll of
+        // any other size here would then nudge the page a second time, a
+        // beat after the first, on every step past the panel's edge.
+        if (typeof commitRow.scrollIntoView === "function") {
+          commitRow.scrollIntoView({ block: "nearest" });
+        }
+      } else {
+        // Inline, what has to be in sight is the commit's row down to the
+        // panel's bottom, measured on screen rather than worked out from the
+        // panel's `offsetTop`: that is measured from the table, and the table
+        // starts lower by the conflict banner's height while one is shown
+        // (#228); the panel's height, too, is the user's to drag. Docked, the
+        // panel is not under the row, so it is the row alone (#231). Either
+        // way the visible rows run from under the frozen header (#206) to
+        // above the docked panel, if there is one (#217) — both read off a
+        // commit row: a docked panel is a <div> under <body>, outside the
+        // table and its scroll margins.
+        const rowBox = commitRow.getBoundingClientRect();
+        const delta = revealDelta(
+          {
+            top: rowBox.top,
+            bottom: docked ? rowBox.bottom : newElem.getBoundingClientRect().bottom
+          },
+          { top: frozenHeaderHeight(), bottom: window.innerHeight - dockedCdvHeight() },
+          centre
         );
-      } else if (newElem.offsetTop + 8 - frozen < window.pageYOffset) {
-        // The commit's row (offsetTop + 8) starts above the first visible row
-        // (pageYOffset + frozen): scroll it to sit right under the header.
-        window.scrollTo(0, newElem.offsetTop + 8 - frozen);
-      } else if (
-        newElem.offsetTop + this.config.grid.expandY - window.innerHeight + 48 >
-        window.pageYOffset
-      ) {
-        // The panel's bottom (offsetTop + 32 + its height) ends less than 16px
-        // above the viewport's bottom (pageYOffset + window height): scroll so
-        // that 16px gap is there. 48 is the 32px bar plus the 16px gap.
-        window.scrollTo(0, newElem.offsetTop + this.config.grid.expandY - window.innerHeight + 48);
+        if (delta !== 0) window.scrollTo(0, window.pageYOffset + delta);
       }
     }
 
