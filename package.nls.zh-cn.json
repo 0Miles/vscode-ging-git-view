@@ -125,7 +125,7 @@
   "config.dialog.resetCurrentBranch.mode.mixed": "保留工作区，重置 HEAD 与索引 （git reset --mixed）",
   "config.dialog.resetCurrentBranch.mode.hard": "丢弃所有更改 （git reset --hard）",
   "config.dialog.resetCurrentBranch.mode.keep": "将 branch 移到该 commit，保留 uncommitted 更改；若会覆盖这些更改则中止 （git reset --keep）",
-  "config.followSourceControlSelection": "启用后，GING 会跟随在源代码管理视图中选取的仓库，打开或切换图形到该仓库。当选取多个仓库时，图形控制列会显示仓库下拉框供你选择要显示哪一个。默认：启用",
+  "config.followSourceControlSelection": "启用后，GING 会跟随在源代码管理视图中选中的仓库，打开或切换图形到该仓库。当选中多个仓库时，图形控制栏会显示仓库下拉框供你选择要显示哪一个。默认：启用",
   "view.branches": "分支",
   "view.branches.welcome": "未选取仓库。\n[打开历史视图](command:ging-git-view.view)",
   "command.branches.search": "搜索 branch",
