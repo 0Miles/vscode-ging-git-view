@@ -1499,13 +1499,16 @@ class GitGraphView {
     dimmedBranches: string[] = [],
     cleanupCandidates: string[] = []
   ) {
-    // The callback runs whichever way this leaves, on the same terms as
-    // {@link loadCommits}: a throw that skipped it would leave the busy claim
-    // up and {@link branchLoadInFlight} true, and every later refresh would be
-    // dropped onto a load that is never coming. A throw reports no changes —
-    // the same "a load that never ran brought none with it" a dropped request
-    // gets — and still escapes to the message listener, which reports it
-    // (ADR-0016).
+    // The callback runs whichever way this leaves, as {@link loadCommits}'s
+    // does: a throw that skipped it would leave the busy claim up and
+    // {@link branchLoadInFlight} true, and every later refresh would be dropped
+    // onto a load that is never coming. A throw still escapes to the message
+    // listener, which reports it (ADR-0016).
+    //
+    // Unlike there, a throw reports no changes even after the state has moved
+    // — the same "a load that never ran brought none with it" a dropped request
+    // gets. Nothing is lost by it: the only reader is the close-out's
+    // dismissal, and a hard reload is dismissed on `hard` alone.
     let changes = false;
     try {
       if (!isRepo) return;
@@ -1687,12 +1690,14 @@ class GitGraphView {
    *  {@link commitLoadInFlight} answering true for good. */
   private triggerLoadCommitsCallback(changes: boolean) {
     const callback = this.loadCommitsCallback;
-    if (callback !== null) {
-      this.loadCommitsCallback = null;
-      callback(changes);
+    this.loadCommitsCallback = null;
+    try {
+      if (callback !== null) callback(changes);
+    } finally {
+      // A side-view-delegated action may have been waiting for this load, and
+      // it goes on waiting for nothing if a throwing close-out skips this.
+      this.tryRunPendingRefAction();
     }
-    // A side-view-delegated action may have been waiting for this load.
-    this.tryRunPendingRefAction();
   }
 
   public loadAvatar(email: string, image: string) {
@@ -2062,11 +2067,11 @@ class GitGraphView {
             // refreshes follow an action (checkout, merge, …) so always close;
             // soft refreshes only close when something changed.
             //
-            // A hard reload always arrives here with `branchChanges` set —
-            // {@link loadBranches} never short-circuits a hard one — so `hard`
-            // reads as redundant, and is not: it states the intent, and it is
-            // the one arm left standing when the branch handler threw part-way,
-            // which reports no changes.
+            // A hard reload whose branch handler ran to the end always arrives
+            // here with `branchChanges` set — {@link loadBranches} never
+            // short-circuits a hard one — so `hard` reads as redundant, and is
+            // not: it states the intent, and it is the one arm left standing
+            // when that handler threw part-way, which reports no changes.
             //
             // Not held back when this refresh's own request was dropped, unlike
             // the claim above, and the two part company on what is left to do

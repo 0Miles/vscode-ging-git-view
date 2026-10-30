@@ -320,7 +320,8 @@ describe("when something throws part-way through a load", () => {
   });
 
   // The early way out of the commit handler — an answer that looks the same as
-  // what is drawn — sits ahead of the try/finally that guards the redraw.
+  // what is drawn. It used to sit ahead of the try/finally that guards the
+  // redraw, so a throw while comparing skipped the callback altogether.
   describe("the commit handler, on its nothing-changed path", () => {
     let reported: (string | null)[] = [];
 
@@ -357,15 +358,31 @@ describe("when something throws part-way through a load", () => {
   describe("a refresh's close-out, from its commit half", () => {
     let reported: (string | null)[] = [];
     let spinningAfterTheThrow = true;
+    let cleanupDialogAfterTheThrow = false;
 
     beforeAll(() => {
       startCleanupScan();
       const bridge = throwOnSending("branchCleanupScanCancel");
       mock.clearMessages();
-      refreshLands();
+      click("refreshBtn");
+      receive(branchesResponse);
+      // A side-view action arriving while the commit half is out waits for the
+      // load to finish — and the load finishing is the call that throws.
+      receive({
+        command: "showBranchCleanup",
+        repo: DEFAULT_REPO,
+        seq: ++cleanupSeq,
+        payload: cleanupPayload
+      });
+      receive(commitsResponse);
       reported = reportedCommands();
       spinningAfterTheThrow = refreshing();
+      cleanupDialogAfterTheThrow =
+        document.querySelector('#dialog .cleanupRow input[data-ref="merged"]') !== null;
       bridge.mockRestore();
+      document
+        .getElementById("dialogDismiss")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     it("is still reported to the host", () => {
@@ -374,6 +391,10 @@ describe("when something throws part-way through a load", () => {
 
     it("stops spinning", () => {
       expect(spinningAfterTheThrow).toBe(false);
+    });
+
+    it("still runs the side-view action that was waiting on the load", () => {
+      expect(cleanupDialogAfterTheThrow).toBe(true);
     });
 
     it("leaves the commit gate open for the next refresh", () => {
