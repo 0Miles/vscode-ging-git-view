@@ -4,7 +4,7 @@ import type { BranchSearchEntry, GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // The `3 of 7` counter and the highlighted row are two readings of one fact —
 // which match Find is on — so they may never disagree. A step onto a match past
@@ -232,12 +232,6 @@ describe("Find's counter when the page a step needs never goes out", () => {
     scrolledTo.length = 0;
   }
 
-  function click(id: string) {
-    const elem = document.getElementById(id);
-    expect(elem, id).not.toBeNull();
-    elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  }
-
   function sentOf(command: GG.RequestMessage["command"]) {
     return mock.sentMessages.filter((m) => m.command === command);
   }
@@ -282,7 +276,7 @@ describe("Find's counter when the page a step needs never goes out", () => {
 
   describe("searching", () => {
     beforeAll(() => {
-      click("findBtn");
+      clickId("findBtn");
       deliverBranchIndex([deepBranch]);
       clearMovement();
       search("fix");
@@ -298,10 +292,10 @@ describe("Find's counter when the page a step needs never goes out", () => {
   describe("stepping between matches already on screen while a page is in flight", () => {
     beforeAll(() => {
       // Widen the loaded commit window and leave that page in flight.
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       mock.clearMessages();
       clearMovement();
-      click("findNext");
+      clickId("findNext");
     });
 
     it("moves, because reaching this match needs no page at all", () => {
@@ -327,7 +321,7 @@ describe("Find's counter when the page a step needs never goes out", () => {
       // A branch match revalidates the index before committing to a load — the
       // branch may have moved — so the load is decided when that answer
       // arrives, not on the click.
-      click("findNext");
+      clickId("findNext");
       deliverBranchIndex();
     });
 
@@ -351,7 +345,7 @@ describe("Find's counter when the page a step needs never goes out", () => {
       deliverBranchIndex();
       mock.clearMessages();
       clearMovement();
-      click("findNext");
+      clickId("findNext");
       deliverBranchIndex();
     });
 
@@ -385,12 +379,12 @@ describe("Find's counter when the page a step needs never goes out", () => {
   describe("stepping onto a branch match that is already on screen, page in flight", () => {
     beforeAll(() => {
       // Widen the window again and leave the page in flight.
-      click("loadMoreCommitsBtn");
-      click("findNext"); // wraps to the first match
-      click("findNext"); // and on to the second
+      clickId("loadMoreCommitsBtn");
+      clickId("findNext"); // wraps to the first match
+      clickId("findNext"); // and on to the second
       mock.clearMessages();
       clearMovement();
-      click("findNext"); // onto the branch match, now drawn
+      clickId("findNext"); // onto the branch match, now drawn
       deliverBranchIndex();
     });
 
@@ -418,10 +412,10 @@ describe("Find's counter when the page a step needs never goes out", () => {
       deliverBranchIndex([deepBranch, furtherBranch]);
       // Back to the first match, leaving the last step's direction forwards.
       search("fix");
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       mock.clearMessages();
       clearMovement();
-      click("findPrev");
+      clickId("findPrev");
       deliverBranchIndex();
     });
 
@@ -470,7 +464,7 @@ describe("Find's counter when the page a step needs never goes out", () => {
       mock.clearMessages();
       clearMovement();
       // Backwards from the first match wraps onto the deepest one.
-      click("findPrev");
+      clickId("findPrev");
       deliverBranchIndex();
       confirmText = document.getElementById("dialog")!.textContent ?? "";
     });
@@ -493,7 +487,7 @@ describe("Find's counter when the page a step needs never goes out", () => {
       beforeAll(() => {
         mock.clearMessages();
         clearMovement();
-        click("dialogDismiss");
+        clickId("dialogDismiss");
       });
 
       it("takes the question away and leaves Find alone", () => {
@@ -512,13 +506,13 @@ describe("Find's counter when the page a step needs never goes out", () => {
         // The counter above could read right and still be describing a Find
         // that has lost its place. Stepping proves it has not: from the match
         // it went back to, the next one is the one after that.
-        click("findNext");
+        clickId("findNext");
         deliverBranchIndex();
         expect(counter()).toBe(counterFor(2, 4));
         expect(currentMatchHash()).toBe("zzz999");
         // and back again, so the scenario after this one starts where this one
         // found things.
-        click("findPrev");
+        clickId("findPrev");
         expect(counter()).toBe(counterFor(1, 4));
         expect(currentMatchHash()).toBe("ccc333");
       });
@@ -536,16 +530,16 @@ describe("Find's counter when the page a step needs never goes out", () => {
         // Re-running the search then seats Find back on the first match without
         // touching the direction, which is the only way to reach the deepest
         // match at all: it is the last one, so only a backwards wrap gets there.
-        click("findNext");
+        clickId("findNext");
         deliverBranchIndex();
         onArrival = counter() ?? "";
         search("fix");
 
-        click("findPrev");
+        clickId("findPrev");
         deliverBranchIndex();
         mock.clearMessages();
         clearMovement();
-        click("dialogAction");
+        clickId("dialogAction");
       });
 
       it("came in from a completed forwards step", () => {
@@ -610,12 +604,12 @@ describe("Find's counter when the page a step needs never goes out", () => {
       deliverBranchIndex([baseBranch, deepBranch, furtherBranch, ancientBranch]);
       // A completed forwards step back onto the deepest drawn match, so that
       // going back by row number and going back by commit disagree.
-      click("findNext");
+      clickId("findNext");
       deliverBranchIndex();
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       mock.clearMessages();
       clearMovement();
-      click("findNext"); // onto the tip past the window
+      clickId("findNext"); // onto the tip past the window
       // and the answer comes back with that extra branch gone, so every match
       // below it slides up a place while the step is out.
       deliverBranchIndex([deepBranch, furtherBranch, ancientBranch]);
@@ -638,8 +632,8 @@ describe("Find's counter when the page a step needs never goes out", () => {
       search("fix"); // back to the first match
       mock.clearMessages();
       clearMovement();
-      click("findNext"); // onto the second match, an answer now out for it
-      click("findNext"); // and again, before it comes
+      clickId("findNext"); // onto the second match, an answer now out for it
+      clickId("findNext"); // and again, before it comes
       deliverBranchIndex();
     });
 
@@ -670,21 +664,21 @@ describe("Find's counter when the page a step needs never goes out", () => {
       // the direction on the spot rather than through an answer later — and so
       // that it is genuinely recording something, the step before it having
       // been forwards.
-      click("findPrev");
+      clickId("findPrev");
       deliverBranchIndex();
-      click("findPrev"); // onto the match with no branch
-      click("findNext"); // back up, forwards
+      clickId("findPrev"); // onto the match with no branch
+      clickId("findNext"); // back up, forwards
       deliverBranchIndex();
-      click("findPrev"); // and down again, the step under test
+      clickId("findPrev"); // and down again, the step under test
       // Two more tips past the window, and a search that finds them plus one
       // loaded commit. Changing the search re-seats Find at the first match
       // without touching the direction the step left.
       deliverBranchIndex([deepBranch, furtherBranch, ancientBranch, furtherOne, furtherTwo]);
       search("further");
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       mock.clearMessages();
       clearMovement();
-      click("findNext");
+      clickId("findNext");
       deliverBranchIndex();
     });
 
@@ -714,13 +708,13 @@ describe("Find's counter when the page a step needs never goes out", () => {
   describe("a branch that moved between the click and the answer", () => {
     beforeAll(() => {
       search("fix");
-      click("findNext"); // onto the second match
+      clickId("findNext"); // onto the second match
       deliverBranchIndex();
-      click("findNext"); // and the third
+      clickId("findNext"); // and the third
       deliverBranchIndex();
       mock.clearMessages();
       clearMovement();
-      click("findNext"); // onto the tip past the window
+      clickId("findNext"); // onto the tip past the window
       // Revalidating is the whole reason a branch step waits for an answer: by
       // the time it comes, this branch has been moved onto a commit that is
       // already drawn.
@@ -749,11 +743,11 @@ describe("Find's counter when the page a step needs never goes out", () => {
       beforeAll(() => {
         // Put the branch back where it was, and step onto it again.
         deliverBranchIndex([deepBranch, furtherBranch, ancientBranch, furtherOne, furtherTwo]);
-        click("findNext"); // onto the third match
+        clickId("findNext"); // onto the third match
         deliverBranchIndex();
         mock.clearMessages();
         clearMovement();
-        click("findNext"); // onto the tip past the window
+        clickId("findNext"); // onto the tip past the window
         deliverBranchIndex([
           deepBranch,
           { ref: "fix/further", name: "fix/further", hash: "vvv777", logDepth: 6 },

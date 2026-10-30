@@ -3,7 +3,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
-import { clickItem, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  makeViewState,
+  openMenuOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The ref context menu, end to end: right-clicking a rendered ref chip must
 // yield exactly the items the ref's kind calls for, in order, dividers
@@ -52,12 +59,6 @@ const commits: GitCommitNode[] = [
     ]
   }
 ];
-
-function openMenuOn(selector: string) {
-  const chip = document.querySelector<HTMLElement>(selector);
-  expect(chip, selector).not.toBeNull();
-  chip!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
 
 /** The rendered menu, top to bottom: item labels, with dividers as "---". */
 function menuEntries() {

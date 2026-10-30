@@ -207,9 +207,10 @@ describe("menuFor: which items each kind of ref gets", () => {
 
   it("offers the cleanup row, ungated, only on a cleanup candidate", () => {
     const items = shape(menuFor(localBranch("feature"), ctxWith({ isCleanupCandidate: true })));
-    const at = items.indexOf(
-      items.find((entry) => typeof entry === "object" && entry.title === L.cleanupMenuItem)!
+    const at = items.findIndex(
+      (entry) => typeof entry === "object" && entry.title === L.cleanupMenuItem
     );
+    expect(at, L.cleanupMenuItem).not.toBe(-1);
     expect(items[at]).toEqual({ title: L.cleanupMenuItem, icon: "trash", visible: undefined });
     // Between redundancy and create-pull-request, as the side-view orders it.
     expect(items[at - 1]).toMatchObject({ title: L.checkRedundancy });

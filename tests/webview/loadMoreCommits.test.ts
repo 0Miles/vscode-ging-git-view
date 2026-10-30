@@ -5,6 +5,7 @@ import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
+  clickId,
   createVscodeMock,
   makeViewState,
   NEAR_BOTTOM,
@@ -93,17 +94,11 @@ const tipDetails: GitCommitDetails = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 /** Put a commit load in flight: refresh, answer the branches half, withhold
  *  the commits half. The rendered graph — Load More button included — stands
  *  untouched until the commits arrive. */
 function startInFlightLoad() {
-  click("refreshBtn");
+  clickId("refreshBtn");
   receive(branchesResponse);
 }
 
@@ -154,7 +149,7 @@ describe("Load More", () => {
   describe("pressed with nothing in flight", () => {
     beforeAll(() => {
       mock.clearMessages();
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
     });
 
     it("requests the next page, widening the loaded commit window", () => {
@@ -181,13 +176,13 @@ describe("Load More", () => {
     // go out, so the flag never came back down and Load More stayed dead for
     // the life of the panel.
     it("sends nothing, then sends the request once the in-flight load finishes", () => {
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       expect(loadCommitsRequests()).toHaveLength(0);
 
       receive(commitsResponse);
       mock.clearMessages();
 
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       expect(loadCommitsRequests()).toMatchObject([{ maxCommits: 500 }]);
     });
   });
@@ -201,7 +196,7 @@ describe("Load More", () => {
       receive(commitsResponse); // settle the previous press
       startInFlightLoad();
       mock.clearMessages();
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       refusal = dialogText();
       footerAfterTheRefusal = document.getElementById("loadMoreCommitsBtn");
       spinnerAfterTheRefusal = document.getElementById("loadingHeader");
@@ -228,7 +223,7 @@ describe("Load More", () => {
       beforeAll(() => {
         receive(commitsResponse);
         mock.clearMessages();
-        click("loadMoreCommitsBtn");
+        clickId("loadMoreCommitsBtn");
         requestedOnTheRetry = loadCommitsRequests();
       });
 
@@ -259,7 +254,7 @@ describe("Load More", () => {
       scrollTo = vi.fn();
       window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
 
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       receive(commitsResponse);
     });
 

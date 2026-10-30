@@ -8,6 +8,7 @@ import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  graphRow,
   makeViewState,
   receive,
   setupHtml
@@ -56,13 +57,11 @@ const commits: GitCommitNode[] = [
   }
 ];
 
-const row = (hash: string) =>
-  document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
 /** The label's name span — what a pointer actually lands on. */
 const label = (selector: string) =>
   document.querySelector<HTMLElement>(`#commitTable ${selector} .gitRefName`)!;
 /** A cell of the row, which is where a drop lands. */
-const cellOf = (hash: string) => row(hash).querySelectorAll("td")[1] as HTMLElement;
+const cellOf = (hash: string) => graphRow(hash).querySelectorAll("td")[1] as HTMLElement;
 
 /** `buttons` is what is held while the event fires: the pressed button from
  *  the press until the release, nothing from the release on. */
@@ -227,7 +226,7 @@ describe("a branch that moves while the question is on screen", () => {
 describe("dragging the checked-out branch", () => {
   // Moving it is a reset, so it asks what the commit menu's Reset asks.
   it("opens the commit menu's Reset dialog for the commit it lands on", () => {
-    row(MID).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    graphRow(MID).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
     clickItem(L.reset + "…");
     const fromMenu = document.getElementById("dialog")!.innerHTML;
     dismiss();
@@ -419,7 +418,7 @@ describe("while and after a drag", () => {
     mouse("mousedown", from, 100, 100);
     mouse("mousemove", cellOf(BASE), 100, 140);
 
-    expect(row(BASE).classList.contains("branchDropTarget")).toBe(true);
+    expect(graphRow(BASE).classList.contains("branchDropTarget")).toBe(true);
     expect(document.body.classList.contains("branchDragging")).toBe(true);
 
     mouse("mouseup", document.body, 100, 140);

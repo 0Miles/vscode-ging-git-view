@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Local webview rendering harness for visual / layout verification.
  *
@@ -15,11 +16,16 @@
  *   (cd out/webview-harness && python3 -m http.server 8771)
  *   open http://localhost:8771/           # or drive with Playwright
  *
- * Edit SAMPLE_COMMITS / VIEW_STATE below to exercise specific scenarios.
+ * Edit SAMPLE_COMMITS, or the overrides passed to makeViewState for
+ * VIEW_STATE, below to exercise specific scenarios.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
+
+// The package's entry by path: the root tsconfig's `baseUrl` would otherwise
+// resolve a bare "esbuild" to the repo's own esbuild.js for the typecheck.
+const esbuild = require("esbuild/lib/main.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const OUT = path.join(ROOT, "out", "webview-harness");
@@ -57,103 +63,49 @@ const THEME_VARS = {
   "--vscode-widget-shadow": "#000000"
 };
 
-const REPO = "/workspace/demo";
+/**
+ * The webview suites' viewState fixture, loaded rather than copied so the two
+ * cannot drift (issue #76). It is TypeScript behind `@/` paths, so esbuild
+ * bundles it into the harness output (resolving those paths from the tsconfig)
+ * and node requires the bundle.
+ *
+ * @returns {typeof import("../tests/webview/viewStateFixture")}
+ */
+function loadViewStateFixture() {
+  const outfile = path.join(OUT, "viewStateFixture.cjs");
+  esbuild.buildSync({
+    entryPoints: [path.join(ROOT, "tests", "webview", "viewStateFixture.ts")],
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    outfile,
+    logLevel: "silent"
+  });
+  return require(outfile);
+}
 
-const VIEW_STATE = {
-  autoCenterCommitDetailsView: true,
-  commitDetailsViewLocation: "Inline",
+/**
+ * The palette a user who never touched `ging-git-view.graph.palette` gets,
+ * read from the manifest that ships it. The fixture's single colour is enough
+ * for the suites, but every graph column here would draw in it.
+ *
+ * @returns {string[]}
+ */
+function shippedPalette() {
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  return manifest.contributes.configuration.properties["ging-git-view.graph.palette"].default;
+}
 
-  referenceLabelAlignment: "Normal",
+fs.mkdirSync(OUT, { recursive: true });
 
-  combineLocalAndRemoteBranchLabels: true,
-  dialogDeleteBranchForceDelete: false,
-  dialogCherryPickNoCommit: false,
-  dialogAddTagType: "annotated",
-  dialogCreateBranchCheckOut: false,
-  dialogMergeNoFastForward: true,
-  dialogMergeSquash: false,
-  dialogResetMode: "mixed",
-  customBranchGlobPatterns: [],
-  // Remembered dialog options; the extension always injects this store.
-  dialogMemory: {},
-  // Fully-populated so every context menu renders (the extension always sends a
-  // complete object; an empty {} would make `cmv.branch.x` throw).
-  contextMenuActionsVisibility: {
-    commit: {
-      addTag: true,
-      createBranch: true,
-      checkout: true,
-      cherrypick: true,
-      revert: true,
-      merge: true,
-      reset: true,
-      rebase: true,
-      drop: true,
-      copyHash: true,
-      copySubject: true
-    },
-    branch: {
-      checkout: true,
-      rename: true,
-      push: true,
-      createArchive: true,
-      delete: true,
-      merge: true,
-      rebase: true,
-      checkRedundancy: true,
-      copyName: true
-    },
-    remoteBranch: {
-      checkout: true,
-      merge: true,
-      pull: true,
-      fetch: true,
-      delete: true,
-      checkRedundancy: true,
-      copyName: true
-    },
-    tag: { viewDetails: true, delete: true, push: true, createArchive: true, copyName: true },
-    stash: { apply: true, pop: true, drop: true, copyName: true },
-    uncommittedChanges: { openSourceControlView: true, reset: true, clean: true },
-    commitDetailsViewFile: {
-      viewDiff: true,
-      viewFileAtThisRevision: true,
-      viewDiffWithWorkingFile: true,
-      openFile: true,
-      resetFileToThisRevision: true,
-      copyFilePath: true
-    }
-  },
-  customEmojiShortcodeMappings: {},
-  dateFormat: "Date & Time",
-  dateCustomFormat: "DD MMM YYYY",
-  defaultColumnVisibility: { date: true, author: true, commit: true },
-  enhancedAccessibility: false,
-  fetchAvatars: false,
-  fileTreeCompactFolders: true,
-  fileViewType: "File Tree",
-  graphColours: ["#0085d9", "#d9008f", "#00d90a", "#d98500", "#a300d9", "#ff0000"],
-  graphStyle: "rounded",
-  initialLoadCommits: 300,
-  issueLinkingRegex: "",
-  issueLinkingUrl: "",
-  keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
-  lastActiveRepo: REPO,
-  loadMoreAutomatically: false,
-  loadMoreCount: 100,
+// Only where the harness deliberately departs from the fixture is spelled out.
+const VIEW_STATE = loadViewStateFixture().makeViewState({
+  graphColours: shippedPalette(),
+  // Commit subjects render as they ship, with Markdown on.
   markdown: true,
-  muteCommitsNotAncestorsOfHead: false,
-  muteMergeCommits: true,
-  onLoadScrollToHead: false,
-  referenceInputSpaceSubstitution: "None",
-  repos: { [REPO]: { columnWidths: null } },
-  showCurrentBranchByDefault: false,
-
-  uncommittedChangesAtHead: false,
-  showSpecificBranches: [],
-  showRemoteBranches: true,
-  showTags: true
-};
+  // A static page has nothing to answer the extra loadCommits a scroll would send.
+  loadMoreAutomatically: false
+});
 
 const SAMPLE_COMMITS = [
   {
@@ -259,7 +211,6 @@ const html = `<!DOCTYPE html>
 </body>
 </html>`;
 
-fs.mkdirSync(OUT, { recursive: true });
 for (const f of ["main.css"]) {
   fs.copyFileSync(path.join(ROOT, "media", f), path.join(OUT, f));
 }

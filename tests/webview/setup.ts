@@ -1,94 +1,12 @@
 import { expect } from "vitest";
 
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import { buildWebviewMarkup } from "@/extension/webviewMarkup";
 import type * as GG from "@/types";
 
-/** The repository path the shared viewState fixture is loaded with. Suites
- *  that talk to "the" repo should reuse it so their messages target the same
- *  repo the fixture registered. */
-export const DEFAULT_REPO = "/workspace/my-repo";
-
-/**
- * The one viewState fixture behind every webview suite. The baseline is a
- * single repo (DEFAULT_REPO) under a realistic, near-shipped configuration;
- * a suite overrides only the fields its scenario actually turns on, so a new
- * GitGraphViewState field lands here once instead of in every test file.
- */
-export function makeViewState(overrides: Partial<GG.GitGraphViewState> = {}): GG.GitGraphViewState {
-  const state = buildViewState(overrides);
-  // The host now resolves which repo the graph boots on and sends it as
-  // `lastActiveRepo` — the webview no longer picks one out of `repos` itself,
-  // because `repos` is persisted state that can name directories that are gone
-  // and only the host can tell. Suites that don't care which repo boots get
-  // the seed the host would send for a workspace whose repos are all present.
-  // A suite that passes `lastActiveRepo` explicitly — including `null`, which
-  // now means "the host found no live repo" — keeps what it asked for.
-  if (!("lastActiveRepo" in overrides)) {
-    state.lastActiveRepo = Object.keys(state.repos)[0] ?? null;
-  }
-  return state;
-}
-
-function buildViewState(overrides: Partial<GG.GitGraphViewState>): GG.GitGraphViewState {
-  return {
-    autoCenterCommitDetailsView: true,
-    commitDetailsViewLocation: "Inline",
-    referenceLabelAlignment: "Normal",
-    combineLocalAndRemoteBranchLabels: true,
-    dialogDeleteBranchForceDelete: false,
-    dialogCherryPickNoCommit: false,
-    dialogAddTagType: "annotated",
-    dialogCreateBranchCheckOut: false,
-    dialogMergeNoFastForward: true,
-    dialogMergeSquash: false,
-    dialogResetMode: "mixed",
-    dialogMemory: {},
-    contextMenuActionsVisibility: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-    customBranchGlobPatterns: [],
-    customEmojiShortcodeMappings: {},
-    dateFormat: "Date & Time",
-    dateCustomFormat: "DD MMM YYYY",
-    defaultColumnVisibility: { date: true, author: true, commit: true },
-    enhancedAccessibility: false,
-    fetchAvatars: false,
-    fileTreeCompactFolders: true,
-    fileViewType: "File Tree",
-    graphColours: ["#0085d9"],
-    graphStyle: "rounded",
-    initialLoadCommits: 300,
-    issueLinkingRegex: "",
-    issueLinkingUrl: "",
-    keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" },
-    lastActiveRepo: null,
-    loadMoreAutomatically: true,
-    loadMoreCount: 100,
-    markdown: false,
-    muteCommitsNotAncestorsOfHead: false,
-    muteMergeCommits: true,
-    onLoadScrollToHead: false,
-    referenceInputSpaceSubstitution: "None",
-    repos: { [DEFAULT_REPO]: { columnWidths: null } },
-    scmMultiRepoSelection: true,
-    signCommits: false,
-    showCurrentBranchByDefault: false,
-    uncommittedChangesAtHead: false,
-    showSpecificBranches: [],
-    showRemoteBranches: true,
-    repoSettingDefaults: {
-      onlyFollowFirstParent: false,
-      includeReflogCommits: false,
-      showStashes: true,
-      showTagOnlyCommits: true,
-      showRemoteHeads: true,
-      showInactiveBranches: false,
-      showMergedBranches: false
-    },
-    showTags: true,
-    ...overrides
-  };
-}
+// The fixture itself lives in its own module so the webview harness can load
+// it without vitest; suites keep importing it from here.
+export { DEFAULT_REPO, makeViewState } from "./viewStateFixture";
 
 /** The viewport height every suite starts with — jsdom's own default, restated
  *  so the threshold below is worked out from declared numbers rather than from
@@ -125,8 +43,8 @@ export function parkViewportAt(offset: number) {
  * jsdom performs no layout, so `document.body.offsetHeight` is 0 and `scrollY`
  * never moves unless told to. The webview's near-the-bottom test —
  * `innerHeight + scrollY >= offsetHeight - 250` — therefore degenerates to
- * `768 >= -250`: true wherever the viewport is. Multiply that by the fixture
- * above, which carries `loadMoreAutomatically: true` because it tracks the
+ * `768 >= -250`: true wherever the viewport is. Multiply that by the viewState
+ * fixture, which carries `loadMoreAutomatically: true` because it tracks the
  * shipped configuration on purpose, and any scroll event in any suite smuggles
  * in a `loadCommits` that reads like the code under test asking twice.
  *
@@ -255,39 +173,85 @@ export function receive(msg: GG.ResponseMessage, opts: { keepToken?: boolean } =
   window.dispatchEvent(new MessageEvent("message", { data }));
 }
 
-/** Activate a context-menu item by its label.
+// The DOM helpers below were each held as local copies by several suites, some
+// down to the doc comment, and some under other names. They are here for the
+// reason `makeViewState` is: a guard that is wrong in one copy is wrong in all
+// of them.
+//
+// Clicking comes under two names because suites click two different things: an
+// element they already hold, and a control they know only by its id. Suites had
+// each kept a `click` of their own, under incompatible signatures, so the same
+// name meant different things depending on which file was open.
+
+/** Click an element the suite already holds. */
+export function clickElem(elem: Element) {
+  elem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+}
+
+/** Click the control with this id, failing on the id when there is none. */
+export function clickId(id: string) {
+  const elem = document.getElementById(id);
+  expect(elem, id).not.toBeNull();
+  clickElem(elem!);
+}
+
+/** Right-click an element the suite already holds. */
+export function rightClick(elem: Element) {
+  elem.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+}
+
+/** Raise the context menu of whatever `selector` names, failing on the selector
+ *  when nothing matches. */
+export function openMenuOn(selector: string) {
+  const elem = document.querySelector<HTMLElement>(selector);
+  expect(elem, selector).not.toBeNull();
+  rightClick(elem!);
+}
+
+/** A commit row of the graph's, addressed through the table so the selector says
+ *  which surface it wants: a dialog's commit list renders `tr.commit[data-hash]`
+ *  too. */
+export function graphRow(hash: string) {
+  const elem = document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`);
+  expect(elem, hash).not.toBeNull();
+  return elem!;
+}
+
+/** A commit row of the open dialog's commit list — the other surface `graphRow`
+ *  keeps out. */
+export function dialogRow(hash: string) {
+  const elem = document.querySelector<HTMLElement>(
+    `#dialog .commitList tr.commit[data-hash="${hash}"]`
+  );
+  expect(elem, hash).not.toBeNull();
+  return elem!;
+}
+
+/** Activate a context-menu item by its label, matched against the whole row.
  *
- *  `toBeDefined`, not `not.toBeNull`: `find` yields `undefined` when nothing
- *  matches, and a null check waves that straight through — leaving the miss to
- *  surface a line later on `dispatchEvent`, as a TypeError naming neither the
- *  label nor the fact that the menu simply did not carry it (issue #131). A
- *  fixture that has drifted then reads like a listener that stopped working.
- *
- *  It is here for the reason `makeViewState` is: five suites held byte-identical
- *  copies, so one wrong assertion was wrong in five places and had to be
- *  corrected in five.
- *
- *  Six local copies remain, and this is not the finished inventory — issue #154
- *  is where the whole set gets settled, including whether the guard should throw
- *  rather than assert. Three of them are byte-identical to this one
- *  (`dialogSurvivesBackgroundReload`, `loadMoreOnScroll`,
- *  `stashSelectorBoundAtConsent`); nothing distinguishes them, and they are out
- *  of this change only because #131 named a different six files. The other three
- *  (`cdvFileListenerScope`, `graphCommitListenerScope`,
- *  `graphCommitListenerScopeDocked`) end differently, handing the element to a
- *  local `click(elem)` rather than dispatching here, so folding them in means
- *  first deciding whether that indirection survives. `droppedLoadRequests` is a
- *  fourth shape rather than a copy: `chooseCommitOrder` opens the menu itself and
- *  matches on `.contextMenuItemLabel` instead of the whole row, and its assertion
- *  was already right before #131 was filed.
+ *  A miss throws, naming the label and every item the menu does carry. `find`
+ *  yields `undefined` when nothing matches; left unguarded, that surfaces a line
+ *  later on `dispatchEvent` as a TypeError naming neither the label nor the fact
+ *  that the menu simply did not carry it (issue #131), and a fixture that has
+ *  drifted reads like a listener that stopped working. What the menu offered
+ *  instead is the next thing anyone reading the failure needs, and without it
+ *  finding out costs a second run (#154). A throw carries that as written;
+ *  `expect(item, …).toBeDefined()` would trail it with "expected undefined to be
+ *  defined", which says nothing the message has not. `contextMenuGutter` and
+ *  `dialogRememberCheckbox` had already settled on the same message.
  *
  *  No suite reaches the guard: every label they pass is one their menu really
  *  carries. `missingMenuItem` is what exercises the miss, and without it a green
- *  run cannot tell an assertion that fires from one that only looks like it. */
+ *  run cannot tell a guard that fires from one that only looks like it. */
 export function clickItem(label: string) {
-  const item = Array.from(
+  const entries = Array.from(
     document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  ).map((li) => ({ li, text: (li.textContent ?? "").trim() }));
+  const item = entries.find((entry) => entry.text === label);
+  if (item === undefined) {
+    throw new Error(
+      `menu item "${label}" not found; items: ${entries.map((entry) => entry.text).join(" | ")}`
+    );
+  }
+  clickElem(item.li);
 }

@@ -4,6 +4,7 @@ import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
 import {
+  clickId,
   createVscodeMock,
   makeViewState,
   NEAR_BOTTOM,
@@ -163,12 +164,6 @@ function savedMaxCommits() {
   return mock.getState()!.maxCommits;
 }
 
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 function latestBranchSearchToken() {
   const requests = sentOf("branchSearch");
   expect(requests.length, "a branch index request").toBeGreaterThan(0);
@@ -209,7 +204,7 @@ function raiseFindLoadConfirmation(back = false) {
     status: null,
     branches: [deepBranch]
   });
-  if (back) click("findPrev");
+  if (back) clickId("findPrev");
   else input.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter" }));
   receive({
     command: "branchSearch",
@@ -263,7 +258,7 @@ describe("the size a confirmed Find load asks for", () => {
     await import("@/webview/main");
     receive(branchesResponse);
     receive(commitsResponse());
-    click("findBtn");
+    clickId("findBtn");
   });
 
   // Both doors in one scenario, because they are two ways to the same place and
@@ -292,7 +287,7 @@ describe("the size a confirmed Find load asks for", () => {
       }
       windowBeforeYes = savedMaxCommits();
       mock.clearMessages();
-      click("dialogAction");
+      clickId("dialogAction");
     });
 
     it("no longer widens on the wheel, the dialog being up", () => {
@@ -340,7 +335,7 @@ describe("the size a confirmed Find load asks for", () => {
 
       mock.clearMessages();
       centred.length = 0;
-      click("dialogAction");
+      clickId("dialogAction");
       detailsOpenAfter = document.getElementById("commitDetails") !== null;
     });
 
@@ -390,7 +385,7 @@ describe("the size a confirmed Find load asks for", () => {
       raiseFindLoadConfirmation(true);
       expect(loadMorePressLoadsAPage([tip, base, ancUp, ancient, ancDn])).toBe(true);
       centred.length = 0;
-      click("dialogAction");
+      clickId("dialogAction");
       stepped = centred.filter((hash): hash is string => hash !== undefined);
 
       // Now the target is rewritten away and its branch deleted with it, so
