@@ -7185,10 +7185,12 @@ class GitGraphView {
    *
    *  #141 has landed, and the third leg held: its Tab and Enter handling went
    *  *inside* that early return rather than in front of it, and its Tab stops
-   *  are `tabIndex >= 0` only, so these `-1` rows are still never stepped onto.
+   *  are `tabIndex >= 0` only, so the rows — all at `-1` then — were never
+   *  stepped onto.
    *
    *  #145 has landed too, and the third leg held again, though the rows are now
-   *  reachable — one of them holds its list's tab stop. Its keys went inside
+   *  reachable — one of them holds its list's tab stop, at `0`, so Tab does
+   *  step onto that one. Its keys went inside
    *  the same early return (`dialogListKeydown`), and read neither constant:
    *  Enter and Space on a file are taken there and do nothing, and the menu
    *  key is never dispatched while a dialog stands.
@@ -9206,6 +9208,9 @@ function showFormDialog(
       l10n.dialogRememberChoice +
       "</label></span></td></tr></table>";
   }
+  // A form lays its buttons out the native way, primary outermost: Cancel
+  // first, in the markup as well as on screen.
+  const dismissFirst = true;
   showDialog(
     html,
     actionName,
@@ -9232,9 +9237,7 @@ function showFormDialog(
     },
     sourceElem,
     undefined,
-    // A form lays its buttons out the native way, primary outermost: Cancel
-    // first, in the markup as well as on screen.
-    true
+    dismissFirst
   );
   // A form starts on its first input (#141), not on the dialog it sits in.
   document.getElementById("dialogInput0")?.focus();

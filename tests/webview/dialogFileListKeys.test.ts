@@ -202,6 +202,12 @@ const cdvTabStops = () =>
     .map(rowName);
 let cdvTabStopsBefore: string[] = [];
 
+/** The file list of `eee555`, the commit the fixtures expand to no files. */
+const emptyList = () =>
+  document.querySelector<HTMLElement>(
+    '#dialog tr.commitListDetails[data-hash="eee555"] .commitDetailsFiles'
+  );
+
 describe("the branch-redundancy dialog's lists, from the keyboard", () => {
   beforeAll(async () => {
     vi.resetModules();
@@ -406,6 +412,58 @@ describe("the branch-redundancy dialog's lists, from the keyboard", () => {
 
     it("leaves the Commit Details View's tab stop where it was throughout (#113)", () => {
       expect(cdvTabStops()).toEqual(cdvTabStopsBefore);
+    });
+  });
+
+  // A commit that changes no files — an empty merge, a `--allow-empty` commit —
+  // expands to a file list with no rows at all: a group with nothing to give a
+  // tab stop to, and nothing for the keys to step between.
+  describe("an expanded commit with no files", () => {
+    beforeAll(() => {
+      dialogCommitRow("eee555").focus();
+      press("Enter");
+      receive({
+        command: "redundancyCommitDetails",
+        commitHash: "eee555",
+        commitDetails: { ...dialogDetails, hash: "eee555", body: "Second commit", fileChanges: [] }
+      });
+      mock.clearMessages();
+    });
+
+    it("renders an empty list, and gives it no tab stop", () => {
+      expect(emptyList(), "the details arrived").not.toBeNull();
+      expect(emptyList()!.querySelectorAll(".gitFolder, .gitFile")).toHaveLength(0);
+      expect(emptyList()!.querySelectorAll("[tabindex]")).toHaveLength(0);
+    });
+
+    it("takes the arrow keys and Enter without failing, from its row or from the list", () => {
+      dialogCommitRow("eee555").focus();
+      for (const key of ["ArrowLeft", "ArrowRight", "ArrowDown", "ArrowUp"]) press(key);
+      expect(rowName(document.activeElement)).toBe("eee555");
+      // Nothing in the list can hold focus, so a key can only reach it as a
+      // stray target; it must fall through to the dialog's rules, not throw.
+      for (const key of ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Enter", " "]) {
+        emptyList()!.firstElementChild!.dispatchEvent(
+          new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
+        );
+      }
+      expect(mock.sentOf("reportError")).toEqual([]);
+      expect(dialogShown()).toBe(true);
+    });
+
+    it("leaves Tab cycling inside the dialog, past the empty list", () => {
+      dialogCommitRow("eee555").focus();
+      const visited: Element[] = [];
+      for (let i = 0; i < 12; i++) {
+        const event = press("Tab");
+        expect(event.defaultPrevented).toBe(true);
+        visited.push(document.activeElement!);
+      }
+      for (const elem of visited) expect(dialog().contains(elem), rowName(elem)).toBe(true);
+      expect(visited.some((elem) => emptyList()!.contains(elem))).toBe(false);
+      // Round the whole dialog and back to where it started: it wraps.
+      expect(visited.map(rowName)).toContain("#dialogDismiss");
+      expect(visited).toContain(dialogCommitRow("eee555"));
     });
   });
 });
