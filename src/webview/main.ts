@@ -519,11 +519,6 @@ class GitGraphView {
   // The one batch run in flight (at most): rounds, retry offer and summary all
   // live behind its interface — the adapters below only execute its commands.
   private batchRun = new BatchRun<BatchActionTypes>();
-  /** A summary an ended run could not show, because the dialog slot was taken
-   *  at the moment it ended. Held until there is a screen for it; see
-   *  {@link abandonBatchRun} and {@link deliverOwedBatchSummary}. */
-  private owedSummary: Extract<BatchRunCommand<BatchActionTypes>, { kind: "summarise" }> | null =
-    null;
 
   private graph: Graph;
   private config: Config;
@@ -4698,56 +4693,24 @@ class GitGraphView {
    *  user made outright, the same harm this ticket is about pointed the other
    *  way. But a summary shown into a slot that is about to be overwritten is a
    *  summary nobody reads, which is the silent drop this exists to prevent. So
-   *  it waits: {@link deliverOwedBatchSummary} raises it at the first moment
-   *  the slot is free. Only *why* each ref failed waits — the refresh below
-   *  happens now, because the graph is worth putting right at the moment the
-   *  run ends, and it can show which branches went but never why the rest
-   *  stayed. */
-  public abandonBatchRun() {
-    const command = this.batchRun.abandon();
-    // `none` is the ordinary case, not a defensive one: the offer's markup is
-    // still up while its own summary is raised, so this re-enters once.
-    if (command.kind !== "summarise") return;
-    this.owedSummary = command;
-    this.refresh(false);
-  }
-  /** Raise a summary that had nowhere to go when its run ended.
-   *
-   *  Called from {@link hideDialog} — the one place the dialog slot is emptied
-   *  — and run as a microtask, so that whatever the closing route does *next*
-   *  has already had its turn: a Yes that fires off the next action and raises
-   *  its progress dialog, a dismissal hook that opens a dialog of its own. If
-   *  one of those claimed the slot, the summary stays owed and waits for the
-   *  next close.
-   *
-   *  Only the summary that was owed when the slot emptied, though, and that is
-   *  why it is captured here rather than read when the microtask runs. One
-   *  that this very close runs up — the system taking a retry offer away,
-   *  whose hook abandons the run after the close (#134) — is owed to the slot
-   *  freeing *again*: this close was the removal, and paying it here would put
-   *  a dialog straight back into the slot the removal emptied. Something else
-   *  being owed already does not change that, so the test is identity, not
-   *  presence.
-   *
-   *  It is deliberately not hung off `dialogDismissAction`. The slot frees for
-   *  the user's dismissal, the system's, an answer, and a summary owed is owed
-   *  whichever of those happened. What this waits for is the slot, not anyone's
-   *  dismissal — except that the close which *ran up* the debt does not pay
-   *  it.
+   *  it waits in {@link owedDialogs}, which raises it at the first moment the
+   *  slot is free — behind any summary an earlier abandoned run is still owed
+   *  (#253). Only *why* each ref failed waits — the refresh below happens now,
+   *  because the graph is worth putting right at the moment the run ends, and
+   *  it can show which branches went but never why the rest stayed.
    *
    *  If the panel never frees the slot the summary is never shown, and it does
    *  not survive a reload. That is the accepted floor: the run is already
    *  ended, the graph was already refreshed, and what is lost is the reason
    *  each remaining ref failed — the same thing that was lost unconditionally
    *  before, now only in the case where the user never closes another dialog. */
-  public deliverOwedBatchSummary() {
-    const owed = this.owedSummary;
-    if (owed === null) return;
-    queueMicrotask(() => {
-      if (this.owedSummary !== owed || isDialogOpen()) return;
-      this.owedSummary = null;
-      this.reportBatchResults(owed.results, this.batchSpec(owed.action));
-    });
+  public abandonBatchRun() {
+    const command = this.batchRun.abandon();
+    // `none` is the ordinary case, not a defensive one: the offer's markup is
+    // still up while its own summary is raised, so this re-enters once.
+    if (command.kind !== "summarise") return;
+    oweDialog(() => this.reportBatchResults(command.results, this.batchSpec(command.action)));
+    this.refresh(false);
   }
   private deleteBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     const inputs: DialogInput[] = [
@@ -7533,6 +7496,53 @@ let dialog = document.getElementById("dialog")!,
   dialogDismissAction: ((reason: DismissalReason) => void) | null = null,
   /** Where the standing run of dialogs took focus from; see {@link showDialog}. */
   dialogOpener: DialogOpener | null = null;
+/**
+ * Dialogs owed to the slot: each found it taken when it had something to say,
+ * and waits here to raise itself once the slot is free. Oldest first, one per
+ * free slot — paying one raises a dialog, and the next waits for that one to
+ * close.
+ *
+ * A queue rather than a single slot (#253). Two abandoned batch runs can each
+ * owe a summary before the user has closed anything, and a slot that held one
+ * let the second write over the first, so the first run's failures were never
+ * shown to anyone. Merging them into one summary was the other way out, and
+ * the worse one: two runs may be different actions, each with its own title,
+ * note and dismissal, and a merged dialog has to pick one of each.
+ */
+const owedDialogs: (() => void)[] = [];
+function oweDialog(raise: () => void) {
+  owedDialogs.push(raise);
+}
+/** Pay the oldest dialog owed, now that the slot has emptied.
+ *
+ *  Called from {@link hideDialog} — the one place the slot is emptied — and run
+ *  as a microtask, so that whatever the closing route does *next* has already
+ *  had its turn: a Yes that fires off the next action and raises its progress
+ *  dialog, a dismissal hook that opens a dialog of its own. If one of those
+ *  claimed the slot, the debt stays owed and waits for the next close.
+ *
+ *  Only when nothing was owed *by this close*, though, and that is why the
+ *  queue is read here rather than when the microtask runs. A close that runs
+ *  up a debt — the system taking a retry offer away, whose hook abandons the
+ *  run after the close (#134) — was a removal, not the slot freeing: paying
+ *  anything at it, its own debt or an older one, would put a dialog straight
+ *  back into the slot the removal emptied. Every debt then waits for the slot
+ *  to free again.
+ *
+ *  It is deliberately not hung off `dialogDismissAction`. The slot frees for
+ *  the user's dismissal, the system's, an answer, and a debt is owed whichever
+ *  of those happened. What this waits for is the slot, not anyone's dismissal
+ *  — except that the close which *ran up* a debt pays none. */
+function payOwedDialog() {
+  const due = owedDialogs[0];
+  if (due === undefined) return;
+  const owedAtClose = owedDialogs.length;
+  queueMicrotask(() => {
+    if (owedDialogs.length !== owedAtClose || owedDialogs[0] !== due || isDialogOpen()) return;
+    owedDialogs.shift();
+    due();
+  });
+}
 /** Marks what arrives in `<body>` while a dialog stands — a docked Commit
  *  Details View rebuilt by a background reload — inert like the rest. */
 const lateBackgroundObserver = new MutationObserver((records) => {
@@ -9721,10 +9731,10 @@ function hideDialog() {
     returnDialogFocus(dialogOpener);
     dialogOpener = null;
   }
-  // The slot is empty; a batch summary owed one is now due — once the closing
-  // route has finished, and only the summary owed as of now (see
-  // `deliverOwedBatchSummary`, which defers and checks both).
-  gitGraph.deliverOwedBatchSummary();
+  // The slot is empty; a dialog owed one is now due — once the closing route
+  // has finished, and only one owed as of now (see `payOwedDialog`, which
+  // defers and checks both).
+  payOwedDialog();
 }
 /** Close the dialog without an answer, running whatever it declared for that
  *  and telling it who closed it. The hook is read before the close so that a
