@@ -293,4 +293,33 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
       expect(tabStopsOnReopen).toEqual(["src/x.ts"]);
     });
   });
+
+  // Both openings above go through `clearExpandedCommit`, which forgets the
+  // file outright. A CTRL-click comparison does not: it re-points the open
+  // view at a comparison and leaves the panel standing until the answer comes,
+  // so the remembered file is still there when the comparison is drawn. Only
+  // the view identity it was remembered under tells the two apart.
+  describe("when a CTRL-click turns the open commit into a comparison", () => {
+    let tabStopsOnComparison: string[] = [];
+
+    beforeAll(() => {
+      fileRow("CHANGELOG.md").focus();
+      row("bbb222").focus();
+      expect(fileTabStopPaths()).toEqual(["CHANGELOG.md"]);
+
+      row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+      receive({
+        command: "compareCommits",
+        fromHash: "bbb222",
+        toHash: "aaa111",
+        fileChanges: ["src/y.ts", "CHANGELOG.md"].map(change)
+      });
+      expect(fileRows().map((f) => filePathOf(f))).toEqual(["src/y.ts", "CHANGELOG.md"]);
+      tabStopsOnComparison = fileTabStopPaths();
+    });
+
+    it("starts the comparison's tab stop on its first file", () => {
+      expect(tabStopsOnComparison).toEqual(["src/y.ts"]);
+    });
+  });
 });
