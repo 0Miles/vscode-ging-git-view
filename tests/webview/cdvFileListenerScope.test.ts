@@ -162,10 +162,11 @@ function rightClick(elem: Element) {
 /** The keyboard's way of raising a context menu, mirroring `main.ts`'s private
  *  `MENU_KEY_EVENT`. Dispatched directly rather than via Shift+F10, because the
  *  document keydown handler that would normally synthesise it returns early
- *  while a dialog stands — so today no key reaches a dialog row at all (#141,
- *  #145). What is asserted here is the *binding*, which is what
- *  `addCdvContextMenuListener` wires and what would outlive either of those
- *  tickets landing. */
+ *  while a dialog stands, before the branch that reads Shift+F10. Since #145
+ *  the arrows and Enter reach a dialog row, through the dialog's own branch,
+ *  but the menu key still does not. What is asserted here is the *binding*,
+ *  which is what `addCdvContextMenuListener` wires and what would outlive the
+ *  menu key ever being routed there. */
 const MENU_KEY_EVENT = "ging.contextMenuKey";
 
 function row(hash: string) {
@@ -340,6 +341,8 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
         "closed"
       );
       panelFolderOpenInSavedTree = savedPanelFolderOpen("src");
+      // Put it back, so the scenarios after this one start from an open tree.
+      click(folderRow("#dialog", "src"));
     });
 
     it("leaves the panel's own file tree untouched, and sends nothing", () => {
@@ -351,11 +354,13 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
       expect(mock.sentMessages).toEqual([]);
     });
 
-    it("does not fold the dialog's own folder either", () => {
-      // The dialog's rows are not the panel's to drive, and folding them was
-      // never the point of the handler that reached them — it was the half of
-      // its work that happened to be visible.
-      expect(dialogFolderCollapsed).toBe(false);
+    it("folds the dialog's own folder, by the dialog's own handler", () => {
+      // The panel's handler never was the one to do this — folding the
+      // dialog's folder was the half of its work that happened to be visible.
+      // Since #145 the dialog binds a fold of its own on its own rows, which
+      // touches nothing but the dialog's markup: the saved tree above is the
+      // proof that the panel's handler still stays out.
+      expect(dialogFolderCollapsed).toBe(true);
     });
   });
 
@@ -550,8 +555,8 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
       // handler did, so this click used to throw `Cannot read properties of null
       // (reading 'fileTree')`, be caught by the global reporter (ADR-0016) and
       // arrive at the host once per redraw the dialog had lived through. The
-      // guard is not what removes it: with nothing bound there is nothing to
-      // throw.
+      // guard is not what removes it: with nothing of the panel's bound there is
+      // nothing to throw, and the dialog's own fold (#145) reads no panel state.
       expect(sent.filter((m) => m.command === "reportError")).toEqual([]);
     });
 
@@ -560,7 +565,10 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
       // throw — it asked the host to open a path at a revision that does not
       // exist. The quietest member of the family and the same defect.
       expect(sent).toEqual([]);
-      expect(dialogFolderCollapsed).toBe(false);
+    });
+
+    it("still folds the dialog's folder, which never depended on the panel", () => {
+      expect(dialogFolderCollapsed).toBe(true);
     });
   });
 });

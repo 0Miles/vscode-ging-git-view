@@ -46,7 +46,11 @@ import {
   generateGitFileListHtml,
   generateGitFileTree,
   generateGitFileTreeHtml,
-  serializeGitFileTree
+  isGitFolderOpen,
+  parentGitFolderRow,
+  serializeGitFileTree,
+  setGitFolderOpen,
+  visibleGitFileTreeRows
 } from "./utils/fileTree";
 import {
   arraysEqual,
@@ -2252,8 +2256,8 @@ class GitGraphView {
   /** Wire a context-menu handler within `root` to both ways of raising one — the
    *  scoped counterpart of `addContextMenuListener`. Both, not just the
    *  pointer's: the keyboard's `MENU_KEY_EVENT` is dispatched at whatever holds
-   *  focus, and focus reaches the branch-redundancy dialog's rows the moment
-   *  anything gives them a tab stop (#141, #145). */
+   *  focus, and focus reaches the branch-redundancy dialog's rows, which have
+   *  had tab stops of their own since #145. */
   private addScopedContextMenuListener(
     root: HTMLElement,
     className: string,
@@ -6407,13 +6411,12 @@ class GitGraphView {
    *  at all. Re-run whenever the visible set changes — a fresh render leaves
    *  every row at `-1`, and collapsing a folder can bury the row that held it.
    *
-   *  Only *this* list gets one. The branch-redundancy dialog's copy of a commit's
-   *  files is left with no tab stop of its own and so is unreachable by keyboard
-   *  — not a conclusion anyone reached, but a question that was asked and moved:
-   *  #128 was told to decide whether that list should be its own roving group and
-   *  the maintainer deferred it to **#145**, so that its own defect (the file
-   *  actions crossing between the two lists) could be fixed without a keyboard
-   *  design riding along. Read this as pending, not as settled. */
+   *  Only *this* list's, through this method. The branch-redundancy dialog's
+   *  copy of a commit's files is a roving group of its own (#145), with a tab
+   *  stop of its own that `bindDialogFileList` gives it — a question #128 was
+   *  asked and the maintainer deferred to #145, so that #128's own defect (the
+   *  file actions crossing between the two lists) could be fixed without a
+   *  keyboard design riding along. */
   private restoreCdvFileTabStop() {
     const held = this.cdvFileTabStop.current;
     if (held !== null && held.closest(".hidden") === null) return;
@@ -6437,14 +6440,14 @@ class GitGraphView {
    *  unhidden and returns early — and once the dialog closes and takes its rows
    *  with it, nothing calls that method until the panel is next rebuilt. So the
    *  list stays unreachable until some *other* thing redraws it: a refresh, a
-   *  page of commits, a layout toggle. The dialog's rows belong to no roving
-   *  group, so there is no tab stop of theirs to keep and none to hand them:
-   *  leaving the panel's where it was is the whole of the fix. It claimed
-   *  nothing about how those rows behave otherwise, and at the time they were
-   *  not inert at all; the binding path has since been scoped the same way this
-   *  one is (#128), so {@link commitFilesHtml} can now say they do nothing — on
-   *  three conditions it lists there, the third of which is not about the rows
-   *  and would be re-opened by #145 or #141.
+   *  page of commits, a layout toggle. Leaving the panel's where it was is the
+   *  whole of the fix here; the dialog's rows keep a tab stop of their own, in a
+   *  group of their own (#145), which `syncDialogTabStop` points the same way
+   *  this points the panel's. It claimed nothing about how those rows behave
+   *  otherwise, and at the time they were not inert at all; the binding path
+   *  has since been scoped the same way this one is (#128), so
+   *  {@link commitFilesHtml} can now say what they do — on three conditions it
+   *  lists there.
    *
    *  The `.gitFile` match survives in front of the scope check as a cheap way
    *  in, not as a second scoping rule: `cdvFileRows` is the only thing that says
@@ -6952,14 +6955,9 @@ class GitGraphView {
   private attachCdvFileListeners() {
     this.restoreCdvFileTabStop();
     this.addCdvListenerToClass("gitFolder", "click", (e) => {
-      let sourceElem = <HTMLElement>(<Element>e.target!).closest(".gitFolder");
-      let parent = sourceElem.parentElement!;
-      parent.classList.toggle("closed");
-      let isOpen = !parent.classList.contains("closed");
-      parent.children[0].children[0].innerHTML = isOpen
-        ? svgIcons.openFolder
-        : svgIcons.closedFolder;
-      parent.children[1].classList.toggle("hidden");
+      const sourceElem = <HTMLElement>(<Element>e.target!).closest(".gitFolder");
+      const isOpen = !isGitFolderOpen(sourceElem);
+      setGitFolderOpen(sourceElem, isOpen);
       // Both `!`s rest on the scope, not on luck: this handler only exists on
       // rows inside {@link cdvPanel}, and `clearExpandedCommit` removes that
       // panel and nulls `expandedCommit` in the same breath. Unscoped, the
@@ -7166,7 +7164,9 @@ class GitGraphView {
    *  layout the repo is set to. Shared with the branch-redundancy dialog so a
    *  commit's files read the same wherever they are shown.
    *
-   *  **The dialog's copy is inert, and it rests on three legs, not one.** First,
+   *  **The dialog's file rows are inert, and that rests on three legs, not
+   *  one.** (Its folders fold, by listeners the dialog binds on its own rows —
+   *  `bindDialogFileList`, #145 — which read nothing of the panel's.) First,
    *  nothing here binds a listener — the generator emits markup only. Second,
    *  the panel's own binding stays out: {@link attachCdvFileListeners} goes
    *  through {@link addCdvListenerToClass}, scoped to {@link cdvPanel}. Third —
@@ -7186,7 +7186,12 @@ class GitGraphView {
    *  #141 has landed, and the third leg held: its Tab and Enter handling went
    *  *inside* that early return rather than in front of it, and its Tab stops
    *  are `tabIndex >= 0` only, so these `-1` rows are still never stepped onto.
-   *  #145 is the one left to check.
+   *
+   *  #145 has landed too, and the third leg held again, though the rows are now
+   *  reachable — one of them holds its list's tab stop. Its keys went inside
+   *  the same early return (`dialogListKeydown`), and read neither constant:
+   *  Enter and Space on a file are taken there and do nothing, and the menu
+   *  key is never dispatched while a dialog stands.
    *
    *  This comment claimed inertness for years on a different ground that was never
    *  true — that the row actions are bound to the graph's expanded row — while
@@ -7381,6 +7386,16 @@ let redundancyCheckSeq = 0;
 let redundancyDialogOwner = 0;
 /** The repo the open dialog is reporting on, for its lazy detail requests. */
 let redundancyRepo: string | null = null;
+/** The dialog's commit rows are one roving group (#145): one tab stop, Up/Down
+ *  between them, Enter or Space to expand. Each dialog brings fresh rows, so a
+ *  holder left over from the last one is simply disconnected. */
+const redundancyRowTabStop = new RovingTabStop();
+
+/** The open dialog's commit rows, in order. Within `#dialog` by selector, never
+ *  a bare `tr.commit`: the graph's rows carry the same class (#144). */
+function redundancyCommitRows(): HTMLElement[] {
+  return Array.from(dialog.querySelectorAll<HTMLElement>(".commitList tr.commit"));
+}
 
 /** Ask whether `branch` still has anything to contribute to the default branch.
  *  Deliberately reports and forgets: the answer is a snapshot, and folding it
@@ -7414,9 +7429,9 @@ function showBranchRedundancy(branch: string, result: BranchRedundancy, token: n
     null,
     null
   );
-  document.querySelectorAll("#dialog .commitList tr.commit").forEach((row) => {
-    row.addEventListener("click", () => toggleRedundancyCommit(<HTMLElement>row));
-  });
+  const rows = redundancyCommitRows();
+  for (const row of rows) row.addEventListener("click", () => toggleRedundancyCommit(row));
+  if (rows.length > 0) redundancyRowTabStop.set(rows[0]);
 }
 
 /* The rebase dialogs' replay checklist (#172) */
@@ -7890,11 +7905,11 @@ function renderBranchCleanup() {
   ];
   const scanButton =
     state.payload.scannable > 0
-      ? '<div id="cleanupDeepCheck" class="roundedBtn" title="' +
+      ? '<button type="button" id="cleanupDeepCheck" class="roundedBtn" title="' +
         escapeHtml(l10n.cleanupDeepCheckHint) +
         '">' +
         escapeHtml(fillTemplate(l10n.cleanupDeepCheck, String(state.payload.scannable))) +
-        "</div>"
+        "</button>"
       : "";
   const body =
     '<div class="cleanupResult"><span class="cleanupSummary">' +
@@ -7904,11 +7919,13 @@ function renderBranchCleanup() {
     "</div>" +
     cleanupList(state) +
     cleanupBasis(state) +
+    // Real `<button>`s, as the dialog's own are (#141): Tab stops, pressed by
+    // Enter or Space, and so never the dialog's "confirm".
     '<div class="cleanupTools">' +
     scanButton +
-    '<div id="cleanupRefetch" class="roundedBtn">' +
+    '<button type="button" id="cleanupRefetch" class="roundedBtn">' +
     escapeHtml(l10n.cleanupRefetch) +
-    "</div></div></div>";
+    "</button></div></div>";
 
   // The dialog is the confirmation: there is no second one behind it. The row
   // ticks, the two delete options and the batch run all hang off this one
@@ -8152,7 +8169,7 @@ function redundancyCommitRow(commit: RedundancyCommit): string {
   const date = getCommitDate(commit.date);
   const avatar = gitGraph.avatarHtml(commit.email);
   return (
-    '<tr class="commit" data-hash="' +
+    '<tr class="commit" tabindex="-1" data-hash="' +
     commit.hash +
     '"><td>' +
     escapeHtml(replaceEmojiShortcodes(commit.subject, viewState.customEmojiShortcodeMappings)) +
@@ -8225,6 +8242,152 @@ function showRedundancyCommitDetails(commitHash: string, details: GitCommitDetai
         '</div><div class="commitDetailsFiles">' +
         gitGraph.commitFilesHtml(details.fileChanges) +
         "</div></div>";
+  const fileList = cell.querySelector<HTMLElement>(".commitDetailsFiles");
+  if (fileList !== null) bindDialogFileList(fileList);
+}
+
+/** The keys a roving group inside the dialog owns (#145), handled — and their
+ *  default cancelled — when `e` is one. False leaves the key to the dialog's
+ *  own rules, which is how a modified key, or any key on anything else in the
+ *  dialog, still reaches them. */
+function dialogListKeydown(e: KeyboardEvent): boolean {
+  const target = e.target;
+  if (!(target instanceof HTMLElement) || !dialog.contains(target)) return false;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
+  const fileList = dialogFileListOf(target);
+  const handled = target.matches(".commitList tr.commit")
+    ? redundancyRowKeydown(target, e.key)
+    : fileList !== null
+      ? dialogFileRowKeydown(fileList, target, e.key)
+      : false;
+  if (handled) e.preventDefault();
+  return handled;
+}
+
+/** A commit row of the redundancy dialog: Up/Down step between the rows, and
+ *  Enter or Space expand or collapse one, the way a click does. */
+function redundancyRowKeydown(row: HTMLElement, key: string): boolean {
+  if (key === "ArrowUp" || key === "ArrowDown") {
+    const rows = redundancyCommitRows();
+    const to = stepWithinGroup(rows.length, rows.indexOf(row), key === "ArrowUp" ? -1 : 1);
+    redundancyRowTabStop.focus(rows[to]);
+    return true;
+  }
+  if (key === "Enter" || key === " ") {
+    toggleRedundancyCommit(row);
+    return true;
+  }
+  return false;
+}
+
+/** The dialog's half of the document's `focusin`: whichever of its groups focus
+ *  lands in, however it got there, points its tab stop at it. */
+function syncDialogTabStop(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement) || !dialog.contains(target)) return;
+  if (target.matches(".commitList tr.commit")) {
+    redundancyRowTabStop.set(target);
+    return;
+  }
+  const fileList = dialogFileListOf(target);
+  if (fileList !== null) dialogFileTabStop(fileList).set(target);
+}
+
+/* An expanded commit's file list in the redundancy dialog (#145). Each one is
+   its own roving group, on the WAI-ARIA APG's tree view pattern: one tab stop,
+   Up/Down between the rows that are showing, and — in the tree layout — Left
+   and Right folding, unfolding and climbing folders. The flat File List has no
+   folders, so only Up/Down mean anything there.
+
+   A file row does nothing, by keyboard or pointer: the Commit Details View's
+   file actions stay bound inside that panel (#128), and nothing here binds any
+   of its own. Folders are the dialog's to fold, through listeners bound on its
+   own rows. The panel's tab stop is `cdvFileTabStop` and is never touched here
+   (#113): `syncTabStop` asks `cdvFileRows`, which these rows are not among. */
+
+/** One tab stop per file list, keyed by the list's `.commitDetailsFiles`. */
+const dialogFileTabStops = new WeakMap<HTMLElement, RovingTabStop>();
+
+function dialogFileTabStop(fileList: HTMLElement): RovingTabStop {
+  let stop = dialogFileTabStops.get(fileList);
+  if (stop === undefined) {
+    stop = new RovingTabStop();
+    dialogFileTabStops.set(fileList, stop);
+  }
+  return stop;
+}
+
+/** The dialog file list `row` is a row of, or null when it is not one. */
+function dialogFileListOf(row: HTMLElement): HTMLElement | null {
+  if (!row.matches(".gitFolder, .gitFile")) return null;
+  const fileList = row.closest<HTMLElement>(".commitDetailsFiles");
+  return fileList !== null && dialog.contains(fileList) ? fileList : null;
+}
+
+/** Make a freshly rendered file list a group: folders focusable as files
+ *  already are, folders folding on a click, and the tab stop on the first row. */
+function bindDialogFileList(fileList: HTMLElement) {
+  fileList.querySelectorAll<HTMLElement>(".gitFolder").forEach((folder) => {
+    folder.tabIndex = -1;
+    folder.addEventListener("click", () =>
+      setDialogFolderOpen(fileList, folder, !isGitFolderOpen(folder))
+    );
+  });
+  const first = visibleGitFileTreeRows(fileList)[0];
+  if (first !== undefined) dialogFileTabStop(fileList).set(first);
+}
+
+/** Fold or unfold one of the list's folders. A fold can bury the row holding
+ *  the tab stop, and Tab would then have nowhere to come back to: the folder
+ *  takes it instead. */
+function setDialogFolderOpen(fileList: HTMLElement, folder: HTMLElement, open: boolean) {
+  setGitFolderOpen(folder, open);
+  const stop = dialogFileTabStop(fileList);
+  const held = stop.current;
+  if (held === null || held.closest(".hidden") !== null) stop.set(folder);
+}
+
+/** A row of a dialog file list. Enter and Space fold a folder and do nothing on
+ *  a file, but are taken either way: they are not the dialog's "confirm". */
+function dialogFileRowKeydown(fileList: HTMLElement, row: HTMLElement, key: string): boolean {
+  const stop = dialogFileTabStop(fileList);
+  const isFolder = row.matches(".gitFolder");
+  switch (key) {
+    case "ArrowUp":
+    case "ArrowDown": {
+      const rows = visibleGitFileTreeRows(fileList);
+      stop.focus(rows[stepWithinGroup(rows.length, rows.indexOf(row), key === "ArrowUp" ? -1 : 1)]);
+      return true;
+    }
+    case "ArrowRight": {
+      if (!isFolder) return false;
+      if (!isGitFolderOpen(row)) {
+        setDialogFolderOpen(fileList, row, true);
+      } else {
+        // An open folder's first child is the row after it: a folder exists
+        // only because something is in it.
+        const rows = visibleGitFileTreeRows(fileList);
+        const child = rows[rows.indexOf(row) + 1];
+        if (child !== undefined) stop.focus(child);
+      }
+      return true;
+    }
+    case "ArrowLeft": {
+      if (isFolder && isGitFolderOpen(row)) {
+        setDialogFolderOpen(fileList, row, false);
+        return true;
+      }
+      const parent = parentGitFolderRow(row);
+      if (parent === null) return false;
+      stop.focus(parent);
+      return true;
+    }
+    case "Enter":
+    case " ":
+      if (isFolder) setDialogFolderOpen(fileList, row, !isGitFolderOpen(row));
+      return true;
+    default:
+      return false;
+  }
 }
 
 /* Command Processing */
@@ -9063,7 +9226,11 @@ function showFormDialog(
       hideDialog();
       actioned(values);
     },
-    sourceElem
+    sourceElem,
+    undefined,
+    // A form lays its buttons out the native way, primary outermost: Cancel
+    // first, in the markup as well as on screen.
+    true
   );
   // A form starts on its first input (#141), not on the dialog it sits in.
   document.getElementById("dialogInput0")?.focus();
@@ -9216,7 +9383,8 @@ function showDialog(
   dismissName: string | null,
   actioned: (() => void) | null,
   sourceElem: HTMLElement | null,
-  onDismiss?: (reason: DismissalReason) => void
+  onDismiss?: (reason: DismissalReason) => void,
+  dismissFirst: boolean = false
 ) {
   // Writing over the batch retry offer takes away a question with neither
   // answer given, and the run behind it has no other way to hear about that
@@ -9242,13 +9410,16 @@ function showDialog(
   dialog.className = "active";
   // The page holds still behind it (#230); main.css says how.
   document.documentElement.classList.add("dialogOpen");
-  const buttons =
-    (actionName !== null
+  const action =
+    actionName !== null
       ? '<button type="button" id="dialogAction" class="roundedBtn">' + actionName + "</button>"
-      : "") +
-    (dismissName !== null
+      : "";
+  const dismiss =
+    dismissName !== null
       ? '<button type="button" id="dialogDismiss" class="roundedBtn">' + dismissName + "</button>"
-      : "");
+      : "";
+  // In the order they are shown, so that Tab visits them in that order too.
+  const buttons = dismissFirst ? dismiss + action : action + dismiss;
   // No row at all without buttons: an empty one keeps its top margin, and the
   // content would sit that much above the dialog's centre.
   dialog.innerHTML =
@@ -9459,7 +9630,10 @@ function hideReloadOwnedOverlays() {
 /* Global Listeners */
 // However focus arrives — a click, Tab, or the arrow keys — the group it landed
 // in points its tab stop at it, so Tab comes back to where the user left off.
-document.addEventListener("focusin", (e) => gitGraph.syncTabStop(e.target));
+document.addEventListener("focusin", (e) => {
+  gitGraph.syncTabStop(e.target);
+  syncDialogTabStop(e.target);
+});
 document.addEventListener("keyup", (e) => {
   // A dialog without Dismiss offers no way out, and Escape is not one either.
   if (
@@ -9492,6 +9666,9 @@ document.addEventListener("keydown", (e) => {
       cycleDialogFocus(e.shiftKey);
       return;
     }
+    // A list in the dialog is a roving group of its own (#145), and the keys it
+    // owns — Enter on a row among them — are not "confirm".
+    if (dialogListKeydown(e)) return;
     // Enter submits the dialog's primary (left) action, but not while an IME
     // composition is in progress (e.g. the Enter that confirms a CJK candidate
     // on macOS reports isComposing on keydown). The action's own click handler

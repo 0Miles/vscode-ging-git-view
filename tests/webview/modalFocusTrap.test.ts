@@ -170,7 +170,10 @@ describe("a modal dialog and the keyboard", () => {
   describe("Tab", () => {
     it("steps forward through the dialog and wraps from the last control to the first", () => {
       raiseForm();
-      const order = ["dialogInput0", "dialogInput1", "dialogAction", "dialogDismiss"];
+      // A form shows Cancel before its action, primary outermost, and Tab
+      // follows what is shown: the buttons are in that order in the markup
+      // too, rather than reordered by CSS behind Tab's back.
+      const order = ["dialogInput0", "dialogInput1", "dialogDismiss", "dialogAction"];
       for (let i = 1; i <= order.length; i++) {
         const event = press("Tab");
         expect(event.defaultPrevented).toBe(true);
@@ -182,9 +185,15 @@ describe("a modal dialog and the keyboard", () => {
       raiseForm();
       const event = press("Tab", { shiftKey: true });
       expect(event.defaultPrevented).toBe(true);
-      expect(document.activeElement?.id).toBe("dialogDismiss");
-      press("Tab", { shiftKey: true });
       expect(document.activeElement?.id).toBe("dialogAction");
+      press("Tab", { shiftKey: true });
+      expect(document.activeElement?.id).toBe("dialogDismiss");
+    });
+
+    it("keeps Action before Dismiss in a dialog that is not a form, as it shows them", () => {
+      raiseConfirmation();
+      const ids = Array.from(dialog().querySelectorAll(".dialogButtons button")).map((b) => b.id);
+      expect(ids).toEqual(["dialogAction", "dialogDismiss"]);
     });
 
     it("enters at either end from the dialog itself", () => {
