@@ -65,17 +65,17 @@ class BranchItem extends vscode.TreeItem {
       this.contextValue = "branch-group";
     } else if (node.type === "folder") {
       // Within a folder generation the id is stable, keeping expansion across
-      // refreshes (and across the "Show All" selection reset, which only
+      // refreshes (and across a direct write's selection reset, which only
       // re-keys leaves). The Collapse button bumps the generation: every folder
       // re-renders under a fresh id, falling back to Collapsed.
       this.id = repo + "::folder::" + folderGen + "::" + node.path;
       this.contextValue = "branch-folder";
       this.iconPath = vscode.ThemeIcon.Folder;
     } else {
-      // The selection generation is part of the leaf id so "Show All" can clear
-      // the visual selection by bumping it: VSCode drops the selection of ids
-      // that no longer exist. Within a generation the id is stable, so a normal
-      // refresh (after a git op) preserves the selection.
+      // The selection generation is part of the leaf id so a direct write can
+      // clear the visual selection by bumping it: VSCode drops the selection of
+      // ids that no longer exist. Within a generation the id is stable, so a
+      // normal refresh (after a git op) preserves the selection.
       this.id = "branch::" + selectionGen + "::" + repo + "::" + node.branch;
       // The kind, plus a `-candidate` suffix when the cleanup dialog would
       // propose this branch — the one thing the menus need per row that no
@@ -470,10 +470,9 @@ export function createBranchesView(deps: BranchesProviderDeps) {
   // Which selection events write the filter — and which are TreeView artefacts
   // (the empty selection a repo-switch rebuild emits, the one a direct write's
   // re-keying emits, whether the multi-pick search or "Show All" made it) that
-  // must not clobber it — is the reconciler's call,
-  // unit-tested in isolation. This handler only pipes events in and interprets
-  // the decisions; the one piece of machinery it owns is the debounce timer the
-  // decisions ask for.
+  // must not clobber it — is the reconciler's call, unit-tested in isolation.
+  // This handler only pipes events in and interprets the decisions; the one
+  // piece of machinery it owns is the debounce timer the decisions ask for.
   const reconciler = createBranchSelectionReconciler();
   let debounce: ReturnType<typeof setTimeout> | undefined;
   const cancelDebounce = (): void => {
