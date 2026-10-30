@@ -274,11 +274,20 @@ export async function loadCommits(
     }
   }
 
+  const spliced = new Set<string>();
   if (showStashes) {
     // Merge stashes in as commit nodes (first parent = their base commit),
     // positioned by date, and add a "stash" ref so they're labelled on the graph.
     const stashes = await loadStashes(git);
     for (const stash of stashes) {
+      // With reflog commits included, `--reflog` reaches `refs/stash`'s own
+      // reflog, so the stash may already be a `git log` entry. That row keeps
+      // its place and git's parents and only gains the label — a second row
+      // would be counted twice and leave `commitLookup` reaching just one.
+      if (commits.some((c) => c.hash === stash.hash)) {
+        refData.refs.push({ hash: stash.hash, name: stash.selector, type: "stash" });
+        continue;
+      }
       const idx = stashInsertIndex(commits, stash, moreCommitsAvailable);
       // The stash belongs below everything this window holds; it gets its row
       // (and its label with it) once the window reaches that far.
@@ -292,6 +301,7 @@ export async function loadCommits(
         message: stash.message,
         signatureStatus: ""
       });
+      spliced.add(stash.hash);
       refData.refs.push({ hash: stash.hash, name: stash.selector, type: "stash" });
     }
   }
@@ -308,7 +318,8 @@ export async function loadCommits(
       date: commits[i].date,
       message: commits[i].message,
       refs: [],
-      signatureStatus: commits[i].signatureStatus
+      signatureStatus: commits[i].signatureStatus,
+      ...(spliced.has(commits[i].hash) ? { spliced: true as const } : {})
     });
   }
   for (const ref of refData.refs) {

@@ -99,7 +99,11 @@ function assertStashListed(repo: string, hash: string, label: string) {
   }
 }
 
-function load(repo: string, maxCommits: number) {
+function load(
+  repo: string,
+  maxCommits: number,
+  { includeCommitsMentionedByReflogs = false, showStashes = true } = {}
+) {
   return loadCommits(simpleGit(repo), {
     branchNames: [""],
     maxCommits,
@@ -110,9 +114,9 @@ function load(repo: string, maxCommits: number) {
     onlyFollowFirstParent: false,
     showCommitsOnlyReferencedByTags: true,
     showRemoteHeads: true,
-    includeCommitsMentionedByReflogs: false,
+    includeCommitsMentionedByReflogs,
     showSignatureStatus: false,
-    showStashes: true,
+    showStashes,
     useMailmap: false,
     hiddenRemotes: []
   });
@@ -263,5 +267,52 @@ describe("loadCommits stash placement", () => {
       // whose only parent points upward hangs it.
       expect(result.commits[stashIdx + 1].hash).toBe(midBaseHash);
     }
+  });
+
+  it("marks the stash row it splices in, and no `git log` entry", async () => {
+    const result = await load(midStashRepo, 300);
+    for (const commit of result.commits) {
+      expect(commit.spliced).toBe(commit.hash === midStashHash ? true : undefined);
+    }
+  });
+});
+
+// `--reflog` reaches `refs/stash`'s own reflog, so with reflog commits included
+// a stash is already a `git log` entry before the splice runs (#105).
+describe("loadCommits stash placement with reflog commits included", () => {
+  const withReflog = { includeCommitsMentionedByReflogs: true };
+
+  it("lists the stash once, as the `git log` entry it already is", async () => {
+    const withStashes = await load(midStashRepo, 300, withReflog);
+    const withoutStashes = await load(midStashRepo, 300, { ...withReflog, showStashes: false });
+    expect(withStashes.commits.filter((c) => c.hash === midStashHash)).toHaveLength(1);
+    // Nothing spliced, nothing moved: the rows are git's, in git's order.
+    expect(withStashes.commits.map((c) => c.hash)).toEqual(
+      withoutStashes.commits.map((c) => c.hash)
+    );
+    const stashNode = withStashes.commits.find((c) => c.hash === midStashHash)!;
+    expect(stashNode.spliced).toBeUndefined();
+    expect(stashNode.refs).toContainEqual({
+      hash: midStashHash,
+      name: "stash@{0}",
+      type: "stash"
+    });
+    // git's own parents — base and index commit — not the splice's base-only.
+    expect(stashNode.parentHashes).toEqual(rev(midStashRepo, "stash@{0}^@").split(/\r?\n/));
+  });
+
+  it("labels the stash's log row even where a splice would have to wait", async () => {
+    // A window that ends on the stash's own row: nothing loaded is older than
+    // it and its base is out of reach, which is the splice's "wait" case. The
+    // row is git's, though, so it is already there to label. The window is
+    // measured rather than hard-coded, because `--reflog` also brings in what
+    // HEAD's reflog remembers (the root as it was before `redateRoot`).
+    const whole = await load(oldStashRepo, 300, withReflog);
+    const stashRow = whole.commits.findIndex((c) => c.hash === oldStashHash);
+    expect(stashRow).toBeGreaterThan(0);
+    const result = await load(oldStashRepo, stashRow + 1, withReflog);
+    expect(result.moreCommitsAvailable).toBe(true);
+    expect(result.commits.at(-1)!.hash).toBe(oldStashHash);
+    expect(result.commits.at(-1)!.refs.some((r) => r.type === "stash")).toBe(true);
   });
 });

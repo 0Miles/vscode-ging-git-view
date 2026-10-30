@@ -21,6 +21,11 @@ export type GitCommitNode = {
   refs: GitRef[];
   /** git's `%G?` signature status (G/B/U/X/Y/R/E); "" or omitted when not requested. */
   signatureStatus?: string;
+  /** Set on a row `loadCommits` spliced in that is not a `git log` entry — a
+   *  stash placed by date. Absent on every `git log` entry, including a stash
+   *  that `--reflog` already brought in as one: that row wears the stash ref
+   *  but still counts on the `git log` ruler (see `buildFindMatches`, #105). */
+  spliced?: true;
 };
 
 /** A branch head placed in the unbounded commit history for Find navigation. */
@@ -41,9 +46,10 @@ export type BranchSearchEntry = {
    *  "No stash rows spliced in" is about the splice, not about the commits:
    *  with `includeCommitsMentionedByReflogs` on, `--reflog` reaches
    *  `refs/stash`'s own reflog, so a stash's commit can appear in this log as
-   *  an ordinary entry. The conversion then adds a row for the same stash a
-   *  second time. That is a pre-existing hole, not one this index introduces,
-   *  and it is tracked in #105.
+   *  an ordinary entry. `loadCommits` then labels that entry instead of
+   *  splicing a second row, and marks only the rows it does splice
+   *  ({@link GitCommitNode.spliced}), so the conversion counts each stash once
+   *  (#105).
    *
    *  What makes that conversion sound is that this log is scoped and ordered by
    *  the same two helpers as the graph's own (`gitLogScopeArgs` /
