@@ -2083,9 +2083,13 @@ class GitGraphView {
    *  goes on to be reported (ADR-0016) — the same "a load that never ran
    *  brought no changes with it" {@link abandonLoadsInFlight} settles a load
    *  with. Left set, it was the gate shut and the caller's busy claim up for the
-   *  life of the panel (#241). Not through {@link triggerLoadCommitsCallback}:
-   *  a delegated ref action has nothing new to find here, and running it from
-   *  under a bridge that has just failed would mask this throw with its own. */
+   *  life of the panel (#241). Through {@link triggerLoadCommitsCallback}, so a
+   *  delegated ref action waiting on the load is retried as well: when this is
+   *  the commit half of a refresh, the action was waiting on the branch half,
+   *  and with both gates now open nothing else would retry it until a load the
+   *  user has to start. If it throws in turn, its exception masks the bridge's
+   *  and ADR-0016 reports only that one — the trade #138 made for a throwing
+   *  close-out. */
   private requestLoadCommits(hard: boolean, loadedCallback: (changes: boolean) => void): boolean {
     if (this.commitLoadInFlight) return false;
     this.loadCommitsCallback = loadedCallback;
@@ -2101,10 +2105,7 @@ class GitGraphView {
         hiddenRemotes: this.gitRepos[this.currentRepo!]?.hiddenRemotes ?? undefined
       });
     } catch (error) {
-      this.loadCommitsCallback = null;
-      // As in {@link loadBranches}: a callback that throws here masks the
-      // bridge's own exception, and ADR-0016 reports only the second one.
-      loadedCallback(false);
+      this.triggerLoadCommitsCallback(false);
       throw error;
     }
     return true;

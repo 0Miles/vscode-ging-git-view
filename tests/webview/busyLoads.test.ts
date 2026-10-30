@@ -497,15 +497,29 @@ describe("when something throws part-way through a load", () => {
   describe("a refresh's commit request, as the bridge refuses it", () => {
     let reported: (string | null)[] = [];
     let spinningAfterTheThrow = true;
+    let cleanupDialogAfterTheThrow = false;
 
     beforeAll(() => {
       const bridge = throwOnSending("loadCommits");
       mock.clearMessages();
       receive({ command: "refresh" });
+      // A side-view action arriving while the branch half is out waits for
+      // the load — and the commit half's request is where the load ends.
+      receive({
+        command: "showBranchCleanup",
+        repo: DEFAULT_REPO,
+        seq: ++cleanupSeq,
+        payload: cleanupPayload
+      });
       receive(branchesResponse);
       reported = reportedCommands();
       spinningAfterTheThrow = refreshing();
+      cleanupDialogAfterTheThrow =
+        document.querySelector('#dialog .cleanupRow input[data-ref="merged"]') !== null;
       bridge.mockRestore();
+      document
+        .getElementById("dialogDismiss")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     it("is still reported to the host", () => {
@@ -514,6 +528,12 @@ describe("when something throws part-way through a load", () => {
 
     it("stops spinning", () => {
       expect(spinningAfterTheThrow).toBe(false);
+    });
+
+    it("still runs the side-view action that was waiting on the load", () => {
+      // Nothing else would: the gate is open again, but the action is only
+      // retried as a load ends, and the next load is the user's to start.
+      expect(cleanupDialogAfterTheThrow).toBe(true);
     });
 
     it("leaves the commit gate open for the next refresh", () => {
