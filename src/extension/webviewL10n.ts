@@ -296,6 +296,7 @@ export function getWebviewLocalizedStrings() {
     dialogHeadMoved: l10n.t("dialog.headMoved"),
     dialogStashMoved: l10n.t("dialog.stashMoved"),
     dialogPushRemoteGone: l10n.t("dialog.pushRemoteGone"),
+    dialogPushRepoMoved: l10n.t("dialog.pushRepoMoved"),
     dialogCommitOrderBusy: l10n.t("dialog.commitOrderBusy"),
     dialogFindLoadBusy: l10n.t("dialog.findLoadBusy"),
     dialogFindStepBusy: l10n.t("dialog.findStepBusy"),

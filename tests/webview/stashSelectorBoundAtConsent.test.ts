@@ -177,3 +177,64 @@ describe("dropping the stash the dialog named", () => {
     });
   });
 });
+
+// Apply, pop and rename send the same positional selector, so they stand on the
+// same premise — and a pop that lands on the wrong stash does two things the
+// user never agreed to: it applies someone else's work over theirs, and then
+// drops that stash. Each form binds the stash the way the drop does.
+describe("applying, popping or renaming the stash the form named", () => {
+  /** A form's own submit button; the forms here open with nothing to fill in
+   *  but the rename's message. */
+  function submit() {
+    clickYes();
+  }
+
+  /** Put the stack back as the user found it, ready for the next scenario. */
+  function restack(commits: GitCommitNode[]) {
+    receive({ command: "refresh" });
+    receive(branchesResponse);
+    receive(commitsResponse(commits));
+  }
+
+  beforeAll(async () => {
+    vi.resetModules();
+    mock = createVscodeMock();
+    setupHtml(viewState);
+    await import("@/webview/main");
+    receive(branchesResponse);
+    receive(commitsResponse(before));
+  });
+
+  it("applies it when the stack has not moved", () => {
+    openMenuOn('.gitRef.stash[data-name="stash@{0}"]');
+    clickItem(L.stashApply + E);
+    mock.clearMessages();
+    submit();
+
+    expect(sentOf("applyStash")).toEqual([
+      { command: "applyStash", repo: DEFAULT_REPO, selector: "stash@{0}", reinstateIndex: false }
+    ]);
+  });
+
+  it.each([
+    ["applyStash", L.stashApply + E],
+    ["popStash", L.stashPop + E],
+    ["renameStash", L.stashRename + E]
+  ])("does not %s the stash that inherited the number, and says so", (command, item) => {
+    restack(before);
+    openMenuOn('.gitRef.stash[data-name="stash@{0}"]');
+    clickItem(item);
+    expect(document.getElementById("dialog")!.textContent).toContain("stash@{0}");
+
+    restack(after);
+    expect(document.getElementById("dialogAction"), "the form").not.toBeNull();
+
+    mock.clearMessages();
+    submit();
+
+    expect(sentOf(command)).toEqual([]);
+    expect(document.getElementById("dialog")!.textContent).toContain(
+      L.dialogStashMoved.replace("{0}", "stash@{0}")
+    );
+  });
+});
