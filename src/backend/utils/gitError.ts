@@ -15,6 +15,23 @@ export class LabelledGitErrors extends Error {
   }
 }
 
+/** Run `attempt` once per remote, concurrently, and settle only once every
+ *  remote has answered (#264). A lone failure is thrown as it is, so one
+ *  remote reads as it always has; several are thrown together as
+ *  {@link LabelledGitErrors}, each under its remote's name, since git's own
+ *  output names a remote only by URL. */
+export async function attemptOnEachRemote(
+  remotes: readonly string[],
+  attempt: (remote: string) => Promise<unknown>
+): Promise<void> {
+  const outcomes = await Promise.allSettled(remotes.map(attempt));
+  const failures = outcomes.flatMap((outcome, i) =>
+    outcome.status === "rejected" ? [{ label: remotes[i], error: outcome.reason }] : []
+  );
+  if (failures.length === 1) throw failures[0].error;
+  if (failures.length > 1) throw new LabelledGitErrors(failures);
+}
+
 /** Turn a noisy git / simple-git error into a concise, human-readable message.
  *
  *  simple-git concatenates the failed command's stdout and stderr into

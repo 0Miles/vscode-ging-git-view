@@ -11,6 +11,7 @@ import type {
 } from "@/backend/types";
 import { REMOTE_PREFIX, splitRemoteRef } from "@/backend/utils/branchRef";
 import {
+  attemptOnEachRemote,
   formatGitError,
   isNotFullyMergedError,
   isRemoteUpdatedSinceCheckoutError,
@@ -33,20 +34,19 @@ export async function createBranch(
   }
 }
 
-/** Delete `branchName` on every one of `remotes` that actually carries it. */
+/** Delete `branchName` on every one of `remotes` that actually carries it,
+ *  reporting every remote that failed — see `attemptOnEachRemote`. */
 async function deleteOnRemotes(
   git: SimpleGit,
   branchName: string,
   remotes: readonly string[]
 ): Promise<void> {
-  await Promise.all(
-    remotes.map(async (remote) => {
-      const refs = await git.raw(["ls-remote", "--heads", remote, branchName]);
-      if (refs.trim() !== "") {
-        await git.raw(["push", remote, "--delete", branchName]);
-      }
-    })
-  );
+  await attemptOnEachRemote(remotes, async (remote) => {
+    const refs = await git.raw(["ls-remote", "--heads", remote, branchName]);
+    if (refs.trim() !== "") {
+      await git.raw(["push", remote, "--delete", branchName]);
+    }
+  });
 }
 
 export async function deleteBranch(
@@ -255,26 +255,17 @@ export function pushRefusalFacts(error: unknown): PushRefusalFacts {
 }
 
 /** Push to each selected remote; simple-git serialises them internally. Every
- *  remote is pushed and heard from before this settles (#264). A lone refusal
- *  is thrown as it is, so one remote reads as it always has; several are
- *  thrown together, each under its remote's name, since git's own output names
- *  a remote only by URL. */
+ *  remote's refusal is reported, after every remote has answered — see
+ *  `attemptOnEachRemote` (#264). */
 export async function pushBranch(
   git: SimpleGit,
   input: ActionPayload<"pushBranch">
 ): Promise<void> {
-  const outcomes = await Promise.allSettled(
-    input.remotes.map((remote) =>
-      git.raw(pushArgs(remote, input.branchName, input.forceMode)).catch((e: unknown) => {
-        throw new RemotePushError(`${remote}/${input.branchName}`, e);
-      })
-    )
+  await attemptOnEachRemote(input.remotes, (remote) =>
+    git.raw(pushArgs(remote, input.branchName, input.forceMode)).catch((e: unknown) => {
+      throw new RemotePushError(`${remote}/${input.branchName}`, e);
+    })
   );
-  const failures = outcomes.flatMap((outcome, i) =>
-    outcome.status === "rejected" ? [{ label: input.remotes[i], error: outcome.reason }] : []
-  );
-  if (failures.length === 1) throw failures[0].error;
-  if (failures.length > 1) throw new LabelledGitErrors(failures);
 }
 
 export async function deleteRemoteBranch(

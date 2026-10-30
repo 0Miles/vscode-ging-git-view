@@ -1,6 +1,7 @@
 import type { SimpleGit } from "simple-git";
 
 import type { ActionPayload } from "@/backend/types";
+import { attemptOnEachRemote } from "@/backend/utils/gitError";
 
 export async function addTag(
   git: SimpleGit,
@@ -31,6 +32,7 @@ export async function deleteTag(git: SimpleGit, input: ActionPayload<"deleteTag"
 }
 
 export async function pushTag(git: SimpleGit, input: ActionPayload<"pushTag">): Promise<void> {
-  // Push the tag to each selected remote; simple-git serialises them.
-  await Promise.all(input.remotes.map((remote) => git.push(remote, input.tagName)));
+  // Push the tag to each selected remote; simple-git serialises them. Every
+  // remote's refusal is reported, after every remote has answered (#264).
+  await attemptOnEachRemote(input.remotes, (remote) => git.push(remote, input.tagName));
 }
