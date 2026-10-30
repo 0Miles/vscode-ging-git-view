@@ -9,6 +9,7 @@ import {
   createVscodeMock,
   DEFAULT_REPO,
   makeViewState,
+  openMenuOn,
   receive,
   setupHtml
 } from "./setup";
@@ -98,12 +99,6 @@ function row(hash: string) {
   const elem = document.querySelector<HTMLElement>(`tr.commit[data-hash="${hash}"]`);
   expect(elem, hash).not.toBeNull();
   return elem!;
-}
-
-function openMenuOn(selector: string) {
-  const elem = document.querySelector<HTMLElement>(selector);
-  expect(elem, selector).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
 }
 
 function dialogText() {

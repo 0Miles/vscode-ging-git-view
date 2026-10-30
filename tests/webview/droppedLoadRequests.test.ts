@@ -4,7 +4,15 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  clickItem,
+  createVscodeMock,
+  makeViewState,
+  openMenuOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // At most one commit load is ever in flight, and `requestLoadCommits` drops any
 // request that arrives while one is (ADR-0019 declined queueing it, because
@@ -66,29 +74,14 @@ const commitsResponse: GG.ResponseMessage = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 function sentOf(command: GG.RequestMessage["command"]) {
   return mock.sentMessages.filter((m) => m.command === command);
 }
 
 /** Pick a commit ordering from the column-header context menu. */
 function chooseCommitOrder(label: string) {
-  document
-    .querySelector<HTMLElement>('th[data-col="date"]')!
-    .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => li.querySelector(".contextMenuItemLabel")?.textContent?.trim() === label);
-  // toBeDefined, not not.toBeNull: `find` answers `undefined` when it misses,
-  // and `expect(undefined).not.toBeNull()` passes — the guard would then be
-  // decorative and the miss would surface as a TypeError one line down.
-  expect(item, label).toBeDefined();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  openMenuOn('th[data-col="date"]');
+  clickItem(label);
 }
 
 function refreshing() {
@@ -204,10 +197,10 @@ describe("a commit load request arriving while one is in flight", () => {
 
     beforeAll(() => {
       // Find open, so the branch search index exists and can be observed.
-      click("findBtn");
+      clickId("findBtn");
       mock.clearMessages();
       // Widen the loaded commit window to 400 and leave that load in flight.
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       // The premise of every assertion below, checked rather than assumed: a
       // press that sent nothing would leave the menu item free to act, and the
       // whole scenario would pass by testing the ordinary path.
@@ -252,7 +245,7 @@ describe("a commit load request arriving while one is in flight", () => {
 
       it("leaves the loaded commit window where Load More left it", () => {
         mock.clearMessages();
-        click("loadMoreCommitsBtn");
+        clickId("loadMoreCommitsBtn");
         // 500, not 400: the window still stands at the 400 the earlier press
         // reached. Snapping it back to the opening 300 would have made this
         // press ask for 400 — and the shrunken window would have silently
@@ -270,12 +263,12 @@ describe("a commit load request arriving while one is in flight", () => {
       receive(commitsResponse); // settle the previous press
       // Fetch raises the action-running dialog that the refresh following the
       // action is supposed to dismiss.
-      click("fetchBtn");
+      clickId("fetchBtn");
       // A Load More page is in flight; its callback has no interest in either
       // the Refresh button or the dialog, so nothing but the refresh itself
       // can clear them.
-      click("loadMoreCommitsBtn");
-      click("refreshBtn");
+      clickId("loadMoreCommitsBtn");
+      clickId("refreshBtn");
       spinningWhileLoading = refreshing();
       dialogUpWhileLoading = actionDialogUp();
       receive(branchesResponse); // the branches half lands, the commits half is dropped
@@ -315,7 +308,7 @@ describe("a commit load request arriving while one is in flight", () => {
       receive(commitsResponse); // settle the previous refresh
       chipBefore = filterChipText();
       // Widen the loaded commit window to 700 and leave that load in flight.
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       abandonedPage = sentOf("loadCommits").at(-1) as typeof abandonedPage;
       mock.clearMessages();
       receive({ command: "setBranchFilter", branches: ["feature/x"] });
@@ -358,7 +351,7 @@ describe("a commit load request arriving while one is in flight", () => {
       it("leaves the loaded commit window at the reload's, not the page's", () => {
         receive(commitsResponse); // the reload's own answer
         mock.clearMessages();
-        click("loadMoreCommitsBtn");
+        clickId("loadMoreCommitsBtn");
         // 400, not 800: the window restarted with the filter, and the page that
         // had widened it to 700 was abandoned before it could count.
         expect(sentOf("loadCommits")).toMatchObject([{ maxCommits: 400 }]);
@@ -373,10 +366,10 @@ describe("a commit load request arriving while one is in flight", () => {
 
     beforeAll(() => {
       receive(commitsResponse); // settle the previous press
-      click("refreshBtn"); // branches requested, deliberately unanswered
+      clickId("refreshBtn"); // branches requested, deliberately unanswered
       spinningWhileLoading = refreshing();
       mock.clearMessages();
-      click("refreshBtn"); // this one's branches request is dropped
+      clickId("refreshBtn"); // this one's branches request is dropped
       spinningAfterTheDrop = refreshing();
       receive(branchesResponse); // the first refresh's branches land; its commits go out
       spinningWithTheFirstCommitLoadStillOut = refreshing();
@@ -424,18 +417,18 @@ describe("a commit load request arriving while one is in flight", () => {
     let dialogUpAfterTheDrop = true;
 
     beforeAll(() => {
-      click("refreshBtn"); // the first refresh
+      clickId("refreshBtn"); // the first refresh
       receive(branchesResponse); // its branches land, so its commit load goes out
       spinningWithTheFirstLoadOut = refreshing();
 
       // An action finishes underneath that load and leaves its progress dialog
       // standing. Taking it down is the job of the refresh that follows the
       // action — which is the second refresh below, the one about to be dropped.
-      click("fetchBtn");
+      clickId("fetchBtn");
       dialogUpBeforeTheDrop = actionDialogUp();
       mock.clearMessages();
 
-      click("refreshBtn"); // the second refresh, started over that load
+      clickId("refreshBtn"); // the second refresh, started over that load
       // Its branch half is not dropped — the first refresh's branch load landed
       // a moment ago — which is what makes this the commit half's collision and
       // not a repeat of the scenario above.
@@ -496,12 +489,12 @@ describe("a commit load request arriving while one is in flight", () => {
     let spinningAfterTheGoneRepoAnswer = false;
 
     beforeAll(() => {
-      click("refreshBtn"); // the first refresh
+      clickId("refreshBtn"); // the first refresh
       receive(branchesResponse); // its branches land, so its commit load goes out
       spinningWithTheFirstLoadOut = refreshing();
       mock.clearMessages();
 
-      click("refreshBtn"); // the second refresh
+      clickId("refreshBtn"); // the second refresh
       receive({ ...branchesResponse, isRepo: false });
       repoRechecks = sentOf("loadRepos").length;
       spinningAfterTheGoneRepoAnswer = refreshing();
@@ -546,11 +539,11 @@ describe("a commit load request arriving while one is in flight", () => {
       confirmText = document.getElementById("dialog")!.textContent ?? "";
 
       // While the dialog stands there, a refresh starts a load of its own.
-      click("refreshBtn");
+      clickId("refreshBtn");
       receive(branchesResponse); // its commit half goes out, deliberately unanswered
       mock.clearMessages();
 
-      click("dialogAction"); // and only now does the user press Yes
+      clickId("dialogAction"); // and only now does the user press Yes
       refusal = dialogText();
       dismissAnyDialog();
     });
@@ -583,7 +576,7 @@ describe("a commit load request arriving while one is in flight", () => {
       beforeAll(() => {
         receive(commitsResponse);
         mock.clearMessages();
-        click("loadMoreCommitsBtn");
+        clickId("loadMoreCommitsBtn");
       });
 
       it("leaves the loaded commit window where it was", () => {
@@ -603,9 +596,9 @@ describe("a commit load request arriving while one is in flight", () => {
       receive(commitsResponse); // settle the previous press
       raiseFindLoadConfirmation();
       spinningBefore = refreshing();
-      click("loadMoreCommitsBtn"); // a page in flight, its callback owning nothing
+      clickId("loadMoreCommitsBtn"); // a page in flight, its callback owning nothing
       mock.clearMessages();
-      click("dialogAction");
+      clickId("dialogAction");
       receive(commitsResponse); // and the page lands
     });
 
@@ -633,7 +626,7 @@ describe("a commit load request arriving while one is in flight", () => {
     let dialogUpAfter = false;
 
     beforeAll(() => {
-      click("fetchBtn"); // raises the progress dialog a hard refresh would take down
+      clickId("fetchBtn"); // raises the progress dialog a hard refresh would take down
       dialogUpBefore = actionDialogUp();
       mock.clearMessages();
 
@@ -683,7 +676,7 @@ describe("a commit load request arriving while one is in flight", () => {
     beforeAll(() => {
       // Nothing outstanding: the soft refresh above answered both its halves.
       // A Load More page in flight takes the one request the panel allows.
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       windowAfterThePress = savedMaxCommits();
       const sentBeforeTheStep = sentOf("loadCommits").length;
 

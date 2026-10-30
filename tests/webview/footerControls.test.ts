@@ -4,7 +4,7 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // The graph footer's two controls: Load More, and the way back from a widened
 // loaded commit window. ADR-0019 keeps automatic loading on the condition that
@@ -90,12 +90,6 @@ function row(hash: string) {
   return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
 }
 
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 function loadCommitsRequests() {
   return mock.sentMessages.filter((m) => m.command === "loadCommits");
 }
@@ -171,7 +165,7 @@ describe("the graph footer's controls", () => {
     receive(branchesResponse);
     receive(commitsResponse());
     // Widen the window once, so both controls are on screen at the same time.
-    click("loadMoreCommitsBtn");
+    clickId("loadMoreCommitsBtn");
     receive(commitsResponse());
   });
 
@@ -417,7 +411,7 @@ describe("the graph footer's controls", () => {
     let focusedAfterLoad: Element | null = null;
 
     beforeAll(() => {
-      click("loadMoreCommitsBtn"); // widen it again, to 400, so a way back exists
+      clickId("loadMoreCommitsBtn"); // widen it again, to 400, so a way back exists
       receive(commitsResponse());
       loadMoreBtn()!.focus();
 

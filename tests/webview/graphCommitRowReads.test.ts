@@ -4,7 +4,17 @@ import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@/backen
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickElem,
+  clickItem,
+  createVscodeMock,
+  dialogRow,
+  graphRow,
+  makeViewState,
+  openMenuOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // #144 scoped the graph's *bindings* to `#commitTable`. It left the *reads*
 // alone, and said so: eight lookups of a commit row still started at `document`,
@@ -142,47 +152,6 @@ const redundancyResult: BranchRedundancy = {
 };
 
 let mock: ReturnType<typeof createVscodeMock>;
-
-function click(elem: Element) {
-  elem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
-function rightClick(elem: Element) {
-  elem.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
-/** A commit row of the graph's, addressed through the table so the selector says
- *  which surface it wants. Both surfaces render `tr.commit[data-hash]` — that is
- *  the whole subject of this suite. */
-function graphRow(hash: string) {
-  const elem = document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`);
-  expect(elem, hash).not.toBeNull();
-  return elem!;
-}
-
-function dialogRow(hash: string) {
-  const elem = document.querySelector<HTMLElement>(
-    `#dialog .commitList tr.commit[data-hash="${hash}"]`
-  );
-  expect(elem, hash).not.toBeNull();
-  return elem!;
-}
-
-/** Activate a context-menu item by its label. `toBeDefined`, not
- *  `not.toBeNull`: `find` yields `undefined` when nothing matches (#131). */
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  click(item!);
-}
-
-function openMenuOn(selector: string) {
-  const elem = document.querySelector<HTMLElement>(selector);
-  expect(elem, selector).not.toBeNull();
-  rightClick(elem!);
-}
 
 /** Put `#dialog` ahead of the graph in document order, which is the one thing
  *  standing between these reads and the dialog's rows today.
@@ -343,7 +312,7 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
 
     // The graph's Commit Details View, expanded on the tip commit: the re-attach
     // below only runs when one is open.
-    click(graphRow("aaa111"));
+    clickElem(graphRow("aaa111"));
     receive({
       command: "commitDetails",
       commitDetails: details("aaa111", ["bbb222"], "Fix the tip")
@@ -392,7 +361,7 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
   describe("locating HEAD", () => {
     beforeAll(() => {
       scrolledTo.length = 0;
-      click(document.getElementById("blinkHeadBtn")!);
+      clickElem(document.getElementById("blinkHeadBtn")!);
     });
 
     it("centres and flashes the graph's HEAD row", () => {
@@ -445,7 +414,7 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
   describe("following a parent-hash chip in the panel", () => {
     beforeAll(() => {
       scrolledTo.length = 0;
-      click(
+      clickElem(
         document.querySelector<HTMLElement>('#commitDetails .commitBodyHash[data-hash="ccc333"]')!
       );
       receive({
@@ -470,7 +439,7 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
   describe("highlighting a search", () => {
     beforeAll(() => {
       scrolledTo.length = 0;
-      click(document.getElementById("findBtn")!);
+      clickElem(document.getElementById("findBtn")!);
       search("Fix");
     });
 
@@ -523,7 +492,7 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
   // modal — and it shows in which row the comparison anchors itself to.
   describe("a redraw re-attaching a two-commit comparison", () => {
     beforeAll(() => {
-      click(graphRow("aaa111"));
+      clickElem(graphRow("aaa111"));
       receive({
         command: "commitDetails",
         commitDetails: details("aaa111", ["bbb222"], "Fix the tip")
@@ -568,7 +537,7 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
     beforeAll(() => {
       // The graph expanded on the very commit the dialog is about to list, which
       // is what puts the two surfaces in competition for one hash.
-      click(graphRow("bbb222"));
+      clickElem(graphRow("bbb222"));
       receive({
         command: "commitDetails",
         commitDetails: details("bbb222", ["ccc333"], "Base commit")

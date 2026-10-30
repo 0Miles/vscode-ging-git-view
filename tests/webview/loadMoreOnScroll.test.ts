@@ -5,6 +5,8 @@ import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
+  clickId,
+  clickItem,
   createVscodeMock,
   makeViewState,
   NEAR_BOTTOM,
@@ -122,24 +124,6 @@ function press(key: string) {
 
 function tabStops() {
   return Array.from(document.querySelectorAll<HTMLElement>('#commitTable [tabindex="0"]'));
-}
-
-/** Activate a context-menu item by its label. `toBeDefined`, not
- *  `not.toBeNull`: `find` yields `undefined` when nothing matches, and a null
- *  check would pass on it — leaving the scenario to fail later, somewhere that
- *  reads like the behaviour under test (issue #131). */
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  item!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 function dialogIsOpen() {
@@ -393,7 +377,7 @@ describe("automatic loading on scroll", () => {
     beforeAll(() => {
       // A refresh whose branches half has landed and whose commits half has
       // not: exactly one load in flight, and nothing standing on screen.
-      click("refreshBtn");
+      clickId("refreshBtn");
       receive(branchesResponse);
       expect(dialogIsOpen(), "nothing standing when the scroll arrives").toBe(false);
 

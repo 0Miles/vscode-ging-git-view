@@ -4,7 +4,14 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The loaded commit window on screen. Widening it is cheap — one press, or a
 // held PageDown once automatic loading is on — and it survives every panel
@@ -79,12 +86,6 @@ let mock: ReturnType<typeof createVscodeMock>;
 const scrolledIntoView: Element[] = [];
 const scrollTo = vi.fn();
 
-function click(id: string) {
-  const elem = document.getElementById(id);
-  expect(elem, id).not.toBeNull();
-  elem!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
 function loadCommitsRequests() {
   return mock.sentMessages.filter((m) => m.command === "loadCommits");
 }
@@ -112,7 +113,7 @@ function windowCount() {
  *  the commits half. Everything already rendered stands untouched until the
  *  commits arrive. */
 function startInFlightLoad() {
-  click("refreshBtn");
+  clickId("refreshBtn");
   receive(branchesResponse);
 }
 
@@ -157,7 +158,7 @@ describe("the loaded commit window on screen", () => {
 
   describe("once Load More has widened it", () => {
     beforeAll(() => {
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
       receive(commitsResponse());
     });
 
@@ -179,7 +180,7 @@ describe("the loaded commit window on screen", () => {
   // most wants it: they just widened the window another page.
   describe("while a Load More page is on its way", () => {
     beforeAll(() => {
-      click("loadMoreCommitsBtn");
+      clickId("loadMoreCommitsBtn");
     });
 
     it("swaps the button for the spinner but keeps the line and its way back", () => {
@@ -223,7 +224,7 @@ describe("the loaded commit window on screen", () => {
       mock.clearMessages();
       scrollTo.mockClear();
       scrolledIntoView.length = 0;
-      click("resetLoadedCommitWindowBtn");
+      clickId("resetLoadedCommitWindowBtn");
       requestedOnPress = loadCommitsRequests();
       lineOnPress = windowCount();
       receive(commitsResponse());
@@ -270,11 +271,11 @@ describe("the loaded commit window on screen", () => {
     let refusal = "";
 
     beforeAll(() => {
-      click("loadMoreCommitsBtn"); // widen it again, to 400
+      clickId("loadMoreCommitsBtn"); // widen it again, to 400
       receive(commitsResponse());
       startInFlightLoad();
       mock.clearMessages();
-      click("resetLoadedCommitWindowBtn");
+      clickId("resetLoadedCommitWindowBtn");
       requestedOnPress = loadCommitsRequests();
       lineOnPress = windowCount();
       refusal = dialogText();
@@ -305,7 +306,7 @@ describe("the loaded commit window on screen", () => {
 
       it("left the loaded commit window itself untouched", () => {
         mock.clearMessages();
-        click("loadMoreCommitsBtn");
+        clickId("loadMoreCommitsBtn");
         // 500, not 400: the window still stands where Load More left it. Had
         // the dropped press shrunk it to 300 first, this would ask for 400 —
         // for a graph still showing the 400-commit page, with the line gone
@@ -316,7 +317,7 @@ describe("the loaded commit window on screen", () => {
       it("takes the reset again once nothing is in flight", () => {
         receive(commitsResponse());
         mock.clearMessages();
-        click("resetLoadedCommitWindowBtn");
+        clickId("resetLoadedCommitWindowBtn");
         expect(loadCommitsRequests()).toMatchObject([{ maxCommits: 300 }]);
       });
     });
@@ -332,13 +333,13 @@ describe("the loaded commit window on screen", () => {
 
     beforeAll(() => {
       receive(commitsResponse()); // settle the previous reset
-      click("loadMoreCommitsBtn"); // widen it again, to 400
+      clickId("loadMoreCommitsBtn"); // widen it again, to 400
       receive(commitsResponse());
 
       row("bbb222").focus();
       scrollTo.mockClear();
       scrolledIntoView.length = 0;
-      click("resetLoadedCommitWindowBtn");
+      clickId("resetLoadedCommitWindowBtn");
       receive(commitsResponse(true, tipOnly));
       focusedAfterReset = document.activeElement;
     });
@@ -367,13 +368,13 @@ describe("the loaded commit window on screen", () => {
 
     beforeAll(() => {
       receive(commitsResponse()); // settle the previous reset, both commits back
-      click("loadMoreCommitsBtn"); // widen it again, to 400
+      clickId("loadMoreCommitsBtn"); // widen it again, to 400
       receive(commitsResponse());
 
       row("bbb222").focus();
       scrollTo.mockClear();
       scrolledIntoView.length = 0;
-      click("resetLoadedCommitWindowBtn");
+      clickId("resetLoadedCommitWindowBtn");
 
       // A remote list lands first and re-renders the graph on its own account:
       // branch labels are laid out from the remote names.
