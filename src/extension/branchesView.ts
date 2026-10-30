@@ -468,8 +468,9 @@ export function createBranchesView(deps: BranchesProviderDeps) {
   });
 
   // Which selection events write the filter — and which are TreeView artefacts
-  // (the empty selection a repo-switch rebuild emits, the one the search path's
-  // re-keying emits) that must not clobber it — is the reconciler's call,
+  // (the empty selection a repo-switch rebuild emits, the one a direct write's
+  // re-keying emits, whether the multi-pick search or "Show All" made it) that
+  // must not clobber it — is the reconciler's call,
   // unit-tested in isolation. This handler only pipes events in and interprets
   // the decisions; the one piece of machinery it owns is the debounce timer the
   // decisions ask for.
