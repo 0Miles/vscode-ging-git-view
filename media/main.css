@@ -1264,22 +1264,12 @@ body.vscode-high-contrast #contextMenu {
 }
 
 /* Dialogs */
-/* The stacking order, bottom to top, all in the root stacking context
-   (tests/backend/utils/stackingOrderLock.test.ts holds main.css to it):
-     1    the inline CDV's resize grips
-     2    #commitGraph, click-through, over the row backgrounds
-     3    #commitTable th, the frozen column headers
-     4    #controls, the frozen bar
-     80   #commitDetails.docked
-     100  .gitRef.branchDragGhost
-     200  #scrollShadow
-     250  #findWidget
-     300  #contextMenu; #controls while its dropdown or drawer is open
-     400  #dialogBacking: over all of the above, so none of it is
-          clickable while a dialog is open (#218)
-     401  #dialog
-   Nothing opens from inside a dialog (its selects are native), so nothing
-   sits above it; anything that ever does belongs above 401. */
+/* The dialog and its backing top the stacking order: the backing covers every
+   other layer, so nothing outside the dialog is clickable while it is open
+   (#218). The whole order, bottom to top, is ROOT_ORDER in
+   tests/backend/utils/stackingOrderLock.test.ts, which holds every z-index in
+   this file to it. Nothing opens from inside a dialog (its selects are
+   native); anything that ever does belongs above the dialog. */
 #dialog,
 #dialogBacking {
   display: none;

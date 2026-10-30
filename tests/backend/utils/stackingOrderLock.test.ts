@@ -10,10 +10,11 @@ import { describe, expect, it } from "vitest";
  * *under* the docked Commit Details View or the find widget — which is exactly
  * what it did until #218, with both clickable behind every dialog.
  *
- * Every `z-index` rule in main.css is listed here, so a new one cannot land
- * without being placed in the order on purpose. The order itself is documented
- * beside the dialog rules in main.css; this is what keeps that comment honest.
- * It cannot tell whether the layers still *paint* in this order — a new
+ * {@link ROOT_ORDER} below *is* the documented stacking order: main.css's
+ * comment beside the dialog rules points here rather than keeping a copy that
+ * could drift. Every `z-index` rule in main.css must appear in it or in
+ * {@link BAR_POPUPS}, so a new one cannot land without being placed in the
+ * order on purpose. It cannot tell whether the layers still *paint* in this order — a new
  * stacking context can trap a high number under a low one — only that the
  * numbers do.
  */
@@ -34,10 +35,10 @@ const zIndexOf = (selector: string) => Number(rules.find(([s]) => s === selector
 
 const BACKING = "#dialogBacking.active";
 const DIALOG = "#dialog.active";
-const POPUP_BAR = "#controls:has(#repoDropdownList.active, #repoSettingsDrawer.active)";
+const BAR_WHILE_POPUP_OPEN = "#controls:has(#repoDropdownList.active, #repoSettingsDrawer.active)";
 
 /** The layers that compete in the document's root stacking context, bottom to
- *  top. Neighbours in one tier share a number: they never show at once. */
+ *  top. Members of one tier share a number. */
 const ROOT_ORDER: string[][] = [
   // The inline CDV's grips: no stacking context of their own (the cell is only
   // `position: relative`), and hidden while the CDV is docked.
@@ -49,19 +50,21 @@ const ROOT_ORDER: string[][] = [
   [".gitRef.branchDragGhost"],
   ["#scrollShadow.active"],
   ["#findWidget"],
-  ["#contextMenu", POPUP_BAR],
+  ["#contextMenu", BAR_WHILE_POPUP_OPEN],
   [BACKING],
   [DIALOG]
 ];
 
 /** The bar's popups, which only compete inside the sticky bar's own stacking
  *  context — their numbers mean nothing against the root order. The bar lifts
- *  itself to {@link POPUP_BAR}'s tier while one is open. */
-const IN_BAR = ["#repoDropdownList", "#repoSettingsDrawer"];
+ *  itself to {@link BAR_WHILE_POPUP_OPEN}'s tier while one is open. */
+const BAR_POPUPS = ["#repoDropdownList", "#repoSettingsDrawer"];
 
 describe("the webview's stacking order", () => {
   it("has every z-index rule in main.css placed in it, once", () => {
-    expect(rules.map(([s]) => s).toSorted()).toEqual([...ROOT_ORDER.flat(), ...IN_BAR].toSorted());
+    expect(rules.map(([s]) => s).toSorted()).toEqual(
+      [...ROOT_ORDER.flat(), ...BAR_POPUPS].toSorted()
+    );
   });
 
   it.each(rules)("gives %s a plain integer (%s)", (_, value) => {

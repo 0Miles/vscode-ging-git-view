@@ -9023,6 +9023,12 @@ function showDialog(
   // the eight-and-counting call sites that take it. Before the new markup, so
   // the dialog arriving here keeps the screen — see `abandonBatchRun`.
   if (document.getElementById("batchRetryOffer") !== null) gitGraph.abandonBatchRun();
+  // A dialog the host raises on its own — an error, a batch summary — can find
+  // a context menu open. The backing covers the menu (#218), so leaving it
+  // open would strand it there, to reappear when the dialog closes offering
+  // actions from before whatever the dialog reports. A menu item's own dialog
+  // never gets here with the menu open: the click closes the menu first.
+  if (contextMenu.classList.contains("active")) hideContextMenu();
   dialogBacking.className = "active";
   dialog.className = "active";
   const buttons =
