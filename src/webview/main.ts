@@ -5219,16 +5219,21 @@ class GitGraphView {
       // the measurement below, never the listener's right to block.
       //
       // Not while a dialog is up. `#dialogBacking` is an unscrollable
-      // full-screen overlay, so a wheel over it chains to the document and
-      // this fires — but a user reading a modal question is not browsing the
-      // graph underneath it, which is the whole premise ADR-0019 keeps
+      // full-screen overlay, so a wheel over it used to chain to the document
+      // and fire this — but a user reading a modal question is not browsing
+      // the graph underneath it, which is the whole premise ADR-0019 keeps
       // automatic loading on. Its condition fails here twice over: the loaded
       // commit window would widen out of sight, and the footer carrying both
       // the count and the only control that shrinks it is behind the overlay.
       // A deferral, not a refusal — the next scroll after the dialog closes
       // loads as it always did.
       //
-      // This closes the wheel and *only* the wheel, which is worth saying
+      // Since #230 the page itself holds still behind a dialog
+      // (`html.dialogOpen`), so the wheel no longer gets here at all. The gate
+      // stays for the scrolls that lock cannot stop: the browser bringing a
+      // focused background control into view is one, measured in Chromium.
+      //
+      // The gate closed the wheel and *only* the wheel, which is worth saying
       // plainly because the obvious reading of it is wrong. The footer's Load
       // More is a real `<button>` with a tabindex, and `showDialog` sets two
       // class names and an `innerHTML` — no `inert` on the background, no
@@ -9191,6 +9196,8 @@ function showDialog(
   if (contextMenu.classList.contains("active")) hideContextMenu();
   dialogBacking.className = "active";
   dialog.className = "active";
+  // The page holds still behind it (#230); main.css says how.
+  document.documentElement.classList.add("dialogOpen");
   const buttons =
     (actionName !== null
       ? '<div id="dialogAction" class="roundedBtn">' + actionName + "</div>"
@@ -9221,6 +9228,7 @@ function showDialog(
 function hideDialog() {
   dialogBacking.className = "";
   dialog.className = "";
+  document.documentElement.classList.remove("dialogOpen");
   dialog.innerHTML = "";
   dialogDismissAction = null;
   if (dialogMenuSource !== null) {
