@@ -540,7 +540,8 @@ class GitGraphView {
   /** Which file last held the file list's tab stop, in which view, at which
    *  index. The element itself does not outlive a redraw, so this is what
    *  {@link restoreCdvFileTabStop} finds the user's place again from. */
-  private cdvFileTabStopMemory: { cdvIdentity: string | null; key: string; index: number } | null = null;
+  private cdvFileTabStopMemory: { cdvIdentity: string | null; key: string; index: number } | null =
+    null;
 
   private loadBranchesCallback: ((changes: boolean, isRepo: boolean) => void) | null = null;
   private loadCommitsCallback: ((changes: boolean) => void) | null = null;
