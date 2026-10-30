@@ -1338,6 +1338,12 @@ body.vscode-high-contrast #contextMenu {
 #dialog.active:has(table.dialogForm) #dialogAction {
   order: 2;
 }
+/* Focus rests on the dialog itself whenever it asks for no input (#141). That
+   is a place to start from, not a control, and the dialog's own border already
+   says where it is; a ring around the whole of it would only say so twice. */
+#dialog:focus {
+  outline: none;
+}
 
 #dialog > table.dialogForm {
   display: inline-table;
@@ -1833,9 +1839,9 @@ body.vscode-high-contrast-light #repoSettingsDrawer select {
    below. */
 .roundedBtn {
   /* UA reset, first so the declarations below still win. The footer's two
-     members are real `<button>`s (#88) while the dialog's and the conflict
-     banner's are still `<div>`s, and a `<button>` arrives carrying a platform
-     appearance, a border box, and every one of the inherited text properties
+     members are real `<button>`s (#88), and so are the dialog's (#141),
+     while the conflict banner's are still `<div>`s; a `<button>` arrives
+     carrying a platform appearance, a border box, and every one of the inherited text properties
      replaced with a value of its own — the HTML Standard's form-control
      rendering rule, which is why a button does not take the page's font.
      Restated here as what a `div` would have had, member by member, so that

@@ -29,10 +29,11 @@ import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } fro
 //   from the state machine's side.
 //
 // The last test is the case the ruling asked to be decided: reaching for a
-// second batch while the offer is still on screen. The gesture is reachable
-// (#127, #141), the arrival is not — every batch action that reaches `BatchRun`
-// is one that asks (ADR-0009), so it raises its own question first, and raising
-// it is what takes the offer away.
+// second batch while the offer is still on screen. The gesture was reachable
+// (#127, #141; the menu over the dialog since shut by #218, the keyboard
+// behind it by #141), the arrival never was — every batch action that reaches
+// `BatchRun` is one that asks (ADR-0009), so it raises its own question first,
+// and raising it is what takes the offer away.
 
 const L = getWebviewLocalizedStrings();
 

@@ -17,29 +17,28 @@ import {
 // the mutations was already re-taken on the far side of that wait
 // (droppedLoadRequests pins it); the *plan* was not.
 //
-// The loaded commit window still grows while the dialog stands, and there are
+// The loaded commit window used to grow while the dialog stood, and there were
 // two doors onto it. The wheel was one: `#dialogBacking` is not scrollable, so
 // a wheel over it chained to the document and the scroll listener — which had
 // no dialog gate — loaded another page. Issue #124 shut that one, and the
 // first scenario keeps a hand on it: five turns of the wheel behind the
 // question now load nothing.
 //
-// The footer's Load More is the other, and it is still open. The overlay hides
-// that button but does not disable it: `showDialog` sets two class names and an
-// `innerHTML`, and provides no focus containment whatever — no `inert` on the
-// background, no focus trap, no focus move — so Tab reaches a real `<button>`
-// and Space activates it natively, the keydown handler's dialog branch
-// returning without `preventDefault` and an activation it never saw not being
-// its to stop. So the widening in the scenarios below is driven by that
-// button, which is not a workaround for the gate but the case the gate does
-// not cover.
+// The footer's Load More was the other: the overlay hid that button without
+// disabling it, and `showDialog` contained no focus, so Tab reached it and
+// Space pressed it from behind the question. #141 shut that door too — the
+// background is `inert` while a dialog stands — and with it every route a
+// user had onto the window from here.
 //
-// That missing containment is #141, and it is wider than this file: it leaves
-// *every* background control tabbable and pressable behind a dialog, of which
-// Load More is the one that happens to move the loaded commit window. When
-// #141 lands, this door shuts too and these scenarios need a driver again —
-// the background reload is the candidate, since it moves the plan's other
-// input, the match, on the file watcher's schedule rather than the user's.
+// The scenarios below still widen the window with that button, pressed by
+// script: jsdom implements no `inert`, so the press goes through here as it no
+// longer can in a browser. That makes it a stand-in, not a user's gesture —
+// `loadMorePressLoadsAPage` pins the button's inertness so the substitution is
+// stated rather than hidden. What they hold is ADR-0019's rule, that a plan
+// deferred into a callback is re-taken there, and the rule does not depend on
+// which route moved its input. A real driver would be the background reload,
+// which moves the plan's other input, the match, on the file watcher's
+// schedule rather than the user's.
 //
 // `maxCommits` is assigned, not raised: the stale plan sets the window *back*,
 // and every commit past the older number is dropped from a graph that had
@@ -240,19 +239,14 @@ function scrollAsksForAPage(page: GitCommitNode[] = [tip, base]) {
   return asked;
 }
 
-/** One press of the footer's Load More from the keyboard, behind the standing
- *  dialog, and the page it asks for.
- *
- *  Focused first, because that is the whole point: the button is under the
- *  overlay and no mouse can reach it, but nothing has taken it out of the tab
- *  order. The press itself is dispatched as a click because that is what a
- *  browser's activation behaviour does with Space on a focused `<button>`, and
- *  jsdom implements no activation behaviour of its own. */
+/** One press of the footer's Load More behind the standing dialog, and the
+ *  page it asks for — by script, as a stand-in for the window widening while
+ *  the question stands (see the header). The button is `inert` there since
+ *  #141, which is asserted so the stand-in cannot pass for a gesture. */
 function loadMorePressLoadsAPage(page: GitCommitNode[] = [tip, base]) {
   const button = document.getElementById("loadMoreCommitsBtn");
   expect(button, "the footer's Load More, behind the dialog").not.toBeNull();
-  button!.focus();
-  expect(document.activeElement, "nothing traps focus inside the dialog").toBe(button);
+  expect(button!.closest("[inert]"), "the button is out of a user's reach").not.toBeNull();
   mock.clearMessages();
   button!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   const asked = loadCommitsRequests().length > 0;
@@ -290,10 +284,9 @@ describe("the size a confirmed Find load asks for", () => {
       // what used to widen the window here, and #124 is why it no longer does.
       for (let i = 0; i < 5; i++) if (scrollAsksForAPage()) loadedByWheel++;
 
-      // The keyboard, five times over, on the button the overlay hides but does
-      // not disable. Five pages at loadMoreCount (100) each takes the window
-      // from the opening 300 to 800, which is past the 701 the plan was sized
-      // for.
+      // The stand-in, five times over, on the button behind the overlay. Five
+      // pages at loadMoreCount (100) each takes the window from the opening
+      // 300 to 800, which is past the 701 the plan was sized for.
       for (let i = 0; i < 5; i++) {
         expect(loadMorePressLoadsAPage(), `press ${i + 1} never went out`).toBe(true);
       }
