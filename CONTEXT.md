@@ -113,6 +113,34 @@ _Avoid_: 切換, 重新載入, reload, repo switch
 圖形當下向後端索取的 commit 筆數上限。它只會因為明確的請求而變大 —— 按下載入更多、或搜尋為了觸及匹配的 commit 而擴大 —— 只會整個彈回開場筆數而變小,不會停在中間值。縮回有兩條路:圖形頁尾那個唯一為此而設的重設入口,以及那些為了別的目的而做、順帶把視窗清掉的導覽。**分界是抵達的路,不是導覽的種類** —— 由面板自己呼叫的那些(換存放庫、換分支篩選、切換遠端分支顯示、從欄位標題選單改 commit 排序、從 Repository Settings 抽屜改載入範圍)清;由 host 改寫 repo state 後靠比對認出來的那些,以及 host 送來的 Repository Setting 預設值變更,不清。commit 排序兩條路都走得到,所以它從選單改會清、從面板外抵達不會清,這是同一個欄位的兩條路,不是矛盾。不清的理由也在路上而不在欄位上:那條路會為使用者沒動手的變更觸發(可分享的設定檔、第二個圖形面板),收掉他撐大的圖形是他無從歸因的損失 —— 預設值那一條使用者是動了手,但改的是每個沒覆寫的存放庫共用的值,不是對眼前這張圖形下的指令;而且「導覽,不縮」是這個泛化唯一安全的預設值 —— 反過來的話,以後每個被加進比較的欄位都自動繼承一個破壞性副作用(ADR-0024)。它跨面板重載保存,而面板每次重新變得可見就是一次重載,所以撐大的視窗會一路跟著使用者回來;正因如此,它一超過開場筆數,頁尾就顯示它當下的數值與一個把它縮回去的控制項,停在開場筆數時則什麼都不顯示。
 _Avoid_: page, 分頁, commit 快取, maxCommits(那是實作名)
 
+### Find 的位置與步進
+
+Find 在畫面上有兩個讀數 —— 計數器與目前匹配的高亮 —— 卻只有一個位置。移動它可能當場完成,也可能要等:等一份新的 branch index、等使用者答覆確認、等一頁 commit 落地。以下三個詞把「Find 站在哪」「使用者要它去哪」「還在等的那一步」釘開。
+
+**Find position**:
+Find 當下指著的那一個匹配,身分是 commit hash;序號(計數器 `3/7` 裡的 3)只是它在匹配清單裡的讀法。計數器與高亮是**同一個** Find position 的兩種呈現,不可各自前進 —— 只動其中一個,兩個讀數就在說不同的事。匹配清單重建時(重繪、branch index 抵達)序號會位移,位置靠 hash 找回同一個 commit;只有那個 commit 不再匹配時,才依最近一次 Find step 的方向落到鄰近的匹配。程式裡 `findCurrent` 是序號,`FindPosition` 是 hash 加序號、能把 Find 放回原處的快照;`findSettledOn` 則是最近一次已處理過的 Find position,用來分辨「目標換了」與「同一個目標又畫了一次」—— 它記的是 Find 指向哪裡,不是畫面捲到過哪裡。
+_Avoid_: cursor, 游標, selected match, current match index
+
+**Find step**:
+使用者要求 Find 移到上一個或下一個匹配的一次**操作** —— 不是瀏覽,所以它會把目標捲進視野(ADR-0019)。一個 step 只有兩種結局:整個發生,或完全沒發生;不存在計數器動了、畫面沒動的半套。目標在 loaded commit window 之外時,step 要撐大視窗去拿那一頁(超過門檻先問使用者):它在請求送出的那一刻發生,而 Find position 隨那一頁一起落地,途中要前往的 commit 記在 `pendingFindTargetHash`。請求送不出去(已有載入在飛)、或確認還沒被答應時,step 沒有發生 —— 什麼都不記,前一種還要明講被拒絕(`dialogFindStepBusy`)。這兩種結局就是 `FindLoadOutcome` 的 `move` 與 `hold`。
+_Avoid_: jump, 跳轉, find navigation
+
+**Pending Find navigation**:
+落在「名字匹配的分支」上的 Find step,在新的 branch index 回來之前的樣子。分支可能在手上那份 index 抓取之後移動過,所以落點以回覆為準,不以按下的那一刻為準。在那之前它只是一個**願望**:Find position 不動、方向不記;回覆抵達時才找出那條分支現在的 commit,照 Find step 的規則決定發生或不發生,不發生就回到原本的 Find position。等待期間再按步進,從這個待決的目標起算,所以連按不會被吞掉。換搜尋、關閉 Find、或 branch index 作廢時,它被丟棄。程式裡是 `pendingFindNavigation`(型別 `PendingFindNavigation`)。
+它與 `pendingFindTargetHash` 不可互換:這個等的是 branch index,step **尚未發生**;那個等的是一頁 commit,step **已經發生**,只是 Find position 還沒落地。
+_Avoid_: pending step, queued step
+
+### 忙碌指示
+
+**Busy indicator**:
+Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重新載入時,畫面上唯一說「有載入在進行」的東西。它亮著,當且僅當還有至少一個 busy claim 沒有放下;它不是一個「有人設了、還沒人取消」的旗標。載入更多與捲動自動載入不認領它,那兩條路有頁尾自己的標示。
+_Avoid_: loading flag, spinner, refreshing state
+
+**Busy claim**:
+一次載入對 busy indicator 的認領。載入開始時舉起(`beginBusyLoad`),並在它可能結束的**每一條**路上恰好放下一次(`endBusyLoad`)—— 包括請求被丟棄、根本沒有載入發生的那些路,以及被導覽作廢的那些。`busyLoads` 是當下還沒放下的 claim 數,indicator 只隨最後一個熄滅。來源有四:分支與 commit 整套的重新載入(refresh,以及走同一條路的開機與導覽)、branch filter 變更後的重新載入、需要翻頁的 Find step,以及從 Repository Settings 抽屜改了一個要重載 commit 的設定(`applyRepoSettings`)。
+它是計數而不是旗標,因為這些來源會重疊 —— 一次 refresh 的分支半段出去之後、commit 半段還不存在時,第二次 refresh 就能開始。用設定 / 取消,先結束的那個會替還在跑的那個宣告閒置。舉起而沒放下,按鈕就轉到面板關掉為止;放下兩次,就帶走了別人的 claim。
+_Avoid_: busy flag, loading state, refreshing
+
 ### Rebase 搬走的 commit
 
 「使用者圈出來的那一段」與「git 真的會重放的那些」不是同一組 commit,差別在 merge。這兩個詞把它們釘開,以及釘住差別漏出來的那個後果。
