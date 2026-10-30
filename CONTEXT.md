@@ -118,7 +118,7 @@ _Avoid_: page, 分頁, commit 快取, maxCommits(那是實作名)
 Find 在畫面上有兩個讀數 —— 計數器與匹配列上的高亮 —— 卻只有一個位置。移動它可能當場完成,也可能要等:等一份新的 branch index、等使用者答覆確認、等一頁 commit 落地。以下三個詞把「Find 站在哪」「使用者要它去哪」「還在等的那一步」釘開。
 
 **Find position**:
-Find 當下指著的那一個匹配,身分是 commit hash;序號(計數器 `3/7` 裡的 3)只是它在匹配清單裡的讀法。計數器與高亮是**同一個** Find position 的兩種呈現,不可各自前進 —— 只動其中一個,兩個讀數就在說不同的事。目標那一列還沒載入時,高亮暫時無處可畫,計數器先到;那是同一個位置少了一種呈現,不是兩個位置。匹配清單重建時(重繪、branch index 抵達)序號會位移,位置靠 hash 找回同一個 commit;只有那個 commit 不再匹配時,才依最近一次 Find step 的方向落到鄰近的匹配。程式裡 `findCurrent` 是序號,`FindPosition` 是 hash 加序號、能把 Find 放回原處的快照;`findSettledOn` 則是最近一次已處理過的 Find position 的 hash,用來分辨「目標換了」與「同一個目標又畫了一次」—— 它記的是 Find 指向哪裡,不是畫面捲到過哪裡。
+Find 當下指著的那一個匹配,身分是 commit hash;序號(計數器 `3/7` 裡的 3)只是它在匹配清單裡的讀法。計數器與高亮是**同一個** Find position 的兩種呈現,不可各自前進 —— 只動其中一個,兩個讀數就在說不同的事。目標那一列還沒載入時分兩種情形:不必確認的 step 當場記下位置,高亮暫時無處可畫,計數器先到 —— 那是同一個位置少了一種呈現,不是兩個位置;需要確認的 step 在使用者答應後只送出請求,計數器、高亮與捲動都隨那一頁一起抵達。匹配清單重建時(重繪、branch index 抵達)序號會位移,位置靠 hash 找回同一個 commit;只有那個 commit 不再匹配時,才依最近一次 Find step 的方向落到鄰近的匹配。程式裡 `findCurrent` 是序號,`FindPosition` 是 hash 加序號、能把 Find 放回原處的快照;`findSettledOn` 則是最近一次已處理過的 Find position 的 hash,只在 branch index 的回覆抵達時被拿來比對,分辨「這份回覆換了目標」與「同一份 branch index 的回覆又來了一次」,重繪時不靠它決定任何事 —— 它記的是 Find 指向哪裡,不是畫面捲到過哪裡。
 _Avoid_: cursor, 游標, selected match, current match index
 
 **Find step**:
