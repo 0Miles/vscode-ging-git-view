@@ -26,7 +26,7 @@ import {
   isBatchAction
 } from "./backend/utils/refActionCatalogue";
 import { repoContainingPath, resolveToKnownRepo } from "./backend/utils/repoMatch";
-import { config, SCM_SELECTION_MODE_SETTING } from "./config";
+import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
@@ -67,7 +67,7 @@ import * as l10n from "./l10n";
 import { initL10n } from "./l10n";
 import { RepoFileWatcher } from "./repoFileWatcher";
 import { StatusBarItem } from "./statusBarItem";
-import type { BatchSkipped } from "./types";
+import type { BatchSkipped, RepoSettingField } from "./types";
 
 export function activate(context: vscode.ExtensionContext) {
   initL10n(context.extensionPath);
@@ -336,6 +336,28 @@ export function activate(context: vscode.ExtensionContext) {
       currentBridge?.post({
         command: "setScmMultiRepoSelection",
         enabled: config.scmMultiRepoSelection()
+      });
+    })
+  );
+
+  // A Repository Setting's default changed in VSCode's settings (#211). The
+  // drawer's own toggles reload the graph themselves; this way in has nobody
+  // to, so the graph is told what moved and decides — it knows which repo it
+  // shows and whether that repo overrides what moved.
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      const changed = (Object.keys(REPO_SETTING_DEFAULT_KEYS) as RepoSettingField[]).filter(
+        (field) => e.affectsConfiguration(REPO_SETTING_DEFAULT_KEYS[field])
+      );
+      if (changed.length === 0) return;
+      // The Branches side-view resolves remote branches from the same default.
+      // Its other two reach it through the `ging-git-view.branches` handler.
+      if (changed.includes("showRemoteBranches")) branchesView.refresh();
+      currentBridge?.post({
+        command: "setRepoSettingDefaults",
+        defaults: config.repoSettingDefaults(),
+        showRemoteBranches: config.showRemoteBranches(),
+        changed
       });
     })
   );

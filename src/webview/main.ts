@@ -355,7 +355,7 @@ type RepoSettingReload = "branches" | "commits" | null;
  *  `info`: the full explanation an ⓘ beside the label carries, for a toggle
  *  whose label cannot say everything it does. */
 const REPO_SETTING_TOGGLES: {
-  field: keyof GG.RepoSettingDefaults | "showRemoteBranches";
+  field: Exclude<GG.RepoSettingField, "commitOrdering">;
   label: keyof LocalizedStrings;
   reload: RepoSettingReload;
   info?: keyof LocalizedStrings;
@@ -1232,6 +1232,37 @@ class GitGraphView {
     this.saveState();
     this.beginBusyLoad();
     this.requestLoadCommits(true, () => this.endBusyLoad());
+  }
+
+  /** The Repository Setting defaults changed in VSCode's settings (#211).
+   *
+   *  The graph reloads only if a moved default steers the load of the repo it
+   *  shows — one that repo has no override for. A repo that overrides it loads
+   *  as it did, and the side-view's two defaults steer nothing here. Any other
+   *  repo picks the new defaults up the next time it is switched to, since the
+   *  host resolves the scope afresh on every load.
+   *
+   *  It arrives from outside the panel, as a fact rather than as a call, so it
+   *  is a navigation that leaves the loaded commit window where the user put
+   *  it, as the repo state {@link loadRepos} recognises does (ADR-0024). */
+  public setRepoSettingDefaults(
+    defaults: GG.RepoSettingDefaults,
+    showRemoteBranches: boolean,
+    changed: GG.RepoSettingField[]
+  ) {
+    viewState.repoSettingDefaults = defaults;
+    this.config.showRemoteBranches = showRemoteBranches;
+    this.applyShowRemoteBranchesForRepo();
+    this.saveState();
+    this.refreshRepoSettings();
+    const state = this.gitRepos[this.currentRepo];
+    if (state === undefined) return;
+    const steersLoad = (field: GG.RepoSettingField) =>
+      field === "commitOrdering" ||
+      (REPO_SETTING_TOGGLES.find((t) => t.field === field)?.reload ?? null) !== null;
+    if (changed.some((field) => steersLoad(field) && (state[field] ?? null) === null)) {
+      this.navigateReload();
+    }
   }
 
   /** Send a branch-deletion request, remembering its parameters so a failed
@@ -8264,6 +8295,9 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "setScmMultiRepoSelection":
       gitGraph.setScmMultiRepoSelection(msg.enabled);
+      break;
+    case "setRepoSettingDefaults":
+      gitGraph.setRepoSettingDefaults(msg.defaults, msg.showRemoteBranches, msg.changed);
       break;
     case "runRefAction":
       gitGraph.runRefAction(msg);
