@@ -206,4 +206,63 @@ describe("a Repository Setting default changed in VS Code's settings", () => {
       receive(commitsResponse);
     });
   });
+
+  describe("once the repo overrides the commit order and Show remote branches too", () => {
+    beforeAll(() => {
+      receive({
+        command: "loadRepos",
+        repos: {
+          [DEFAULT_REPO]: {
+            columnWidths: null,
+            showStashes: true,
+            commitOrdering: "topo",
+            showRemoteBranches: pushed.showRemoteBranches
+          }
+        },
+        lastActiveRepo: DEFAULT_REPO
+      });
+      // The commit order arriving in the repo state is a navigation of its
+      // own: let its load land before counting.
+      receive(branchesResponse);
+      receive(commitsResponse);
+    });
+
+    it("leaves the graph alone when the commit order default moves", () => {
+      mock.clearMessages();
+      pushDefaults({}, ["commitOrdering"]);
+      expect(reloadsSent()).toBe(0);
+    });
+
+    it("leaves the graph alone when the Show remote branches default moves", () => {
+      mock.clearMessages();
+      const own = pushed.showRemoteBranches;
+      pushDefaults({ showRemoteBranches: !own });
+      expect(reloadsSent()).toBe(0);
+      expect(checkbox(L.repoSettingsShowRemoteBranches).checked).toBe(own);
+    });
+
+    it("leaves it alone when one change moves only overridden defaults", () => {
+      mock.clearMessages();
+      pushDefaults(
+        { showStashes: !pushed.showStashes, showRemoteBranches: !pushed.showRemoteBranches },
+        ["showStashes", "showRemoteBranches", "commitOrdering"]
+      );
+      expect(reloadsSent()).toBe(0);
+    });
+
+    it("reloads once when the same change also moves one it does not override", () => {
+      mock.clearMessages();
+      pushDefaults(
+        {
+          showStashes: !pushed.showStashes,
+          showRemoteBranches: !pushed.showRemoteBranches,
+          showRemoteHeads: !pushed.showRemoteHeads
+        },
+        ["showStashes", "showRemoteBranches", "commitOrdering", "showRemoteHeads"]
+      );
+      expect(mock.sentOf("loadBranches")).toHaveLength(1);
+      receive(branchesResponse);
+      receive(commitsResponse);
+    });
+  });
 });

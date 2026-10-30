@@ -355,7 +355,7 @@ type RepoSettingReload = "branches" | "commits" | null;
  *  `info`: the full explanation an ⓘ beside the label carries, for a toggle
  *  whose label cannot say everything it does. */
 const REPO_SETTING_TOGGLES: {
-  field: keyof GG.RepoSettingDefaults | "showRemoteBranches";
+  field: Exclude<GG.RepoSettingField, "commitOrdering">;
   label: keyof LocalizedStrings;
   reload: RepoSettingReload;
   info?: keyof LocalizedStrings;
