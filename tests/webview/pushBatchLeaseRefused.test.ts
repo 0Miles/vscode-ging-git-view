@@ -26,7 +26,7 @@ function pushed(
   status: string | null,
   facts: Partial<Omit<BatchPushResult, "ref" | "status">> = {}
 ): BatchPushResult {
-  return { ref, status, remoteUpdatedSinceCheckout: false, staleInfoRef: null, ...facts };
+  return { ref, status, remoteUpdatedSinceCheckout: false, staleInfoRefs: [], ...facts };
 }
 
 const commits: GitCommitNode[] = [
@@ -174,9 +174,9 @@ describe("a batch push summary", () => {
     receive({
       command: "pushBranches",
       results: [
-        pushed("feature-a", STALE_LINE, { staleInfoRef: "origin/feature-a" }),
+        pushed("feature-a", STALE_LINE, { staleInfoRefs: ["origin/feature-a"] }),
         pushed("feature-b", "[rejected]        feature-b -> feature-b (stale info)", {
-          staleInfoRef: "origin/feature-b"
+          staleInfoRefs: ["origin/feature-b"]
         })
       ]
     });
@@ -197,7 +197,7 @@ describe("a batch push summary", () => {
     receive({
       command: "pushBranches",
       results: [
-        pushed("feature-a", STALE_LINE, { staleInfoRef: "origin/feature-a" }),
+        pushed("feature-a", STALE_LINE, { staleInfoRefs: ["origin/feature-a"] }),
         pushed(
           "feature-b",
           "[rejected]        feature-b -> feature-b (remote ref updated since checkout)",

@@ -396,11 +396,12 @@ describe("Find's counter when the page a step needs never goes out", () => {
       expect(counter()).toBe(counterFor(3, 3));
       expect(currentMatchHash()).toBe("zzz999");
       expect(sentOf("loadCommits")).toHaveLength(0);
-      // Twice, and the double move predates this change: the rebuild centres
-      // the pending hash, then the pass that follows the branch refs centres it
-      // again. Written out rather than hidden behind a last-element check,
-      // because a suite that tolerates the count cannot notice it growing.
-      expect(scrolledTo).toEqual(["zzz999", "zzz999"]);
+      // Once. The rebuild used to centre the pending hash and the pass that
+      // follows the branch refs centred it again; the rebuild no longer scrolls
+      // for a step it cannot yet say is happening (#246). Written out rather
+      // than hidden behind a last-element check, because a suite that
+      // tolerates the count cannot notice it growing.
+      expect(scrolledTo).toEqual(["zzz999"]);
     });
   });
 
@@ -734,9 +735,10 @@ describe("Find's counter when the page a step needs never goes out", () => {
       expect(counter()).toBe(counterFor(2, 3));
       expect(currentMatchHash()).toBe("zzz999");
       expect(sentOf("loadCommits")).toHaveLength(0);
-      // The rebuild's guess is centred on the way past, which is the same
-      // pre-existing double move as above, here landing on two different rows.
-      expect(scrolledTo).toEqual(["ccc333", "zzz999"]);
+      // Only where the branch went. The rebuild's guess used to be centred on
+      // the way past — the same double move as above, here landing on two
+      // different rows.
+      expect(scrolledTo).toEqual(["zzz999"]);
     });
 
     describe("and moved to a commit that is also past the window", () => {

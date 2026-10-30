@@ -6,7 +6,12 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { pushBranch, pushBranches, staleLeaseInfoRef } from "@/backend/actions/branch";
+import {
+  pushBranch,
+  pushBranches,
+  pushRefusalFacts,
+  staleLeaseInfoRefs
+} from "@/backend/actions/branch";
 import type { ActionPayload } from "@/backend/types";
 import { formatGitError, isRemoteUpdatedSinceCheckoutError } from "@/backend/utils/gitError";
 
@@ -43,6 +48,17 @@ function makeWorld(): World {
   git(["config", "user.name", "Mate"], teammate);
   git(["config", "commit.gpgsign", "false"], teammate);
   return { local, remote, teammate };
+}
+
+/** A second bare remote, `backup`, carrying the local `main`, with a current
+ *  tracking ref for it. */
+function addBackup(world: World): string {
+  const backup = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-lease-backup-"));
+  dirs.push(backup);
+  cp.execFileSync("git", ["init", "--bare", "--initial-branch=main"], { cwd: backup });
+  git(["remote", "add", "backup", backup], world.local);
+  git(["push", "backup", "main"], world.local);
+  return backup;
 }
 
 function commitFile(repo: string, file: string, content: string, message: string) {
@@ -140,7 +156,7 @@ describe("pushBranch with force-with-lease", () => {
 
     const error = await rejection(pushMain(world.local, "forceWithLease"));
 
-    expect(staleLeaseInfoRef(error)).toBe("origin/main");
+    expect(staleLeaseInfoRefs(error)).toEqual(["origin/main"]);
     expect(isRemoteUpdatedSinceCheckoutError(error)).toBe(false);
     expect(formatGitError(error)).toMatch(/^\[rejected\]\s+main -> main \(stale info\)$/);
     expect(remoteMain(world.remote)).toBe(matesTip);
@@ -153,7 +169,7 @@ describe("pushBranch with force-with-lease", () => {
 
     const error = await rejection(pushMain(world.local, "forceWithLease"));
 
-    expect(staleLeaseInfoRef(error)).toBe("origin/main");
+    expect(staleLeaseInfoRefs(error)).toEqual(["origin/main"]);
     expect(isRemoteUpdatedSinceCheckoutError(error)).toBe(false);
     expect(remoteMain(world.remote)).toBe(matesTip);
   });
@@ -161,25 +177,25 @@ describe("pushBranch with force-with-lease", () => {
   it("names the remote that refused, not every remote pushed to", async () => {
     const world = makeWorld();
     // A second remote whose tracking ref is current, so its lease holds.
-    const backup = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-lease-backup-"));
-    dirs.push(backup);
-    cp.execFileSync("git", ["init", "--bare", "--initial-branch=main"], { cwd: backup });
-    git(["remote", "add", "backup", backup], world.local);
-    git(["push", "backup", "main"], world.local);
+    const backup = addBackup(world);
     teammatePushes(world);
     amendTip(world.local, "rewritten");
 
     const error = await rejection(
       pushBranch(simpleGit(world.local), {
         branchName: "main",
-        remotes: ["backup", "origin"],
+        remotes: ["origin", "backup"],
         forceMode: "forceWithLease"
       })
     );
 
-    // Not "backup/main", though backup is listed first. (Whether backup's own
-    // push has finished is not asserted: the rejection does not wait for it.)
-    expect(staleLeaseInfoRef(error)).toBe("origin/main");
+    // Not "backup/main", whose push went through.
+    expect(staleLeaseInfoRefs(error)).toEqual(["origin/main"]);
+    // A lone refusal reads as it does with one remote: git's line, unlabelled.
+    expect(formatGitError(error)).toMatch(/^\[rejected\]\s+main -> main \(stale info\)$/);
+    // Listed after the remote that refused, and still pushed by the time the
+    // refusal is reported: the answer waits for every remote (#264).
+    expect(bareGit(["rev-parse", "main"], backup).trim()).toBe(rev(world.local, "main"));
   });
 
   it("names no tracking ref for any other refusal", async () => {
@@ -190,7 +206,90 @@ describe("pushBranch with force-with-lease", () => {
 
     const error = await rejection(pushMain(world.local, "forceWithLease"));
 
-    expect(staleLeaseInfoRef(error)).toBeNull();
+    expect(staleLeaseInfoRefs(error)).toEqual([]);
+  });
+});
+
+// Each remote refuses or accepts on its own. Stopping at the first refusal
+// named one remote, explained one reason, and answered while the others were
+// still pushing (#264).
+describe("pushBranch with force-with-lease to several remotes", () => {
+  /** The teammate's `main` pushed to `backup` as well, which the local repo
+   *  has not fetched: its tracking ref there goes stale too. */
+  function teammatePushesTo(world: World, backup: string) {
+    git(["push", backup, "main"], world.teammate);
+  }
+
+  async function pushToBoth(world: World) {
+    await pushBranch(simpleGit(world.local), {
+      branchName: "main",
+      remotes: ["origin", "backup"],
+      forceMode: "forceWithLease"
+    });
+  }
+
+  it("reports every remote that refused, each under its own name and reason", async () => {
+    const world = makeWorld();
+    const backup = addBackup(world);
+    const matesTip = teammatePushes(world);
+    teammatePushesTo(world, backup);
+    // origin's tip is fetched but not integrated; backup's was never fetched.
+    git(["fetch", "origin"], world.local);
+    amendTip(world.local, "rewritten");
+
+    const error = await rejection(pushToBoth(world));
+
+    expect(formatGitError(error).split("\n")).toEqual([
+      expect.stringMatching(
+        /^origin: \[rejected\]\s+main -> main \(remote ref updated since checkout\)$/
+      ),
+      expect.stringMatching(/^backup: \[rejected\]\s+main -> main \(stale info\)$/)
+    ]);
+    // Both classifications survive, each read off its own remote's refusal.
+    expect(pushRefusalFacts(error)).toEqual({
+      remoteUpdatedSinceCheckout: true,
+      staleInfoRefs: ["backup/main"]
+    });
+    expect(remoteMain(world.remote)).toBe(matesTip);
+    expect(bareGit(["rev-parse", "main"], backup).trim()).toBe(matesTip);
+  });
+
+  it("names every tracking ref refused for stale info", async () => {
+    const world = makeWorld();
+    const backup = addBackup(world);
+    teammatePushes(world);
+    teammatePushesTo(world, backup);
+    amendTip(world.local, "rewritten");
+
+    const error = await rejection(pushToBoth(world));
+
+    expect(pushRefusalFacts(error)).toEqual({
+      remoteUpdatedSinceCheckout: false,
+      staleInfoRefs: ["origin/main", "backup/main"]
+    });
+  });
+
+  it("reports both refusals for each ref of a batch push", async () => {
+    const world = makeWorld();
+    const backup = addBackup(world);
+    teammatePushes(world);
+    teammatePushesTo(world, backup);
+    amendTip(world.local, "rewritten");
+
+    const results = await pushBranches(simpleGit(world.local), {
+      branchNames: ["main"],
+      remotes: ["origin", "backup"],
+      forceMode: "forceWithLease"
+    });
+
+    expect(results).toEqual([
+      {
+        ref: "main",
+        status: expect.stringMatching(/^origin: .*\(stale info\)\nbackup: .*\(stale info\)$/),
+        remoteUpdatedSinceCheckout: false,
+        staleInfoRefs: ["origin/main", "backup/main"]
+      }
+    ]);
   });
 });
 
@@ -223,9 +322,9 @@ describe("pushBranches with force-with-lease", () => {
           /^\[rejected\]\s+main -> main \(remote ref updated since checkout\)$/
         ),
         remoteUpdatedSinceCheckout: true,
-        staleInfoRef: null
+        staleInfoRefs: []
       },
-      { ref: "side", status: null, remoteUpdatedSinceCheckout: false, staleInfoRef: null }
+      { ref: "side", status: null, remoteUpdatedSinceCheckout: false, staleInfoRefs: [] }
     ]);
     expect(remoteMain(world.remote)).toBe(matesTip);
     expect(bareGit(["rev-parse", "side"], world.remote).trim()).toBe(rev(world.local, "side"));
@@ -247,7 +346,7 @@ describe("pushBranches with force-with-lease", () => {
         ref: "main",
         status: expect.stringMatching(/^\[rejected\]\s+main -> main \(stale info\)$/),
         remoteUpdatedSinceCheckout: false,
-        staleInfoRef: "origin/main"
+        staleInfoRefs: ["origin/main"]
       }
     ]);
   });
