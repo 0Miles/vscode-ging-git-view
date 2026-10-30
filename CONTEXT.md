@@ -141,6 +141,38 @@ _Avoid_: loading flag, spinner, refreshing state
 它是計數而不是旗標,因為這些來源會重疊 —— 一次 refresh 的分支半段出去之後、commit 半段還不存在時,第二次 refresh 就能開始。用設定 / 取消,先結束的那個會替還在跑的那個宣告閒置。舉起而沒放下,按鈕就轉到面板關掉為止;放下兩次,就帶走了別人的 claim。
 _Avoid_: busy flag, loading state, refreshing
 
+### Commit Details View
+
+圖形同一時間至多展開一個 commit,它的內容顯示在 Commit Details View 裡。這個 view 有兩種擺法;而「把它畫出來」與「把它打開」是兩件事 —— 每一次重繪都會重畫它,只有打開才會移動畫面。
+
+**Commit Details View**:
+展開一個 commit 時,顯示它的摘要與變更檔案清單的那塊區域;拿它與第二個 commit 比較時,改列出兩者之間的變更。縮寫 CDV,UI 上的名稱是「commit 詳情檢視」(zh-cn「commit 详情视图」)。同一時間至多一個;它展開的那個 commit 在程式裡是 `expandedCommit`。設定 key 沿用既有的 `detailsPanel.*`(`detailsPanel.position`、`detailsPanel.autoScroll` 等),key 不改,但行文一律稱 Commit Details View 或 CDV。
+_Avoid_: details panel, commit details panel, 細節面板, 詳細資料面板
+
+**Inline CDV**:
+`detailsPanel.position` 為 `Inline`(預設值)時的 CDV —— 插在被展開那一列正下方的一列,是圖形表格的一部分、位於文件流中:它有多高,下面的 commit 就被往下推多少,高度由使用者拖曳。因為它在表格裡,整表重繪會連它一起換掉。
+_Avoid_: expanded row, 展開列
+
+**Docked CDV**:
+`detailsPanel.position` 為 `Docked to Bottom` 時的 CDV —— 固定在視窗底部,不在圖形表格裡、也不在文件流中,所以不推動任何一列。圖形的列從它底下捲過,就像從 frozen header 底下捲過:被它蓋住的那一段不算看得見,方向鍵與 Page Up/Down 把列帶進視野時,視野的底邊是它的頂邊。整表重繪碰不到它,所以關閉它、或它展開的 commit 不再被載入時,都要另外把它拿掉。
+_Avoid_: bottom panel, 底部面板
+
+**CDV opening**:
+CDV 變成**另一個** CDV 的那一刻 —— 從無到有、換了展開的 commit、或換了比較對象。CDV 的身分是「展開的 commit + 比較對象」(`cdvIdentity`),`cdvBroughtIntoView` 記著最近一次已經帶進視野的那個身分;身分與它不同就是開啟,相同就不是,不論中間重畫了幾次。關閉會清掉這份記憶,而展開 commit 的請求一律先關掉舊的 CDV,所以經由它抵達的都是開啟,即使展開的是同一個 commit。只有開啟會把 CDV 帶進視野(ADR-0019):`detailsPanel.autoScroll` 開著時置中,關著時只捲到剛好看得見 —— 關掉它不等於不捲。目前只有 inline CDV 會這樣捲;docked CDV 開啟時畫面不動。
+_Avoid_: reopen, 重新顯示
+
+**CDV rebind**:
+重繪之後,把仍然開著的**同一個** CDV 接回新畫出來的那一列。整表重繪會換掉每一列,CDV 掛著的那一列也跟著換,所以每次重繪都要依 commit hash 找回展開的 commit 的新列,再重畫 CDV。rebind 不是 CDV opening:身分沒變,所以不捲動、不關閉;從手上的內容重畫時,檔案清單的焦點也回到原本那個檔案(見 row identity)。展開的 commit 不在新的列裡時,CDV 被關閉,不是 rebind。比較對象不在新的列裡時,CDV 退回只展開那個 commit —— 身分變了,所以那是一次開啟、會捲動,這是「重繪不移動任何東西」目前已知的缺口。
+_Avoid_: reopen, refresh CDV, 重新開啟
+
+### 跨重繪的身分
+
+重繪(`renderTable`)把整張圖形表格從資料重新畫一次 —— 載入更多、soft refresh、Find、切換欄位都會觸發它。它不是使用者的操作,所以不得移動任何東西(ADR-0019)。要分辨「同一份內容重畫了一次」與「換成了新內容」,靠的是身分,不是 DOM 元素。
+
+**Row identity**:
+一列**代表什麼**,而不是它是哪一個 DOM 元素。重繪會換掉每一個列物件,所以要撐過重繪的東西 —— 首先是鍵盤焦點 —— 在重繪前記下持有它的那一列的身分,重繪後用身分在新的列裡找回同一列。commit 列的身分是 commit hash(`graphRowKey`);欄位表頭列與未提交變更列各只有一列,身分就是「那一列」;CDV 的檔案列是檔案路徑(`cdvFileKey`,rename 取新路徑),不用位置,因為 Tree 與 List 兩種版面排列不同,同一個檔案在兩邊的序號不一樣。身分只細到列:焦點在列內的 ref 標籤上時,重繪後回到那一列本身。找不到同一個身分時,圖形只把 tab stop 放到展開的 commit 那一列(沒有就是第一個 commit),不搶焦點;檔案清單則什麼都不做。CDV 自己的身分(見 CDV opening)與 Find position 以 hash 記位置,都是同一個想法。
+_Avoid_: row index, 列號, 第幾列
+
 ### Rebase 搬走的 commit
 
 「使用者圈出來的那一段」與「git 真的會重放的那些」不是同一組 commit,差別在 merge。這兩個詞把它們釘開,以及釘住差別漏出來的那個後果。
