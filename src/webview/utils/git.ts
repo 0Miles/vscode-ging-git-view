@@ -39,7 +39,8 @@ export function branchFilterLabel(
   if (refs.length === 0) return null;
   const names = refs.map(displayRef);
   const text = names.length === 1 ? names[0] : names[0] + " +" + (names.length - 1);
-  return { text, tooltip: tooltipTemplate.replace("{0}", names.join("\n")) };
+  // A function replacement: a ref name may hold `$&` (#264).
+  return { text, tooltip: tooltipTemplate.replace("{0}", () => names.join("\n")) };
 }
 
 /** Case-insensitive match of a Find-widget query against a commit's searchable
@@ -82,8 +83,9 @@ export function commitNodeTooltip(
   if (isHead) lines.push(labels.head);
   const branches = refs.filter((r) => r.type === "head" || r.type === "remote").map((r) => r.name);
   const tags = refs.filter((r) => r.type === "tag").map((r) => r.name);
-  if (branches.length > 0) lines.push(labels.branches.replace("{0}", branches.join(", ")));
-  if (tags.length > 0) lines.push(labels.tags.replace("{0}", tags.join(", ")));
+  // Function replacements: a ref name may hold `$&` (#264).
+  if (branches.length > 0) lines.push(labels.branches.replace("{0}", () => branches.join(", ")));
+  if (tags.length > 0) lines.push(labels.tags.replace("{0}", () => tags.join(", ")));
   return lines.join("\n");
 }
 
