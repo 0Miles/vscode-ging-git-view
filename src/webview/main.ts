@@ -2712,9 +2712,10 @@ class GitGraphView {
         // And "none of it" has to be said out loud. This is a menu item the
         // user picked: the menu closes, the tick does not move, no error, and
         // the next attempt works — which is the shape of a dead menu item, not
-        // of a refusal. The precedent is `dialogBatchBusy` and the three
+        // of a refusal. The precedent is `dialogBatchBusy` and the four
         // refusals that followed it (`dialogHeadMoved`, `dialogStashMoved`,
-        // `dialogPushRemoteGone`): state moved under an action the user asked
+        // `dialogPushRemoteGone`, `dialogPushRepoMoved`): state moved under an
+        // action the user asked
         // for, so the action is refused *visibly*. Silence is only right where
         // there is nothing left to do — the Find step whose match was amended
         // away while its question stood, a few thousand lines down, which has
@@ -4078,8 +4079,13 @@ class GitGraphView {
       // re-aimed — the printed command would simply be false — so this one
       // refuses, and says so (ADR-0019). A branch picked from the select
       // below is the same name read off the same snapshot, so it is held to
-      // the same check.
-      if (branch !== undefined && !this.branchPointsAt(branch, range.tip)) {
+      // the same check. A repo that moved refuses first, as the branch drag
+      // does: `branchPointsAt` reads the loaded commits, which are by then
+      // another repository's, and would answer by coincidence.
+      if (
+        branch !== undefined &&
+        (this.currentRepo !== repo || !this.branchPointsAt(branch, range.tip))
+      ) {
         showErrorDialog(
           l10n.dialogRebaseOntoTipMoved.replace("{0}", "<b><i>" + escapeHtml(branch) + "</i></b>"),
           null,
@@ -4755,6 +4761,29 @@ class GitGraphView {
     showConfirmationDialog(message, this.forRepo(confirmed), sourceElem);
   }
 
+  /**
+   * The same, for the actions git aims at HEAD — pull, and the two rebases that
+   * replay onto the current branch, then drop and revert ({@link forRepoAndHead}
+   * is the twin for forms). Most of their dialogs name the checked-out branch
+   * ({@link currentBranchLabel}), but the command carries no branch at all, so a
+   * `git checkout` in the terminal — reaching the webview through the file
+   * watcher, mid-dialog — silently repoints the whole action.
+   *
+   * These cannot use the capture above: you cannot pull into, or rebase, a
+   * branch that is not checked out. Refusing is the only faithful answer, so it
+   * has to be a refusal the user can *see* — the precedent is
+   * `dialogBatchBusy`, an error dialog raised when state moved under an action.
+   * A silent return here would be indistinguishable from a dead button, on an
+   * action whose damage is history-rewriting.
+   */
+  private confirmForRepoAndHead(
+    message: string,
+    confirmed: (repo: string) => void,
+    sourceElem: HTMLElement | null
+  ) {
+    showConfirmationDialog(message, this.forRepoAndHead(confirmed), sourceElem);
+  }
+
   /** {@link confirmForRepo}'s capture, for the dialogs that answer with
    *  something — a form's values, a select's choice. Call it where the dialog
    *  opens and hand what it returns to the dialog as its callback: the repo is
@@ -4857,29 +4886,6 @@ class GitGraphView {
       return false;
     }
     return true;
-  }
-
-  /**
-   * The same, for the actions git aims at HEAD — pull, and the two rebases that
-   * replay onto the current branch, then drop and revert ({@link forRepoAndHead}
-   * is the twin for forms). Most of their dialogs name the checked-out branch
-   * ({@link currentBranchLabel}), but the command carries no branch at all, so a
-   * `git checkout` in the terminal — reaching the webview through the file
-   * watcher, mid-dialog — silently repoints the whole action.
-   *
-   * These cannot use the capture above: you cannot pull into, or rebase, a
-   * branch that is not checked out. Refusing is the only faithful answer, so it
-   * has to be a refusal the user can *see* — the precedent is
-   * `dialogBatchBusy`, an error dialog raised when state moved under an action.
-   * A silent return here would be indistinguishable from a dead button, on an
-   * action whose damage is history-rewriting.
-   */
-  private confirmForRepoAndHead(
-    message: string,
-    confirmed: (repo: string) => void,
-    sourceElem: HTMLElement | null
-  ) {
-    showConfirmationDialog(message, this.forRepoAndHead(confirmed), sourceElem);
   }
   /** Merge `branchName` (a local or remote branch) into the current branch,
    *  prompting for the no-fast-forward / squash / no-commit options. */

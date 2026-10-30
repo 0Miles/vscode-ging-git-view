@@ -24,6 +24,7 @@ const REBASE_ON = L.rebaseOnCommit + E;
 const REBASE_ONTO = L.rebaseRangeOnCommit + E;
 const REBASE_ON_BRANCH = L.rebaseOnBranch + E;
 const REBASE_ONTO_BRANCH = L.rebaseRangeOnBranch + E;
+const OTHER_REPO = "/workspace/other";
 
 function node(
   hash: string,
@@ -120,11 +121,7 @@ describe("rebase --onto from the commit context menu", () => {
     click(compareWith, true);
   }
 
-  beforeAll(async () => {
-    vi.resetModules();
-    mock = createVscodeMock();
-    setupHtml(makeViewState());
-    await import("@/webview/main");
+  function loadView() {
     receive({
       command: "loadBranches",
       token: 0,
@@ -142,6 +139,19 @@ describe("rebase --onto from the commit context menu", () => {
       moreCommitsAvailable: false,
       hard: true
     });
+  }
+
+  beforeAll(async () => {
+    vi.resetModules();
+    mock = createVscodeMock();
+    // A second repo, so the host can move the view under an open dialog.
+    setupHtml(
+      makeViewState({
+        repos: { [DEFAULT_REPO]: { columnWidths: null }, [OTHER_REPO]: { columnWidths: null } }
+      })
+    );
+    await import("@/webview/main");
+    loadView();
   });
 
   beforeEach(() => {
@@ -417,6 +427,58 @@ describe("rebase --onto from the commit context menu", () => {
       expect(document.getElementById("dialog")!.textContent).toContain(
         L.dialogRebaseOntoTipMoved.replace("{0}", "dup-a")
       );
+    });
+  });
+
+  // Last, because each scenario leaves the view on the other repo.
+  //
+  // `branchPointsAt` reads the loaded commits, and once the host has moved the
+  // view those are another repository's. Here the other repo has the same
+  // shape, so the branch "still" points at the tip — by coincidence, having
+  // verified nothing about the repo the command would be sent to.
+  describe("once the repo moved under the dialog", () => {
+    let other = OTHER_REPO;
+
+    /** The host moving the view to the other repo, whose branches and commits
+     *  happen to match this one's. */
+    function hostMovesToLookalikeRepo() {
+      receive({ command: "setRepo", repo: other });
+      other = other === OTHER_REPO ? DEFAULT_REPO : OTHER_REPO;
+      loadView();
+      expect(document.getElementById("dialogAction"), "the dialog was dismissed").not.toBeNull();
+    }
+
+    function submitAndExpectRefusal(branch: string) {
+      mock.clearMessages();
+      document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+
+      expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([]);
+      expect(document.getElementById("dialog")!.textContent).toContain(
+        L.dialogRebaseOntoTipMoved.replace("{0}", branch)
+      );
+    }
+
+    it("refuses the branch the command printed", () => {
+      compare("keep", "w2"); // tip is w2, and `topic` is on it
+      menuEntries("target");
+      clickItem(REBASE_ONTO);
+      expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
+        "git rebase --onto target base topic"
+      );
+
+      hostMovesToLookalikeRepo();
+      submitAndExpectRefusal("topic");
+    });
+
+    it("refuses the branch picked from several on the tip", () => {
+      compare("keep", "dup");
+      menuEntries("target");
+      clickItem(REBASE_ONTO);
+      expect(document.querySelector("#dialog select"), "the branch select").not.toBeNull();
+
+      hostMovesToLookalikeRepo();
+      document.querySelector<HTMLSelectElement>("#dialog select")!.value = "dup-a";
+      submitAndExpectRefusal("dup-a");
     });
   });
 });
