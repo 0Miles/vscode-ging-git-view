@@ -69,6 +69,7 @@ import {
 } from "./utils/git";
 import {
   escapeHtml,
+  fillTemplate,
   firstIssueUrl,
   linkifyCommitHashes,
   linkifyIssues,
@@ -4919,9 +4920,11 @@ class GitGraphView {
       showErrorDialog(
         spec.errorTitle +
           "<br>" +
-          l10n.dialogBatchResult
-            .replace("{0}", String(results.length - failed.length))
-            .replace("{1}", String(failed.length)),
+          fillTemplate(
+            l10n.dialogBatchResult,
+            String(results.length - failed.length),
+            String(failed.length)
+          ),
         failed.map((r) => displayRef(r.ref) + ": " + r.status).join("\n"),
         null,
         () => this.refresh(false),
@@ -6358,7 +6361,7 @@ class GitGraphView {
       // re-takes everything it rests on when Yes comes.
       raiseAnswerDialog(() =>
         showConfirmationDialog(
-          l10n.dialogFindLoadMoreConfirm.replace("{0}", String(plan.additionalCommits)),
+          fillTemplate(l10n.dialogFindLoadMoreConfirm, String(plan.additionalCommits)),
           load,
           null
         )
@@ -8674,18 +8677,6 @@ function localizeUncommittedChanges(node: GitCommitNode): GitCommitNode {
   return { ...node, message: fillTemplate(l10n.uncommittedChanges, match ? match[1] : "?") };
 }
 
-/** Substitute `{0}`, `{1}`, … in an l10n template. Every template that takes
- *  a ref name, a file path or commit text goes through here rather than
- *  `.replace("{0}", value)` (#264). A function replacement: those values may
- *  contain `$&` or `$'`, which a string replacement would expand, and
- *  `escapeHtml` leaves `$` alone. And one pass, so a value holding "{1}"
- *  itself is not filled in turn. */
-function fillTemplate(template: string, ...values: string[]): string {
-  return template.replace(/\{(\d+)\}/g, (placeholder, i: string) =>
-    Number(i) < values.length ? values[Number(i)] : placeholder
-  );
-}
-
 /**
  * How current the branch the answer was measured against is.
  *
@@ -9150,7 +9141,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
           "Branch Name": l10n.typeBranchName
         };
         raiseAnswerError(
-          l10n.unableToCopyToClipboard.replace("{0}", typeLabel[msg.type] ?? msg.type)
+          fillTemplate(l10n.unableToCopyToClipboard, typeLabel[msg.type] ?? msg.type)
         );
       }
       break;

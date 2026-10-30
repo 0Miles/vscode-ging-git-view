@@ -24,6 +24,18 @@ export function unescapeHtml(str: string) {
   return str.replace(htmlUnescaper, (match) => htmlUnescapes[match]);
 }
 
+/** Substitute `{0}`, `{1}`, … in an l10n template. Every template that takes
+ *  a ref name, a file path or commit text goes through here rather than
+ *  `.replace("{0}", value)` (#264). A function replacement: those values may
+ *  contain `$&` or `$'`, which a string replacement would expand, and
+ *  `escapeHtml` leaves `$` alone. And one pass, so a value holding "{1}"
+ *  itself is not filled in turn. */
+export function fillTemplate(template: string, ...values: string[]): string {
+  return template.replace(/\{(\d+)\}/g, (placeholder, i: string) =>
+    Number(i) < values.length ? values[Number(i)] : placeholder
+  );
+}
+
 /**
  * Convert the leading whitespace of each line to non-breaking spaces (a tab
  * expands to four) so that commit/tag message indentation — bullet lists,
