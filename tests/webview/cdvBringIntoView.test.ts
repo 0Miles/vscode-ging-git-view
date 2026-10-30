@@ -1,14 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@/backend/types";
 
 import {
-  VIEWPORT_HEIGHT,
+  commitDetails,
   createVscodeMock,
   makeViewState,
   parkViewportAt,
   receive,
-  setupHtml
+  setupHtml,
+  VIEWPORT_HEIGHT
 } from "./setup";
 
 /* Opening the Commit Details View inline, with "Center Commit Details View"
@@ -52,21 +53,6 @@ const commits: GitCommitNode[] = HASHES.map((hash, i, all) => ({
   refs: i === 0 ? [{ hash, name: "main", type: "head" }] : []
 }));
 
-function details(hash: string): GitCommitDetails {
-  return {
-    hash,
-    parents: [],
-    author: "Alice",
-    email: "alice@example.com",
-    committer: "Alice",
-    committerEmail: "alice@example.com",
-    authorDate: 1700000000,
-    commitDate: 1700000000,
-    body: "Body",
-    fileChanges: []
-  };
-}
-
 /** Open `hash`'s Commit Details View with its row `top` px down the viewport
  *  and the panel `height` px tall. Each test opens a different commit: the
  *  view is brought into view once per commit, not again for one already open
@@ -78,7 +64,7 @@ function openDetails(hash: string, top: number, height: number) {
   document
     .querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!
     .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  receive({ command: "commitDetails", commitDetails: details(hash) });
+  receive({ command: "commitDetails", commitDetails: commitDetails(hash) });
 }
 
 describe("bringing an opening Commit Details View into view", () => {

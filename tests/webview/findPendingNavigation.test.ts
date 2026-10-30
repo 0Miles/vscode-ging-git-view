@@ -4,7 +4,15 @@ import type { BranchSearchEntry, GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  createVscodeMock,
+  dialogText,
+  makeViewState,
+  receive,
+  search,
+  setupHtml
+} from "./setup";
 
 // A Find step onto a match a branch name accounts for waits for a fresh branch
 // index before it happens: the branch may have moved since the index in hand
@@ -94,12 +102,6 @@ let mock: ReturnType<typeof createVscodeMock>;
  *  none) and the hash is the only handle that survives a redraw. */
 const scrolledTo: (string | undefined)[] = [];
 
-function search(query: string) {
-  const input = document.getElementById("findInput") as HTMLInputElement;
-  input.value = query;
-  input.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true }));
-}
-
 function counterFor(current: number, total: number) {
   return L.findCount.replace("{0}", String(current)).replace("{1}", String(total));
 }
@@ -113,18 +115,14 @@ function currentMatchHash() {
     .hash;
 }
 
-function sentOf(command: GG.RequestMessage["command"]) {
-  return mock.sentMessages.filter((m) => m.command === command);
-}
-
 /** Answer the newest branch-index request; the webview drops staler ones. */
 function deliverBranchIndex(branches: BranchSearchEntry[]) {
-  const requests = sentOf("branchSearch");
+  const requests = mock.sentOf("branchSearch");
   expect(requests.length, "a branch index request to answer").toBeGreaterThan(0);
   receive({
     command: "branchSearch",
     branches,
-    token: (requests[requests.length - 1] as { token: number }).token,
+    token: requests[requests.length - 1].token,
     status: null
   });
 }
@@ -271,8 +269,6 @@ describe("a confirmed step over a step still waiting on its answer", () => {
 // raising a question, so it waits behind that dialog rather than writing over
 // it (#243); until the question is answered the step has not happened, owed or
 // on screen.
-const dialogText = () => document.getElementById("dialog")!.textContent ?? "";
-
 describe("a step whose index lands behind a dialog the user has opened", () => {
   const fartherHash = "far888";
   let fartherBranch: BranchSearchEntry;

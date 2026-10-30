@@ -1,8 +1,16 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@/backend/types";
 
-import { clickElem, createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickElem,
+  commitDetails,
+  createVscodeMock,
+  graphRow,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 /* Moving a docked Commit Details View from one commit to another — a click on
  * another row, an arrow key, Find — tears the old panel down and waits for the
@@ -25,21 +33,6 @@ const commits: GitCommitNode[] = ["aaa111", "bbb222", "ccc333"].map((hash, i, al
   message: "Commit " + hash,
   refs: i === 0 ? [{ hash, name: "main", type: "head" }] : []
 }));
-
-function details(hash: string): GitCommitDetails {
-  return {
-    hash,
-    parents: [],
-    author: "Alice",
-    email: "alice@example.com",
-    committer: "Alice",
-    committerEmail: "alice@example.com",
-    authorDate: 1700000000,
-    commitDate: 1700000000,
-    body: "Body",
-    fileChanges: []
-  };
-}
 
 const docked = () => document.body.classList.contains("cdvDocked");
 const panel = () => document.getElementById("commitDetails");
@@ -70,7 +63,7 @@ describe("moving a docked Commit Details View to another commit", () => {
       hard: true
     });
     clickElem(graphRow("aaa111"));
-    receive({ command: "commitDetails", commitDetails: details("aaa111") });
+    receive({ command: "commitDetails", commitDetails: commitDetails("aaa111") });
     expect(panel()!.classList.contains("docked")).toBe(true);
   });
 
@@ -88,7 +81,7 @@ describe("moving a docked Commit Details View to another commit", () => {
     });
 
     it("and still has it once they arrive", () => {
-      receive({ command: "commitDetails", commitDetails: details("bbb222") });
+      receive({ command: "commitDetails", commitDetails: commitDetails("bbb222") });
       expect(panel()!.classList.contains("docked")).toBe(true);
       expect(docked()).toBe(true);
     });

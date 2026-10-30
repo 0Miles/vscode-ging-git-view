@@ -9,6 +9,7 @@ import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogText,
   graphRow,
   makeViewState,
   openMenuOn,
@@ -100,10 +101,6 @@ const commitsResponse: GG.ResponseMessage = {
 
 function openCommitMenu(hash: string) {
   rightClick(graphRow(hash));
-}
-
-function dialogText() {
-  return document.getElementById("dialog")!.textContent ?? "";
 }
 
 describe("the branch a confirmation dialog named", () => {

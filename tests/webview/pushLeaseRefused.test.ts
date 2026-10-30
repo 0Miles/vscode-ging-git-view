@@ -2,7 +2,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { createVscodeMock, dialogText, makeViewState, receive, setupHtml } from "./setup";
 
 // A Force with lease push is refused when the remote tip was fetched but never
 // integrated (ADR-0025). git's own line for that — "remote ref updated since
@@ -13,10 +13,6 @@ import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 const L = getWebviewLocalizedStrings();
 
 const GIT_LINE = "[rejected]        main -> main (remote ref updated since checkout)";
-
-function dialogText(): string {
-  return document.getElementById("dialog")?.textContent ?? "";
-}
 
 function dismiss() {
   document.getElementById("dialogDismiss")?.dispatchEvent(new MouseEvent("click"));

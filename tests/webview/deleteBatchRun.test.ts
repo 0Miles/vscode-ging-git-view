@@ -4,9 +4,10 @@ import type { GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
 import {
-  DEFAULT_REPO,
   clickId,
   createVscodeMock,
+  DEFAULT_REPO,
+  dialogText,
   makeViewState,
   receive,
   setupHtml
@@ -39,10 +40,6 @@ const commits: GitCommitNode[] = [
     ]
   }
 ];
-
-function dialogText(): string {
-  return document.getElementById("dialog")!.textContent ?? "";
-}
 
 function dialogActive(): boolean {
   return document.getElementById("dialog")!.classList.contains("active");

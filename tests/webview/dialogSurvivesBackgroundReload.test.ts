@@ -9,6 +9,7 @@ import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogText,
   makeViewState,
   openMenuOn,
   receive,
@@ -129,10 +130,6 @@ function contextMenuIsOpen() {
 
 function pressEscape() {
   document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true }));
-}
-
-function dialogText() {
-  return document.getElementById("dialog")!.textContent ?? "";
 }
 
 /** A whole background reload, start to finish: the watcher's soft refresh, then

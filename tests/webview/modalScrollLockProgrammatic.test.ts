@@ -6,6 +6,7 @@ import {
   clickId,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogShown,
   makeViewState,
   parkViewportAt,
   receive,
@@ -43,7 +44,6 @@ const commits: GitCommitNode[] = [
   }
 ];
 
-const dialogShown = () => document.getElementById("dialog")!.classList.contains("active");
 const locked = () => document.documentElement.classList.contains("dialogOpen");
 
 function answerLoads() {

@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
 
-import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, dialogShown, makeViewState, receive, setupHtml } from "./setup";
 
 // A modal dialog holds the page still behind it (#230). The backing already
 // takes every click, but the page itself kept scrolling under it: its
@@ -27,8 +27,6 @@ const commits: GitCommitNode[] = [
 ];
 
 const locked = () => document.documentElement.classList.contains("dialogOpen");
-const dialogShown = () => document.getElementById("dialog")!.classList.contains("active");
-
 /** An action's error, which the host raises as a dialog with a Dismiss. */
 const raiseError = () => receive({ command: "fetch", status: "fatal: unable to access remote" });
 

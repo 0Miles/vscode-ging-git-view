@@ -8,6 +8,7 @@ import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogText,
   makeViewState,
   receive,
   setupHtml
@@ -113,10 +114,6 @@ function openMenuOn(selector: string) {
   const elem = document.querySelector<HTMLElement>(selector);
   expect(elem, selector).not.toBeNull();
   elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
-function dialogText() {
-  return document.getElementById("dialog")!.textContent ?? "";
 }
 
 /** Type into a form's text field the way a user does: the keyup is what lifts

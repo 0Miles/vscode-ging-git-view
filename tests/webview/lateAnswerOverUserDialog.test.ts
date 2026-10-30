@@ -8,6 +8,8 @@ import {
   clickId,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogShown,
+  dialogText,
   makeViewState,
   receive,
   setupHtml
@@ -54,9 +56,6 @@ const commits: GitCommitNode[] = [
     ]
   }
 ];
-
-const dialogShown = () => document.getElementById("dialog")!.classList.contains("active");
-const dialogText = () => document.getElementById("dialog")!.textContent ?? "";
 
 /** Let the microtask that pays an owed dialog run. */
 const flushMicrotasks = () => Promise.resolve();

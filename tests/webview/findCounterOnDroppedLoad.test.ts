@@ -4,7 +4,7 @@ import type { BranchSearchEntry, GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, makeViewState, receive, search, setupHtml } from "./setup";
 
 // The `3 of 7` counter and the highlighted row are two readings of one fact —
 // which match Find is on — so they may never disagree. A step onto a match past
@@ -185,14 +185,6 @@ const furtherTwo: BranchSearchEntry = {
   hash: "uuu222",
   logDepth: 950
 };
-
-/** Type a search. The widget searches on `keyup`, one keystroke at a time; the
- *  key itself only has to be neither Enter (step) nor Escape (close). */
-function search(query: string) {
-  const input = document.getElementById("findInput") as HTMLInputElement;
-  input.value = query;
-  input.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true }));
-}
 
 /** What the counter reads, built from the same localized template the widget
  *  fills in — so the assertion names a position, not a substring a neighbouring

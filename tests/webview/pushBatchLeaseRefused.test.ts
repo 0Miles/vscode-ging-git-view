@@ -4,9 +4,10 @@ import type { BatchPushResult, GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
 import {
-  DEFAULT_REPO,
   clickId,
   createVscodeMock,
+  DEFAULT_REPO,
+  dialogText,
   makeViewState,
   receive,
   setupHtml
@@ -51,10 +52,6 @@ const commits: GitCommitNode[] = [
     ]
   }
 ];
-
-function dialogText(): string {
-  return document.getElementById("dialog")!.textContent ?? "";
-}
 
 function occurrences(text: string, needle: string): number {
   return text.split(needle).length - 1;

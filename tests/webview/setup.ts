@@ -1,5 +1,6 @@
 import { expect } from "vitest";
 
+import type { GitCommitDetails } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import { buildWebviewMarkup } from "@/extension/webviewMarkup";
 import type * as GG from "@/types";
@@ -333,22 +334,61 @@ export function bodyLink(root: string, email: string) {
   return elem!;
 }
 
-/** Open the Commit Details View on `hash`, then CTRL-click `compareWith` to
- *  compare the two.
+/** Whether a dialog is up. */
+export function dialogShown() {
+  return document.getElementById("dialog")!.classList.contains("active");
+}
+
+/** The dialog's text, read whether or not it is up — a suite that cares pairs
+ *  it with {@link dialogShown}. */
+export function dialogText() {
+  return document.getElementById("dialog")!.textContent ?? "";
+}
+
+/** Type a search. The widget searches on `keyup`, one keystroke at a time; the
+ *  key itself only has to be neither Enter (step) nor Escape (close). */
+export function search(query: string) {
+  const input = document.getElementById("findInput") as HTMLInputElement;
+  input.value = query;
+  input.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true }));
+}
+
+/** The host's answer to a `commitDetails` request on `hash`, for suites that
+ *  need the Commit Details View open and nothing in particular in it. */
+export function commitDetails(hash: string): GitCommitDetails {
+  return {
+    hash,
+    parents: [],
+    author: "Alice",
+    email: "alice@example.com",
+    committer: "Alice",
+    committerEmail: "alice@example.com",
+    authorDate: 1700000000,
+    commitDate: 1700000000,
+    body: "Body",
+    fileChanges: []
+  };
+}
+
+/** Open the Commit Details View on `hash` by clicking its row.
  *
  *  Clicking a row that is *already* the anchored one closes the view rather
  *  than opening it, so whichever commit a previous test left anchored would
- *  otherwise decide whether this one sees a comparison. The `commitDetails`
- *  request the open path sends is what tells the two apart — read off the
- *  current {@link createVscodeMock}'s log, which a suite's `clearMessages`
- *  empties in place rather than replaces. */
-export function compareRows(hash: string, compareWith: string) {
-  const click = (h: string, ctrlKey = false) =>
-    graphRow(h).dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey }));
+ *  otherwise decide what the click does. The `commitDetails` request the open
+ *  path sends is what tells the two apart — read off the current
+ *  {@link createVscodeMock}'s log, which a suite's `clearMessages` empties in
+ *  place rather than replaces. */
+export function openDetailsOn(hash: string) {
   const opened = () =>
     sentMessages.some((m) => m.command === "commitDetails" && m.commitHash === hash);
-  click(hash);
-  if (!opened()) click(hash);
+  clickElem(graphRow(hash));
+  if (!opened()) clickElem(graphRow(hash));
   expect(opened(), `details never opened on ${hash}`).toBe(true);
-  click(compareWith, true);
+}
+
+/** Open the Commit Details View on `hash`, then CTRL-click `compareWith` to
+ *  compare the two. */
+export function compareRows(hash: string, compareWith: string) {
+  openDetailsOn(hash);
+  graphRow(compareWith).dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
 }
