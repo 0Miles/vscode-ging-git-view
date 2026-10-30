@@ -1,13 +1,16 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "lib": ["es2023", "dom"]
+    "lib": ["es2023", "dom"],
+    // The webview harness is plain JS run by node; it opts in with `// @ts-check`.
+    "allowJs": true
   },
   "include": [
     "./backend/**/*.ts",
     "./extension/**/*.ts",
     "./webview/**/*.ts",
     "../src/backend/**/*.ts",
-    "../src/webview/**/*.ts"
+    "../src/webview/**/*.ts",
+    "../scripts/webview-harness.js"
   ]
 }
