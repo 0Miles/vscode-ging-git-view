@@ -11,7 +11,7 @@ import {
   setupHtml
 } from "./setup";
 
-/* frozenHeader.test.ts with "Center Commit Details View" on: centring has to
+/* cdvBringIntoView.test.ts with "Center Commit Details View" on: centring has to
  * mean centred in what the frozen header (#206) leaves visible, not in the
  * whole viewport, or the opened commit sits half a header too high. A suite of
  * its own because the setting is read once, when the webview starts.
