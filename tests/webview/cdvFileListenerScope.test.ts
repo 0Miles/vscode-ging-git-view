@@ -8,11 +8,13 @@ import {
   clickElem,
   clickId,
   clickItem,
+  contextMenuEntries,
   createVscodeMock,
   DEFAULT_REPO,
   dialogRow,
   graphRow,
   makeViewState,
+  MENU_KEY_EVENT,
   openMenuOn,
   receive,
   rightClick,
@@ -164,16 +166,6 @@ const redundancyResult: BranchRedundancy = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-/** The keyboard's way of raising a context menu, mirroring `main.ts`'s private
- *  `MENU_KEY_EVENT`. Dispatched directly rather than via Shift+F10, because the
- *  document keydown handler that would normally synthesise it returns early
- *  while a dialog stands, before the branch that reads Shift+F10. Since #145
- *  the arrows and Enter reach a dialog row, through the dialog's own branch,
- *  but the menu key still does not. What is asserted here is the *binding*,
- *  which is what `addCdvContextMenuListener` wires and what would outlive the
- *  menu key ever being routed there. */
-const MENU_KEY_EVENT = "ging.contextMenuKey";
-
 /** A file row inside `root`, addressed by the path it carries. Both lists hold
  *  rows for `src/…`, so the selector has to say which list as well as which
  *  path — that is the whole subject of this suite. */
@@ -201,12 +193,6 @@ function savedPanelFolderOpen(name: string): boolean | undefined {
   const tree = mock.getState()?.expandedCommit?.fileTree;
   const folder = tree?.children.find((child) => child.name === name);
   return folder !== undefined && folder.type === "folder" ? folder.open : undefined;
-}
-
-function contextMenuEntries() {
-  return Array.from(document.getElementById("contextMenu")!.children).map((li) =>
-    (li.textContent ?? "").trim()
-  );
 }
 
 /** A soft refresh landing behind the standing dialog — the file watcher's, or

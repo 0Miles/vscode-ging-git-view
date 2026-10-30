@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 const viewState = makeViewState({ combineLocalAndRemoteBranchLabels: false });
 
@@ -64,9 +64,7 @@ describe("checking out a remote branch whose name contains slashes", () => {
 
   it("sends a checkoutBranch message carrying the full branch path", () => {
     mock.clearMessages();
-    document
-      .getElementById("dialogAction")!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    clickId("dialogAction");
 
     const checkout = mock.sentMessages.find((m) => m.command === "checkoutBranch");
     expect(checkout).toMatchObject({

@@ -5,6 +5,7 @@ import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
+  clickId,
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
@@ -95,12 +96,6 @@ let mock: ReturnType<typeof createVscodeMock>;
 
 const sentOf = (command: string) => mock.sentMessages.filter((m) => m.command === command);
 
-function clickYes() {
-  const action = document.getElementById("dialogAction");
-  expect(action, "the confirmation's Yes button").not.toBeNull();
-  action!.dispatchEvent(new MouseEvent("click"));
-}
-
 describe("dropping the stash the dialog named", () => {
   beforeAll(async () => {
     vi.resetModules();
@@ -117,7 +112,7 @@ describe("dropping the stash the dialog named", () => {
     expect(document.getElementById("dialogAction"), "the confirmation").not.toBeNull();
 
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("dropStash")).toEqual([
       { command: "dropStash", repo: DEFAULT_REPO, selector: "stash@{0}" }
@@ -155,7 +150,7 @@ describe("dropping the stash the dialog named", () => {
 
     it("does not drop the stash that inherited the number", () => {
       mock.clearMessages();
-      clickYes();
+      clickId("dialogAction");
 
       // `stash@{0}` now means `sNEW`, which the user has never seen. Sending it
       // destroys someone else's work and leaves no ref pointing at it.
@@ -178,7 +173,7 @@ describe("applying, popping or renaming the stash the form named", () => {
   /** A form's own submit button; the forms here open with nothing to fill in
    *  but the rename's message. */
   function submit() {
-    clickYes();
+    clickId("dialogAction");
   }
 
   /** Put the stack back as the user found it, ready for the next scenario. */

@@ -3,7 +3,14 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  DEFAULT_REPO,
+  clickId,
+  createVscodeMock,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 const REPO = DEFAULT_REPO;
 
@@ -42,7 +49,7 @@ function dialogActive(): boolean {
 }
 
 function confirmDialog() {
-  document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+  clickId("dialogAction");
 }
 
 function dismissDialog() {

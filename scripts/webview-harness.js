@@ -191,22 +191,47 @@ const html = `<!DOCTYPE html>
   <script>
     window.l10n = new Proxy({}, { get: (_, p) => (typeof p === "string" ? p : "") });
     window.viewState = ${JSON.stringify(VIEW_STATE)};
-    window.acquireVsCodeApi = () => ({ postMessage() {}, getState() { return null; }, setState() {} });
+    // The host's half: each load request the webview posts is answered, and an
+    // answer echoes the request's \`hard\` and \`token\` as the real host does
+    // (messageHandler.ts). Seeding unasked-for answers instead is what drew 0
+    // rows once the webview began dropping answers whose token is not the
+    // navigation it is on (#84, #235); taking the token off the request keeps
+    // it right however the webview comes to number its navigations.
+    // Every request is kept on window.harnessRequests for drivers to read.
+    const HOST_ANSWERS = {
+      loadRemotes: { remotes: ["origin"], pushDefault: null },
+      loadBranches: { branches: ["main", "feature/long-branch-name"], head: "main", isRepo: true, filter: [], dimmedBranches: [] },
+      loadCommits: { commits: ${JSON.stringify(SAMPLE_COMMITS)}, head: "aaaaaaa1", moreCommitsAvailable: false }
+    };
+    window.harnessRequests = [];
+    window.acquireVsCodeApi = () => ({
+      postMessage(msg) {
+        window.harnessRequests.push(msg);
+        const answer = HOST_ANSWERS[msg.command];
+        if (answer === undefined) return;
+        const data = { command: msg.command, ...answer };
+        if ("token" in msg) Object.assign(data, { hard: msg.hard, token: msg.token });
+        // Asynchronous, as from the real host, but a microtask so the answers
+        // have landed before the page's load event.
+        queueMicrotask(() => window.dispatchEvent(new MessageEvent("message", { data })));
+      },
+      getState() { return null; },
+      setState() {}
+    });
   </script>
   <script src="./web.min.js"></script>
   <script>
-    const receive = (msg) => window.dispatchEvent(new MessageEvent("message", { data: msg }));
-    receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
-    receive({ command: "loadBranches", branches: ["main", "feature/long-branch-name"], head: "main", hard: true, isRepo: true, filter: [], dimmedBranches: [] });
-    receive({ command: "loadCommits", commits: ${JSON.stringify(SAMPLE_COMMITS)}, head: "aaaaaaa1", moreCommitsAvailable: false, hard: true });
-    // Guard against silently-dropped seed messages (issue #14): the whole point
+    // Guard against silently-dropped answers (issues #14, #235): the whole point
     // of this harness is to render commit rows, so an empty table is a failure.
-    if (document.querySelectorAll("tr.commit").length === 0) {
-      console.error(
-        "webview-harness: no tr.commit rows rendered after seeding — " +
-        "the seeded messages are probably out of sync with ResponseMessage in src/types.ts"
-      );
-    }
+    window.addEventListener("load", () => {
+      if (document.querySelectorAll("#commitTable tr.commit").length === 0) {
+        console.error(
+          "webview-harness: no tr.commit rows rendered; the webview requested: " +
+          (window.harnessRequests.map((m) => m.command).join(", ") || "nothing") +
+          ". The answers are probably out of sync with ResponseMessage in src/types.ts"
+        );
+      }
+    });
   </script>
 </body>
 </html>`;

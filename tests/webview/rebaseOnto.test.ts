@@ -4,10 +4,14 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
 import {
+  clickId,
   clickItem,
+  compareRows,
   createVscodeMock,
   DEFAULT_REPO,
+  graphRow,
   makeViewState,
+  menuItemLabels,
   receive,
   setupHtml
 } from "./setup";
@@ -62,15 +66,9 @@ const commits: GitCommitNode[] = [
   node("base", [], "base")
 ];
 
-function row(hash: string) {
-  const elem = document.querySelector<HTMLElement>(`tr.commit[data-hash="${hash}"]`);
-  expect(elem, hash).not.toBeNull();
-  return elem!;
-}
-
 function menuEntries(hash: string) {
-  row(hash).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-  return openMenuEntries();
+  graphRow(hash).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  return menuItemLabels();
 }
 
 /** The same, for the ref chip carrying `name`. The chip writes the name
@@ -83,13 +81,7 @@ function refMenuEntries(name: string) {
   );
   expect(chip, name).toBeDefined();
   chip!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-  return openMenuEntries();
-}
-
-function openMenuEntries() {
-  return Array.from(document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")).map(
-    (li) => (li.textContent ?? "").trim()
-  );
+  return menuItemLabels();
 }
 
 /** How many of the open menu's entries are a rebase — one, always: the range
@@ -102,24 +94,6 @@ function rebaseEntryCount(entries: string[]) {
 
 describe("rebase --onto from the commit context menu", () => {
   let mock: ReturnType<typeof createVscodeMock>;
-
-  /** Open the Commit Details View on `hash`, then CTRL-click `compareWith` to
-   *  compare the two — the state the rebase-onto entry depends on.
-   *
-   *  Clicking a row that is *already* the anchored one closes the view rather
-   *  than opening it, so whichever commit the previous test left anchored would
-   *  otherwise decide whether this one sees a comparison. The request the open
-   *  path sends is what tells the two apart. */
-  function compare(hash: string, compareWith: string) {
-    const click = (h: string, ctrlKey = false) =>
-      row(h).dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey }));
-    const opened = () =>
-      mock.sentMessages.some((m) => m.command === "commitDetails" && m.commitHash === hash);
-    click(hash);
-    if (!opened()) click(hash);
-    expect(opened(), `details never opened on ${hash}`).toBe(true);
-    click(compareWith, true);
-  }
 
   function loadView() {
     receive({
@@ -159,7 +133,7 @@ describe("rebase --onto from the commit context menu", () => {
   });
 
   it("leaves both menus reading as the plain rebase while a single commit is expanded", () => {
-    row("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    graphRow("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const commitMenu = menuEntries("target");
     expect(commitMenu).toContain(REBASE_ON);
     expect(commitMenu).not.toContain(REBASE_ONTO);
@@ -172,10 +146,10 @@ describe("rebase --onto from the commit context menu", () => {
   });
 
   it("runs the plain rebase from a menu that reads as the plain rebase", () => {
-    row("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    graphRow("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     menuEntries("target");
     clickItem(REBASE_ON);
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
 
     expect(mock.sentMessages).toContainEqual({
       command: "rebaseOn",
@@ -185,7 +159,7 @@ describe("rebase --onto from the commit context menu", () => {
   });
 
   it("replaces the plain entry rather than adding a second one", () => {
-    compare("keep", "w2");
+    compareRows("keep", "w2");
     const commitMenu = menuEntries("target");
     expect(commitMenu).toContain(REBASE_ONTO);
     expect(commitMenu).not.toContain(REBASE_ON);
@@ -201,12 +175,12 @@ describe("rebase --onto from the commit context menu", () => {
     // `--onto` aimed at an end of its own range is a no-op or a self-copy
     // (ADR-0022), so these two keep the entry they always had rather than
     // losing it.
-    compare("keep", "w2");
+    compareRows("keep", "w2");
     expect(menuEntries("keep")).toContain(REBASE_ON);
-    compare("keep", "w2");
+    compareRows("keep", "w2");
     expect(menuEntries("w2")).toContain(REBASE_ON);
     // Same rule read off a branch: `dup-a` sits on an end of the range.
-    compare("keep", "dup");
+    compareRows("keep", "dup");
     expect(refMenuEntries("dup-a")).toContain(REBASE_ON_BRANCH);
   });
 
@@ -216,7 +190,7 @@ describe("rebase --onto from the commit context menu", () => {
   // handing that line a name already escaped for HTML printed `fix&amp;bug` for
   // a branch called `fix&bug` — a command that would not run.
   it("prints a branch name that needs escaping exactly once, plain rebase", () => {
-    row("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    graphRow("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     refMenuEntries("fix&bug");
     clickItem(REBASE_ON_BRANCH);
 
@@ -229,7 +203,7 @@ describe("rebase --onto from the commit context menu", () => {
   });
 
   it("prints a branch name that needs escaping exactly once, range rebase", () => {
-    compare("keep", "w2");
+    compareRows("keep", "w2");
     refMenuEntries("fix&bug");
     clickItem(REBASE_ONTO_BRANCH);
 
@@ -240,7 +214,7 @@ describe("rebase --onto from the commit context menu", () => {
   });
 
   it("replays the range onto a branch, naming the branch in both command and message", () => {
-    compare("keep", "w2");
+    compareRows("keep", "w2");
     refMenuEntries("main");
     clickItem(REBASE_ONTO_BRANCH);
 
@@ -250,7 +224,7 @@ describe("rebase --onto from the commit context menu", () => {
       "git rebase --onto main base topic"
     );
 
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
     expect(mock.sentMessages).toContainEqual({
       command: "rebaseOnto",
       repo: DEFAULT_REPO,
@@ -262,10 +236,10 @@ describe("rebase --onto from the commit context menu", () => {
 
   it("sends the ancestor as upstream regardless of which commit was clicked first", () => {
     // CTRL-clicked newest-first: the anchored row is the descendant.
-    compare("w2", "keep");
+    compareRows("w2", "keep");
     menuEntries("target");
     clickItem(REBASE_ONTO);
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
 
     expect(mock.sentMessages).toContainEqual({
       command: "rebaseOnto",
@@ -277,7 +251,7 @@ describe("rebase --onto from the commit context menu", () => {
   });
 
   it("shows the exact command and falls back to the tip's hash when no branch is on it", () => {
-    compare("keep", "w1"); // nothing points at w1
+    compareRows("keep", "w1"); // nothing points at w1
     menuEntries("target");
     clickItem(REBASE_ONTO);
 
@@ -288,7 +262,7 @@ describe("rebase --onto from the commit context menu", () => {
     // The detached-HEAD consequence is spelled out rather than left to be found.
     expect(dialog.querySelector(".dialogNote")!.textContent).toContain("detached");
 
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
     expect(mock.sentMessages).toContainEqual({
       command: "rebaseOnto",
       repo: DEFAULT_REPO,
@@ -300,7 +274,7 @@ describe("rebase --onto from the commit context menu", () => {
 
   it("shows the command while the branch is still being picked", () => {
     // Two local branches sit on the tip, so which one git moves is still open.
-    compare("keep", "dup");
+    compareRows("keep", "dup");
     menuEntries("target");
     clickItem(REBASE_ONTO);
 
@@ -326,7 +300,7 @@ describe("rebase --onto from the commit context menu", () => {
   // re-taken there — and here the only honest answer is to refuse, since the
   // printed command is the whole of what was consented to.
   it("refuses when the branch it printed no longer points at the tip", () => {
-    compare("keep", "w2"); // tip is w2, and `topic` is on it
+    compareRows("keep", "w2"); // tip is w2, and `topic` is on it
     menuEntries("target");
     clickItem(REBASE_ONTO);
     expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
@@ -352,7 +326,7 @@ describe("rebase --onto from the commit context menu", () => {
     expect(document.getElementById("dialogAction"), "the dialog was dismissed").not.toBeNull();
 
     mock.clearMessages();
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
 
     expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([]);
     expect(document.getElementById("dialog")!.textContent).toContain(
@@ -394,7 +368,7 @@ describe("rebase --onto from the commit context menu", () => {
 
     beforeEach(() => {
       loadDup(false);
-      compare("keep", "dup");
+      compareRows("keep", "dup");
       menuEntries("target");
       clickItem(REBASE_ONTO);
     });
@@ -402,7 +376,7 @@ describe("rebase --onto from the commit context menu", () => {
     it("sends the branch picked when it still points at the tip", () => {
       pick("dup-b");
       mock.clearMessages();
-      document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+      clickId("dialogAction");
 
       expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([
         {
@@ -421,7 +395,7 @@ describe("rebase --onto from the commit context menu", () => {
 
       pick("dup-a");
       mock.clearMessages();
-      document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+      clickId("dialogAction");
 
       expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([]);
       expect(document.getElementById("dialog")!.textContent).toContain(
@@ -450,7 +424,7 @@ describe("rebase --onto from the commit context menu", () => {
 
     function submitAndExpectRefusal(branch: string) {
       mock.clearMessages();
-      document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+      clickId("dialogAction");
 
       expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([]);
       expect(document.getElementById("dialog")!.textContent).toContain(
@@ -459,7 +433,7 @@ describe("rebase --onto from the commit context menu", () => {
     }
 
     it("refuses the branch the command printed", () => {
-      compare("keep", "w2"); // tip is w2, and `topic` is on it
+      compareRows("keep", "w2"); // tip is w2, and `topic` is on it
       menuEntries("target");
       clickItem(REBASE_ONTO);
       expect(document.querySelector("#dialog .commandPreview")!.textContent).toBe(
@@ -471,7 +445,7 @@ describe("rebase --onto from the commit context menu", () => {
     });
 
     it("refuses the branch picked from several on the tip", () => {
-      compare("keep", "dup");
+      compareRows("keep", "dup");
       menuEntries("target");
       clickItem(REBASE_ONTO);
       expect(document.querySelector("#dialog select"), "the branch select").not.toBeNull();

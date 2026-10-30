@@ -12,6 +12,7 @@ import {
   dialogRow,
   graphRow,
   makeViewState,
+  moveDialogAheadOfTheGraph,
   openMenuOn,
   receive,
   setupHtml
@@ -154,21 +155,6 @@ const redundancyResult: BranchRedundancy = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-/** Put `#dialog` ahead of the graph in document order, which is the one thing
- *  standing between these reads and the dialog's rows today.
- *
- *  Not a hypothetical rearrangement: `buildWebviewMarkup` is free to order its
- *  own children, nothing in it records that `#commitTable` must come first, and
- *  a future dialog drawn into `#content` would land ahead of the table without
- *  moving anything at all. Done before the module is imported so the webview
- *  boots into the layout it is being asked about — `insertBefore` moves the same
- *  element, so the module-level `getElementById("dialog")` still resolves. */
-function moveDialogAheadOfTheGraph() {
-  const dialog = document.getElementById("dialog")!;
-  const content = document.getElementById("content")!;
-  document.body.insertBefore(dialog, content);
-}
-
 /** Commit rows that are not the graph's, standing in `#dialog` where the real
  *  dialog's would be.
  *
@@ -304,6 +290,9 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
+    // The one thing standing between these reads and the dialog's rows today.
+    // Before the module is imported, so the webview boots into the layout it
+    // is being asked about.
     moveDialogAheadOfTheGraph();
     Element.prototype.scrollIntoView = scrollIntoView;
     await import("@/webview/main");

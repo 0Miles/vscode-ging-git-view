@@ -100,8 +100,14 @@ function jsonRoundTrip<T>(value: T): T {
  *  stopped listening. Rebound by every `createVscodeMock`, one per suite. */
 let lastLoadToken: number | null = null;
 
+/** The current mock's message log, for the helpers below that read it, so
+ *  their callers need not thread the mock through. Rebound by every
+ *  `createVscodeMock`, like {@link lastLoadToken}. */
+let sentMessages: GG.RequestMessage[] = [];
+
 export function createVscodeMock(initialState: WebViewState | null = null) {
   const sent: GG.RequestMessage[] = [];
+  sentMessages = sent;
   lastLoadToken = null;
   // The real getState() yields undefined (not null) when nothing was saved —
   // model that exactly, so a boot path that only handles null fails here too.
@@ -243,14 +249,106 @@ export function dialogRow(hash: string) {
  *  carries. `missingMenuItem` is what exercises the miss, and without it a green
  *  run cannot tell a guard that fires from one that only looks like it. */
 export function clickItem(label: string) {
+  clickElem(findMenuItem(label, (text) => text === label));
+}
+
+/** The context-menu item whose label begins with `prefix`, for the items whose
+ *  label carries more than the suite cares about — a shortcut hint, or the
+ *  ellipsis of an item that opens a dialog. A miss throws on the same terms as
+ *  {@link clickItem}, naming the prefix and every item the menu does carry. */
+export function menuItemStartingWith(prefix: string) {
+  return findMenuItem(prefix, (text) => text.startsWith(prefix));
+}
+
+/** The one guarded lookup behind {@link clickItem} and
+ *  {@link menuItemStartingWith}; `label` is what the failure names. */
+function findMenuItem(label: string, matches: (text: string) => boolean) {
   const entries = Array.from(
     document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
   ).map((li) => ({ li, text: (li.textContent ?? "").trim() }));
-  const item = entries.find((entry) => entry.text === label);
+  const item = entries.find((entry) => matches(entry.text));
   if (item === undefined) {
     throw new Error(
       `menu item "${label}" not found; items: ${entries.map((entry) => entry.text).join(" | ")}`
     );
   }
-  clickElem(item.li);
+  return item.li;
+}
+
+/** Just the open menu's actionable labels, which is what a menu's *contents*
+ *  are asked about — the dividers between them are not items and carry no
+ *  text. */
+export function menuItemLabels() {
+  return Array.from(document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")).map(
+    (li) => (li.textContent ?? "").trim()
+  );
+}
+
+/** Every child of the open menu, dividers included, so that "nothing opened" is
+ *  asserted against the whole element rather than against the items alone. */
+export function contextMenuEntries() {
+  const menu = document.getElementById("contextMenu");
+  expect(menu, "#contextMenu").not.toBeNull();
+  return Array.from(menu!.children).map((li) => (li.textContent ?? "").trim());
+}
+
+/** Close whatever context menu is open, the way a click elsewhere does. */
+export function hideMenu() {
+  document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+}
+
+/** The keyboard's way of raising a context menu, mirroring `main.ts`'s private
+ *  `MENU_KEY_EVENT`. Suites dispatch it directly rather than via Shift+F10,
+ *  because the document keydown handler that would normally synthesise it
+ *  returns early while a dialog stands, before the branch that reads Shift+F10.
+ *  Since #145 the arrows and Enter reach a dialog row, through the dialog's own
+ *  branch, but the menu key still does not. What it asserts is the *binding*,
+ *  which is what would outlive the menu key ever being routed there. */
+export const MENU_KEY_EVENT = "ging.contextMenuKey";
+
+/** Put `#dialog` ahead of the graph in document order, so that a read or a
+ *  binding that is not scoped to the graph meets the dialog's elements first.
+ *
+ *  Not a hypothetical rearrangement: `buildWebviewMarkup` is free to order its
+ *  own children, nothing in it records that `#commitTable` must come first, and
+ *  a future dialog drawn into `#content` would land ahead of the table without
+ *  moving anything at all. `insertBefore` moves the same element, so a
+ *  module-level `getElementById("dialog")` still resolves. */
+export function moveDialogAheadOfTheGraph() {
+  const dialog = document.getElementById("dialog");
+  const content = document.getElementById("content");
+  expect(dialog, "#dialog").not.toBeNull();
+  expect(content, "#content").not.toBeNull();
+  document.body.insertBefore(dialog!, content);
+}
+
+/** A `.commitBodyLink` under `root`, addressed by the address it points at:
+ *  `commitSummaryHtml` emits one per commit for the author and one for the
+ *  committer, and both the graph and a dialog can render them. */
+export function bodyLink(root: string, email: string) {
+  const elem = document.querySelector<HTMLElement>(
+    `${root} .commitBodyLink[href="mailto:${encodeURIComponent(email)}"]`
+  );
+  expect(elem, `${root} ${email}`).not.toBeNull();
+  return elem!;
+}
+
+/** Open the Commit Details View on `hash`, then CTRL-click `compareWith` to
+ *  compare the two.
+ *
+ *  Clicking a row that is *already* the anchored one closes the view rather
+ *  than opening it, so whichever commit a previous test left anchored would
+ *  otherwise decide whether this one sees a comparison. The `commitDetails`
+ *  request the open path sends is what tells the two apart — read off the
+ *  current {@link createVscodeMock}'s log, which a suite's `clearMessages`
+ *  empties in place rather than replaces. */
+export function compareRows(hash: string, compareWith: string) {
+  const click = (h: string, ctrlKey = false) =>
+    graphRow(h).dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey }));
+  const opened = () =>
+    sentMessages.some((m) => m.command === "commitDetails" && m.commitHash === hash);
+  click(hash);
+  if (!opened()) click(hash);
+  expect(opened(), `details never opened on ${hash}`).toBe(true);
+  click(compareWith, true);
 }

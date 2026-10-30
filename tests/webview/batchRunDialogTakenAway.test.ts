@@ -3,7 +3,14 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A batch run's retry offer is a question, and until #125 it was a question with
 // exactly two exits: Yes and Cancel, both hanging off one dialog. The dialog is
@@ -68,7 +75,7 @@ function dialogText(): string {
 }
 
 function confirmDialog() {
-  document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+  clickId("dialogAction");
 }
 
 function dismissDialog() {

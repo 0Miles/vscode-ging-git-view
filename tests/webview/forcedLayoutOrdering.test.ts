@@ -6,7 +6,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  graphRow,
+  makeViewState,
+  menuItemStartingWith,
+  receive,
+  setupHtml
+} from "./setup";
 
 // What a redraw costs in *layouts*, not in milliseconds.
 //
@@ -320,10 +327,7 @@ function dateHeader() {
  *  load behind it, and the one other route into `render()`. */
 function toggleDateColumn() {
   dateHeader().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim().startsWith("Date"));
-  if (item === undefined) throw new Error("the column header menu has no Date item");
+  const item = menuItemStartingWith("Date");
   // The menu is opened outside the watched window on purpose: positioning it
   // measures the viewport, and those reads belong to the menu, not the redraw.
   return watched(() => item.dispatchEvent(new MouseEvent("click", { bubbles: true })));

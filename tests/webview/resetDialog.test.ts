@@ -4,11 +4,14 @@ import type { GitCommitNode, GitResetMode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
 import {
+  clickId,
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  graphRow,
   makeViewState,
   receive,
+  rightClick,
   setupHtml
 } from "./setup";
 
@@ -65,9 +68,7 @@ async function boot(dialogResetMode: GitResetMode) {
 }
 
 function openResetDialog(hash: string) {
-  const row = document.querySelector<HTMLElement>(`tr.commit[data-hash="${hash}"]`);
-  expect(row, hash).not.toBeNull();
-  row!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  rightClick(graphRow(hash));
   clickItem(RESET);
   const select = document.getElementById("dialogInput0") as HTMLSelectElement | null;
   expect(select).not.toBeNull();
@@ -93,9 +94,7 @@ describe("the Reset dialog", () => {
 
     select.value = "keep";
     mock.clearMessages();
-    document
-      .getElementById("dialogAction")!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    clickId("dialogAction");
 
     expect(mock.sentOf("resetToCommit")).toEqual([
       { command: "resetToCommit", repo: DEFAULT_REPO, commitHash: "base", resetMode: "keep" }

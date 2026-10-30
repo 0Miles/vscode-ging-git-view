@@ -3,7 +3,14 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { mergeContextMenuActionsVisibility } from "@/backend/utils/contextMenuVisibility";
 
-import { createVscodeMock, makeViewState, receive, setupHtml, VIEWPORT_HEIGHT } from "./setup";
+import {
+  createVscodeMock,
+  graphRow,
+  makeViewState,
+  receive,
+  setupHtml,
+  VIEWPORT_HEIGHT
+} from "./setup";
 
 const viewState = makeViewState({
   contextMenuActionsVisibility: mergeContextMenuActionsVisibility({})
@@ -53,7 +60,7 @@ function stubMenuSize(menu: HTMLElement, width: number, height: number) {
 }
 
 function openMenuAt(pageX: number, pageY: number) {
-  const row = document.querySelector<HTMLElement>('tr.commit[data-hash="abc123"]')!;
+  const row = graphRow("abc123");
   const ev = new MouseEvent("contextmenu", { bubbles: true });
   // jsdom doesn't derive pageX/pageY from clientX/clientY, so set them directly.
   Object.defineProperty(ev, "pageX", { value: pageX });

@@ -3,7 +3,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { BatchPushResult, GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
-import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  DEFAULT_REPO,
+  clickId,
+  createVscodeMock,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A batch Force with lease can be refused for some branches because their
 // remote tip was fetched but never integrated (ADR-0025). Each refused branch
@@ -54,7 +61,7 @@ function occurrences(text: string, needle: string): number {
 }
 
 function confirmDialog() {
-  document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+  clickId("dialogAction");
 }
 
 function dismissDialog() {

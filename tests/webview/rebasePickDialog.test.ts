@@ -4,9 +4,12 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
 import {
+  clickId,
   clickItem,
+  compareRows,
   createVscodeMock,
   DEFAULT_REPO,
+  graphRow,
   makeViewState,
   receive,
   setupHtml
@@ -61,14 +64,8 @@ const commits: GitCommitNode[] = [
   node("init", [], "init")
 ];
 
-function row(hash: string) {
-  const elem = document.querySelector<HTMLElement>(`tr.commit[data-hash="${hash}"]`);
-  expect(elem, hash).not.toBeNull();
-  return elem!;
-}
-
 function openMenu(hash: string) {
-  row(hash).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  graphRow(hash).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
 }
 
 /** The hashes the checklist is showing, top row first. */
@@ -88,10 +85,6 @@ function untick(hash: string) {
   box!.dispatchEvent(new Event("change"));
 }
 
-function confirm() {
-  document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
-}
-
 /** The command line the dialog is printing. */
 function printedCommand() {
   return document.querySelector("#dialog .commandPreview")!.textContent;
@@ -104,30 +97,12 @@ function dialogText() {
 describe("the rebase dialog's replay checklist", () => {
   let mock: ReturnType<typeof createVscodeMock>;
 
-  /** Open the Commit Details View on `hash`, then CTRL-click `compareWith` —
-   *  the state the range rebase's menu entry depends on.
-   *
-   *  Clicking a row that is *already* the anchored one closes the view rather
-   *  than opening it, so whichever commit a previous test left anchored would
-   *  otherwise decide whether this one sees a comparison. The request the open
-   *  path sends is what tells the two apart. */
-  function compare(hash: string, compareWith: string) {
-    const click = (h: string, ctrlKey = false) =>
-      row(h).dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey }));
-    const opened = () =>
-      mock.sentMessages.some((m) => m.command === "commitDetails" && m.commitHash === hash);
-    click(hash);
-    if (!opened()) click(hash);
-    expect(opened(), `details never opened on ${hash}`).toBe(true);
-    click(compareWith, true);
-  }
-
   /** Leave any comparison a previous test set up behind, so the rebase entries
    *  read and behave as the plain rebase again (#173). Expanding one commit's
-   *  details is what clears the compared row; the retry is `compare`'s, for
+   *  details is what clears the compared row; the retry is `compareRows`'s, for
    *  the same reason — a click on the already-anchored row closes the view. */
   function noComparison() {
-    const click = () => row("base").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    const click = () => graphRow("base").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     const opened = () =>
       mock.sentMessages.some((m) => m.command === "commitDetails" && m.commitHash === "base");
     click();
@@ -176,7 +151,7 @@ describe("the rebase dialog's replay checklist", () => {
     it("sends the command it always sent when no commit was unticked", () => {
       openMenu("target");
       clickItem(REBASE_ON);
-      confirm();
+      clickId("dialogAction");
 
       // Field for field what this action sent before the list existed: an
       // untouched dialog may not change what runs.
@@ -191,7 +166,7 @@ describe("the rebase dialog's replay checklist", () => {
       openMenu("target");
       clickItem(REBASE_ON);
       untick("keep");
-      confirm();
+      clickId("dialogAction");
 
       // Still a plain rebase — the range just starts later. `tip` is the branch
       // name so that git moves the branch rather than detaching HEAD.
@@ -209,7 +184,7 @@ describe("the rebase dialog's replay checklist", () => {
       openMenu("target");
       clickItem(REBASE_ON);
       untick("w1");
-      confirm();
+      clickId("dialogAction");
 
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseInteractive",
@@ -229,7 +204,7 @@ describe("the rebase dialog's replay checklist", () => {
       untick("keep");
       untick("w1");
       untick("w2");
-      confirm();
+      clickId("dialogAction");
 
       expect(
         mock.sentMessages.filter((m) => m.command.startsWith("rebase")),
@@ -244,7 +219,7 @@ describe("the rebase dialog's replay checklist", () => {
       // The gesture picks two commits and the label calls them a compared
       // range, so both ends move. git excludes `<upstream>`, which is why the
       // bound sent is the older selection's parent and never the selection.
-      compare("keep", "w2");
+      compareRows("keep", "w2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
@@ -252,18 +227,18 @@ describe("the rebase dialog's replay checklist", () => {
       expect(listedHashes()).toContain("w2");
       expect(printedCommand()).toBe("git rebase --onto target base topic");
 
-      confirm(); // leave no dialog open for the next test
+      clickId("dialogAction"); // leave no dialog open for the next test
     });
 
     it("sends the command it always sent when no commit was unticked", () => {
-      compare("keep", "w2");
+      compareRows("keep", "w2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
       // Both commits the user compared are replayed, so the bound git is given
       // is `keep`'s parent rather than `keep` — naming `keep` would drop it.
       expect(listedHashes()).toEqual(["w2", "w1", "keep"]);
-      confirm();
+      clickId("dialogAction");
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseOnto",
         repo: DEFAULT_REPO,
@@ -274,11 +249,11 @@ describe("the rebase dialog's replay checklist", () => {
     });
 
     it("moves the lower bound forward when only the oldest commits are dropped", () => {
-      compare("keep", "w2");
+      compareRows("keep", "w2");
       openMenu("target");
       clickItem(REBASE_ONTO);
       untick("keep");
-      confirm();
+      clickId("dialogAction");
 
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseOnto",
@@ -290,7 +265,7 @@ describe("the rebase dialog's replay checklist", () => {
     });
 
     it("keeps the printed command honest about the form it will run", () => {
-      compare("base", "w2");
+      compareRows("base", "w2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
@@ -302,7 +277,7 @@ describe("the rebase dialog's replay checklist", () => {
       untick("w2");
       expect(printedCommand()).toBe("git rebase --interactive --onto target init topic");
 
-      confirm();
+      clickId("dialogAction");
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseInteractive",
         repo: DEFAULT_REPO,
@@ -326,7 +301,7 @@ describe("the rebase dialog's replay checklist", () => {
       // reach one list rather than two spellings of the range.
       expect(listedHashes()).toEqual(["w2", "w1", "keep"]);
 
-      confirm();
+      clickId("dialogAction");
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseOn",
         repo: DEFAULT_REPO,
@@ -337,7 +312,7 @@ describe("the rebase dialog's replay checklist", () => {
 
   describe("a range that runs past the loaded commits", () => {
     it("cannot be edited, and runs the command it would have run anyway", () => {
-      compare("base", "stray");
+      compareRows("base", "stray");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
@@ -350,7 +325,7 @@ describe("the rebase dialog's replay checklist", () => {
       expect(boxes.length).toBeGreaterThan(0);
       expect(boxes.every((box) => box.disabled)).toBe(true);
 
-      confirm();
+      clickId("dialogAction");
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseOnto",
         repo: DEFAULT_REPO,
@@ -363,7 +338,7 @@ describe("the rebase dialog's replay checklist", () => {
 
   describe("a range that crosses a merge", () => {
     it("leaves the merge off the list", () => {
-      compare("base", "f2");
+      compareRows("base", "f2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
@@ -375,10 +350,10 @@ describe("the rebase dialog's replay checklist", () => {
     });
 
     it("still sends the untouched command", () => {
-      compare("base", "f2");
+      compareRows("base", "f2");
       openMenu("target");
       clickItem(REBASE_ONTO);
-      confirm();
+      clickId("dialogAction");
 
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseOnto",
@@ -390,7 +365,7 @@ describe("the rebase dialog's replay checklist", () => {
     });
 
     it("never narrows a list the flattened merge left in two strands", () => {
-      compare("base", "f2");
+      compareRows("base", "f2");
       openMenu("target");
       clickItem(REBASE_ONTO);
 
@@ -404,7 +379,7 @@ describe("the rebase dialog's replay checklist", () => {
       untick("s1");
       expect(printedCommand()).toBe("git rebase --interactive --onto target init feature");
 
-      confirm();
+      clickId("dialogAction");
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseInteractive",
         repo: DEFAULT_REPO,
@@ -449,7 +424,7 @@ describe("the rebase dialog's replay checklist", () => {
       expect(document.querySelectorAll("#dialog .rebasePickRow")).toHaveLength(0);
 
       // And it still runs the command it always ran.
-      confirm();
+      clickId("dialogAction");
       expect(mock.sentMessages).toContainEqual({
         command: "rebaseOn",
         repo: DEFAULT_REPO,
@@ -491,7 +466,7 @@ describe("the rebase dialog's replay checklist", () => {
     expect(document.getElementById("dialogAction"), "the dialog was dismissed").not.toBeNull();
 
     mock.clearMessages();
-    confirm();
+    clickId("dialogAction");
 
     expect(mock.sentMessages.filter((m) => m.command.startsWith("rebase"))).toEqual([]);
     expect(dialogText()).toContain(L.dialogHeadMoved.replace("{0}", "topic"));

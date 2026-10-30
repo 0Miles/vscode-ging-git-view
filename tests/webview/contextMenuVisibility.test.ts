@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { mergeContextMenuActionsVisibility } from "@/backend/utils/contextMenuVisibility";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { createVscodeMock, graphRow, makeViewState, receive, rightClick, setupHtml } from "./setup";
 
 // Hide a couple of commit-menu actions; everything else stays visible.
 const viewState = makeViewState({
@@ -59,9 +59,7 @@ describe("contextMenuActionsVisibility gating", () => {
   });
 
   it("omits commit actions whose visibility is set to false", () => {
-    const row = document.querySelector<HTMLElement>('tr.commit[data-hash="abc123"]')!;
-    expect(row).not.toBeNull();
-    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    rightClick(graphRow("abc123"));
 
     const menuText = document.getElementById("contextMenu")!.textContent ?? "";
     // Hidden actions are absent...
