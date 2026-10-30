@@ -7308,7 +7308,7 @@ function conflictPredictionPlaceholder(repo: string, theirs: string): string {
 let redundancyCheckSeq = 0;
 /** The progress dialog the latest check raised. The sequence says the answer
  *  is to the latest request; this says that request's dialog is still up. */
-let redundancyDialog = 0;
+let redundancyDialogOwner = 0;
 /** The repo the open dialog is reporting on, for its lazy detail requests. */
 let redundancyRepo: string | null = null;
 
@@ -7318,12 +7318,12 @@ let redundancyRepo: string | null = null;
  *  promise (ADR-0006). */
 function requestBranchRedundancy(repo: string, branch: string) {
   redundancyRepo = repo;
-  redundancyDialog = showActionRunningDialog(l10n.redundancyChecking);
+  redundancyDialogOwner = showActionRunningDialog(l10n.redundancyChecking);
   sendMessage({ command: "branchRedundancy", repo, branch, token: ++redundancyCheckSeq });
 }
 
 function showBranchRedundancy(branch: string, result: BranchRedundancy, token: number) {
-  if (token !== redundancyCheckSeq || progressDialogOwnedBy(redundancyDialog) === null) return;
+  if (token !== redundancyCheckSeq || progressDialogOwnedBy(redundancyDialogOwner) === null) return;
   const message = branchRedundancyMessage(branch, result) + branchRedundancyBasis(result);
   // A redundant branch, and every branch we couldn't judge, is a one-line
   // answer with nothing to list. Those stay plain centred alerts: the wide
@@ -7603,16 +7603,16 @@ let cleanupOpenToken = 0;
 /** The repo that request was made for. */
 let cleanupOpenRepo: string | null = null;
 /** The progress dialog that request raised, which its answer replaces. */
-let cleanupOpenDialog = 0;
+let cleanupOpenDialogOwner = 0;
 /** The progress dialog the running deep scan reports into. */
-let cleanupScanDialog = 0;
+let cleanupScanDialogOwner = 0;
 
 /** Ask the host for a payload and open the dialog on it. The graph's context
  *  menu route (the side-view command has the payload already). */
 function requestBranchCleanup(repo: string) {
   cleanupOpenRepo = repo;
   cleanupOpenToken = ++cleanupSeq;
-  cleanupOpenDialog = showActionRunningDialog(l10n.cleanupChecking);
+  cleanupOpenDialogOwner = showActionRunningDialog(l10n.cleanupChecking);
   sendMessage({ command: "branchCleanupOpen", repo, fetch: false, token: cleanupOpenToken });
 }
 
@@ -7634,7 +7634,7 @@ function handleBranchCleanupOpen(msg: GG.ResponseBranchCleanupOpen) {
   if (
     msg.token !== cleanupOpenToken ||
     cleanupOpenRepo === null ||
-    progressDialogOwnedBy(cleanupOpenDialog) === null
+    progressDialogOwnedBy(cleanupOpenDialogOwner) === null
   ) {
     return;
   }
@@ -7924,7 +7924,7 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
  *  replaced by a progress one so the list can't be edited against verdicts that
  *  are still arriving. */
 function startBranchCleanupScan(repo: string, token: number) {
-  cleanupScanDialog = showActionRunningDialogWith(
+  cleanupScanDialogOwner = showActionRunningDialogWith(
     escapeHtml(fillTemplate(l10n.cleanupScanning, "0", "?")),
     l10n.cleanupScanStop,
     () => sendMessage({ command: "branchCleanupScanCancel" })
@@ -7937,7 +7937,7 @@ function updateBranchCleanupScanProgress(done: number, total: number, token: num
   // The scan's own dialog, not any progress dialog: Stop, Escape or a reload
   // can close it while counts are still in flight, and the next one up is
   // someone else's.
-  const running = progressDialogOwnedBy(cleanupScanDialog);
+  const running = progressDialogOwnedBy(cleanupScanDialogOwner);
   if (running === null) return;
   running.innerHTML =
     svgIcons.loading + escapeHtml(fillTemplate(l10n.cleanupScanning, String(done), String(total)));
