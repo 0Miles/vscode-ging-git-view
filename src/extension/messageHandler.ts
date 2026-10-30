@@ -17,7 +17,8 @@ import {
   pullBranch,
   pushBranch,
   pushBranches,
-  renameBranch
+  renameBranch,
+  staleLeaseInfoRef
 } from "@/backend/actions/branch";
 import {
   checkoutCommit,
@@ -256,7 +257,10 @@ export function registerMessageHandlers(
   registerAction(
     "pushBranch",
     (msg) => pushBranch(gitClient.getInstance(), msg),
-    (error) => ({ remoteUpdatedSinceCheckout: isRemoteUpdatedSinceCheckoutError(error) })
+    (error) => ({
+      remoteUpdatedSinceCheckout: isRemoteUpdatedSinceCheckoutError(error),
+      staleInfoRef: staleLeaseInfoRef(error)
+    })
   );
   registerAction("pullBranch", (msg) => pullBranch(gitClient.getInstance(), msg));
   registerAction("renameBranch", (msg) => renameBranch(gitClient.getInstance(), msg));

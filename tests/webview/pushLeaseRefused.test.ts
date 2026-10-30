@@ -36,7 +36,8 @@ describe("a refused push", () => {
     receive({
       command: "pushBranch",
       status: GIT_LINE,
-      remoteUpdatedSinceCheckout: true
+      remoteUpdatedSinceCheckout: true,
+      staleInfoRef: null
     });
 
     // English literals, not `L.dialogPushForceLeaseRefused`: rebuilding the
@@ -55,12 +56,48 @@ describe("a refused push", () => {
     receive({
       command: "pushBranch",
       status: nonFastForward,
-      remoteUpdatedSinceCheckout: false
+      remoteUpdatedSinceCheckout: false,
+      staleInfoRef: null
     });
 
     const text = dialogText();
     expect(text).toContain(L.unableToPushBranch);
     expect(text).toContain(nonFastForward);
     expect(text).not.toContain("Pull or rebase first");
+    expect(text).not.toContain("Fetch the remote");
+  });
+
+  // Refused before the integration check: there is no tracking ref, or it is
+  // behind the remote. "Fetch" alone would only lead to the refusal above.
+  it("explains stale info by naming the tracking ref, and asks to integrate, not just fetch", () => {
+    const staleLine = "[rejected]        main -> main (stale info)";
+    receive({
+      command: "pushBranch",
+      status: staleLine,
+      remoteUpdatedSinceCheckout: false,
+      staleInfoRef: "origin/main"
+    });
+
+    const text = dialogText();
+    expect(text).toContain(L.unableToPushBranch);
+    expect(text).toContain("Git has no up-to-date state of origin/main");
+    expect(text).toContain("Fetch the remote and integrate its commits (pull or rebase)");
+    expect(text).toContain(`To overwrite anyway, choose ${L.dialogPushForceForce}.`);
+    expect(text).not.toMatch(/\{\d\}/);
+    expect(text, "git's own line is kept alongside the explanation").toContain(staleLine);
+    expect(text).not.toContain("Pull or rebase first");
+    expect(document.getElementById("dialogAction"), "no one-click force").toBeNull();
+  });
+
+  it("escapes the tracking ref it names", () => {
+    receive({
+      command: "pushBranch",
+      status: "[rejected]        x -> x (stale info)",
+      remoteUpdatedSinceCheckout: false,
+      staleInfoRef: "origin/<i>x</i>"
+    });
+
+    const bold = Array.from(document.querySelectorAll("#dialog b"), (b) => b.textContent);
+    expect(bold).toContain("origin/<i>x</i>");
   });
 });

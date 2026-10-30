@@ -12,7 +12,8 @@ import { REMOTE_PREFIX, splitRemoteRef } from "@/backend/utils/branchRef";
 import {
   formatGitError,
   isNotFullyMergedError,
-  isRemoteUpdatedSinceCheckoutError
+  isRemoteUpdatedSinceCheckoutError,
+  isStaleLeaseInfoError
 } from "@/backend/utils/gitError";
 
 export async function createBranch(
@@ -150,25 +151,29 @@ export async function deleteBranches(
 }
 
 /** Push several branches to the same remotes with the same force mode. Each
- *  refusal keeps git's own line as its status; a lease refused for an
- *  unintegrated remote tip is also flagged, so the summary can explain it. */
+ *  refusal keeps git's own line as its status; a refused lease is also
+ *  classified, so the summary can explain it. */
 export async function pushBranches(
   git: SimpleGit,
   input: BatchActionPayload<"pushBranches">
 ): Promise<BatchPushResult[]> {
   const remoteUpdatedSinceCheckout = new Set<string>();
+  const staleInfoRefs = new Map<string, string>();
   const results = await mapRefsSequentially(input.branchNames, async (branchName) => {
     try {
       await pushBranch(git, { branchName, remotes: input.remotes, forceMode: input.forceMode });
     } catch (e: unknown) {
       if (isRemoteUpdatedSinceCheckoutError(e)) remoteUpdatedSinceCheckout.add(branchName);
+      const staleInfoRef = staleLeaseInfoRef(e);
+      if (staleInfoRef !== null) staleInfoRefs.set(branchName, staleInfoRef);
       throw e;
     }
   });
   return results.map((r) => ({
     ref: r.ref,
     status: r.status,
-    remoteUpdatedSinceCheckout: remoteUpdatedSinceCheckout.has(r.ref)
+    remoteUpdatedSinceCheckout: remoteUpdatedSinceCheckout.has(r.ref),
+    staleInfoRef: staleInfoRefs.get(r.ref) ?? null
   }));
 }
 
@@ -209,13 +214,40 @@ function pushArgs(
   }
 }
 
+/** A push one remote refused, tagged with the tracking ref it pushed against.
+ *  git's own output names the remote only by URL ("To <url>"), and once
+ *  several remotes are pushed in parallel nothing else says which one refused.
+ *  The message is git's, unchanged, so `formatGitError` and the classifiers in
+ *  `gitError` read it exactly as before. */
+class RemotePushError extends Error {
+  constructor(
+    readonly trackingRef: string,
+    cause: unknown
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+  }
+}
+
+/** The tracking ref (`<remote>/<branch>`) a force-with-lease push was refused
+ *  for with "(stale info)", or null for any other failure. See
+ *  `isStaleLeaseInfoError`. */
+export function staleLeaseInfoRef(error: unknown): string | null {
+  return error instanceof RemotePushError && isStaleLeaseInfoError(error)
+    ? error.trackingRef
+    : null;
+}
+
 export async function pushBranch(
   git: SimpleGit,
   input: ActionPayload<"pushBranch">
 ): Promise<void> {
   // Push to each selected remote; simple-git serialises them internally.
   await Promise.all(
-    input.remotes.map((remote) => git.raw(pushArgs(remote, input.branchName, input.forceMode)))
+    input.remotes.map((remote) =>
+      git.raw(pushArgs(remote, input.branchName, input.forceMode)).catch((e: unknown) => {
+        throw new RemotePushError(`${remote}/${input.branchName}`, e);
+      })
+    )
   );
 }
 

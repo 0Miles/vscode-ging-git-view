@@ -4463,10 +4463,17 @@ class GitGraphView {
         },
         running: l10n.pushingBranch,
         errorTitle: l10n.unableToPushBranch,
-        // Explained once for the whole batch, like a single push explains it
-        // (ADR-0025). Each ref keeps git's own line; no force round is offered.
-        failureNote: (failed) =>
-          failed.some((r) => r.remoteUpdatedSinceCheckout) ? leaseRefusedExplanation() : null
+        // Each kind of lease refusal is explained once for the whole batch, like
+        // a single push explains it (ADR-0025). Each ref keeps git's own line;
+        // no force round is offered.
+        failureNote: (failed) => {
+          const staleInfoRefs = failed.flatMap((r) => r.staleInfoRef ?? []);
+          const notes = [
+            failed.some((r) => r.remoteUpdatedSinceCheckout) ? leaseRefusedExplanation() : null,
+            staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
+          ].filter((note) => note !== null);
+          return notes.length > 0 ? notes.join("<br>") : null;
+        }
       },
       fastForwardBranches: {
         send: (refs, _round, p) => {
@@ -8276,7 +8283,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
       break;
     case "pushBranch":
-      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout);
+      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout, msg.staleInfoRef);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -8474,14 +8481,22 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
 /** Handle a pushBranch response. A Force with lease refused because the remote
  *  tip was never integrated (ADR-0025) gets an explanation — git's own reason,
  *  "remote ref updated since checkout", names no next step — with git's line
- *  kept beneath it. The explanation names the Force option instead of offering
+ *  kept beneath it. So does one refused for "(stale info)", which names only
+ *  the remote's URL. The explanation names the Force option instead of offering
  *  it: overwriting someone's work stays a separate, deliberate choice. */
-function handlePushBranchResponse(status: GitCommandStatus, remoteUpdatedSinceCheckout: boolean) {
+function handlePushBranchResponse(
+  status: GitCommandStatus,
+  remoteUpdatedSinceCheckout: boolean,
+  staleInfoRef: string | null
+) {
+  const explanation = remoteUpdatedSinceCheckout
+    ? leaseRefusedExplanation()
+    : staleInfoRef !== null
+      ? leaseStaleInfoExplanation([staleInfoRef])
+      : null;
   refreshGraphOrDisplayError(
     status,
-    remoteUpdatedSinceCheckout
-      ? l10n.unableToPushBranch + "<br>" + leaseRefusedExplanation()
-      : l10n.unableToPushBranch
+    explanation === null ? l10n.unableToPushBranch : l10n.unableToPushBranch + "<br>" + explanation
   );
 }
 
@@ -8492,6 +8507,20 @@ function leaseRefusedExplanation(): string {
   return l10n.dialogPushForceLeaseRefused.replace(
     "{0}",
     "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>"
+  );
+}
+
+/** Why a Force with lease was refused for "(stale info)" — the tracking refs
+ *  named are missing locally or behind their remote — and what to do about it.
+ *  Asks to integrate, not just fetch: a fetch alone only trades this refusal
+ *  for {@link leaseRefusedExplanation}'s (ADR-0025). Shared like that one. */
+function leaseStaleInfoExplanation(trackingRefs: string[]): string {
+  // One pass, with a function: a ref name is free text to `replace`, and may
+  // hold "$&" or "{1}" itself.
+  const args = [trackingRefs.join(", "), l10n.dialogPushForceForce];
+  return l10n.dialogPushForceLeaseStaleInfo.replace(
+    /\{([01])\}/g,
+    (_, i: string) => "<b>" + escapeHtml(args[Number(i)]) + "</b>"
   );
 }
 
