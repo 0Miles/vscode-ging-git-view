@@ -125,6 +125,12 @@ export type BatchActionResponse = {
 export type BatchActionPayload<T extends keyof BatchActionPayloads> =
   BatchActionPayloads[T]["request"];
 
+/** What one ref of batch action `T` reports — `BatchDeleteResult` for a delete,
+ *  and so on — read off the response above rather than restated, so a flag an
+ *  action's results carry is a flag its readers see. */
+export type BatchResultOf<T extends keyof BatchActionPayloads> =
+  BatchActionPayloads[T]["response"]["results"][number];
+
 /**
  * Fields an action's response carries on top of `status`. Reserved for facts
  * the host can establish and the webview cannot: `status` has been narrowed to

@@ -55,7 +55,7 @@ import { tagDetails } from "@/backend/queries/tagDetails";
 import type {
   ActionResponseExtra,
   BatchActionRequest,
-  BatchRefResult,
+  BatchResultOf,
   BranchSearchEntry
 } from "@/backend/types";
 import { GitFileChangeType } from "@/backend/types";
@@ -220,7 +220,7 @@ export function registerMessageHandlers(
    *  actions therefore never throw — they report per ref. */
   function registerBatchAction<T extends BatchActionRequest["command"]>(
     command: T,
-    handler: (msg: Extract<RequestMessage, { command: T }>) => Promise<BatchRefResult[]>
+    handler: (msg: Extract<RequestMessage, { command: T }>) => Promise<BatchResultOf<T>[]>
   ) {
     bridge.onMessage(
       command,
