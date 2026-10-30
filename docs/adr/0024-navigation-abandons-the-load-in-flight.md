@@ -44,7 +44,7 @@ refresh 被丟棄時,它是丟到另一個**問同一個問題**的載入上 —
 
 ## 後果
 
-- **busy claim 的擁有權必須被記下來,不能從「有沒有 callback」推。** 作廢一個 callback 等於接手它欠的東西,而它欠多少並不一致:refresh 與分支篩選重載各欠一個 claim,Load More 與 loaded commit window 的重設**一個都不欠**(它們用頁尾的載入中那一行說話,不碰 Refresh 按鈕)。憑 callback 存在就釋放一個 claim,會扣掉別人的,指示器於是在還有載入在跑的時候熄掉。所以 `commitLoadHoldsBusyClaim` 由請求的發出者明講,像 `webviewBridge` 的 `mutatesRepo` 一樣不給預設值。
+- **busy claim 的擁有權必須被記下來,不能從「有沒有 callback」推。** 作廢一個 callback 等於接手它欠的東西,而它欠多少並不一致:refresh 與分支篩選重載各欠一個 claim,Load More 與 loaded commit window 的重設**一個都不欠**(它們用頁尾的載入中那一行說話,不碰 Refresh 按鈕)。憑 callback 存在就釋放一個 claim,會扣掉別人的,指示器於是在還有載入在跑的時候熄掉。所以擁有權跟著 callback 走,由請求的發出者自己寫進去:舉起 claim 的呼叫端(`beginBusyLoad`)把放下它的那一步(`endBusyLoad`)寫在它交給 `requestLoadCommits` 的 callback 裡,不舉的就交一個什麼都不做的 callback。`abandonLoadsInFlight` 作廢 commit 半邊時是**執行**那個 callback,不是替它釋放,所以放下的恰好是它自己的那一個,一個不多、一個不少。branch 半邊的 callback 不能執行(見下一條),而唯一會請求分支的 `requestLoadBranchesAndCommits` 一定舉了 claim,所以作廢時由 `abandonLoadsInFlight` 直接替它放下。(這一條原本寫的是一個叫 `commitLoadHoldsBusyClaim` 的旗標,那個旗標從來沒有實作過;實際做法是上面這樣。)
 
 - **而 branch 那一半欠的不只是 claim,還有一次 dismissal。** 這一條當初漏了,補在這裡。commit 半邊的 callback 是被**執行**的,所以它欠的東西自己會結清;branch 半邊的 callback 不能執行(它的尾巴是對使用者剛離開的存放庫送出 commit 請求),於是它欠的每一樣都得由作廢的人接手 —— 而 `hideReloadOwnedOverlays` 唯一的呼叫點就長在那個 callback 建起來的收尾裡,別無分號。只還 claim 不還 dismissal 的結果是:圖形在底下正確地重載完、指示器熄掉,而一個 checkout 的進度對話框留在畫面上,只剩 Escape 出得去。
 
