@@ -166,6 +166,10 @@ function dockedCdvHeight(
 /** A stretch of the viewport, top to bottom, in px down from its top edge. */
 type VerticalSpan = { top: number; bottom: number };
 
+/** A link in the Commit Details View's summary, as a redraw finds it again:
+ *  where it points, and which of the links pointing there it is (#251). */
+type CdvLinkKey = { href: string; index: number };
+
 /** How far to scroll the page — down when positive — to bring `block` into
  *  `visible`, the stretch of the viewport rows can be seen in (below the
  *  frozen header, above anything docked over the bottom). Both are in viewport
@@ -470,6 +474,11 @@ class GitGraphView {
   private findSettledOn: string | null = null;
   // When on, navigating find matches also opens each one's details view.
   private findOpenCommitDetails = false;
+  /** The match Find left the centring of to the CDV opening it asked for
+   *  (#256), until that opening scrolls — or until the details cannot be
+   *  loaded, when there is no opening and the centring falls back to Find
+   *  ({@link failCommitDetails}). Null once anything else becomes of it. */
+  private findCentreOwed: string | null = null;
   private branchSearchToken = 0;
   private branchSearchIndex: BranchSearchEntry[] = [];
   private findDirection: -1 | 1 = 1;
@@ -2539,9 +2548,11 @@ class GitGraphView {
     // destroys, and it is read here for the same reason — one capture point
     // covers both layouts, because this runs before the table an inline panel
     // lives in is replaced and before a docked one is rebuilt further down.
-    // At most one of the two keys is non-null: a file row is never inside a
-    // commit row.
     const focusedFileKey = this.focusedCdvFileKey();
+    // And the panel's links, which no roving group holds (#251). At most one
+    // of the three keys is non-null: focus is in one place, and neither a file
+    // row nor a link is ever inside a commit row or each other.
+    const focusedLinkKey = this.focusedCdvLinkKey();
     const hiddenDate = this.columnVisibility.date ? "" : " hidden";
     const hiddenAuthor = this.columnVisibility.author ? "" : " hidden";
     const hiddenCommit = this.columnVisibility.commit ? "" : " hidden";
@@ -2636,10 +2647,14 @@ class GitGraphView {
             consumed.add(r.name);
             // Nested .gitRef.remote so the existing context-menu / double-click
             // handlers resolve a click on the badge to the remote branch.
+            // Focusable like every other chip (see `refSpan`): a menu closed
+            // on a chip that had to borrow a tabindex took the loan back from
+            // the element it had just focused, and Chromium dropped focus to
+            // <body> (#251).
             badges +=
               '<span class="gitRef remote gitRefCombined' +
               (isDimmedRef(r.name) ? " dimmedRef" : "") +
-              '" data-name="' +
+              '" tabindex="-1" data-name="' +
               escapeHtml(r.name) +
               '">' +
               escapeHtml(r.remote) +
@@ -2650,7 +2665,7 @@ class GitGraphView {
           '<span class="gitRef head' +
           (head.active ? " active" : "") +
           (isDimmedRef(head.name) ? " dimmedRef" : "") +
-          '" data-name="' +
+          '" tabindex="-1" data-name="' +
           escapeHtml(head.name) +
           '">' +
           svgIcons.branch +
@@ -2828,12 +2843,14 @@ class GitGraphView {
         }
       }
     }
-    // Both restores run after the expanded commit has been re-bound to its new
-    // row: the panel is by now either redrawn from cache, with file rows to be
-    // found, or gone pending a re-request, which restoreCdvFileFocus documents
-    // as its one reachable miss. The graph's tab stop can likewise land back on
-    // the expanded commit rather than on the top of the graph.
+    // All three restores run after the expanded commit has been re-bound to its
+    // new row: the panel is by now either redrawn from cache, with file rows and
+    // links to be found, or gone pending a re-request, which restoreCdvFileFocus
+    // documents as its one reachable miss (a link's miss falls back to that
+    // row). The graph's tab stop can likewise land back on the expanded commit
+    // rather than on the top of the graph, so it goes last.
     this.restoreCdvFileFocus(focusedFileKey);
+    this.restoreCdvLinkFocus(focusedLinkKey);
     this.restoreGraphFocus(focusedKey, focusMayScroll);
 
     this.addGraphContextMenuListener("tableColHeader", (e: Event) => {
@@ -5723,7 +5740,9 @@ class GitGraphView {
 
   /* Commit Details */
   private loadCommitDetails(sourceElem: HTMLElement) {
-    this.hideCommitDetails();
+    // A docked panel is coming straight back, so the space it takes stays
+    // reserved until it does — see `clearExpandedCommit`.
+    this.hideCommitDetails(true);
     this.expandedCommit = {
       id: parseInt(sourceElem.dataset.id!),
       hash: sourceElem.dataset.hash!,
@@ -5758,9 +5777,21 @@ class GitGraphView {
     if (this.expandedCommit === null) return null;
     return this.expandedCommit.hash + "|" + (this.expandedCommit.compareWithHash ?? "");
   }
-  public hideCommitDetails() {
+  /** The host could not load the expanded commit's details: close the view.
+   *  If Find was leaving the centring of its match to this view's opening
+   *  (#256), there will be no opening, so Find's centring happens here
+   *  instead — otherwise the match it moved to never comes into view. */
+  public failCommitDetails() {
+    const owed = this.findCentreOwed;
+    this.hideCommitDetails();
+    const row = owed === null ? null : this.graphRowByHash(owed);
+    if (row !== null && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "center" });
+    }
+  }
+  public hideCommitDetails(anotherOpening = false) {
     if (this.expandedCommit !== null) {
-      this.clearExpandedCommit();
+      this.clearExpandedCommit(anotherOpening);
       this.saveState();
       this.renderGraph();
     }
@@ -5770,20 +5801,29 @@ class GitGraphView {
    *  `<body>`-level panel — clear both rows' highlights and the
    *  `cdvDocked` body class, and reset the expanded-commit state. Every place
    *  that drops the expanded commit must go through this so a docked panel
-   *  (which is NOT inside the re-rendered table) can never be orphaned. */
-  private clearExpandedCommit() {
+   *  (which is NOT inside the re-rendered table) can never be orphaned.
+   *
+   *  `anotherOpening` keeps `cdvDocked`, for a view about to be replaced by
+   *  another one (#256). The class is the page's bottom padding: dropped for
+   *  the round trip, the page is a panel's height shorter, and a user scrolled
+   *  to the bottom is clamped up by it — at once, too, since `renderGraph`
+   *  reads layout straight after — and pushed back when the panel arrives.
+   *  Whatever closes the view for good instead, an unanswerable request
+   *  included, comes through here without it and takes the class away. */
+  private clearExpandedCommit(anotherOpening = false) {
     const panel = document.getElementById("commitDetails");
     if (panel !== null) panel.remove();
     // The next CDV is an opening, however it compares to this one.
     this.cdvBroughtIntoView = null;
     this.cdvFileTabStopMemory = null;
+    this.findCentreOwed = null;
     if (this.expandedCommit !== null) {
       if (this.expandedCommit.srcElem !== null)
         this.expandedCommit.srcElem.classList.remove("commitDetailsOpen");
       if (this.expandedCommit.compareWithSrcElem !== null)
         this.expandedCommit.compareWithSrcElem.classList.remove("commitDetailsOpen");
     }
-    document.body.classList.remove("cdvDocked");
+    if (!anotherOpening) document.body.classList.remove("cdvDocked");
     this.expandedCommit = null;
   }
 
@@ -6351,18 +6391,26 @@ class GitGraphView {
       const currentRow = this.graphRowByHash(this.findMatches[this.findCurrent].hash);
       if (currentRow !== null) {
         currentRow.classList.add("findMatchCurrent");
-        if (scroll && typeof currentRow.scrollIntoView === "function") {
-          currentRow.scrollIntoView({ block: "center" });
-        }
         // In "open details" mode, open the current match's details view,
         // unless it's already the expanded commit.
-        if (
+        const opensDetails =
           scroll &&
           this.findOpenCommitDetails &&
           (this.expandedCommit === null ||
-            this.expandedCommit.hash !== this.findMatches[this.findCurrent].hash)
-        ) {
+            this.expandedCommit.hash !== this.findMatches[this.findCurrent].hash);
+        // A view Find opens centres the row itself once its panel is drawn,
+        // when centring is on, and knows where the panel is — this centre
+        // does not: a docked one is not open yet, an inline one not under the
+        // row. Doing both moved the page twice, the second time by half the
+        // panel's height (#256). With centring off the opening only nudges,
+        // so Find's own centre is still the one that brings the match in.
+        const openingCentres = opensDetails && this.config.autoCenterCommitDetailsView;
+        if (scroll && !openingCentres && typeof currentRow.scrollIntoView === "function") {
+          currentRow.scrollIntoView({ block: "center" });
+        }
+        if (opensDetails) {
           this.loadCommitDetails(currentRow);
+          if (openingCentres) this.findCentreOwed = this.findMatches[this.findCurrent].hash;
         }
       }
     }
@@ -6540,6 +6588,16 @@ class GitGraphView {
     );
   }
 
+  /** The {@link cdvIdentity} the panel on screen was drawn with, or null when
+   *  there is no panel. Not the same question as `cdvIdentity()`: a CTRL-click
+   *  comparison re-points the view the moment it is asked for, while the old
+   *  panel stays up until the answer comes. A file focused in that gap is a file
+   *  of the view the user can see, and remembering it under the one they cannot
+   *  carried its place over into the comparison it never belonged to (#268). */
+  private drawnCdvIdentity(): string | null {
+    return this.cdvPanel()?.dataset.cdvIdentity ?? null;
+  }
+
   /** Which file in the Commit Details View keyboard focus is in, or null when it
    *  is not in that list at all. Read immediately *before* the table is
    *  replaced, the same way {@link focusedRowKey} is: the panel goes with the
@@ -6685,6 +6743,54 @@ class GitGraphView {
     this.cdvFileTabStop.focusInPlace(refocused);
   }
 
+  /** The Commit Details View's summary links to `href`, in document order. */
+  private cdvLinksTo(href: string): HTMLElement[] {
+    const panel = this.cdvPanel();
+    if (panel === null) return [];
+    return Array.from(panel.querySelectorAll<HTMLElement>(".commitBodyLink")).filter(
+      (link) => link.getAttribute("href") === href
+    );
+  }
+
+  /** Which of the Commit Details View's `.commitBodyLink`s holds focus, or null
+   *  when none does — read before the redraw, like {@link focusedCdvFileKey}.
+   *  A link is named by where it points and which of the links pointing there
+   *  it is: a message can cite one address twice, and an author can be their
+   *  own committer. Asked of the panel, so a link in the branch-redundancy
+   *  dialog's copy of a summary is not one (see {@link cdvPanel}). */
+  private focusedCdvLinkKey(): CdvLinkKey | null {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !active.matches(".commitBodyLink")) return null;
+    const href = active.getAttribute("href") ?? "";
+    const index = this.cdvLinksTo(href).indexOf(active);
+    return index === -1 ? null : { href, index };
+  }
+
+  /** {@link restoreCdvFileFocus} for the summary's links, which belong to no
+   *  roving group and so had nothing to put focus back on them: it fell to
+   *  `<body>` on every redraw, with a context menu open on the link or not
+   *  (#251). In place, for the reason the file list's is.
+   *
+   *  A miss is not left at `<body>`. The summary is redrawn from the same
+   *  cached details, so only something that rewrites the links themselves can
+   *  cause one; focus then goes to the nearest place still standing — the
+   *  file list's tab stop in the same panel, else the expanded commit's row. */
+  private restoreCdvLinkFocus(key: CdvLinkKey | null) {
+    if (key === null) return;
+    const link = this.cdvLinksTo(key.href)[key.index];
+    if (link !== undefined) {
+      link.focus({ preventScroll: true });
+      return;
+    }
+    const file = this.cdvFileTabStop.current;
+    if (file !== null) {
+      this.cdvFileTabStop.focusInPlace(file);
+      return;
+    }
+    const row = this.expandedCommit?.srcElem ?? null;
+    if (row !== null && row.isConnected) this.graphTabStop.focusInPlace(row);
+  }
+
   /** Give the Commit Details View's file list a tab stop, so Tab can reach it
    *  at all. Re-run whenever the visible set changes — a fresh render leaves
    *  every row at `-1`, and collapsing a folder can bury the row that held it.
@@ -6726,7 +6832,7 @@ class GitGraphView {
     if (files.length === 0) return;
     const memory = this.cdvFileTabStopMemory;
     const target =
-      memory === null || memory.cdvIdentity !== this.cdvIdentity()
+      memory === null || memory.cdvIdentity !== this.drawnCdvIdentity()
         ? files[0]
         : (files.find((file) => cdvFileKey(file) === memory.key) ??
           files[Math.max(0, Math.min(memory.index, files.length - 1))]);
@@ -6738,7 +6844,7 @@ class GitGraphView {
    *  {@link RovingTabStop}'s `onSet`, so the memory never lags the markup. */
   private rememberCdvFileTabStop(file: HTMLElement) {
     this.cdvFileTabStopMemory = {
-      cdvIdentity: this.cdvIdentity(),
+      cdvIdentity: this.drawnCdvIdentity(),
       key: cdvFileKey(file),
       index: this.cdvFileRows().indexOf(file)
     };
@@ -7088,6 +7194,7 @@ class GitGraphView {
       "</div>";
 
     const docked = this.isCdvDocked();
+    const cdv = this.cdvIdentity();
     let newElem: HTMLElement;
     if (docked) {
       // Docked to bottom: a fixed panel below the graph rather than a row
@@ -7105,6 +7212,9 @@ class GitGraphView {
       insertAfter(newElem, this.expandedCommit.srcElem);
       this.setupCdvResize(newElem); // height + divider drag, inline only
     }
+    // The view this panel shows, for as long as it stands — see
+    // {@link drawnCdvIdentity}.
+    newElem.dataset.cdvIdentity = cdv ?? "";
 
     this.renderGraph();
 
@@ -7116,9 +7226,9 @@ class GitGraphView {
     // means fighting the scroll that triggered the load (ADR-0019: automatic
     // loading is browsing, and browsing must not move anything). So it runs
     // once per CDV, and again only when the CDV becomes a different one.
-    const cdv = this.cdvIdentity();
     if (cdv !== this.cdvBroughtIntoView) {
       this.cdvBroughtIntoView = cdv;
+      this.findCentreOwed = null;
       const commitRow = this.expandedCommit.srcElem;
       const centre = this.config.autoCenterCommitDetailsView;
       if (docked && !centre) {
@@ -8781,7 +8891,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "commitDetails":
       if (msg.commitDetails === null) {
-        gitGraph.hideCommitDetails();
+        gitGraph.failCommitDetails();
         showErrorDialog(l10n.unableToLoadCommitDetails, null, null);
       } else {
         gitGraph.showCommitDetails(

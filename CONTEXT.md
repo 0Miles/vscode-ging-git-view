@@ -157,7 +157,7 @@ _Avoid_: busy flag, loading state, refreshing
 重繪(`renderTable`)把整張圖形表格從資料重新畫一次 —— commit 載入帶回不同的內容(載入更多、refresh、導覽)、remote 清單改變、切換欄位都會觸發它;只有 soft 載入帶回一模一樣的 commit 時才不重繪 —— hard 載入(手動 refresh、載入更多、loaded commit window 重設、面板還原)即使 commit 相同也重繪。它不是使用者的操作,所以焦點不得帶著畫面移動(ADR-0019);唯一讓畫面跟著還原後的焦點走的例外,是頁尾的 loaded commit window 重設。重繪時移動畫面的其他來源 —— 還原先前的捲動位置、開場捲到 HEAD、重繪途中發生的 CDV opening —— 都不是由焦點帶動的。要分辨「同一份內容重繪了一次」與「換成了新內容」,靠的是身分,不是 DOM 元素。
 
 **Row identity**:
-一列**代表什麼**,而不是它是哪一個 DOM 元素。重繪會換掉每一個列物件,所以要撐過重繪的東西 —— 首先是鍵盤焦點 —— 在重繪前記下持有它的那一列的身分,重繪後用身分在新的列裡找回同一列。commit 列的身分是 commit hash(`graphRowKey`);欄位表頭列與未提交變更列各只有一列,身分就是「那一列」;Commit Details View 的檔案列是檔案路徑(`cdvFileKey`,rename 取新路徑),不用位置,因為 Tree 與 List 兩種版面排列不同,同一個檔案在兩邊的序號不一樣。身分只細到列:焦點在列內的 ref 標籤上時,重繪後回到那一列本身。找不到同一個身分時,圖形只把 tab stop 放到展開的 commit 那一列(沒有就是第一個 commit),不搶焦點;檔案清單則不還原焦點。CDV 自己的身分(見 CDV opening)與 Find position 以 hash 記位置,都是同一個想法。
+一列**代表什麼**,而不是它是哪一個 DOM 元素。重繪會換掉每一個列物件,所以要撐過重繪的東西 —— 首先是鍵盤焦點 —— 在重繪前記下持有它的那一列的身分,重繪後用身分在新的列裡找回同一列。commit 列的身分是 commit hash(`graphRowKey`);欄位表頭列與未提交變更列各只有一列,身分就是「那一列」;Commit Details View 的檔案列是檔案路徑(`cdvFileKey`,rename 取新路徑),不用位置,因為 Tree 與 List 兩種版面排列不同,同一個檔案在兩邊的序號不一樣。身分只細到列:焦點在列內的 ref 標籤上時,重繪後回到那一列本身。找不到同一個身分時,圖形只把 tab stop 放到展開的 commit 那一列(沒有就是第一個 commit),不搶焦點;檔案清單則不還原焦點。CDV 摘要裡的連結(`.commitBodyLink`)不屬於任何一個 roving 群組,它的身分是指向的位址,加上它在指向同一位址的連結裡排第幾(同一個網址可以在訊息裡出現兩次);找不到時焦點不留在 `<body>`,改落到檔案清單的 tab stop,再不然落到展開的 commit 那一列(#251)。CDV 自己的身分(見 CDV opening)與 Find position 以 hash 記位置,都是同一個想法。
 _Avoid_: row index, 列號, 第幾列
 
 ### Commit Details View
@@ -173,11 +173,11 @@ _Avoid_: details panel, commit details panel, 細節面板, 詳細資料面板
 _Avoid_: expanded row
 
 **Docked CDV**:
-`detailsPanel.position` 為 `Docked to Bottom` 時的 CDV —— 固定在視窗底部,不在圖形表格裡、也不在文件流中,所以不推動任何一列。圖形的列從它底下捲過,就像從 frozen header 底下捲過:被它蓋住的那一段不算看得見 —— 方向鍵把列帶進視野時,視野的底邊是它的頂邊;Page Up/Down 只捲動,一次翻的高度也扣掉它。換掉表格不會順手帶走它,所以關閉它、或它展開的 commit 不再被載入時,都要另外把它拿掉。
+`detailsPanel.position` 為 `Docked to Bottom` 時的 CDV —— 固定在視窗底部,不在圖形表格裡、也不在文件流中,所以不推動任何一列。圖形的列從它底下捲過,就像從 frozen header 底下捲過:被它蓋住的那一段不算看得見 —— 方向鍵把列帶進視野時,視野的底邊是它的頂邊;Page Up/Down 只捲動,一次翻的高度也扣掉它。換掉表格不會順手帶走它,所以關閉它、或它展開的 commit 不再被載入時,都要另外把它拿掉。它佔的空間(`cdvDocked`,頁尾等高的 padding)在 docked CDV 第一次畫出來時才加上,之後保留到 CDV 被關閉為止,中途換 commit 也不拿掉:舊的 CDV 先拿掉,新的等內容到了才畫,這段期間空間照樣保留;否則頁面短了一個 CDV 高,停在頁尾的使用者會被夾上去,CDV 回來時又被推回(#256)。內容載入失敗等於關閉,空間也跟著拿掉。
 _Avoid_: bottom panel, 底部面板
 
 **CDV opening**:
-CDV 變成**另一個** CDV 的那一刻 —— 從無到有、換了展開的 commit、或換了比較對象。CDV 的身分是「展開的 commit + 比較對象」(`cdvIdentity`)。身分改變就是開啟;身分沒變、中間也沒關閉過,就不是,不論重繪了幾次。展開 commit 的請求一律先關掉舊的 CDV,所以經由它抵達的都是開啟,即使展開的是同一個 commit;面板重載也一樣 —— 重新變得可見的面板第一次畫出的 CDV 是開啟。只有開啟會把 CDV 帶進視野(ADR-0019),inline 與 docked 都一樣;判斷「這個身分帶進視野過沒有」的是 `cdvBroughtIntoView`。`detailsPanel.autoScroll` 開著時置中:inline 置中的是 commit 列連同底下的 CDV,docked 置中的是 commit 列本身,範圍是凍結表頭底部到 docked CDV 頂部之間。關著時只捲到剛好看得見:inline 讓列與 CDV 都進入視野,docked 只把列從 CDV 底下帶出來(#231)。關掉它不等於不捲。
+CDV 變成**另一個** CDV 的那一刻 —— 從無到有、換了展開的 commit、或換了比較對象。CDV 的身分是「展開的 commit + 比較對象」(`cdvIdentity`)。身分改變就是開啟;身分沒變、中間也沒關閉過,就不是,不論重繪了幾次。展開 commit 的請求一律先關掉舊的 CDV,所以經由它抵達的都是開啟,即使展開的是同一個 commit;面板重載也一樣 —— 重新變得可見的面板第一次畫出的 CDV 是開啟。只有開啟會把 CDV 帶進視野(ADR-0019),inline 與 docked 都一樣;判斷「這個身分帶進視野過沒有」的是 `cdvBroughtIntoView`。`detailsPanel.autoScroll` 開著時置中:inline 置中的是 commit 列連同底下的 CDV,docked 置中的是 commit 列本身,範圍是凍結表頭底部到 docked CDV 頂部之間。關著時只捲到剛好看得見:inline 讓列與 CDV 都進入視野,docked 只把列從 CDV 底下帶出來(#231)。關掉它不等於不捲。Find 在「開啟 details」模式下開啟 CDV 時,若 `autoScroll` 開著,Find 不先自己置中,整段只由開啟捲一次 —— Find 置中時還不知道 CDV 會在哪裡,兩者都捲就會多跳半個 CDV 高(#256)。內容載入失敗、開啟不會發生時,Find 才補上自己的置中。
 _Avoid_: reopen, 重新顯示
 
 **CDV rebind**:
