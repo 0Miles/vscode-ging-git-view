@@ -349,4 +349,74 @@ describe("rebase --onto from the commit context menu", () => {
       L.dialogRebaseOntoTipMoved.replace("{0}", "topic")
     );
   });
+
+  // The same premise when several branches share the tip and the select picks
+  // one: the name the user picks goes into the command verbatim, and git
+  // resolves it when the command runs. A pick read off the tip's refs when the
+  // dialog opened is a snapshot like the printed one above.
+  describe("when the branch is picked from several on the tip", () => {
+    /** Two branches on `dup`, the tip of the compared range, with `dup-a` moved
+     *  off it or left where it was. */
+    function loadDup(dupAMoved: boolean) {
+      receive({
+        command: "loadCommits",
+        token: 0,
+        commits: commits.map((c) =>
+          c.hash === "dup" && dupAMoved
+            ? node("dup", ["keep"], "two branches here", [
+                { hash: "dup", name: "dup-b", type: "head" }
+              ])
+            : c.hash === "keep" && dupAMoved
+              ? node("keep", ["base"], "keep", [{ hash: "keep", name: "dup-a", type: "head" }])
+              : c
+        ),
+        head: "w2",
+        moreCommitsAvailable: false,
+        hard: true
+      });
+    }
+
+    function pick(branch: string) {
+      const select = document.querySelector<HTMLSelectElement>("#dialog select");
+      expect(select, "the branch select").not.toBeNull();
+      select!.value = branch;
+    }
+
+    beforeEach(() => {
+      loadDup(false);
+      compare("keep", "dup");
+      menuEntries("target");
+      clickItem(REBASE_ONTO);
+    });
+
+    it("sends the branch picked when it still points at the tip", () => {
+      pick("dup-b");
+      mock.clearMessages();
+      document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+
+      expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([
+        {
+          command: "rebaseOnto",
+          repo: DEFAULT_REPO,
+          newBase: "target",
+          upstream: "base",
+          tip: "dup-b"
+        }
+      ]);
+    });
+
+    it("refuses when the branch picked no longer points at the tip", () => {
+      loadDup(true);
+      expect(document.getElementById("dialogAction"), "the dialog was dismissed").not.toBeNull();
+
+      pick("dup-a");
+      mock.clearMessages();
+      document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+
+      expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([]);
+      expect(document.getElementById("dialog")!.textContent).toContain(
+        L.dialogRebaseOntoTipMoved.replace("{0}", "dup-a")
+      );
+    });
+  });
 });
