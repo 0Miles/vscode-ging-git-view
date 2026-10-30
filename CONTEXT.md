@@ -177,11 +177,11 @@ _Avoid_: expanded row
 _Avoid_: bottom panel, 底部面板
 
 **CDV opening**:
-CDV 變成**另一個** CDV 的那一刻 —— 從無到有、換了展開的 commit、或換了比較對象。CDV 的身分是「展開的 commit + 比較對象」(`cdvIdentity`)。身分改變就是開啟;身分沒變、中間也沒關閉過,就不是,不論重繪了幾次。展開 commit 的請求一律先關掉舊的 CDV,所以經由它抵達的都是開啟,即使展開的是同一個 commit;面板重載也一樣 —— 重新變得可見的面板第一次畫出的 CDV 是開啟。只有開啟會把 CDV 帶進視野(ADR-0019):`detailsPanel.autoScroll` 開著時置中,關著時只捲到剛好看得見 —— 關掉它不等於不捲。目前只有 inline CDV 會這樣捲,而判斷「這個身分帶進視野過沒有」的 `cdvBroughtIntoView` 也只在 inline 時記錄;docked CDV 開啟時畫面不動。
+CDV 變成**另一個** CDV 的那一刻 —— 從無到有、換了展開的 commit、或換了比較對象。CDV 的身分是「展開的 commit + 比較對象」(`cdvIdentity`)。身分改變就是開啟;身分沒變、中間也沒關閉過,就不是,不論重繪了幾次。展開 commit 的請求一律先關掉舊的 CDV,所以經由它抵達的都是開啟,即使展開的是同一個 commit;面板重載也一樣 —— 重新變得可見的面板第一次畫出的 CDV 是開啟。只有開啟會把 CDV 帶進視野(ADR-0019),inline 與 docked 都一樣;判斷「這個身分帶進視野過沒有」的是 `cdvBroughtIntoView`。`detailsPanel.autoScroll` 開著時置中:inline 置中的是 commit 列連同底下的 CDV,docked 置中的是 commit 列本身,範圍是凍結表頭底部到 docked CDV 頂部之間。關著時只捲到剛好看得見:inline 讓列與 CDV 都進入視野,docked 只把列從 CDV 底下帶出來(#231)。關掉它不等於不捲。
 _Avoid_: reopen, 重新顯示
 
 **CDV rebind**:
-重繪之後,把仍然開著的**同一個** CDV 接回新畫出來的那一列。重繪會換掉每一列,CDV 掛著的那一列也跟著換,所以每次重繪都要依 commit hash 找回展開的 commit 的新列,再重繪 CDV —— 比較的內容還沒到手時就重新索取,但不關閉它。rebind 不是 CDV opening:不關閉、不捲動;從手上的內容重繪時,檔案清單的焦點也回到原本那個檔案(見 row identity)。有五種重繪看起來像 rebind,其實不是:hard refresh —— 它在重新載入前就先關掉 CDV,只有 soft refresh 才 rebind;面板重載後的第一次重繪 —— 那是開啟(見 CDV opening);展開的 commit 不在新的列裡 —— CDV 被關閉;比較對象不在新的列裡 —— CDV 退回只展開那個 commit,身分變了,所以是一次開啟,inline 時會捲動,這是「重繪不移動畫面」目前已知的缺口;只展開一個 commit、手上卻還沒有它的內容 —— 得重新展開,同樣是開啟。
+重繪之後,把仍然開著的**同一個** CDV 接回新畫出來的那一列。重繪會換掉每一列,CDV 掛著的那一列也跟著換,所以每次重繪都要依 commit hash 找回展開的 commit 的新列,再重繪 CDV —— 比較的內容還沒到手時就重新索取,但不關閉它。rebind 不是 CDV opening:不關閉、不捲動;從手上的內容重繪時,檔案清單的焦點也回到原本那個檔案(見 row identity)。有五種重繪看起來像 rebind,其實不是:hard refresh —— 它在重新載入前就先關掉 CDV,只有 soft refresh 才 rebind;面板重載後的第一次重繪 —— 那是開啟(見 CDV opening);展開的 commit 不在新的列裡 —— CDV 被關閉;比較對象不在新的列裡 —— CDV 退回只展開那個 commit,身分變了,所以是一次開啟,會捲動,這是「重繪不移動畫面」目前已知的缺口;只展開一個 commit、手上卻還沒有它的內容 —— 得重新展開,同樣是開啟。
 _Avoid_: reopen, refresh CDV
 
 ### Rebase 搬走的 commit
