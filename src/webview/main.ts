@@ -1358,34 +1358,28 @@ class GitGraphView {
       // refused delete went to, and currentRepo has had the host's whole
       // round-trip to move since. So the pending record carries it — which is
       // also what lets the offer wait behind a dialog of the user's (#243).
-      // Owed, though, the wait has no bound where this one had a round-trip,
-      // and the offer names no repository: raised after the panel has moved on
-      // *while it was owed*, its Yes would read as being about the one on
-      // screen. Then only the refusal is told.
-      const repoAtAnswer = this.currentRepo;
+      // Owed, the offer goes the way of every debt if the panel moves to
+      // another repository meanwhile: it is dropped (see `owedDialogs`).
       raiseAnswerDialog(() =>
-        this.currentRepo !== repoAtAnswer
-          ? showErrorDialog(l10n.unableToDeleteBranch, status, null)
-          : showConfirmationDialog(
-              fillTemplate(
-                l10n.dialogForceDeleteBranchConfirm,
-                "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
-              ),
-              () =>
-                this.sendDeleteBranch(
-                  pending.repo,
-                  pending.branchName,
-                  true,
-                  pending.deleteOnRemotes
-                ),
-              null
-            )
+        showConfirmationDialog(
+          fillTemplate(
+            l10n.dialogForceDeleteBranchConfirm,
+            "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
+          ),
+          () =>
+            this.sendDeleteBranch(pending.repo, pending.branchName, true, pending.deleteOnRemotes),
+          null
+        )
       );
     } else {
       refreshGraphOrDisplayError(status, l10n.unableToDeleteBranch);
     }
   }
 
+  /** The repository the panel shows, for what is owed against it (#243). */
+  public shownRepo(): string {
+    return this.currentRepo;
+  }
   /** Switch the visible repo: driven by the toolbar's repo dropdown or by an
    *  extension-side message (e.g. user clicked a repo in the sidebar). */
   public setRepo(repo: string) {
@@ -1734,13 +1728,21 @@ class GitGraphView {
       // back; this takes precedence over the one-time scroll-to-head.
       //
       // Not held back while a dialog stands (#269), though `html.dialogOpen`
-      // only stops the user's scrolling, not this. An action's reload runs
-      // under its own progress dialog, so the offset was taken with the page
-      // already held, and writing it back cannot move it. The scrolls here and
-      // in Find that can — to HEAD, to a match — answer something the user
-      // asked for, and reach a standing dialog only when one was opened in
-      // between; held to its close, they would jump the page just as the user
-      // looks back at it, onto a row the wait may have taken away.
+      // only stops the user's scrolling, not this. Three refreshes take the
+      // offset: an action's success, a batch that ended clean, and the Refresh
+      // button. The first two start under their own progress dialog — or under
+      // whatever dialog of the user's replaced a dismissed one — so the offset
+      // was taken with the page already held, and writing it back cannot move
+      // it. The button is pressed with no dialog up; a dialog opened before
+      // its load lands sees the page put back where the press found it, as it
+      // would be without one.
+      // The other scrolls that can land under a dialog — to HEAD here, Find's
+      // match (when stepped, and when the branch index re-arrives with a
+      // different current match), a CDV opening, and the focus scroll the
+      // loaded-commit-window reset asks of this redraw — each answer something
+      // the user asked for, and reach a standing dialog only when one was
+      // opened in between. Held to its close, they would jump the page just as
+      // the user looks back at it, onto a row the wait may have taken away.
       if (this.pendingScrollRestore !== null) {
         window.scrollTo(0, this.pendingScrollRestore);
         this.pendingScrollRestore = null;
@@ -4795,8 +4797,9 @@ class GitGraphView {
    *  these results on the floor).
    *
    *  The summary is *owed*, not shown. The dialog arriving over the offer (or
-   *  standing where the offer would have gone) keeps the screen, because the route this exists for is `tryRunPendingRefAction`,
-   *  which has already taken its delegated action off `pendingRefAction` before
+   *  standing where the offer would have gone) keeps the screen, because the
+   *  route this exists for is `tryRunPendingRefAction`, which has already taken
+   *  its delegated action off `pendingRefAction` before
    *  dispatching it — writing over that confirmation would lose a request the
    *  user made outright, the same harm this ticket is about pointed the other
    *  way. But a summary shown into a slot that is about to be overwritten is a
@@ -6255,8 +6258,11 @@ class GitGraphView {
       // question; the measurement and why silence is not the cure are in
       // ADR-0019. This path was live too — the Find input's own keyup listener
       // stepped on Enter from behind an overlay — until #141 made the Find
-      // widget `inert` with the rest of the background.
-      showErrorDialog(l10n.dialogFindStepBusy, null, null);
+      // widget `inert` with the rest of the background. A step that waited on
+      // its branch index still gets here from behind one, though: the index is
+      // an answer, and the user may have opened a dialog while it was out. So
+      // the refusal waits its turn rather than taking the slot (#243).
+      raiseAnswerError(l10n.dialogFindStepBusy);
       return "hold";
     }
     const load = () => {
@@ -6346,10 +6352,16 @@ class GitGraphView {
       this.requestLoadCommits(true, () => this.endBusyLoad());
     };
     if (plan.confirm) {
-      showConfirmationDialog(
-        l10n.dialogFindLoadMoreConfirm.replace("{0}", String(plan.additionalCommits)),
-        load,
-        null
+      // Owed rather than raised over a dialog of the user's, for the same
+      // reason as the refusal above. Until it is answered the step has not
+      // happened, owed or on screen, so `hold` is the truth either way; `load`
+      // re-takes everything it rests on when Yes comes.
+      raiseAnswerDialog(() =>
+        showConfirmationDialog(
+          l10n.dialogFindLoadMoreConfirm.replace("{0}", String(plan.additionalCommits)),
+          load,
+          null
+        )
       );
       return "hold";
     }
@@ -7783,10 +7795,15 @@ let dialog = document.getElementById("dialog")!,
  * shown to anyone. Merging them into one summary was the other way out, and
  * the worse one: two runs may be different actions, each with its own title,
  * note and dismissal, and a merged dialog has to pick one of each.
+ *
+ * Each debt is owed in the repository the panel showed when it was run up,
+ * and is dropped rather than paid once the panel shows another: an error, a
+ * summary or a question about the repository the user has left would read as
+ * being about the one on screen, and none of them names its repository.
  */
-const owedDialogs: (() => void)[] = [];
+const owedDialogs: { raise: () => void; repo: string }[] = [];
 function oweDialog(raise: () => void) {
-  owedDialogs.push(raise);
+  owedDialogs.push({ raise, repo: gitGraph.shownRepo() });
 }
 /** Pay the oldest dialog owed, now that the slot has emptied.
  *
@@ -7814,8 +7831,16 @@ function payOwedDialog() {
   const owedAtClose = owedDialogs.length;
   queueMicrotask(() => {
     if (owedDialogs.length !== owedAtClose || owedDialogs[0] !== due || isDialogOpen()) return;
-    owedDialogs.shift();
-    due();
+    // Debts from a repository the panel has left are dropped on the way to the
+    // first one still owed here. One run up while the panel showed none — it
+    // had just lost its repository, and the system took a retry offer down
+    // with it — names none to have left, and is paid wherever the panel is.
+    const repo = gitGraph.shownRepo();
+    let next = owedDialogs.shift();
+    while (next !== undefined && next.repo !== "" && next.repo !== repo) {
+      next = owedDialogs.shift();
+    }
+    next?.raise();
   });
 }
 /** Whether the dialog up is the user's: one that asks or tells them something,
@@ -7844,8 +7869,11 @@ function usersDialogStands(): boolean {
  * Not in `showDialog` itself. A delegated action's dialog takes the slot by
  * design, abandoning a retry offer it lands on (see `abandonBatchRun`); the
  * owner-checked answers replace the dialog they own; and every other raise
- * comes from a gesture, which a standing dialog leaves no way to make (#141).
- * The rule belongs to the answers, so it is written where they arrive.
+ * comes from a gesture, which a standing dialog leaves no way to make (#141) —
+ * including the ones a gesture shares with an answer, such as `loadFindMatch`,
+ * which a Find step reaches at once or when its branch index lands, and which
+ * comes through here either way. The rule belongs to the answers, so it is
+ * written where they arrive.
  */
 function raiseAnswerDialog(raise: () => void) {
   if (usersDialogStands()) oweDialog(raise);

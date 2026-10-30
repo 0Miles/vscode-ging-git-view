@@ -97,6 +97,6 @@ status: accepted
 
 所以守衛要做,而且照 #134 與 #253 的既有作法做成**欠著**,不是**丟掉**:這些回答是使用者自己要求過的東西,丟掉就是靜默。`raiseAnswerDialog` 跟 `hideReloadOwnedOverlays` 劃的是同一條線,用的是同一個記號:畫面上是進度框(`#actionRunning`),照舊直接取代,那正是回答在等的框;畫面上是其他任何對話框,那就是使用者的,回答排進 `owedDialogs`,一格空出來補一份。重試詢問是唯一不能排隊的:它背後有一個停在 `offeringRetry` 的 run,詢問不在畫面上時,下一個 batch 的 `start` 會把它讀成已經結束。所以它一落地就被放棄,第一回合的摘要照 abandoned run 的規矩欠著。
 
-**為什麼不放進 `showDialog`。** 放進去會把三種合法的取代一起擋掉:回答取代自己的進度框;有 owner 的回答取代自己的框;以及側邊檢視委派來的動作 —— 依 `CONTEXT.md` 的 **Batch run**,它舉起的對話框本來就要拿走那一格(它已經離開 `pendingRefAction`,蓋回去等於弄丟一個使用者明確提出的請求)。規則屬於回答,所以寫在回答落地的地方,並由 `tests/webview/lateAnswerOverUserDialog.test.ts` 逐條釘住。
+**為什麼不放進 `showDialog`。** 放進去會把三種合法的取代一起擋掉:回答取代自己的進度框;有 owner 的回答取代自己的框;以及側檢視委派來的動作 —— 依 `CONTEXT.md` 的 **Batch run**,它舉起的對話框本來就要拿走那一格(它已經離開 `pendingRefAction`,蓋回去等於弄丟一個使用者明確提出的請求)。規則屬於回答,所以寫在回答落地的地方,並由 `tests/webview/lateAnswerOverUserDialog.test.ts` 逐條釘住。
 
 **沒做的:** 委派動作仍然會蓋掉使用者正在看的問題。那是 `CONTEXT.md` 已經做過的取捨,不在本條範圍內。

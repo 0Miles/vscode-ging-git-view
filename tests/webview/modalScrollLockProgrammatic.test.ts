@@ -22,10 +22,11 @@ import {
 // writes back the offset it took while the page was already held there, and a
 // background refresh under a dialog of the user's scrolls nothing at all
 // (measured: the same `scrollY` before and after, and no scroll event). The
-// scrolls that would move it — Find's arrival, the one-time scroll to HEAD, a
-// Commit Details View opening — each answer something the user asked for, and
-// are left to land where they would have without a dialog; see the restore in
-// `loadCommits`.
+// scrolls that would move it — Find's match, the one-time scroll to HEAD, a
+// Commit Details View opening, the loaded-commit-window reset's focus scroll,
+// and a Refresh-button restore whose load lands under a dialog opened since —
+// each answer something the user asked for, and are left to land where they
+// would have without a dialog; see the restore in `loadCommits`.
 
 const commits: GitCommitNode[] = [
   {

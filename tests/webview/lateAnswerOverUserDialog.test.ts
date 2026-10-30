@@ -244,13 +244,13 @@ describe("a host answer arriving over a dialog of the user's", () => {
     settleRefresh();
   });
 
-  // Owing the offer stretches the wait from one round-trip to however long the
-  // user's question stands, and the panel can follow Source Control onto
-  // another repository meanwhile. The offer names a branch but no repository,
-  // and its Yes deletes in the one the refused delete went to — so, raised
-  // after a switch, it would read as being about the repository on screen. It
-  // gives way to the plain refusal instead.
-  it("tells only of the refusal when the repository has changed while it was owed", async () => {
+  // Owing stretches a wait from one round-trip to however long the user's
+  // question stands, and the panel can follow Source Control onto another
+  // repository meanwhile. None of these dialogs names its repository — the
+  // force-delete offer's Yes would even delete in the one the refused delete
+  // went to — so, paid after the panel has moved, each would read as being
+  // about the repository on screen. They are dropped instead.
+  it("drops what was owed in a repository the panel has since left", async () => {
     receive({
       command: "runRefAction",
       repo: DEFAULT_REPO,
@@ -259,19 +259,19 @@ describe("a host answer arriving over a dialog of the user's", () => {
       seq: ++seq
     });
     clickId("dialogAction");
+    clickId("fetchBtn");
+    dismiss();
     openUsersQuestion();
     receive({ command: "deleteBranch", status: "error: not fully merged", notFullyMerged: true });
+    receive({ command: "fetch", status: "fatal: unable to access remote" });
 
     receive({ command: "setRepo", repo: OTHER_REPO });
     settleRefresh();
     dismiss();
     await flushMicrotasks();
 
-    expect(dialogText()).toContain(L.unableToDeleteBranch);
-    expect(dialogText()).toContain("error: not fully merged");
-    expect(document.getElementById("dialogAction")).toBeNull();
+    expect(dialogShown()).toBe(false);
 
-    dismiss();
     receive({ command: "setRepo", repo: DEFAULT_REPO });
     settleRefresh();
   });
