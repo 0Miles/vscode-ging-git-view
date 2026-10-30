@@ -90,24 +90,45 @@ export function toRepoPath(p: string): string {
   return p.replace(/\\/g, "/");
 }
 
+/**
+ * Settings every test repo carries in its own `.git/config`.
+ *
+ * Git for Windows defaults `core.autocrlf` to true, which rewrites LF to CRLF on
+ * checkout and breaks working-tree assertions. Pin it per repo rather than relying
+ * only on the GIT_CONFIG_* override in setup.ts: simple-git's `.env(name, value)`
+ * spawns git with *only* those variables, so process.env does not reach it.
+ */
+const REPO_CONFIG = `[user]
+\temail = t@t.com
+\tname = T
+[commit]
+\tgpgsign = false
+[tag]
+\tgpgsign = false
+[core]
+\tautocrlf = false
+\teol = lf
+`;
+
+/**
+ * Create a temp repo with one commit on `main`.
+ *
+ * Keep the git spawns to a minimum. Inside the VS Code extension host on Windows
+ * each one costs 100–250ms, and the extension tests call this from a `setup`
+ * hook with Mocha's 2000ms budget; the nine spawns this used to take went over
+ * it under load (#116). So the config is appended to `.git/config` directly
+ * instead of one `git config` per key, and `--template=` skips copying the
+ * sample hooks, which also keeps the `fs.cpSync` copies some tests make small.
+ */
 export function makeRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-"));
   try {
-    git(["init", "-b", "main"], dir);
+    git(["init", "--template=", "-b", "main"], dir);
   } catch {
-    git(["init"], dir);
+    git(["init", "--template="], dir);
     git(["checkout", "-b", "main"], dir);
   }
-  git(["config", "user.email", "t@t.com"], dir);
-  git(["config", "user.name", "T"], dir);
-  git(["config", "commit.gpgsign", "false"], dir);
-  git(["config", "tag.gpgsign", "false"], dir);
-  // Git for Windows defaults `core.autocrlf` to true, which rewrites LF to CRLF on
-  // checkout and breaks working-tree assertions. Pin it per repo rather than relying
-  // only on the GIT_CONFIG_* override in setup.ts: simple-git's `.env(name, value)`
-  // spawns git with *only* those variables, so process.env does not reach it.
-  git(["config", "core.autocrlf", "false"], dir);
-  git(["config", "core.eol", "lf"], dir);
+  fs.appendFileSync(path.join(dir, ".git", "config"), REPO_CONFIG);
   fs.writeFileSync(path.join(dir, "f"), "x");
   git(["add", "."], dir);
   git(["commit", "-m", "init"], dir);
