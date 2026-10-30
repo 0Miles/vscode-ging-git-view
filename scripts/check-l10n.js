@@ -241,7 +241,9 @@ function checkFileSet(baseDir, baseFileName, filePattern, sectionTitle) {
 
     const punctuationIssues = keys
       .filter((key) => !PUNCTUATION_EXEMPT_KEYS.has(key))
-      .flatMap((key) => findPunctuationIssues(translations[key]).map((problem) => ({ key, problem })));
+      .flatMap((key) =>
+        findPunctuationIssues(translations[key]).map((problem) => ({ key, problem }))
+      );
 
     if (punctuationIssues.length > 0) {
       hasIssues = true;
