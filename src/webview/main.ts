@@ -2370,6 +2370,32 @@ class GitGraphView {
     return this.tableElem.querySelector<HTMLElement>('tr.commit[data-id="' + id + '"]');
   }
 
+  /** Close a context menu opened on a commit row, a ref, a column header or
+   *  anything in the Commit Details View — everything a redraw replaces.
+   *
+   *  Left open, the menu would stay at the page coordinates it opened at, over
+   *  whatever row the redraw puts there, still offering Reset and Delete for
+   *  the row that was. Closing it afterwards is too late for focus as well:
+   *  `hideContextMenu` hands focus back only to a source still in the document,
+   *  and the old row is not, so focus fell to `<body>`. Closing it here, first,
+   *  puts focus back on the source while it exists, which is where
+   *  `focusedRowKey` and `focusedCdvFileKey` read it from — and the redraw's
+   *  own restore then carries it over to the new row by key.
+   *
+   *  Hard reloads and reloads that change something close the menu anyway
+   *  ({@link hideReloadOwnedOverlays}), only after the redraw. The path this is
+   *  for is the one that closes nothing: a soft reload whose remote names
+   *  changed, which redraws from `loadRemotes` alone. Closing rather than
+   *  re-anchoring is deliberate — the menu's items were computed from the
+   *  state the redraw replaces, the reason `hideReloadOwnedOverlays` gives. */
+  private closeContextMenuAnchoredInGraph() {
+    if (contextMenuSource === null) return;
+    const cdv = this.cdvPanel();
+    if (this.tableElem.contains(contextMenuSource) || cdv?.contains(contextMenuSource) === true) {
+      hideContextMenu();
+    }
+  }
+
   /** Rebuilds the commit table and hands back the one write it deliberately did
    *  not do — see {@link makeTableResizable} and {@link render}. Whoever calls
    *  this must run that write, and must run it after the last layout read of
@@ -2377,6 +2403,9 @@ class GitGraphView {
    *  accident: a second one would be a second place to get it wrong, and
    *  ignoring the returned value is not a type error. */
   private renderTable(focusMayScroll: boolean = false): () => void {
+    // First of all, while its source is still in the document: a menu opened
+    // on a row this is about to replace would outlive the row (#126).
+    this.closeContextMenuAnchoredInGraph();
     // Read before a single row is replaced; `restoreGraphFocus` at the end puts
     // the keyboard back on the same commit once the new rows are in place.
     const focusedKey = this.focusedRowKey();
