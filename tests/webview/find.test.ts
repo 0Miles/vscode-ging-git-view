@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { buildFindMatches, planFindLoad, resolveFindCurrent } from "@/webview/find";
 
-const commit = (hash: string, message: string, refs: GitCommitNode["refs"] = []) => ({
+const commit = (
+  hash: string,
+  message: string,
+  refs: GitCommitNode["refs"] = []
+): GitCommitNode => ({
   hash,
   message,
   refs,
@@ -12,6 +16,17 @@ const commit = (hash: string, message: string, refs: GitCommitNode["refs"] = [])
   date: 1,
   parentHashes: [],
   signatureStatus: ""
+});
+
+/** A stash that `--reflog` already listed as a `git log` entry, so the splice
+ *  only labelled it (#105): it wears the stash ref and still counts in `git log`. */
+const loggedStash = (hash: string, message: string, selector: string): GitCommitNode =>
+  commit(hash, message, [{ hash, name: selector, type: "stash" }]);
+
+/** A stash row `loadCommits` spliced in by date — not a `git log` entry. */
+const splicedStash = (hash: string, message: string, selector: string): GitCommitNode => ({
+  ...loggedStash(hash, message, selector),
+  spliced: true
 });
 
 describe("buildFindMatches", () => {
@@ -68,8 +83,8 @@ describe("buildFindMatches", () => {
     const matches = buildFindMatches(
       "work",
       [
-        commit("stash-1", "work stash", [{ hash: "stash-1", name: "stash@{0}", type: "stash" }]),
-        commit("stash-2", "other stash", [{ hash: "stash-2", name: "stash@{1}", type: "stash" }]),
+        splicedStash("stash-1", "work stash", "stash@{0}"),
+        splicedStash("stash-2", "other stash", "stash@{1}"),
         commit("a", "first"),
         commit("b", "work commit")
       ],
@@ -90,6 +105,86 @@ describe("buildFindMatches", () => {
       maxCommits: 3,
       additionalCommits: 1,
       confirm: false
+    });
+  });
+
+  // With `includeCommitsMentionedByReflogs` and `showStashes` both on, a stash
+  // can be a `git log` entry that merely wears the stash ref. Only the spliced
+  // flag says a row is off the `git log` ruler; the ref says nothing about it.
+  describe("with reflog commits and stashes both shown", () => {
+    it("counts a logged stash above the match on the git log ruler", () => {
+      const matches = buildFindMatches(
+        "work",
+        [
+          loggedStash("stash-1", "other stash", "stash@{0}"),
+          commit("a", "first"),
+          commit("b", "work commit")
+        ],
+        [{ ref: "work-later", name: "work-later", hash: "z", logDepth: 3 }]
+      );
+
+      expect(matches).toEqual([
+        { hash: "b", loaded: true, depth: 2, logDepth: 2, branches: [] },
+        {
+          hash: "z",
+          loaded: false,
+          depth: 3,
+          logDepth: 3,
+          branches: [{ ref: "work-later", name: "work-later" }]
+        }
+      ]);
+      expect(planFindLoad(3, matches[1])).toEqual({
+        maxCommits: 4,
+        additionalCommits: 1,
+        confirm: false
+      });
+    });
+
+    it("leaves the match's depth alone when the logged stash sits below it", () => {
+      const matches = buildFindMatches(
+        "work",
+        [
+          commit("a", "work commit"),
+          loggedStash("stash-1", "other stash", "stash@{0}"),
+          commit("b", "first")
+        ],
+        [{ ref: "work-later", name: "work-later", hash: "z", logDepth: 3 }]
+      );
+
+      expect(matches).toEqual([
+        { hash: "a", loaded: true, depth: 0, logDepth: 0, branches: [] },
+        {
+          hash: "z",
+          loaded: false,
+          depth: 3,
+          logDepth: 3,
+          branches: [{ ref: "work-later", name: "work-later" }]
+        }
+      ]);
+    });
+
+    it("skips only the spliced stash when both kinds sit above the match", () => {
+      const matches = buildFindMatches(
+        "work",
+        [
+          splicedStash("stash-1", "other stash", "stash@{0}"),
+          commit("a", "first"),
+          loggedStash("stash-2", "older stash", "stash@{1}"),
+          commit("b", "work commit")
+        ],
+        [{ ref: "work-later", name: "work-later", hash: "z", logDepth: 3 }]
+      );
+
+      expect(matches).toEqual([
+        { hash: "b", loaded: true, depth: 3, logDepth: 2, branches: [] },
+        {
+          hash: "z",
+          loaded: false,
+          depth: 4,
+          logDepth: 3,
+          branches: [{ ref: "work-later", name: "work-later" }]
+        }
+      ]);
     });
   });
 });
