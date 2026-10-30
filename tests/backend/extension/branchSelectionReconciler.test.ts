@@ -172,7 +172,7 @@ describe("repo switch", () => {
   });
 });
 
-describe("direct write (multi-pick search bypassing the tree)", () => {
+describe("direct write (multi-pick search or Show All writing the filter around the tree)", () => {
   it("returns an immediate write and drops any pending debounced write", () => {
     const reconciler = createBranchSelectionReconciler();
     reconciler.onSelection("/repo", ["main"]);

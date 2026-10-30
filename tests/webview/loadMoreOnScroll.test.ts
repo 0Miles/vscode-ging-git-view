@@ -307,8 +307,11 @@ describe("automatic loading on scroll", () => {
 
   // A modal dialog is the one state in which a scroll event is certainly not
   // browsing the graph: `#dialogBacking` is an unscrollable full-screen
-  // overlay, so a wheel over it chains to the document and `scroll` fires
-  // while the user is reading a question about something else entirely.
+  // overlay, so a wheel over it chained to the document and `scroll` fired
+  // while the user was reading a question about something else entirely.
+  // Since #230 the page itself holds still behind a dialog, but a scroll can
+  // still arrive — focus moving to a background control brings it into view —
+  // and the gate is what keeps that one from loading.
   //
   // ADR-0019's grounds for keeping automatic loading are that the loaded
   // commit window it widens stays visible and has a way back — and the footer
@@ -317,14 +320,10 @@ describe("automatic loading on scroll", () => {
   // covered up.
   //
   // Scoped to the wheel, and the scoping is the point rather than an omission.
-  // `showDialog` provides no focus containment — no `inert` on the background,
-  // no focus trap, no focus move — so a dialog is not modal to the keyboard at
-  // all, and every background control stays tabbable and pressable behind it
-  // (#141). The footer's Load More is simply the one of those that reaches
-  // this suite's subject: Tab and Space still widen the window from behind the
-  // overlay, which findLoadPlanBoundAtConsent drives its scenarios with, so it
-  // is pinned somewhere rather than assumed here. A defect in the dialog, not
-  // in this listener.
+  // The keyboard's door — Tab and Space reaching the footer's Load More from
+  // behind the overlay — was a defect in the dialog, not in this listener, and
+  // was shut there: since #141 the background is `inert` while a dialog
+  // stands (modalFocusTrap pins it).
   describe("reaching the bottom while a modal dialog is up", () => {
     let requestedBehindTheDialog: GG.RequestMessage[] = [];
     let windowBehindTheDialog: string | null = null;

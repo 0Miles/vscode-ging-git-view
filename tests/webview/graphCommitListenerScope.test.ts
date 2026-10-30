@@ -159,10 +159,11 @@ function rightClick(elem: Element) {
 /** The keyboard's way of raising a context menu, mirroring `main.ts`'s private
  *  `MENU_KEY_EVENT`. Dispatched directly rather than via Shift+F10, because the
  *  document keydown handler that would normally synthesise it returns early
- *  while a dialog stands — so today no key reaches a dialog row at all (#141,
- *  #145). What is asserted here is the *binding*, which is what
- *  `addGraphContextMenuListener` wires and what would outlive either of those
- *  tickets landing. */
+ *  while a dialog stands, before the branch that reads Shift+F10. Since #145
+ *  the arrows and Enter reach a dialog row, through the dialog's own branch,
+ *  but the menu key still does not. What is asserted here is the *binding*,
+ *  which is what `addGraphContextMenuListener` wires and what would outlive
+ *  the menu key ever being routed there. */
 const MENU_KEY_EVENT = "ging.contextMenuKey";
 
 /** A commit row of the graph's, addressed through the table so the selector says

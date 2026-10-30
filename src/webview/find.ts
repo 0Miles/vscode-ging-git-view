@@ -4,17 +4,18 @@ import { commitMatchesQuery } from "./utils/git";
 
 /** The two numbers below are the same distance measured on two different
  *  rulers, and Find needs both: `depth` orders matches the way the user sees
- *  them, `logDepth` sizes the load that would reach one. They agree only in a
- *  repo with no stashes on screen. */
+ *  them, `logDepth` sizes the load that would reach one. They agree only when
+ *  no stash row is spliced in on screen. */
 export type FindMatch = {
   hash: string;
   loaded: boolean;
   /** Zero-based row in the unbounded graph, excluding the working-tree row and
    *  including every rendered stash row. */
   depth: number;
-  /** Zero-based position in `git log`, excluding rendered stash rows — the
-   *  same ruler as {@link BranchSearchEntry.logDepth}, and the one
-   *  `--max-count` is measured on. */
+  /** Zero-based position in `git log`, excluding the stash rows `loadCommits`
+   *  spliced in ({@link GitCommitNode.spliced}) — the same ruler as
+   *  {@link BranchSearchEntry.logDepth}, and the one `--max-count` is
+   *  measured on. */
   logDepth: number;
   /** Branches whose display refs matched the query. */
   branches: Pick<BranchSearchEntry, "ref" | "name">[];
@@ -38,14 +39,16 @@ export function buildFindMatches(
 
   const matches: FindMatch[] = [];
   const loadedHashes = new Set<string>();
-  const stashBoundaries: number[] = [];
+  const splicedBoundaries: number[] = [];
   let logDepth = 0;
   let graphDepth = 0;
   for (const commit of commits) {
     if (commit.hash === "*") continue;
     loadedHashes.add(commit.hash);
     const commitLogDepth = logDepth;
-    if (commit.refs.some((ref) => ref.type === "stash")) stashBoundaries.push(commitLogDepth);
+    // The flag, not the stash ref: a stash `--reflog` already listed is a
+    // `git log` entry that only wears the ref (#105).
+    if (commit.spliced === true) splicedBoundaries.push(commitLogDepth);
     else logDepth++;
     const branches = matchingBranches.get(commit.hash) ?? [];
     if (commitMatchesQuery(commit, query) || branches.length > 0) {
@@ -69,7 +72,7 @@ export function buildFindMatches(
       hash,
       loaded: false,
       depth:
-        branchLogDepth + stashBoundaries.filter((boundary) => boundary <= branchLogDepth).length,
+        branchLogDepth + splicedBoundaries.filter((boundary) => boundary <= branchLogDepth).length,
       logDepth: branchLogDepth,
       branches: branches.map(({ ref, name }) => ({ ref, name }))
     });

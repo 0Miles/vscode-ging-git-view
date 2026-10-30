@@ -190,6 +190,41 @@ describe("the branch cleanup dialog delivered by the host", () => {
     dismissDialog();
   });
 
+  it("offers its two tools as real buttons, which Tab reaches and Enter does not confirm through", () => {
+    // They were `div.roundedBtn`s, which Tab never stopped on, so a keyboard
+    // user could neither rescan nor refetch. As `<button>`s they are Tab stops,
+    // and Enter on one is the button's own press (#141's OWNS_ENTER) rather
+    // than the dialog's "Delete Branches".
+    receive({
+      command: "showBranchCleanup",
+      repo: REPO,
+      seq: 5,
+      payload: payload([candidate("merged", { merged: true })])
+    });
+    const tools = ["cleanupDeepCheck", "cleanupRefetch"].map((id) => document.getElementById(id)!);
+    for (const tool of tools) {
+      expect(tool.tagName, tool.id).toBe("BUTTON");
+      expect(tool.getAttribute("type"), tool.id).toBe("button");
+    }
+
+    const visited: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })
+      );
+      visited.push(document.activeElement!.id);
+    }
+    expect(visited).toEqual(expect.arrayContaining(["cleanupDeepCheck", "cleanupRefetch"]));
+
+    tools[1].focus();
+    mock.clearMessages();
+    const enter = new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true });
+    tools[1].dispatchEvent(enter);
+    expect(enter.defaultPrevented).toBe(false);
+    expect(mock.sentMessages.filter((m) => m.command === "deleteBranches")).toEqual([]);
+    dismissDialog();
+  });
+
   it("ignores a duplicate delivery of the same seq", () => {
     // The host posts over two paths to survive a panel that is still loading, so
     // the cleanup message shares the ref actions' dedupe (ADR-0017).

@@ -5,11 +5,12 @@ import type {
   DateType,
   GitCommitNode,
   GitLogEntry,
+  GitRef,
   GitRefData,
   QueryResult
 } from "@/backend/types";
 
-import { gitLogScopeArgs, gitLogTraversalArgs } from "./gitLogScope";
+import { gitLogScopeArgs, gitLogScopeReachesReflogs, gitLogTraversalArgs } from "./gitLogScope";
 import { type GraphStash, loadStashes } from "./loadStashes";
 
 const eolRegex = /\r\n|\r|\n/g;
@@ -274,11 +275,27 @@ export async function loadCommits(
     }
   }
 
+  const spliced = new Set<string>();
   if (showStashes) {
     // Merge stashes in as commit nodes (first parent = their base commit),
     // positioned by date, and add a "stash" ref so they're labelled on the graph.
     const stashes = await loadStashes(git);
+    // With reflog commits included, `--reflog` reaches `refs/stash`'s own
+    // reflog, so every stash is a `git log` entry already. Its row keeps git's
+    // place and parents and only gains the label. Splicing a second row would
+    // be counted twice — by Find, and by `commitLookup`, which reaches just one
+    // — and splicing one ahead of a window that has not reached the entry yet
+    // draws a row that jumps to the entry's place on the next load.
+    const stashesAreLogEntries = gitLogScopeReachesReflogs({
+      branchNames,
+      includeReflogCommits: includeCommitsMentionedByReflogs
+    });
     for (const stash of stashes) {
+      const label: GitRef = { hash: stash.hash, name: stash.selector, type: "stash" };
+      if (stashesAreLogEntries || commits.some((c) => c.hash === stash.hash)) {
+        refData.refs.push(label);
+        continue;
+      }
       const idx = stashInsertIndex(commits, stash, moreCommitsAvailable);
       // The stash belongs below everything this window holds; it gets its row
       // (and its label with it) once the window reaches that far.
@@ -292,7 +309,8 @@ export async function loadCommits(
         message: stash.message,
         signatureStatus: ""
       });
-      refData.refs.push({ hash: stash.hash, name: stash.selector, type: "stash" });
+      spliced.add(stash.hash);
+      refData.refs.push(label);
     }
   }
 
@@ -308,7 +326,8 @@ export async function loadCommits(
       date: commits[i].date,
       message: commits[i].message,
       refs: [],
-      signatureStatus: commits[i].signatureStatus
+      signatureStatus: commits[i].signatureStatus,
+      ...(spliced.has(commits[i].hash) ? { spliced: true as const } : {})
     });
   }
   for (const ref of refData.refs) {
