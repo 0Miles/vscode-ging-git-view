@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 // A modal dialog holds the page still behind it (#230). The backing already
 // takes every click, but the page itself kept scrolling under it: its
@@ -82,8 +82,12 @@ describe("the page behind a modal dialog", () => {
   });
 
   it("stays locked when one dialog replaces another, until the last one closes", () => {
+    // The fetch's own progress dialog, replaced by its answer — an error over
+    // a dialog of the user's would wait behind it instead (#243).
+    clickId("fetchBtn");
+    expect(document.getElementById("actionRunning")).not.toBeNull();
     raiseError();
-    raiseError();
+    expect(document.getElementById("actionRunning")).toBeNull();
     expect(locked()).toBe(true);
 
     document.getElementById("dialogDismiss")!.click();

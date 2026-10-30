@@ -1713,6 +1713,15 @@ class GitGraphView {
 
       // Restore the pre-refresh scroll offset now the table has its full height
       // back; this takes precedence over the one-time scroll-to-head.
+      //
+      // Not held back while a dialog stands (#269), though `html.dialogOpen`
+      // only stops the user's scrolling, not this. An action's reload runs
+      // under its own progress dialog, so the offset was taken with the page
+      // already held, and writing it back cannot move it. The scrolls here and
+      // in Find that can — to HEAD, to a match — answer something the user
+      // asked for, and reach a standing dialog only when one was opened in
+      // between; held to its close, they would jump the page just as the user
+      // looks back at it, onto a row the wait may have taken away.
       if (this.pendingScrollRestore !== null) {
         window.scrollTo(0, this.pendingScrollRestore);
         this.pendingScrollRestore = null;
