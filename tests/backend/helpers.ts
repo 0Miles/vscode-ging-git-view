@@ -119,15 +119,12 @@ const REPO_CONFIG = `[user]
  * it under load (#116). So the config is appended to `.git/config` directly
  * instead of one `git config` per key, and `--template=` skips copying the
  * sample hooks, which also keeps the `fs.cpSync` copies some tests make small.
+ *
+ * `init -b` needs git 2.28; setup.ts already relies on GIT_CONFIG_COUNT (2.31).
  */
 export function makeRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-"));
-  try {
-    git(["init", "--template=", "-b", "main"], dir);
-  } catch {
-    git(["init", "--template="], dir);
-    git(["checkout", "-b", "main"], dir);
-  }
+  git(["init", "--template=", "-b", "main"], dir);
   fs.appendFileSync(path.join(dir, ".git", "config"), REPO_CONFIG);
   fs.writeFileSync(path.join(dir, "f"), "x");
   git(["add", "."], dir);

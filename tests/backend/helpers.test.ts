@@ -9,14 +9,11 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...actual, execFileSync: vi.fn(actual.execFileSync) };
 });
 
-/** Read a key from the repo's own `.git/config` only. The GIT_CONFIG_* overrides
- *  from setup.ts are dropped, so the answer cannot come from them. */
+/** Read a key from the repo's own `.git/config`. `--local` skips the GIT_CONFIG_*
+ *  overrides from setup.ts, so the answer cannot come from them. */
 function localConfig(repo: string, key: string): string {
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([k]) => !k.startsWith("GIT_CONFIG_"))
-  );
   return cp
-    .execFileSync("git", ["config", "--local", "--get", key], { cwd: repo, env, stdio: "pipe" })
+    .execFileSync("git", ["config", "--local", "--get", key], { cwd: repo, stdio: "pipe" })
     .toString()
     .trim();
 }
@@ -27,7 +24,6 @@ describe("makeRepo", () => {
   afterEach(() => {
     if (repo) rmrf(repo);
     repo = undefined;
-    vi.mocked(cp.execFileSync).mockClear();
   });
 
   it("pins identity, signing and line endings in the repo's own config", () => {
@@ -54,9 +50,8 @@ describe("makeRepo", () => {
     expect(files).toBe("f");
   });
 
-  // Every git spawn costs 100–250ms inside the VS Code extension host on Windows,
-  // and the extension tests call makeRepo() from a `setup` hook with Mocha's
-  // 2000ms budget. Nine spawns went over it under load (#116).
+  // The spawn budget is what keeps the extension tests' setup hooks under Mocha's
+  // 2000ms; see makeRepo's doc comment (#116).
   it("spawns git at most three times", () => {
     vi.mocked(cp.execFileSync).mockClear();
     repo = makeRepo();
