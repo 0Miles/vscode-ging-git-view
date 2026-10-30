@@ -139,6 +139,22 @@ function frozenHeaderHeight(
   return Number.isFinite(margin) ? margin : 0;
 }
 
+/** How far above the bottom of the viewport the graph's visible rows end: the
+ *  height of the Commit Details View while it is open and docked to the
+ *  bottom, which rows scroll under the way they scroll under the frozen header
+ *  (#217); 0 when nothing is docked. The bottom-edge counterpart of
+ *  {@link frozenHeaderHeight}, for the same hand-worked scrolls — the
+ *  browser's own `scrollIntoView` learns it from the rows' `scroll-margin-
+ *  bottom` in main.css.
+ *
+ *  Measured off the panel rather than read off a row, because the panel's box
+ *  is what covers the rows: whatever height it is drawn at, that is how much
+ *  of the window the user cannot see the graph through. */
+function dockedCdvHeight(): number {
+  const panel = document.querySelector("#commitDetails.docked");
+  return panel === null ? 0 : panel.getBoundingClientRect().height;
+}
+
 /** Whether `elem` is part of the frozen column-header row — the row or one of
  *  its cells — and so always on screen while the table is (#206). Nothing
  *  there may be scrolled into view: only the *cells* stick, a `tr` cannot, so
@@ -9146,9 +9162,11 @@ const PAGE_SCROLL_OVERLAP = 48;
 /** A screenful is what the user can see of the graph, and the frozen header
  *  (#206) is not part of that: jumping the whole viewport would carry rows
  *  from under the header's lower edge straight past it, unseen, and the
- *  overlap is smaller than the header — so it would skip rows outright. */
+ *  overlap is smaller than the header — so it would skip rows outright. Nor is
+ *  a Commit Details View docked over the bottom (#217), for the same reason
+ *  at the other edge: rows the jump carries under it are never seen. */
 function pageScrollStep() {
-  const visible = window.innerHeight - frozenHeaderHeight();
+  const visible = window.innerHeight - frozenHeaderHeight() - dockedCdvHeight();
   return Math.max(visible - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
 }
 document.addEventListener("keydown", (e) => {

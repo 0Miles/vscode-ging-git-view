@@ -28,6 +28,13 @@ html {
   --ging-controls-height: 32px;
   --ging-col-headers-height: 31px;
   --ging-frozen-header-height: calc(var(--ging-controls-height) + var(--ging-col-headers-height));
+  /* The Commit Details View docked to the bottom: the whole strip it covers,
+     its 2px top border included. The bottom-edge counterpart of the frozen
+     header — the panel's height, the room left under the graph for it, and the
+     rows' bottom scroll margin all need the same number. Anything that resizes
+     the panel must resize it through this, here at the root where the rows
+     can see it, or their margin goes on clearing the old height. */
+  --ging-docked-cdv-height: 254px;
 }
 body {
   margin: 0;
@@ -298,6 +305,13 @@ code {
 #commitTable .gitRef {
   scroll-margin-top: var(--ging-frozen-header-height);
 }
+/* The same at the bottom edge while the Commit Details View is docked there
+   (#217): rows scroll under the panel, so a row brought into view lands above
+   it, and "centred" is centred between the header and the panel. */
+body.cdvDocked #commitTable tr:not(#tableColHeaders),
+body.cdvDocked #commitTable .gitRef {
+  scroll-margin-bottom: var(--ging-docked-cdv-height);
+}
 
 #commitTable.fixedLayout table {
   table-layout: fixed;
@@ -377,7 +391,9 @@ code {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 252px;
+  /* Border included, so the height is the whole strip the panel covers. */
+  box-sizing: border-box;
+  height: var(--ging-docked-cdv-height);
   z-index: 80;
   /* Same quick-input-like surface as the inline CDV, so both modes sit on the
      identical elevation layer. */
@@ -395,7 +411,7 @@ code {
   bottom: 0;
 }
 body.cdvDocked #content {
-  padding-bottom: 252px;
+  padding-bottom: var(--ging-docked-cdv-height);
 }
 /* Draggable inline CDV summary/files divider + bottom height grip. */
 #detailsDivider {
