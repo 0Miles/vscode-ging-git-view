@@ -1172,7 +1172,7 @@ class GitGraphView {
   }
 
   /** Rename the repo from the drawer's pencil. The drawer steps aside first:
-   *  it sits above the graph and the docked details panel, and so above the
+   *  it sits above the graph and a docked Commit Details View, and so above the
    *  dialog too. */
   private showRenameRepo() {
     const repo = this.currentRepo;
@@ -1241,7 +1241,7 @@ class GitGraphView {
     }
     // Only the commits: none of these fields moves the branch list. Shaped like
     // {@link reloadForBranchChange}, which is the same navigation one field
-    // over — less its closing of the details panel, which nobody asked for.
+    // over — less its closing of the Commit Details View, which nobody asked for.
     this.shrinkLoadedCommitWindow();
     this.abandonLoadsInFlight();
     this.saveState();
@@ -1499,35 +1499,50 @@ class GitGraphView {
     dimmedBranches: string[] = [],
     cleanupCandidates: string[] = []
   ) {
-    if (!isRepo) {
-      this.triggerLoadBranchesCallback(false, isRepo);
-      return;
-    }
-    // Not part of the change comparison below, and not saved with the view
-    // state: it decides nothing that is drawn, only whether a context-menu item
-    // is offered, so a stale set has nothing to flash and self-corrects on the
-    // next load.
-    this.cleanupCandidateRefs = new Set(cleanupCandidates.map(displayRef));
-    const dimmedUnchanged = arraysEqual(this.dimmedBranches, dimmedBranches, (a, b) => a === b);
-    const branchesUnchanged =
-      arraysEqual(this.gitBranches, branchOptions, (a, b) => a === b) &&
-      this.gitBranchHead === branchHead;
-    const filterUnchanged = arraysEqual(this.currentBranches ?? [], filter, (a, b) => a === b);
-    if (!hard && branchesUnchanged && filterUnchanged && dimmedUnchanged) {
-      this.triggerLoadBranchesCallback(false, isRepo);
-      return;
-    }
+    // The callback runs whichever way this leaves, as {@link loadCommits}'s
+    // does: a throw that skipped it would leave the busy claim up and
+    // {@link branchLoadInFlight} true, and every later refresh would be dropped
+    // onto a load that is never coming. A throw still escapes to the message
+    // listener, which reports it (ADR-0016).
+    //
+    // Unlike there, a throw reports no changes even after the state has moved
+    // — the same "a load that never ran brought none with it" a dropped request
+    // gets. The only reader is the close-out's dismissal, and a hard reload is
+    // dismissed on `hard` alone; what it costs is a soft reload that throws
+    // after the branch state is written and finds no commit change either —
+    // that one skips the dismissal it was owed, and the progress dialog stays
+    // up until the next reload that changes something.
+    let changes = false;
+    try {
+      if (!isRepo) return;
+      // Not part of the change comparison below, and not saved with the view
+      // state: it decides nothing that is drawn, only whether a context-menu
+      // item is offered, so a stale set has nothing to flash and self-corrects
+      // on the next load.
+      this.cleanupCandidateRefs = new Set(cleanupCandidates.map(displayRef));
+      const dimmedUnchanged = arraysEqual(this.dimmedBranches, dimmedBranches, (a, b) => a === b);
+      const branchesUnchanged =
+        arraysEqual(this.gitBranches, branchOptions, (a, b) => a === b) &&
+        this.gitBranchHead === branchHead;
+      const filterUnchanged = arraysEqual(this.currentBranches ?? [], filter, (a, b) => a === b);
+      if (!hard && branchesUnchanged && filterUnchanged && dimmedUnchanged) return;
 
-    this.gitBranches = branchOptions;
-    this.gitBranchHead = branchHead;
-    this.dimmedBranches = dimmedBranches;
-    this.updateRepoTitle();
-    // The branch filter is owned by the extension host (the Branches side-view);
-    // apply whatever it resolved for this repo. An empty list means "show all".
-    this.setCurrentBranches(filter);
-    this.saveState();
-
-    this.triggerLoadBranchesCallback(true, isRepo);
+      this.gitBranches = branchOptions;
+      this.gitBranchHead = branchHead;
+      this.dimmedBranches = dimmedBranches;
+      this.updateRepoTitle();
+      // The branch filter is owned by the extension host (the Branches
+      // side-view); apply whatever it resolved for this repo. An empty list
+      // means "show all".
+      this.setCurrentBranches(filter);
+      this.saveState();
+      changes = true;
+    } finally {
+      // If the body threw and the callback throws too, the callback's
+      // exception replaces the original one, and ADR-0016 reports only that
+      // second failure.
+      this.triggerLoadBranchesCallback(changes, isRepo);
+    }
   }
 
   /** Apply a branch filter pushed from the extension host — a selection change
@@ -1544,11 +1559,16 @@ class GitGraphView {
     this.setCurrentBranches(branches);
     this.reloadForBranchChange();
   }
+  /** Spend the branch callback. Cleared before it runs, not after: the
+   *  callback goes on to request commits and to close the reload out, and a
+   *  throw from in there would otherwise leave it set — the load finished, but
+   *  {@link branchLoadInFlight} saying it never will. The commit side's twin
+   *  below does the same. */
   private triggerLoadBranchesCallback(changes: boolean, isRepo: boolean) {
-    if (this.loadBranchesCallback !== null) {
-      this.loadBranchesCallback(changes, isRepo);
-      this.loadBranchesCallback = null;
-    }
+    const callback = this.loadBranchesCallback;
+    if (callback === null) return;
+    this.loadBranchesCallback = null;
+    callback(changes, isRepo);
   }
 
   public loadCommits(
@@ -1560,73 +1580,76 @@ class GitGraphView {
   ) {
     // Spent here, at the top: this load owns the permission, and it owns it
     // whichever way the function leaves — including the short-circuit below and
-    // the throw the try/finally further down exists to survive. Reading it any
-    // later would leave it set for a redraw that has nothing to do with it.
+    // the throw the try/finally exists to survive. Reading it any later would
+    // leave it set for a redraw that has nothing to do with it.
     const focusMayScroll = this.pendingFocusScroll;
     this.pendingFocusScroll = false;
-    if (
-      !hard &&
-      this.moreCommitsAvailable === moreAvailable &&
-      // Same commits, other mode: the graph draws them differently.
-      this.onlyFollowFirstParent === onlyFollowFirstParent &&
-      this.commitHead === commitHead &&
-      arraysEqual(
-        this.commits,
-        commits,
-        (a, b) =>
-          a.hash === b.hash &&
-          arraysEqual(a.refs, b.refs, (ra, rb) => ra.name === rb.name && ra.type === rb.type) &&
-          arraysEqual(a.parentHashes, b.parentHashes, (pa, pb) => pa === pb)
-      )
-    ) {
-      if (this.commits.length > 0 && this.commits[0].hash === "*") {
-        this.commits[0] = commits[0];
-        this.saveState();
-        this.renderUncommitedChanges();
-      }
-      if (this.findActive) this.requestBranchSearchIndex();
-      this.triggerLoadCommitsCallback(false);
-      return;
-    }
-
-    this.moreCommitsAvailable = moreAvailable;
-    this.onlyFollowFirstParent = onlyFollowFirstParent;
-    this.commits = commits;
-    this.commitHead = commitHead;
-    if (this.commits.length > 0 && this.commits[0].hash === "*") {
-      const match = this.commits[0].message.match(/\((\d+)\)$/);
-      const count = match ? match[1] : "?";
-      this.commits[0].message = l10n.uncommittedChanges.replace("{0}", count);
-    }
-    this.commitLookup = {};
-    this.saveState();
-
-    let i: number,
-      expandedCommitVisible = false,
-      avatarsNeeded: { [email: string]: string[] } = {};
-    for (i = 0; i < this.commits.length; i++) {
-      this.commitLookup[this.commits[i].hash] = i;
-      if (this.expandedCommit !== null && this.expandedCommit.hash === this.commits[i].hash)
-        expandedCommitVisible = true;
+    // Nothing in here may leave the load callback unfired: if anything throws,
+    // loadCommitsCallback would stay set and every later refresh/commit would be
+    // silently dropped (the busy indicator never clears), freezing the view
+    // until the tab is reopened. The whole body is guarded, the short-circuit
+    // included — it compares and redraws too. A throw still escapes to the
+    // message listener, which reports it (ADR-0016). It reports changes once the
+    // state has been replaced, as a redraw that failed half-way still has.
+    let changes = false;
+    try {
       if (
-        this.config.fetchAvatars &&
-        typeof this.avatars[this.commits[i].email] !== "string" &&
-        this.commits[i].email !== ""
+        !hard &&
+        this.moreCommitsAvailable === moreAvailable &&
+        // Same commits, other mode: the graph draws them differently.
+        this.onlyFollowFirstParent === onlyFollowFirstParent &&
+        this.commitHead === commitHead &&
+        arraysEqual(
+          this.commits,
+          commits,
+          (a, b) =>
+            a.hash === b.hash &&
+            arraysEqual(a.refs, b.refs, (ra, rb) => ra.name === rb.name && ra.type === rb.type) &&
+            arraysEqual(a.parentHashes, b.parentHashes, (pa, pb) => pa === pb)
+        )
       ) {
-        if (typeof avatarsNeeded[this.commits[i].email] === "undefined") {
-          avatarsNeeded[this.commits[i].email] = [this.commits[i].hash];
-        } else {
-          avatarsNeeded[this.commits[i].email].push(this.commits[i].hash);
+        if (this.commits.length > 0 && this.commits[0].hash === "*") {
+          this.commits[0] = commits[0];
+          this.saveState();
+          this.renderUncommitedChanges();
+        }
+        if (this.findActive) this.requestBranchSearchIndex();
+        return;
+      }
+
+      changes = true;
+      this.moreCommitsAvailable = moreAvailable;
+      this.onlyFollowFirstParent = onlyFollowFirstParent;
+      this.commits = commits;
+      this.commitHead = commitHead;
+      if (this.commits.length > 0 && this.commits[0].hash === "*") {
+        const match = this.commits[0].message.match(/\((\d+)\)$/);
+        const count = match ? match[1] : "?";
+        this.commits[0].message = l10n.uncommittedChanges.replace("{0}", count);
+      }
+      this.commitLookup = {};
+      this.saveState();
+
+      let i: number,
+        expandedCommitVisible = false,
+        avatarsNeeded: { [email: string]: string[] } = {};
+      for (i = 0; i < this.commits.length; i++) {
+        this.commitLookup[this.commits[i].hash] = i;
+        if (this.expandedCommit !== null && this.expandedCommit.hash === this.commits[i].hash)
+          expandedCommitVisible = true;
+        if (
+          this.config.fetchAvatars &&
+          typeof this.avatars[this.commits[i].email] !== "string" &&
+          this.commits[i].email !== ""
+        ) {
+          if (typeof avatarsNeeded[this.commits[i].email] === "undefined") {
+            avatarsNeeded[this.commits[i].email] = [this.commits[i].hash];
+          } else {
+            avatarsNeeded[this.commits[i].email].push(this.commits[i].hash);
+          }
         }
       }
-    }
 
-    // Building the graph layout and rendering the table must never leave the
-    // refresh callback unfired: if anything in here throws, loadCommitsCallback
-    // would stay set and every later refresh/commit would be silently dropped
-    // (the busy indicator never clears), freezing the view until the tab is
-    // reopened. The finally guarantees the callback always runs.
-    try {
       this.graph.loadCommits(
         this.commits,
         this.commitHead,
@@ -1664,16 +1687,25 @@ class GitGraphView {
 
       this.fetchAvatars(avatarsNeeded);
     } finally {
-      this.triggerLoadCommitsCallback(true);
+      // As in {@link loadBranches}: a callback that throws here masks the
+      // body's own exception, and ADR-0016 reports only the second one.
+      this.triggerLoadCommitsCallback(changes);
     }
   }
+  /** Spend the commit callback, clearing it before it runs for the reason at
+   *  {@link triggerLoadBranchesCallback}: a close-out that throws — a dismissal
+   *  hook on the dialog it takes down, say — must not leave
+   *  {@link commitLoadInFlight} answering true for good. */
   private triggerLoadCommitsCallback(changes: boolean) {
-    if (this.loadCommitsCallback !== null) {
-      this.loadCommitsCallback(changes);
-      this.loadCommitsCallback = null;
+    const callback = this.loadCommitsCallback;
+    this.loadCommitsCallback = null;
+    try {
+      if (callback !== null) callback(changes);
+    } finally {
+      // A side-view-delegated action may have been waiting for this load, and
+      // it goes on waiting for nothing if a throwing close-out skips this.
+      this.tryRunPendingRefAction();
     }
-    // A side-view-delegated action may have been waiting for this load.
-    this.tryRunPendingRefAction();
   }
 
   public loadAvatar(email: string, image: string) {
@@ -1805,8 +1837,9 @@ class GitGraphView {
    *  button.
    *
    *  Counted rather than set, because the indicator is one class on one button
-   *  and three separate things raise it: a refresh, a branch-change reload, and
-   *  a Find step that has to page. ADR-0019's "at most one commit load in
+   *  and four separate things raise it: a refresh, a branch-change reload, a
+   *  Find step that has to page, and a Repository Setting that reloads the
+   *  commits ({@link applyRepoSettings}). ADR-0019's "at most one commit load in
    *  flight" is what makes the overlap easy to miss — it holds, and it is not
    *  the whole story. A refresh's branch half is out well before its commit
    *  half exists, so a second refresh starting in that window is a second live
@@ -2041,6 +2074,12 @@ class GitGraphView {
             // dialog and the context menu but not a confirmation. Hard
             // refreshes follow an action (checkout, merge, …) so always close;
             // soft refreshes only close when something changed.
+            //
+            // A hard reload whose branch handler ran to the end always arrives
+            // here with `branchChanges` set — {@link loadBranches} never
+            // short-circuits a hard one — so `hard` reads as redundant, and is
+            // not: it states the intent, and it is the one arm left standing
+            // when that handler threw part-way, which reports no changes.
             //
             // Not held back when this refresh's own request was dropped, unlike
             // the claim above, and the two part company on what is left to do
