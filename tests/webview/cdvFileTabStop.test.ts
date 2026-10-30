@@ -322,4 +322,34 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
       expect(tabStopsOnComparison).toEqual(["src/y.ts"]);
     });
   });
+
+  // The CTRL-click re-points the open view at once, but the panel on screen is
+  // still the old one until the answer comes. A file focused in that gap is a
+  // file of the *old* view, and has to be remembered under the identity the
+  // panel was drawn with — not the one the view has already moved on to (#268).
+  describe("when a file of the old panel is focused while a comparison is pending", () => {
+    let tabStopsOnNewComparison: string[] = [];
+
+    beforeAll(() => {
+      expect(fileRows().map((f) => filePathOf(f))).toEqual(["src/y.ts", "CHANGELOG.md"]);
+      row("ccc333").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+      // Still the old comparison's panel: the new one has not been answered.
+      expect(fileRows().map((f) => filePathOf(f))).toEqual(["src/y.ts", "CHANGELOG.md"]);
+      fileRow("CHANGELOG.md").focus();
+      row("bbb222").focus();
+
+      receive({
+        command: "compareCommits",
+        fromHash: "ccc333",
+        toHash: "bbb222",
+        fileChanges: ["src/z.ts", "CHANGELOG.md"].map(change)
+      });
+      expect(fileRows().map((f) => filePathOf(f))).toEqual(["src/z.ts", "CHANGELOG.md"]);
+      tabStopsOnNewComparison = fileTabStopPaths();
+    });
+
+    it("starts the new comparison's tab stop on its first file", () => {
+      expect(tabStopsOnNewComparison).toEqual(["src/z.ts"]);
+    });
+  });
 });

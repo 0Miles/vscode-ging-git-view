@@ -6459,6 +6459,16 @@ class GitGraphView {
     );
   }
 
+  /** The {@link cdvIdentity} the panel on screen was drawn with, or null when
+   *  there is no panel. Not the same question as `cdvIdentity()`: a CTRL-click
+   *  comparison re-points the view the moment it is asked for, while the old
+   *  panel stays up until the answer comes. A file focused in that gap is a file
+   *  of the view the user can see, and remembering it under the one they cannot
+   *  carried its place over into the comparison it never belonged to (#268). */
+  private drawnCdvIdentity(): string | null {
+    return this.cdvPanel()?.dataset.cdvIdentity ?? null;
+  }
+
   /** Which file in the Commit Details View keyboard focus is in, or null when it
    *  is not in that list at all. Read immediately *before* the table is
    *  replaced, the same way {@link focusedRowKey} is: the panel goes with the
@@ -6645,7 +6655,7 @@ class GitGraphView {
     if (files.length === 0) return;
     const memory = this.cdvFileTabStopMemory;
     const target =
-      memory === null || memory.cdvIdentity !== this.cdvIdentity()
+      memory === null || memory.cdvIdentity !== this.drawnCdvIdentity()
         ? files[0]
         : (files.find((file) => cdvFileKey(file) === memory.key) ??
           files[Math.max(0, Math.min(memory.index, files.length - 1))]);
@@ -6657,7 +6667,7 @@ class GitGraphView {
    *  {@link RovingTabStop}'s `onSet`, so the memory never lags the markup. */
   private rememberCdvFileTabStop(file: HTMLElement) {
     this.cdvFileTabStopMemory = {
-      cdvIdentity: this.cdvIdentity(),
+      cdvIdentity: this.drawnCdvIdentity(),
       key: cdvFileKey(file),
       index: this.cdvFileRows().indexOf(file)
     };
@@ -7007,6 +7017,7 @@ class GitGraphView {
       "</div>";
 
     const docked = this.isCdvDocked();
+    const cdv = this.cdvIdentity();
     let newElem: HTMLElement;
     if (docked) {
       // Docked to bottom: a fixed panel below the graph rather than a row
@@ -7024,6 +7035,9 @@ class GitGraphView {
       insertAfter(newElem, this.expandedCommit.srcElem);
       this.setupCdvResize(newElem); // height + divider drag, inline only
     }
+    // The view this panel shows, for as long as it stands — see
+    // {@link drawnCdvIdentity}.
+    newElem.dataset.cdvIdentity = cdv ?? "";
 
     this.renderGraph();
 
@@ -7035,7 +7049,6 @@ class GitGraphView {
     // means fighting the scroll that triggered the load (ADR-0019: automatic
     // loading is browsing, and browsing must not move anything). So it runs
     // once per CDV, and again only when the CDV becomes a different one.
-    const cdv = this.cdvIdentity();
     if (cdv !== this.cdvBroughtIntoView) {
       this.cdvBroughtIntoView = cdv;
       const commitRow = this.expandedCommit.srcElem;
