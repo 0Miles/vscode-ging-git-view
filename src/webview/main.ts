@@ -1172,7 +1172,7 @@ class GitGraphView {
   }
 
   /** Rename the repo from the drawer's pencil. The drawer steps aside first:
-   *  it sits above the graph and the docked details panel, and so above the
+   *  it sits above the graph and a docked Commit Details View, and so above the
    *  dialog too. */
   private showRenameRepo() {
     const repo = this.currentRepo;
@@ -1241,7 +1241,7 @@ class GitGraphView {
     }
     // Only the commits: none of these fields moves the branch list. Shaped like
     // {@link reloadForBranchChange}, which is the same navigation one field
-    // over — less its closing of the details panel, which nobody asked for.
+    // over — less its closing of the Commit Details View, which nobody asked for.
     this.shrinkLoadedCommitWindow();
     this.abandonLoadsInFlight();
     this.saveState();

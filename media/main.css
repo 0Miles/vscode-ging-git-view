@@ -350,7 +350,7 @@ body.cdvDocked #commitTable .gitRef {
   vertical-align: top;
 }
 #commitDetails td {
-  /* Layering follows the Quick Pick: the details panel is a *surface* (like
+  /* Layering follows the Quick Pick: the Commit Details View is a *surface* (like
      the quick-input widget itself), one elevation step above the view — not a
      hovered or selected list item. */
   background-color: var(
