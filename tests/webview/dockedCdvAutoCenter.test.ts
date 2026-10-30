@@ -78,7 +78,10 @@ function refreshWithNewTag() {
   receive({
     command: "loadCommits",
     token: 0,
-    commits: [...commits.slice(0, -1), { ...last, refs: [{ hash: last.hash, name: "v1", type: "tag" }] }],
+    commits: [
+      ...commits.slice(0, -1),
+      { ...last, refs: [{ hash: last.hash, name: "v1", type: "tag" }] }
+    ],
     head: "aaa111",
     moreCommitsAvailable: false,
     hard: false
