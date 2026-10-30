@@ -1770,15 +1770,16 @@ class GitGraphView {
    *  stands. Testing `hard` left exactly that case stranded.
    *
    *  This dismissal can reach a dialog the reload does not own — the existence
-   *  check in {@link hideReloadOwnedOverlays} cannot tell them apart, which is
-   *  tracked on #127 and predates this — and through {@link reloadForBranchChange}
+   *  check in {@link hideReloadOwnedOverlays} cannot tell them apart, which
+   *  predates this — and through {@link reloadForBranchChange}
    *  that is a way in the panel did not have before: a filter pushed from the
    *  side-view can now take down a Branch Cleanup deep scan (its dismissal hook
    *  sends `branchCleanupScanCancel`) or a "Check for Unmerged Changes" whose
-   *  answer is then dropped on arrival. It is the same trade #127 already
-   *  names, made once more: a dialog that closes early beats one that never
-   *  closes at all, and both end when the dialog is correlated with the reload
-   *  that owns it.
+   *  answer is then dropped on arrival (by its owner token, so it cannot land
+   *  in a progress dialog raised since — #127). It is the same trade
+   *  {@link hideReloadOwnedOverlays} already makes, made once more: a dialog
+   *  that closes early beats one that never closes at all, and both end when
+   *  the dialog is correlated with the reload that owns it.
    *
    *  Deliberately not routed through {@link triggerLoadCommitsCallback}: that
    *  one also retries a delegated ref action, and here the gate is about to be
@@ -7305,6 +7306,9 @@ function conflictPredictionPlaceholder(repo: string, theirs: string): string {
 // late answer must neither replace whatever the user opened in the meantime nor
 // reappear after they dismissed the "checking" dialog.
 let redundancyCheckSeq = 0;
+/** The progress dialog the latest check raised. The sequence says the answer
+ *  is to the latest request; this says that request's dialog is still up. */
+let redundancyDialogOwner = 0;
 /** The repo the open dialog is reporting on, for its lazy detail requests. */
 let redundancyRepo: string | null = null;
 
@@ -7314,12 +7318,12 @@ let redundancyRepo: string | null = null;
  *  promise (ADR-0006). */
 function requestBranchRedundancy(repo: string, branch: string) {
   redundancyRepo = repo;
-  showActionRunningDialog(l10n.redundancyChecking);
+  redundancyDialogOwner = showActionRunningDialog(l10n.redundancyChecking);
   sendMessage({ command: "branchRedundancy", repo, branch, token: ++redundancyCheckSeq });
 }
 
 function showBranchRedundancy(branch: string, result: BranchRedundancy, token: number) {
-  if (token !== redundancyCheckSeq || document.getElementById("actionRunning") === null) return;
+  if (token !== redundancyCheckSeq || progressDialogOwnedBy(redundancyDialogOwner) === null) return;
   const message = branchRedundancyMessage(branch, result) + branchRedundancyBasis(result);
   // A redundant branch, and every branch we couldn't judge, is a one-line
   // answer with nothing to list. Those stay plain centred alerts: the wide
@@ -7598,13 +7602,19 @@ let cleanupSeq = 0;
 let cleanupOpenToken = 0;
 /** The repo that request was made for. */
 let cleanupOpenRepo: string | null = null;
+/** The progress dialog that request raised, which its answer replaces. */
+let cleanupOpenDialogOwner = 0;
+/** The progress dialog the running deep scan reports into. */
+let cleanupScanDialogOwner = 0;
+/** The progress dialog the open dialog's "fetch and recompute" raised. */
+let cleanupRefetchDialogOwner = 0;
 
 /** Ask the host for a payload and open the dialog on it. The graph's context
  *  menu route (the side-view command has the payload already). */
 function requestBranchCleanup(repo: string) {
   cleanupOpenRepo = repo;
   cleanupOpenToken = ++cleanupSeq;
-  showActionRunningDialog(l10n.cleanupChecking);
+  cleanupOpenDialogOwner = showActionRunningDialog(l10n.cleanupChecking);
   sendMessage({ command: "branchCleanupOpen", repo, fetch: false, token: cleanupOpenToken });
 }
 
@@ -7613,19 +7623,25 @@ function requestBranchCleanup(repo: string) {
  *
  * The open dialog's own "fetch and recompute" carries that dialog's token, so it
  * updates in place. Anything else is a fresh open, and only counts while the
- * "working" dialog it replaced is still up — a late answer must not reopen a
- * dialog the user has already dismissed.
+ * "working" dialog its request raised is still up — a late answer must not
+ * reopen a dialog the user has already dismissed, nor take over the progress
+ * dialog of whatever they started since.
  */
 function handleBranchCleanupOpen(msg: GG.ResponseBranchCleanupOpen) {
   const notice = msg.fetchFailed ? l10n.cleanupFetchFailed : null;
   if (cleanupState !== null && msg.token === cleanupState.token) {
-    updateBranchCleanup(msg.payload, notice, msg.token);
+    // Only over the refetch's own progress dialog. Its hook clears
+    // `cleanupState` when the user walks away, but a dialog that replaces it
+    // runs no hook, and the answer would render the list over that one.
+    if (progressDialogOwnedBy(cleanupRefetchDialogOwner) !== null) {
+      updateBranchCleanup(msg.payload, notice, msg.token);
+    }
     return;
   }
   if (
     msg.token !== cleanupOpenToken ||
     cleanupOpenRepo === null ||
-    document.getElementById("actionRunning") === null
+    progressDialogOwnedBy(cleanupOpenDialogOwner) === null
   ) {
     return;
   }
@@ -7899,9 +7915,13 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
     // itself cannot be recalled, but the answer must not reopen a dialog the
     // user has closed — unlike the scan's Stop, which exists precisely to come
     // back with what it found.
-    showActionRunningDialogWith(l10n.loading, l10n.dialogDismiss, () => {
-      cleanupState = null;
-    });
+    cleanupRefetchDialogOwner = showActionRunningDialogWith(
+      l10n.loading,
+      l10n.dialogDismiss,
+      () => {
+        cleanupState = null;
+      }
+    );
     sendMessage({
       command: "branchCleanupOpen",
       repo: cleanupState.repo,
@@ -7915,7 +7935,7 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
  *  replaced by a progress one so the list can't be edited against verdicts that
  *  are still arriving. */
 function startBranchCleanupScan(repo: string, token: number) {
-  showActionRunningDialogWith(
+  cleanupScanDialogOwner = showActionRunningDialogWith(
     escapeHtml(fillTemplate(l10n.cleanupScanning, "0", "?")),
     l10n.cleanupScanStop,
     () => sendMessage({ command: "branchCleanupScanCancel" })
@@ -7923,9 +7943,21 @@ function startBranchCleanupScan(repo: string, token: number) {
   sendMessage({ command: "branchCleanupScan", repo, token });
 }
 
+/** The deep scan's verdicts, finished or cut short by Stop. Over the scan's own
+ *  progress dialog, or into the empty slot Stop leaves — Stop's contract is to
+ *  come back with what was found. Never over a dialog that has taken the slot
+ *  since: that one belongs to someone else. */
+function handleBranchCleanupScan(msg: GG.ResponseBranchCleanupScan) {
+  if (progressDialogOwnedBy(cleanupScanDialogOwner) === null && isDialogOpen()) return;
+  updateBranchCleanup(msg.payload, msg.cancelled ? l10n.cleanupScanCancelled : null, msg.token);
+}
+
 function updateBranchCleanupScanProgress(done: number, total: number, token: number) {
   if (cleanupState === null || token !== cleanupState.token) return;
-  const running = document.getElementById("actionRunning");
+  // The scan's own dialog, not any progress dialog: Stop, Escape or a reload
+  // can close it while counts are still in flight, and the next one up is
+  // someone else's.
+  const running = progressDialogOwnedBy(cleanupScanDialogOwner);
   if (running === null) return;
   running.innerHTML =
     svgIcons.loading + escapeHtml(fillTemplate(l10n.cleanupScanning, String(done), String(total)));
@@ -8345,7 +8377,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       updateBranchCleanupScanProgress(msg.done, msg.total, msg.token);
       break;
     case "branchCleanupScan":
-      updateBranchCleanup(msg.payload, msg.cancelled ? l10n.cleanupScanCancelled : null, msg.token);
+      handleBranchCleanupScan(msg);
       break;
     case "deleteBranches":
       gitGraph.handleBatchActionResponse("deleteBranches", msg.results);
@@ -9033,6 +9065,11 @@ function showErrorDialog(
     onDismiss
   );
 }
+/** One sequence for every kind of progress dialog. Per-kind sequences already
+ *  keep a kind's stale answers out of its own later dialogs; what they cannot
+ *  do is keep one kind's answer out of another kind's dialog, because their
+ *  numbers overlap. */
+let progressDialogSeq = 0;
 /**
  * The one place a progress dialog is built.
  *
@@ -9044,6 +9081,13 @@ function showErrorDialog(
  * reload it was waiting for. So the markup is built here and the entry points
  * below differ only in what they pass in.
  *
+ * The mark says *a* progress dialog is up, not whose. That is what the
+ * returned owner token is for: it is written onto the mark as `data-token`
+ * (the conflict prediction's precedent), and {@link progressDialogOwnedBy} is
+ * how a host answer arriving later asks whether the dialog on screen is still
+ * the one its request raised. Every close destroys the mark and the token with
+ * it, so there is no owner to forget to clear.
+ *
  * `content` is inserted as HTML, so callers escape their own interpolations;
  * `dismissName` is the Dismiss button's label, which the cleanup scan replaces
  * with "Stop" because for that one wait, dismissing is what stops it. Null
@@ -9053,18 +9097,25 @@ function showActionRunningDialogWith(
   content: string,
   dismissName: string | null,
   onDismiss?: () => void
-) {
+): number {
+  const owner = ++progressDialogSeq;
   showDialog(
-    '<span id="actionRunning">' + svgIcons.loading + content + "</span>",
+    '<span id="actionRunning" data-token="' + owner + '">' + svgIcons.loading + content + "</span>",
     null,
     dismissName,
     null,
     null,
     onDismiss
   );
+  return owner;
 }
-function showActionRunningDialog(command: string) {
-  showActionRunningDialogWith(command + " ...", l10n.dialogDismiss);
+/** The progress dialog `owner` raised, while it is still the one on screen. */
+function progressDialogOwnedBy(owner: number): HTMLElement | null {
+  const running = document.getElementById("actionRunning");
+  return running !== null && running.dataset.token === String(owner) ? running : null;
+}
+function showActionRunningDialog(command: string): number {
+  return showActionRunningDialogWith(command + " ...", l10n.dialogDismiss);
 }
 /** A progress dialog with no Dismiss, for an action the host cannot be asked to
  *  stop: closing it early would only hide work that goes on regardless. It
@@ -9111,6 +9162,10 @@ function showDialog(
   dialogDismissAction = onDismiss ?? null;
   document.getElementById("dialogDismiss")?.addEventListener("click", dismissDialog);
 
+  // A dialog arriving over another one takes its row's highlight too: the row
+  // the old dialog was about is no longer what any dialog is about, and nothing
+  // else would clear it short of a redraw.
+  if (dialogMenuSource !== null) dialogMenuSource.classList.remove("dialogActive");
   dialogMenuSource = sourceElem;
   if (dialogMenuSource !== null) dialogMenuSource.classList.add("dialogActive");
 }
@@ -9172,16 +9227,17 @@ function hideDialogAndContextMenu() {
  * and with it any chance of answering Yes.
  *
  * `#actionRunning` is what separates those two, and that is the whole of what
- * it separates. It is an existence check, not an identity: it cannot tell this
- * reload's own progress dialog from one belonging to a host query that has
- * nothing to do with the reload. "Check for Unmerged Changes" and the cleanup
- * dialog's own opening request both raise one, and both still lose it to an
- * unrelated reload — after which their answers are dropped on arrival by the
- * same existence check (`showBranchRedundancy`, `handleBranchCleanupOpen`).
- * That predates this split, which only narrows what gets closed; the fix is to
- * correlate by token, and it is tracked on #127 rather than smuggled in here.
- * Every progress dialog is built by {@link showActionRunningDialogWith} rather
- * than by hand so that the mark is at least produced in one place.
+ * it separates. It is an existence check, not an identity, and deliberately
+ * so: nothing ties a reload to the action whose progress dialog it finishes —
+ * the host's `refresh` carries no such thing — so this cannot ask whether the
+ * dialog is *this reload's*. A host query's progress dialog ("Check for
+ * Unmerged Changes", the cleanup dialog's opening request, its deep scan) is
+ * closed here along with an action's. What the owner token on the mark does
+ * settle is what happens next: closing the dialog takes its owner with it, so
+ * the query's late answer is dropped on arrival rather than written into
+ * whatever progress dialog the user has raised since (#127). Every progress
+ * dialog is built by {@link showActionRunningDialogWith} rather than by hand so
+ * that the mark, and its owner, are produced in one place.
  *
  * The context menu is not held back with it, deliberately. Its contents are a
  * snapshot — what can be dropped, what is HEAD, which refs are cleanup
