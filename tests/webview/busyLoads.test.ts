@@ -1,14 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
+import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  openMenuOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The busy indicator on the Refresh button is one class driven by a count
-// (`busyLoads`), and four things raise a claim on it: a refresh, a
-// branch-change reload, a Find step that has to page, and a Repository Setting
-// that reloads the commits. Each claim has to be dropped exactly once on every
+// (`busyLoads`), and five things raise a claim on it: a refresh, a
+// branch-change reload, a Find step that has to page, a Repository Setting
+// that reloads the commits, and a commit ordering picked from the
+// column-header menu. Each claim has to be dropped exactly once on every
 // way its load can end. droppedLoadRequests and navigationDuringLoad pin the
 // ways a request can be dropped or abandoned; repoSettingsDrawer pins its own
 // reload. This file pins what was left: the ordinary end of the paths no test
@@ -23,6 +33,8 @@ import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } fro
 // One webview is booted for the whole file and the scenarios run in order;
 // re-importing per scenario would leave the previous instance listening on
 // `window`.
+
+const L = getWebviewLocalizedStrings();
 
 const viewState = makeViewState();
 
@@ -270,6 +282,36 @@ describe("a refresh told its repo is gone, with nothing else out", () => {
   it("goes back to the host for the repo list instead of paging", () => {
     expect(sentOf("loadRepos")).toHaveLength(1);
     expect(sentOf("loadCommits")).toHaveLength(0);
+  });
+});
+
+// The menu's twin of the drawer's commit-ordering field: the same field, the
+// same reload, and it used to load with no indicator at all (#245).
+describe("a commit ordering picked from the column-header menu", () => {
+  let reloadRequests: unknown[] = [];
+  let spinningWhileLoading = false;
+
+  beforeAll(() => {
+    receive(branchesResponse); // back to a repo after the scenario above
+    receive(commitsResponse);
+    mock.clearMessages();
+    openMenuOn('th[data-col="date"]');
+    clickItem(L.commitOrderAuthorDate);
+    reloadRequests = sentOf("loadCommits");
+    spinningWhileLoading = refreshing();
+    receive(commitsResponse);
+  });
+
+  it("reloads the commits", () => {
+    expect(reloadRequests).toMatchObject([{ hard: true, commitOrder: "author-date" }]);
+  });
+
+  it("spins the Refresh button while that load is out", () => {
+    expect(spinningWhileLoading).toBe(true);
+  });
+
+  it("stops spinning when it lands", () => {
+    expect(refreshing()).toBe(false);
   });
 });
 

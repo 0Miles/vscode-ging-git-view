@@ -1884,9 +1884,10 @@ class GitGraphView {
    *  button.
    *
    *  Counted rather than set, because the indicator is one class on one button
-   *  and four separate things raise it: a refresh, a branch-change reload, a
-   *  Find step that has to page, and a Repository Setting that reloads the
-   *  commits ({@link applyRepoSettings}). ADR-0019's "at most one commit load in
+   *  and five separate things raise it: a refresh, a branch-change reload, a
+   *  Find step that has to page, a Repository Setting that reloads the commits
+   *  ({@link applyRepoSettings}), and a commit ordering picked from the
+   *  column-header menu. ADR-0019's "at most one commit load in
    *  flight" is what makes the overlap easy to miss — it holds, and it is not
    *  the whole story. A refresh's branch half is out well before its commit
    *  half exists, so a second refresh starting in that window is a second live
@@ -2887,7 +2888,12 @@ class GitGraphView {
           state: repoState
         });
         this.shrinkLoadedCommitWindow();
-        this.requestLoadCommits(true, () => {});
+        // Claimed, as the drawer's reload of the same field is
+        // ({@link applyRepoSettings}): the whole graph is reordered, so this
+        // is a reload of what is on screen rather than a page at the footer,
+        // and it said nothing at all while it ran (#245).
+        this.beginBusyLoad();
+        this.requestLoadCommits(true, () => this.endBusyLoad());
       };
       const orderItem = (order: CommitOrdering | null, label: string) => ({
         title: label,

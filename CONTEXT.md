@@ -144,11 +144,11 @@ _Avoid_: pending step, queued step
 ### 忙碌指示
 
 **Busy indicator**:
-Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重新載入時,告訴使用者「有載入在進行」的那個標示。它亮著,當且僅當還有至少一個 busy claim 沒有放下;它不是一個「有人設了、還沒人取消」的旗標。不是每個載入都認領它:載入更多、捲動自動載入、以及頁尾的 loaded commit window 重設入口都不認領,它們用頁尾自己的標示;從欄位標題選單改 commit 排序也不認領。
+Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重新載入時,告訴使用者「有載入在進行」的那個標示。它亮著,當且僅當還有至少一個 busy claim 沒有放下;它不是一個「有人設了、還沒人取消」的旗標。不是每個載入都認領它:載入更多、捲動自動載入、以及頁尾的 loaded commit window 重設入口都不認領,它們用頁尾自己的標示。
 _Avoid_: loading flag, spinner, refreshing state
 
 **Busy claim**:
-一次載入對 busy indicator 的認領。載入開始時舉起(`beginBusyLoad`),並在它可能結束的**每一條**路上恰好放下一次(`endBusyLoad`)—— 包括請求被丟棄、根本沒有載入發生的那些路,請求在送出途中就拋錯的那些,以及被導覽作廢的那些。`busyLoads` 是當下還沒放下的 claim 數,indicator 只隨最後一個熄滅。來源有四:分支與 commit 整套的重新載入(refresh,以及走同一條路的開機與導覽)、branch filter 變更後的重新載入、需要翻頁的 Find step,以及從 Repository Settings 抽屜改了一個要重載 commit 的設定(`applyRepoSettings`)。
+一次載入對 busy indicator 的認領。載入開始時舉起(`beginBusyLoad`),並在它可能結束的**每一條**路上恰好放下一次(`endBusyLoad`)—— 包括請求被丟棄、根本沒有載入發生的那些路,請求在送出途中就拋錯的那些,以及被導覽作廢的那些。`busyLoads` 是當下還沒放下的 claim 數,indicator 只隨最後一個熄滅。來源有五:分支與 commit 整套的重新載入(refresh,以及走同一條路的開機與導覽)、branch filter 變更後的重新載入、需要翻頁的 Find step、從 Repository Settings 抽屜改了一個要重載 commit 的設定(`applyRepoSettings`),以及從欄位標題選單改 commit 排序 —— 後兩者改的是同一個欄位,重載的是同一張圖形,所以認領的方式也一樣。
 它是計數而不是旗標,因為這些來源會重疊 —— 一次 refresh 的分支半段出去之後、commit 半段還不存在時,第二次 refresh 就能開始。用設定 / 取消,先結束的那個會替還在跑的那個宣告閒置。舉起而沒放下,按鈕就轉到面板關掉為止;放下兩次,就帶走了別人的 claim。
 _Avoid_: busy flag, loading state, refreshing
 
