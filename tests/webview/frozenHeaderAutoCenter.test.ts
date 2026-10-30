@@ -20,6 +20,20 @@ import {
  * the note atop frozenHeader.test.ts. */
 const FROZEN = 63;
 
+/* Where the opened commit and its details land, in viewport coordinates.
+ * jsdom performs no layout, so the boxes are declared: the page stands
+ * SCROLLED px down, the commit's 24px row starts ROW_TOP px down the viewport,
+ * and the panel under it has been dragged to PANEL_HEIGHT — a height other than
+ * the 250px default, so nothing here holds by matching a built-in constant. */
+const SCROLLED = 1500;
+const ROW_TOP = 500;
+const ROW_HEIGHT = 24;
+const PANEL_HEIGHT = 400;
+
+function rect(top: number, height: number): DOMRect {
+  return new DOMRect(0, top, 800, height);
+}
+
 const viewState = makeViewState({ autoCenterCommitDetailsView: true });
 
 const commits: GitCommitNode[] = [
@@ -58,10 +72,12 @@ describe("centring the Commit Details View under the frozen header", () => {
     frozenStyle.textContent = `#commitTable tr { scroll-margin-top: ${FROZEN}px; }`;
     document.head.appendChild(frozenStyle);
     window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
-    Object.defineProperty(HTMLTableRowElement.prototype, "offsetTop", {
+    Object.defineProperty(HTMLTableRowElement.prototype, "getBoundingClientRect", {
       configurable: true,
-      get(this: HTMLElement) {
-        return this.id === "commitDetails" ? 2000 : 0;
+      value(this: HTMLElement): DOMRect {
+        if (this.id === "commitDetails") return rect(ROW_TOP + ROW_HEIGHT, PANEL_HEIGHT);
+        if (this.dataset.hash === "aaa111") return rect(ROW_TOP, ROW_HEIGHT);
+        return rect(0, 0);
       }
     });
     await import("@/webview/main");
@@ -85,22 +101,25 @@ describe("centring the Commit Details View under the frozen header", () => {
   });
 
   afterAll(() => {
-    // The stub shadows HTMLElement's own getter; deleting it un-shadows it.
-    delete (HTMLTableRowElement.prototype as { offsetTop?: number }).offsetTop;
+    // The stub shadows Element's own method; deleting it un-shadows it.
+    delete (HTMLTableRowElement.prototype as { getBoundingClientRect?: unknown })
+      .getBoundingClientRect;
     frozenStyle.remove();
     parkViewportAt(0);
   });
 
   it("centres the commit and its details in the part of the viewport below the header", () => {
-    parkViewportAt(0);
+    parkViewportAt(SCROLLED);
     document
       .querySelector<HTMLElement>('#commitTable tr.commit[data-hash="aaa111"]')!
       .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     receive({ command: "commitDetails", commitDetails: details });
-    // The row-plus-panel block is centred 177px past the CDV's offsetTop
-    // (2177). The visible rows span 63..768 of the viewport, centre 415.5,
-    // so the page has to stand at 2177 - 415.5.
+    // On the page, the row starts at 1500 + 500 = 2000 and the panel ends
+    // 24 + 400 further down, at 2424: the block's middle is 2212. The visible
+    // rows span 63..768 of the viewport, middle 415.5, so the page has to
+    // stand at 2212 - 415.5 = 1796.5 — not 32px further on, as it did when
+    // the middle was a hard-coded offsetTop + 177 (#216).
     expect(scrollTo).toHaveBeenCalledTimes(1);
-    expect(scrollTo).toHaveBeenCalledWith(0, 2177 - (VIEWPORT_HEIGHT + FROZEN) / 2);
+    expect(scrollTo).toHaveBeenCalledWith(0, 2212 - (VIEWPORT_HEIGHT + FROZEN) / 2);
   });
 });

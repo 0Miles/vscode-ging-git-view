@@ -6701,10 +6701,11 @@ class GitGraphView {
     const cdv = this.cdvIdentity();
     if (!docked && cdv !== this.cdvBroughtIntoView) {
       this.cdvBroughtIntoView = cdv;
-      // Page positions, worked from the panel's `offsetTop`, which is measured
-      // from the table: the table starts below the 32px control bar (the
-      // conflict banner, when shown, is not counted here), so the panel's top
-      // is at offsetTop + 32 and the commit's 24px row above it at offsetTop + 8.
+      // The two branches that do not centre work in page positions, from the
+      // panel's `offsetTop`, which is measured from the table: the table starts
+      // below the 32px control bar (the conflict banner, when shown, is not
+      // counted here), so the panel's top is at offsetTop + 32 and the commit's
+      // 24px row above it at offsetTop + 8.
       //
       // The top of the viewport is not where the visible rows begin: the
       // frozen header covers `frozen` px of it (#206). Both comparisons against
@@ -6712,12 +6713,19 @@ class GitGraphView {
       // bottom edge has nothing frozen over it, so that branch is unchanged.
       const frozen = frozenHeaderHeight(newElem);
       if (this.config.autoCenterCommitDetailsView) {
-        // Centre Commit Details View is on: put offsetTop + 177 at the middle
-        // of the visible rows, (window height + frozen) / 2 down the viewport.
-        // The row-plus-panel block's own middle is offsetTop + 8 + (24 + 250) / 2
-        // = offsetTop + 145, so this sits the block 32px above centre — an
-        // offset that predates the frozen header, left as found.
-        window.scrollTo(0, newElem.offsetTop + 177 - (window.innerHeight + frozen) / 2);
+        // Centre Commit Details View is on: put the middle of the block — the
+        // commit's row down to the panel's bottom — at the middle of the
+        // visible rows, (window height + frozen) / 2 down the viewport. The
+        // block is measured on screen rather than worked out from offsetTop:
+        // the panel's height is the user's to drag, and the hard-coded middle
+        // this replaced (offsetTop + 177, from the days of a 40px bar) sat the
+        // block 32px above centre (#216).
+        const blockTop = this.expandedCommit.srcElem.getBoundingClientRect().top;
+        const blockBottom = newElem.getBoundingClientRect().bottom;
+        window.scrollTo(
+          0,
+          window.pageYOffset + (blockTop + blockBottom) / 2 - (window.innerHeight + frozen) / 2
+        );
       } else if (newElem.offsetTop + 8 - frozen < window.pageYOffset) {
         // The commit's row (offsetTop + 8) starts above the first visible row
         // (pageYOffset + frozen): scroll it to sit right under the header.
