@@ -1,5 +1,12 @@
 import type { BatchRefResult } from "@/backend/types";
 
+/** What a run is told about each action it may carry, keyed by action: the
+ *  result one ref reports, and the parameters `start` is given and every `send`
+ *  echoes. Everything a run hands back is typed by the action it was started
+ *  for, so a retry predicate or a summary's reader sees that action's own
+ *  flags rather than the base result. */
+export type BatchRunTypes = Record<string, { result: BatchRefResult; params: unknown }>;
+
 /** What a batch run tells its adapter to do next. `send` carries the round so
  *  the adapter can decide action-specific parameters (delete forces round 2)
  *  and echoes the `params` given to `start`, so no adapter state has to
@@ -11,24 +18,43 @@ import type { BatchRefResult } from "@/backend/types";
  *  called by whatever destroyed the retry offer's dialog, and that caller has
  *  no idea what was in it. Tagging the command is what lets the adapter render
  *  the summary without keeping a copy of the run's action beside the run — a
- *  copy nothing would keep honest. */
-export type BatchRunCommand<TAction extends string = string> =
-  | { kind: "send"; refs: string[]; round: 1 | 2; params: unknown }
-  | { kind: "busy" }
-  | { kind: "offerRetry"; refs: string[] }
-  | { kind: "summarise"; results: BatchRefResult[]; action: TAction | null }
-  | { kind: "none" };
+ *  copy nothing would keep honest.
+ *
+ *  Written as one union per action rather than one union over all of them, so
+ *  that a summary's `results` stay tied to its `action` — a summary with
+ *  delete's tag carries delete's results. */
+export type BatchRunCommand<TTypes extends BatchRunTypes, K extends keyof TTypes = keyof TTypes> = {
+  [A in K]:
+    | { kind: "send"; refs: string[]; round: 1 | 2; params: TTypes[A]["params"] }
+    | { kind: "busy" }
+    | { kind: "offerRetry"; refs: string[] }
+    | { kind: "summarise"; results: TTypes[A]["result"][]; action: A }
+    | { kind: "none" };
+}[K];
 
-export interface BatchRunOptions<TAction extends string = string> {
-  /** Which batch action this run belongs to. Results tagged with a different
-   *  action are not ours and are ignored. */
-  action?: TAction;
+export interface BatchRunOptions<TTypes extends BatchRunTypes, K extends keyof TTypes> {
+  /** Which batch action this run belongs to. Results, and answers to its retry
+   *  offer, tagged with a different action are not ours and are ignored. */
+  action: K;
   /** Marks a result as refused in a way one retry round can fix. Absent for
    *  actions with no retry round (push, fast-forward). */
-  retryWhen?: (result: BatchRefResult) => boolean;
+  retryWhen?: (result: TTypes[K]["result"]) => boolean;
   /** Echoed verbatim on every `send` this run emits. */
-  params?: unknown;
+  params: TTypes[K]["params"];
 }
+
+/** What a run keeps of its own between events. */
+type RunRecord<TTypes extends BatchRunTypes, K extends keyof TTypes> = {
+  retryWhen: ((result: TTypes[K]["result"]) => boolean) | null;
+  params: TTypes[K]["params"];
+  round1: TTypes[K]["result"][];
+};
+/** The run in flight's record, filed under its action — the only entry ever
+ *  present. An event names its action, and looking the record up by that name
+ *  is what hands the event the record's types: no cast stands between a
+ *  response's results and the predicate the run was started with. An event
+ *  naming any other action finds nothing, and is not ours. */
+type RunRecords<TTypes extends BatchRunTypes> = { [K in keyof TTypes]?: RunRecord<TTypes, K> };
 
 /** A batch run: one batch action's execution from the moment the user has
  *  confirmed it, through at most one retry round, to its summary.
@@ -42,12 +68,10 @@ export interface BatchRunOptions<TAction extends string = string> {
  *  ({@link onResults}), the user declines the retry round
  *  ({@link onRetryDeclined}), or the offer is taken off the screen before it
  *  can be answered ({@link abandon}). */
-export class BatchRun<TAction extends string = string> {
+export class BatchRun<TTypes extends BatchRunTypes = BatchRunTypes> {
   private state: "idle" | "awaitingRound1" | "offeringRetry" | "awaitingRound2" = "idle";
-  private action: TAction | null = null;
-  private retryWhen: ((result: BatchRefResult) => boolean) | null = null;
-  private params: unknown = undefined;
-  private round1: BatchRefResult[] = [];
+  private action: keyof TTypes | null = null;
+  private records: RunRecords<TTypes> = {};
   private retryRefs: string[] = [];
 
   /** Begin a run, unless one is genuinely still going.
@@ -74,27 +98,37 @@ export class BatchRun<TAction extends string = string> {
    *  webview it is made for free: every batch start sits behind a question of
    *  its own, and asking it is what takes the standing offer away. See
    *  `startBatchRun` in `main.ts`. */
-  start(refs: string[], options: BatchRunOptions<TAction>): BatchRunCommand<TAction> {
+  start<K extends keyof TTypes>(
+    refs: string[],
+    options: BatchRunOptions<TTypes, K>
+  ): BatchRunCommand<TTypes, K> {
     if (this.state !== "idle" && this.state !== "offeringRetry") return { kind: "busy" };
     this.state = "awaitingRound1";
-    this.action = options.action ?? null;
-    this.retryWhen = options.retryWhen ?? null;
-    this.params = options.params;
-    return { kind: "send", refs, round: 1, params: this.params };
+    this.action = options.action;
+    const records: RunRecords<TTypes> = {};
+    records[options.action] = {
+      retryWhen: options.retryWhen ?? null,
+      params: options.params,
+      round1: []
+    };
+    this.records = records;
+    return { kind: "send", refs, round: 1, params: options.params };
   }
 
-  onResults(results: BatchRefResult[], action?: string): BatchRunCommand<TAction> {
+  onResults<K extends keyof TTypes>(
+    results: TTypes[K]["result"][],
+    action: K
+  ): BatchRunCommand<TTypes, K> {
     if (this.state !== "awaitingRound1" && this.state !== "awaitingRound2") {
       return { kind: "none" }; // not ours (or already summarised)
     }
-    if (this.action !== null && action !== undefined && action !== this.action) {
-      return { kind: "none" }; // another action's results
-    }
-    if (this.state === "awaitingRound1" && this.retryWhen !== null) {
-      const retryable = results.filter(this.retryWhen).map((r) => r.ref);
+    const record = this.records[action];
+    if (record === undefined) return { kind: "none" }; // another action's results
+    if (this.state === "awaitingRound1" && record.retryWhen !== null) {
+      const retryable = results.filter(record.retryWhen).map((r) => r.ref);
       if (retryable.length > 0) {
         this.state = "offeringRetry";
-        this.round1 = results;
+        record.round1 = results;
         this.retryRefs = retryable;
         return { kind: "offerRetry", refs: retryable };
       }
@@ -103,20 +137,21 @@ export class BatchRun<TAction extends string = string> {
     // round 1's results to keep every ref — and the original order.
     const retried = new Map(results.map((r) => [r.ref, r]));
     const summary =
-      this.state === "awaitingRound2" ? this.round1.map((r) => retried.get(r.ref) ?? r) : results;
+      this.state === "awaitingRound2" ? record.round1.map((r) => retried.get(r.ref) ?? r) : results;
     this.state = "idle";
-    return { kind: "summarise", results: summary, action: this.action };
+    return { kind: "summarise", results: summary, action };
   }
 
-  onRetryConfirmed(): BatchRunCommand<TAction> {
-    if (this.state !== "offeringRetry") return { kind: "none" };
+  onRetryConfirmed<K extends keyof TTypes>(action: K): BatchRunCommand<TTypes, K> {
+    const record = this.records[action];
+    if (this.state !== "offeringRetry" || record === undefined) return { kind: "none" };
     this.state = "awaitingRound2";
-    return { kind: "send", refs: this.retryRefs, round: 2, params: this.params };
+    return { kind: "send", refs: this.retryRefs, round: 2, params: record.params };
   }
 
   /** The user answered the retry offer, and the answer was no. */
-  onRetryDeclined(): BatchRunCommand<TAction> {
-    return this.endOnRound1();
+  onRetryDeclined<K extends keyof TTypes>(action: K): BatchRunCommand<TTypes, K> {
+    return this.endOnRound1(action);
   }
 
   /** End the run whose retry offer is gone from the screen without either
@@ -131,9 +166,12 @@ export class BatchRun<TAction extends string = string> {
    *  Only `offeringRetry` is abandonable. The two waiting states are waiting on
    *  the host, whose answer is still coming, and a dialog taken away from them
    *  costs nothing — `onResults` still lands. Returning `none` everywhere else
-   *  also makes this safe to call twice, which the caller relies on. */
-  abandon(): BatchRunCommand<TAction> {
-    return this.endOnRound1();
+   *  also makes this safe to call twice, which the caller relies on.
+   *
+   *  The one event that names no action: its caller does not know which run's
+   *  offer it destroyed. The summary's own tag says. */
+  abandon(): BatchRunCommand<TTypes> {
+    return this.action === null ? { kind: "none" } : this.endOnRound1(this.action);
   }
 
   /** The two endings that report round 1 and nothing after it: the user said
@@ -143,9 +181,10 @@ export class BatchRun<TAction extends string = string> {
    *  entry points because what they *mean* differs, and a caller writing
    *  `abandon()` at a dialog-destruction site should not have to know that
    *  declining is what it turns into. */
-  private endOnRound1(): BatchRunCommand<TAction> {
-    if (this.state !== "offeringRetry") return { kind: "none" };
+  private endOnRound1<K extends keyof TTypes>(action: K): BatchRunCommand<TTypes, K> {
+    const record = this.records[action];
+    if (this.state !== "offeringRetry" || record === undefined) return { kind: "none" };
     this.state = "idle";
-    return { kind: "summarise", results: this.round1, action: this.action };
+    return { kind: "summarise", results: record.round1, action };
   }
 }
