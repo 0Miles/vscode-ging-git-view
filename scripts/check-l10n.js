@@ -1,5 +1,6 @@
 /**
- * Check l10n files for missing translations and parameter consistency
+ * Check l10n files for missing translations, parameter consistency and
+ * mixed-width punctuation
  * Compares all translation files against the base bundle.l10n.json and package.nls.json
  */
 
@@ -76,10 +77,15 @@ function placeholdersMatch(arr1, arr2) {
  */
 const PUNCTUATION_EXEMPT_KEYS = new Set(["stats.weekdays"]);
 
-/** A Han character, or CJK / full-width punctuation such as 「」。 */
-const CJK = "[\\p{Script=Han}\\u3000-\\u303f\\uff00-\\uffef]";
-const HALF_WIDTH_BESIDE_CJK = new RegExp(`${CJK}[,;]|[,;]${CJK}`, "u");
-const BRACKETS = { "(": ")", "（": "）" };
+/** Regex source for one Han character, or CJK / full-width punctuation such as 「」。 */
+const CJK_CHAR = "[\\p{Script=Han}\\u3000-\\u303f\\uff00-\\uffef]";
+const HALF_WIDTH_BESIDE_CJK = new RegExp(`${CJK_CHAR}[,;]|[,;]${CJK_CHAR}`, "gu");
+/** Opening bracket → its closer, at the same width. */
+const BRACKETS = new Map([
+  ["(", ")"],
+  ["（", "）"]
+]);
+const CLOSERS = new Set(BRACKETS.values());
 
 /**
  * Report mixed-width punctuation in a translated string.
@@ -101,19 +107,18 @@ function findPunctuationIssues(text) {
   const issues = [];
   const open = [];
   for (const char of text) {
-    if (char in BRACKETS) {
+    if (BRACKETS.has(char)) {
       open.push(char);
-    } else if (char === ")" || char === "）") {
+    } else if (CLOSERS.has(char)) {
       const opener = open.pop();
-      if (opener !== undefined && BRACKETS[opener] !== char) {
+      if (opener !== undefined && BRACKETS.get(opener) !== char) {
         issues.push(`bracket opened with "${opener}" but closed with "${char}"`);
       }
     }
   }
 
-  const beside = text.match(HALF_WIDTH_BESIDE_CJK);
-  if (beside) {
-    issues.push(`half-width punctuation beside CJK: "${beside[0]}"`);
+  for (const [halfWidthMatch] of text.matchAll(HALF_WIDTH_BESIDE_CJK)) {
+    issues.push(`half-width punctuation beside CJK: "${halfWidthMatch}"`);
   }
 
   return issues;
