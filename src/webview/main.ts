@@ -5222,16 +5222,18 @@ class GitGraphView {
       // full-screen overlay, so a wheel over it used to chain to the document
       // and fire this — but a user reading a modal question is not browsing
       // the graph underneath it, which is the whole premise ADR-0019 keeps
-      // automatic loading on. Since #230 the page holds still behind a dialog
-      // (`html.dialogOpen`), so the user's own scrolling no longer gets here;
-      // the gate stays for the scrolls that lock cannot stop, the browser
-      // bringing a focused background control into view among them. Its condition fails here twice over: the loaded
+      // automatic loading on. Its condition fails here twice over: the loaded
       // commit window would widen out of sight, and the footer carrying both
       // the count and the only control that shrinks it is behind the overlay.
       // A deferral, not a refusal — the next scroll after the dialog closes
       // loads as it always did.
       //
-      // This closes the wheel and *only* the wheel, which is worth saying
+      // Since #230 the page itself holds still behind a dialog
+      // (`html.dialogOpen`), so the wheel no longer gets here at all. The gate
+      // stays for the scrolls that lock cannot stop: the browser bringing a
+      // focused background control into view is one, measured in Chromium.
+      //
+      // The gate closed the wheel and *only* the wheel, which is worth saying
       // plainly because the obvious reading of it is wrong. The footer's Load
       // More is a real `<button>` with a tabindex, and `showDialog` sets two
       // class names and an `innerHTML` — no `inert` on the background, no

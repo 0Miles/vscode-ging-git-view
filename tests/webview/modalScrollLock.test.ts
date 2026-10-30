@@ -27,7 +27,7 @@ const commits: GitCommitNode[] = [
 ];
 
 const locked = () => document.documentElement.classList.contains("dialogOpen");
-const dialogOpen = () => document.getElementById("dialog")!.classList.contains("active");
+const dialogShown = () => document.getElementById("dialog")!.classList.contains("active");
 
 /** An action's error, which the host raises as a dialog with a Dismiss. */
 const raiseError = () => receive({ command: "fetch", status: "fatal: unable to access remote" });
@@ -58,17 +58,17 @@ describe("the page behind a modal dialog", () => {
   });
 
   it("is not locked while no dialog is up", () => {
-    expect(dialogOpen()).toBe(false);
+    expect(dialogShown()).toBe(false);
     expect(locked()).toBe(false);
   });
 
   it("is locked while a dialog is up, and unlocked by Dismiss", () => {
     raiseError();
-    expect(dialogOpen()).toBe(true);
+    expect(dialogShown()).toBe(true);
     expect(locked()).toBe(true);
 
     document.getElementById("dialogDismiss")!.click();
-    expect(dialogOpen()).toBe(false);
+    expect(dialogShown()).toBe(false);
     expect(locked()).toBe(false);
   });
 
@@ -77,7 +77,7 @@ describe("the page behind a modal dialog", () => {
     expect(locked()).toBe(true);
 
     document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true }));
-    expect(dialogOpen()).toBe(false);
+    expect(dialogShown()).toBe(false);
     expect(locked()).toBe(false);
   });
 
