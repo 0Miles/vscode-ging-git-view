@@ -35,6 +35,7 @@ git 分不出 tracking ref 是被誰更新的:graph 的 Fetch 按鈕、GING 的 
 
 - **沒有 reflog 的分支會被誤擋。** `core.logAllRefUpdates=false` 時,連正常的 amend 後 lease push 也會被拒,因為 reflog 裡找不到遠端 tip。非 bare repo 預設有 reflog,所以接受;遇到時改用「Force」。
 - **拒絕判斷比對的是 git 不翻譯的原因字串** `remote ref updated since checkout`,hint 會翻譯所以不拿來比對。host 回傳 `remoteUpdatedSinceCheckout` 這個事實,文案由 webview 組 —— 而且不斷言「遠端有新 commit」,因為上一條的誤擋情境裡遠端根本沒有新 commit。
-- **整合檢查之前還有 bare lease 自己的檢查。** 本機沒有 tracking ref 而遠端有這個 branch,或 tracking ref 落後於遠端且沒 fetch,git 會先以同樣不翻譯的 `(stale info)` 拒絕([#201](https://github.com/0Miles/vscode-ging-git-view/issues/201))。git 只用 URL 指出 remote,所以 host 回傳的是被拒的 tracking ref(`staleInfoRef`)。說明文案要求 fetch **並整合**,因為只 fetch 會接著撞上本 ADR 的檢查。
+- **整合檢查之前還有 bare lease 自己的檢查。** 本機沒有 tracking ref 而遠端有這個 branch,或 tracking ref 落後於遠端且沒 fetch,git 會先以同樣不翻譯的 `(stale info)` 拒絕([#201](https://github.com/0Miles/vscode-ging-git-view/issues/201))。git 只用 URL 指出 remote,所以 host 回傳的是被拒的 tracking ref(`staleInfoRefs`)。說明文案要求 fetch **並整合**,因為只 fetch 會接著撞上本 ADR 的檢查。
+- **推到多個 remote 時,每個 remote 各自判斷。** host 等所有 remote 都推完才回應,回報每一個拒絕([#264](https://github.com/0Miles/vscode-ging-git-view/issues/264)):錯誤訊息每個 remote 一行,前面標上 remote 名稱;`remoteUpdatedSinceCheckout` 在任一 remote 這樣被拒時成立,`staleInfoRefs` 列出每個因 `(stale info)` 被拒的 tracking ref。兩種拒絕同時出現時,兩段說明都會顯示。只有一個 remote 被拒時,訊息和只推一個 remote 時相同。
 - **三種 push 模式都改走 `git.raw(["push", …])`**,不再經過 simple-git 的 `git.push`(它會自動補 `--porcelain`)。所以 normal 與 force 模式被拒時的錯誤字串格式也跟著變成人類可讀的那一種。
 - 使用者自己在 git config 設的 `push.useForceIfIncludes=false` 會被 `-c` 蓋過。這個模式的語意由 GING 定義,和在命令列直接加旗標一樣。

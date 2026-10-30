@@ -232,6 +232,18 @@ describe("Find's counter when the page a step needs never goes out", () => {
     scrolledTo.length = 0;
   }
 
+  /** Dismiss the refusals earlier scenarios left standing, and whatever was
+   *  owed behind them. A step whose branch index lands behind one now waits
+   *  for it to close instead of writing over it (#243) — and in the real
+   *  webview the Find widget is out of reach under it anyway (#141); jsdom
+   *  does not enforce `inert`, which is how these scenarios step from there. */
+  async function clearDialogs(): Promise<void> {
+    if (document.getElementById("dialogDismiss") === null) return;
+    clickId("dialogDismiss");
+    await Promise.resolve();
+    return clearDialogs();
+  }
+
   function sentOf(command: GG.RequestMessage["command"]) {
     return mock.sentMessages.filter((m) => m.command === command);
   }
@@ -396,11 +408,12 @@ describe("Find's counter when the page a step needs never goes out", () => {
       expect(counter()).toBe(counterFor(3, 3));
       expect(currentMatchHash()).toBe("zzz999");
       expect(sentOf("loadCommits")).toHaveLength(0);
-      // Twice, and the double move predates this change: the rebuild centres
-      // the pending hash, then the pass that follows the branch refs centres it
-      // again. Written out rather than hidden behind a last-element check,
-      // because a suite that tolerates the count cannot notice it growing.
-      expect(scrolledTo).toEqual(["zzz999", "zzz999"]);
+      // Once. The rebuild used to centre the pending hash and the pass that
+      // follows the branch refs centred it again; the rebuild no longer scrolls
+      // for a step it cannot yet say is happening (#246). Written out rather
+      // than hidden behind a last-element check, because a suite that
+      // tolerates the count cannot notice it growing.
+      expect(scrolledTo).toEqual(["zzz999"]);
     });
   });
 
@@ -453,7 +466,8 @@ describe("Find's counter when the page a step needs never goes out", () => {
     const ADDITIONAL_COMMITS = 401;
     let confirmText = "";
 
-    beforeAll(() => {
+    beforeAll(async () => {
+      await clearDialogs();
       ancientBranch = {
         ref: "fix/ancient",
         name: "fix/ancient",
@@ -598,7 +612,8 @@ describe("Find's counter when the page a step needs never goes out", () => {
   });
 
   describe("a step that never goes out, over an index that lost a match above", () => {
-    beforeAll(() => {
+    beforeAll(async () => {
+      await clearDialogs();
       // A branch on a commit the search would otherwise miss, so the match list
       // gains an entry above the one Find is standing on.
       deliverBranchIndex([baseBranch, deepBranch, furtherBranch, ancientBranch]);
@@ -626,7 +641,8 @@ describe("Find's counter when the page a step needs never goes out", () => {
   });
 
   describe("two presses while the same answer is still out", () => {
-    beforeAll(() => {
+    beforeAll(async () => {
+      await clearDialogs();
       receive(commitsResponse(ancientPage, "bbb222")); // settle the page above
       deliverBranchIndex();
       search("fix"); // back to the first match
@@ -656,7 +672,8 @@ describe("Find's counter when the page a step needs never goes out", () => {
   });
 
   describe("a forwards step that never goes out, with Find running backwards", () => {
-    beforeAll(() => {
+    beforeAll(async () => {
+      await clearDialogs();
       receive(commitsResponse(ancientPage, "bbb222")); // settle the page above
       deliverBranchIndex();
       // Walk down to the one match no branch names and back up, so that the
@@ -734,9 +751,10 @@ describe("Find's counter when the page a step needs never goes out", () => {
       expect(counter()).toBe(counterFor(2, 3));
       expect(currentMatchHash()).toBe("zzz999");
       expect(sentOf("loadCommits")).toHaveLength(0);
-      // The rebuild's guess is centred on the way past, which is the same
-      // pre-existing double move as above, here landing on two different rows.
-      expect(scrolledTo).toEqual(["ccc333", "zzz999"]);
+      // Only where the branch went. The rebuild's guess used to be centred on
+      // the way past — the same double move as above, here landing on two
+      // different rows.
+      expect(scrolledTo).toEqual(["zzz999"]);
     });
 
     describe("and moved to a commit that is also past the window", () => {

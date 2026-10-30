@@ -5,6 +5,7 @@ import type * as GG from "@/types";
 
 import {
   createVscodeMock,
+  graphRow,
   makeViewState,
   NEAR_BOTTOM,
   parkViewportAt,
@@ -90,10 +91,6 @@ function details(hash: string, paths: string[]): GitCommitDetails {
   };
 }
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
 function fileRows() {
   return Array.from(document.querySelectorAll<HTMLElement>("#commitDetails .gitFile"));
 }
@@ -150,7 +147,7 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
     });
     receive(commitsResponse(commits));
 
-    row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     receive({
       command: "commitDetails",
       commitDetails: details("aaa111", ["src/a.ts", "src/b.ts", "CHANGELOG.md", "README.md"])
@@ -173,14 +170,15 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
       press("ArrowDown");
       press("ArrowDown");
       expect(filePathOf(document.activeElement)).toBe("CHANGELOG.md");
-      row("aaa111").focus();
+      graphRow("aaa111").focus();
 
       redrawByAutoLoad();
       tabStopsAfterRedraw = fileTabStopPaths();
     });
 
     it("redraws the list without focus in it", () => {
-      expect(row("ccc333")).not.toBeNull();
+      // `graphRow` fails the test if the auto-load's row was never drawn.
+      graphRow("ccc333");
       expect(document.getElementById("commitDetails")!.contains(document.activeElement)).toBe(
         false
       );
@@ -201,7 +199,7 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
 
     beforeAll(() => {
       fileRow("src/b.ts").focus();
-      row("aaa111").focus();
+      graphRow("aaa111").focus();
 
       clickViewType("File List");
       tabStopsInList = fileTabStopPaths();
@@ -240,7 +238,7 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
       tabStopsAtSameIndex = fileTabStopPaths();
 
       fileRow("README.md").focus();
-      row("aaa111").focus();
+      graphRow("aaa111").focus();
       receive({
         command: "commitDetails",
         commitDetails: details("aaa111", ["src/a.ts", "CHANGELOG.md"])
@@ -267,7 +265,7 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
       // `CHANGELOG.md` is the second row of both commits, so neither the path
       // nor the index could tell the two views apart.
       expect(fileTabStopPaths()).toEqual(["CHANGELOG.md"]);
-      row("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({
         command: "commitDetails",
         commitDetails: details("bbb222", ["src/x.ts", "CHANGELOG.md"])
@@ -277,7 +275,7 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
       fileRow("CHANGELOG.md").focus();
       document.getElementById("commitDetailsClose")!.click();
       expect(document.getElementById("commitDetails")).toBeNull();
-      row("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({
         command: "commitDetails",
         commitDetails: details("bbb222", ["src/x.ts", "CHANGELOG.md"])
@@ -304,10 +302,10 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
 
     beforeAll(() => {
       fileRow("CHANGELOG.md").focus();
-      row("bbb222").focus();
+      graphRow("bbb222").focus();
       expect(fileTabStopPaths()).toEqual(["CHANGELOG.md"]);
 
-      row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+      graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
       receive({
         command: "compareCommits",
         fromHash: "bbb222",
@@ -320,6 +318,36 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
 
     it("starts the comparison's tab stop on its first file", () => {
       expect(tabStopsOnComparison).toEqual(["src/y.ts"]);
+    });
+  });
+
+  // The CTRL-click re-points the open view at once, but the panel on screen is
+  // still the old one until the answer comes. A file focused in that gap is a
+  // file of the *old* view, and has to be remembered under the identity the
+  // panel was drawn with — not the one the view has already moved on to (#268).
+  describe("when a file of the old panel is focused while a comparison is pending", () => {
+    let tabStopsOnNewComparison: string[] = [];
+
+    beforeAll(() => {
+      expect(fileRows().map((f) => filePathOf(f))).toEqual(["src/y.ts", "CHANGELOG.md"]);
+      graphRow("ccc333").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+      // Still the old comparison's panel: the new one has not been answered.
+      expect(fileRows().map((f) => filePathOf(f))).toEqual(["src/y.ts", "CHANGELOG.md"]);
+      fileRow("CHANGELOG.md").focus();
+      graphRow("bbb222").focus();
+
+      receive({
+        command: "compareCommits",
+        fromHash: "ccc333",
+        toHash: "bbb222",
+        fileChanges: ["src/z.ts", "CHANGELOG.md"].map(change)
+      });
+      expect(fileRows().map((f) => filePathOf(f))).toEqual(["src/z.ts", "CHANGELOG.md"]);
+      tabStopsOnNewComparison = fileTabStopPaths();
+    });
+
+    it("starts the new comparison's tab stop on its first file", () => {
+      expect(tabStopsOnNewComparison).toEqual(["src/z.ts"]);
     });
   });
 });

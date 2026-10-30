@@ -5,9 +5,11 @@ import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
+  clickId,
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  graphRow,
   makeViewState,
   openMenuOn,
   receive,
@@ -96,22 +98,12 @@ const commitsResponse: GG.ResponseMessage = {
   hard: true
 };
 
-function row(hash: string) {
-  const elem = document.querySelector<HTMLElement>(`tr.commit[data-hash="${hash}"]`);
-  expect(elem, hash).not.toBeNull();
-  return elem!;
-}
-
 function openCommitMenu(hash: string) {
-  rightClick(row(hash));
+  rightClick(graphRow(hash));
 }
 
 function dialogText() {
   return document.getElementById("dialog")!.textContent ?? "";
-}
-
-function clickYes() {
-  document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
 }
 
 describe("the branch a confirmation dialog named", () => {
@@ -156,7 +148,7 @@ describe("the branch a confirmation dialog named", () => {
     expect(dialogText(), "the dialog restated its question").toContain("main");
 
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("pullBranch")).toEqual([]);
     // A refusal the user cannot see is indistinguishable from a dead button.
@@ -170,20 +162,20 @@ describe("the branch a confirmation dialog named", () => {
 
     hostChecksOutRelease();
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("rebaseOn")).toEqual([]);
     expect(dialogText()).toContain(L.dialogHeadMoved.replace("{0}", "main"));
   });
 
   it("refuses to rebase onto a commit once the branch being rebased has changed", () => {
-    rightClick(row("bbb222"));
+    rightClick(graphRow("bbb222"));
     clickItem(L.rebaseOnCommit + E);
     expect(dialogText()).toContain("main");
 
     hostChecksOutRelease();
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("rebaseOn")).toEqual([]);
     expect(dialogText()).toContain(L.dialogHeadMoved.replace("{0}", "main"));
@@ -196,13 +188,13 @@ describe("the branch a confirmation dialog named", () => {
   // branch, rewritten onto `<hash>~1`, with no git error to show for it. The
   // dialog does say it out loud: "rewrites the history of the current branch".
   it("refuses to drop a commit once the branch it would rewrite has changed", () => {
-    rightClick(row("bbb222"));
+    rightClick(graphRow("bbb222"));
     clickItem(L.drop + E);
     expect(dialogText()).toContain("the history of the current branch");
 
     hostChecksOutRelease();
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("dropCommit")).toEqual([]);
     expect(dialogText()).toContain(L.dialogHeadMoved.replace("{0}", "main"));
@@ -234,7 +226,7 @@ describe("the branch a confirmation dialog named", () => {
 
     hostChecksOutRelease();
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf(command)).toEqual([]);
     expect(dialogText()).toContain(L.dialogHeadMoved.replace("{0}", "main"));
@@ -244,7 +236,7 @@ describe("the branch a confirmation dialog named", () => {
     openMenuOn('.gitRef.head[data-name="feature"]');
     clickItem(L.merge + E);
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("mergeBranch")).toEqual([
       {
@@ -278,7 +270,7 @@ describe("the branch a confirmation dialog named", () => {
     expect(document.getElementById("dialogAction"), "the dialog was dismissed").not.toBeNull();
 
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("pullBranch")).toEqual([]);
     expect(dialogText()).toContain(L.dialogHeadMoved.replace("{0}", "main"));

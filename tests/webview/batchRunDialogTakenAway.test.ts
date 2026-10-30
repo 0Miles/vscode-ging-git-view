@@ -3,7 +3,14 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A batch run's retry offer is a question, and until #125 it was a question with
 // exactly two exits: Yes and Cancel, both hanging off one dialog. The dialog is
@@ -68,7 +75,7 @@ function dialogText(): string {
 }
 
 function confirmDialog() {
-  document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+  clickId("dialogAction");
 }
 
 function dismissDialog() {
@@ -432,13 +439,65 @@ describe("a batch retry offer whose dialog is taken away", () => {
       expect(document.getElementById("dialog")!.classList.contains("active")).toBe(false);
 
       regainRepository();
-      // Whatever is owed by now is paid at the next free slot, whichever run
-      // it is — leave none behind for the scenarios after this one.
+      // Both are paid, in the order they were owed, one per free slot: the
+      // first run's at the next close, the second's when that one closes.
       receive({ command: "copyToClipboard", type: "Commit Hash", success: false });
       dismissDialog();
       await flushMicrotasks();
+      expect(dialogText()).toContain("feature-b: error: not fully merged");
       dismissDialog();
+      await flushMicrotasks();
+      expect(dialogText()).toContain("1 succeeded, 1 failed");
+      dismissDialog();
+      await flushMicrotasks();
+      expect(document.getElementById("dialog")!.classList.contains("active")).toBe(false);
       settleRefresh();
     });
+  });
+
+  // `owedSummary` was one slot (#253): a second run abandoned before the first
+  // one's summary had been paid wrote over it, and the first run's failures
+  // were never shown to anyone. Each abandoned run owes its own summary.
+  it("owes each abandoned run its own summary, paid in the order owed", async () => {
+    // Run one stops on its offer, and a second batch's question takes it away.
+    receiveBatchDelete(["feature-a", "feature-b"]);
+    confirmDialog();
+    receive({
+      command: "deleteBranches",
+      results: [
+        { ref: "feature-a", status: null, notFullyMerged: false },
+        { ref: "feature-b", status: "error: run one", notFullyMerged: true }
+      ]
+    });
+    receiveBatchDelete(["feature-a", "feature-b"]);
+    settleRefresh();
+
+    // Run two stops on an offer of its own, and a delegated action takes that
+    // one away too — before anything has freed the slot to pay run one.
+    confirmDialog();
+    await flushMicrotasks();
+    receive({
+      command: "deleteBranches",
+      results: [
+        { ref: "feature-a", status: "error: run two", notFullyMerged: true },
+        { ref: "feature-b", status: null, notFullyMerged: false }
+      ]
+    });
+    expect(document.getElementById("batchRetryOffer"), "run two's offer").not.toBeNull();
+    delegatedActionLandsWithABackgroundLoad();
+    expect(dialogText()).toContain(L.renameBranch);
+
+    dismissDialog();
+    await flushMicrotasks();
+    expect(dialogText()).toContain("feature-b: error: run one");
+
+    dismissDialog();
+    await flushMicrotasks();
+    expect(dialogText()).toContain("feature-a: error: run two");
+
+    dismissDialog();
+    await flushMicrotasks();
+    expect(document.getElementById("dialog")!.classList.contains("active")).toBe(false);
+    settleRefresh();
   });
 });

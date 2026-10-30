@@ -5,6 +5,7 @@ import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import { BRANCH_DRAG_THRESHOLD } from "@/webview/branchDrag";
 
 import {
+  clickId,
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
@@ -105,10 +106,7 @@ function drag(
 
 const dialogOpen = () => document.getElementById("dialog")!.className === "active";
 const dialogText = () => document.getElementById("dialog")!.textContent ?? "";
-const confirm = () =>
-  document
-    .getElementById("dialogAction")!
-    .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+const confirm = () => clickId("dialogAction");
 const dismiss = () =>
   document
     .getElementById("dialogDismiss")!

@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { deleteBranch } from "@/backend/actions/branch";
 import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { bareGit, git, makeRepo, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
@@ -20,6 +20,15 @@ beforeAll(() => {
 afterAll(() => {
   rmrf(repo);
 });
+
+async function rejection(del: Promise<void>): Promise<unknown> {
+  try {
+    await del;
+  } catch (e: unknown) {
+    return e;
+  }
+  throw new Error("expected the delete to fail on a remote");
+}
 
 describe("deleteBranch", () => {
   it("deletes an existing branch", async () => {
@@ -148,5 +157,63 @@ describe("deleteBranch", () => {
       rmrf(localRepo);
       rmrf(remote);
     }
+  });
+
+  // Each remote is asked on its own, as `pushBranch` does since #264: stopping
+  // at the first failure named one remote and answered while the others were
+  // still deleting.
+  describe("on several remotes", () => {
+    /** A local repo with `feature` pushed to `origin`, plus one remote per
+     *  name in `gone` whose directory does not exist. */
+    function setUp(gone: string[]) {
+      const localRepo = makeRepo();
+      const remote = fs.mkdtempSync(path.join(os.tmpdir(), "neo-remote-"));
+      cp.execFileSync("git", ["init", "--bare", "--initial-branch=main"], { cwd: remote });
+      git(["remote", "add", "origin", remote], localRepo);
+      git(["push", "origin", "main"], localRepo);
+      git(["branch", "feature", "main"], localRepo);
+      git(["push", "origin", "feature"], localRepo);
+      for (const name of gone) {
+        git(["remote", "add", name, path.join(remote, "..", "ngg-gone-" + name)], localRepo);
+      }
+      return { localRepo, remote };
+    }
+
+    function deleteFeature(localRepo: string) {
+      return deleteBranch(simpleGit(localRepo), {
+        branchName: "feature",
+        forceDelete: false,
+        deleteOnRemotes: true
+      });
+    }
+
+    it("still deletes on every other remote, and reports the one failure as it is", async () => {
+      // "aaa" sorts ahead of "origin", so it is asked first.
+      const { localRepo, remote } = setUp(["aaa-gone"]);
+      try {
+        const error = await rejection(deleteFeature(localRepo));
+
+        expect(bareGit(["branch", "--list", "feature"], remote).trim()).toBe("");
+        expect(formatGitError(error)).not.toMatch(/^aaa-gone: /);
+      } finally {
+        rmrf(localRepo);
+        rmrf(remote);
+      }
+    });
+
+    it("reports every remote that failed, each under its own name", async () => {
+      const { localRepo, remote } = setUp(["gone-a", "gone-b"]);
+      try {
+        const error = await rejection(deleteFeature(localRepo));
+
+        expect(formatGitError(error).split("\n")).toEqual([
+          expect.stringMatching(/^gone-a: /),
+          expect.stringMatching(/^gone-b: /)
+        ]);
+      } finally {
+        rmrf(localRepo);
+        rmrf(remote);
+      }
+    });
   });
 });

@@ -37,7 +37,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: GIT_LINE,
       remoteUpdatedSinceCheckout: true,
-      staleInfoRef: null
+      staleInfoRefs: []
     });
 
     // English literals, not `L.dialogPushForceLeaseRefused`: rebuilding the
@@ -57,7 +57,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: nonFastForward,
       remoteUpdatedSinceCheckout: false,
-      staleInfoRef: null
+      staleInfoRefs: []
     });
 
     const text = dialogText();
@@ -75,7 +75,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: staleLine,
       remoteUpdatedSinceCheckout: false,
-      staleInfoRef: "origin/main"
+      staleInfoRefs: ["origin/main"]
     });
 
     const text = dialogText();
@@ -97,10 +97,31 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: "[rejected]        x -> x (stale info)",
       remoteUpdatedSinceCheckout: false,
-      staleInfoRef: "origin/<i>x</i>"
+      staleInfoRefs: ["origin/<i>x</i>"]
     });
 
     const bold = Array.from(document.querySelectorAll("#dialog b"), (b) => b.textContent);
     expect(bold).toContain("origin/<i>x</i>");
+  });
+
+  // Pushed to several remotes, each refused on its own (#264): the host
+  // reports every refusal, and each reason that applies is explained.
+  it("explains every lease refusal among several remotes, each once", () => {
+    const lines = [
+      "origin: [rejected]        main -> main (remote ref updated since checkout)",
+      "backup: [rejected]        main -> main (stale info)",
+      "mirror: [rejected]        main -> main (stale info)"
+    ];
+    receive({
+      command: "pushBranch",
+      status: lines.join("\n"),
+      remoteUpdatedSinceCheckout: true,
+      staleInfoRefs: ["backup/main", "mirror/main"]
+    });
+
+    const text = dialogText();
+    expect(text).toContain("Pull or rebase first, then push again.");
+    expect(text).toContain("Git has no up-to-date state of backup/main, mirror/main");
+    for (const line of lines) expect(text, "each remote's own line is kept").toContain(line);
   });
 });

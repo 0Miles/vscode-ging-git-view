@@ -211,7 +211,7 @@ describe("a background reload landing under an open dialog", () => {
     backgroundReloadLands();
     mock.clearMessages();
 
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
 
     expect(sentOf("resetUncommittedChanges")).toEqual([
       { command: "resetUncommittedChanges", repo: DEFAULT_REPO }

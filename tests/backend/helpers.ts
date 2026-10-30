@@ -114,11 +114,12 @@ const REPO_CONFIG = `[user]
  * Create a temp repo with one commit on `main`.
  *
  * Keep the git spawns to a minimum. Inside the VS Code extension host on Windows
- * each one costs 100–250ms, and the extension tests call this from a `setup`
+ * each one costs 100–250ms, and the extension tests called this from a `setup`
  * hook with Mocha's 2000ms budget; the nine spawns this used to take went over
- * it under load (#116). So the config is appended to `.git/config` directly
- * instead of one `git config` per key, and `--template=` skips copying the
- * sample hooks, which also keeps the `fs.cpSync` copies some tests make small.
+ * it under load (#116), and later the three it takes now did too (#283), so
+ * those hooks use `copyRepo` instead. The config is appended to `.git/config`
+ * directly instead of one `git config` per key, and `--template=` skips copying
+ * the sample hooks, which also keeps the `fs.cpSync` copies small.
  *
  * `init -b` needs git 2.28; setup.ts already relies on GIT_CONFIG_COUNT (2.31).
  */
@@ -131,3 +132,33 @@ export function makeRepo(): string {
   git(["commit", "-m", "init"], dir);
   return dir;
 }
+
+/**
+ * A temp repo copied from `seed` (a `makeRepo()` made once per suite), for hooks
+ * whose budget is too tight for three spawns under load. One spawn instead,
+ * about a quarter of `makeRepo()`'s time (#283).
+ *
+ * The copy keeps the seed's commit, so every copy has the same SHA. That is
+ * already true of two `makeRepo()`s made in the same second: the commit object
+ * holds nothing but a fixed tree, identity and message plus a whole-second
+ * timestamp. It is still kept to the extension suites, which only need a
+ * directory that is a repo. The backend suites have 30s budgets and nothing to
+ * gain, and a seed shared across a vitest worker's files would outlive the suite
+ * that made it, with only a process-exit hook left to remove it.
+ *
+ * The refresh is the one spawn that cannot go. The copied file has a new mtime,
+ * so the copied index no longer matches it: `git status` refreshes and never
+ * notices, but plumbing that reads the index as is, like `git diff-files`,
+ * reports the file modified.
+ */
+export function copyRepo(seed: string): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-"));
+  fs.cpSync(seed, dir, { recursive: true });
+  git(["update-index", "-q", "--refresh"], dir);
+  return dir;
+}
+
+/** Mocha budget for the `suiteSetup` that makes an extension suite's seed: one
+ *  `makeRepo()`, which has run to 2.4s on a loaded machine against Mocha's
+ *  default 2000ms (#283). Paid once per suite rather than once per test. */
+export const SEED_TIMEOUT_MS = 10_000;

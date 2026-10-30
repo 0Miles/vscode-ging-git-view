@@ -6,6 +6,7 @@ import {
   clickItem,
   createVscodeMock,
   makeViewState,
+  menuItemStartingWith,
   openMenuOn,
   receive,
   setupHtml
@@ -51,6 +52,7 @@ describe("activating a context-menu item the menu does not carry", () => {
     setupHtml(makeViewState());
 
     expect(() => clickItem(MISSING)).toThrowError(MISSING);
+    expect(() => menuItemStartingWith(MISSING)).toThrowError(MISSING);
   });
 
   it("names every item the open menu does carry", async () => {
@@ -90,6 +92,18 @@ describe("activating a context-menu item the menu does not carry", () => {
     let message = "";
     try {
       clickItem(MISSING);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain(MISSING);
+    for (const label of carried) expect(message).toContain(label);
+
+    // The prefix lookup misses through the same guard, for the same reason:
+    // `contextMenuGutter` and `dialogRememberCheckbox` each carried their own
+    // copy of it until #266, and none of them ever reached the miss either.
+    message = "";
+    try {
+      menuItemStartingWith(MISSING);
     } catch (err) {
       message = (err as Error).message;
     }

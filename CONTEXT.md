@@ -96,7 +96,7 @@ _Avoid_: 多選動作, bulk action, 批次處理
 **Batch run**:
 一次 batch action 的執行過程 —— 從使用者確認、參數已定的那一刻起,經送出、結果回收、至多一輪重試(目前只有 delete 的 force 回合),到摘要收場。重試回合只涵蓋它重送的 ref,摘要一律摺疊回第一回合的完整 ref 集與原始順序。
 
-收場有**三種**,三種都報出第一回合做了什麼,沒有一種靜默關閉:結果回收完;使用者**拒絕**重試;以及重試的詢問在被回答之前就從畫面上消失 —— 最後這種是 **abandoned run(被放棄的 run)**。會有第三種,是因為對話框只有一格,任何背景訊息舉起的對話框都直接蓋掉它,而被蓋掉時「答應」與「拒絕」兩個出口都不會有人走;面板失去存放庫時由系統把詢問收掉也一樣 —— 使用者按 Escape 才算拒絕,系統收掉不算。abandoned run 的摘要是**欠著的**:蓋掉詢問的那個對話框留在畫面上(它通常是使用者剛提出的請求,蓋回去等於把請求弄丟),摘要等對話框那一格再次空出來才補上 —— 收掉詢問的那一次不算空出來;圖形則在 run 結束的當下就重新整理,因為它說得出哪些分支不見了,說不出剩下的為什麼還在。
+收場有**三種**,三種都報出第一回合做了什麼,沒有一種靜默關閉:結果回收完;使用者**拒絕**重試;以及重試的詢問在被回答之前就從畫面上消失,或根本沒上得了畫面 —— 最後這種是 **abandoned run(被放棄的 run)**。會有第三種,是因為對話框只有一格,側檢視委派來的動作舉起的對話框會直接蓋掉它,而被蓋掉時「答應」與「拒絕」兩個出口都不會有人走;面板失去存放庫時由系統把詢問收掉也一樣 —— 使用者按 Escape 才算拒絕,系統收掉不算。結果落地時使用者正開著自己的對話框(不是進度框),詢問也不會蓋上去,run 當場被放棄:其他晚到的回答可以排隊等那一格,詢問不行,因為詢問不在畫面上時 run 就停在一個下一個 batch 會讀成「已結束」的狀態。abandoned run 的摘要是**欠著的**:蓋掉詢問的那個對話框留在畫面上(它通常是使用者剛提出的請求,蓋回去等於把請求弄丟),摘要等對話框那一格再次空出來才補上 —— 收掉詢問的那一次不算空出來;好幾個 run 先後被放棄時,每個 run 各欠一份摘要,依欠下的順序排隊,一格空出來補一份,不互相覆蓋;補之前面板已經改顯示另一個存放庫的,就不再補 —— 摘要沒寫是哪個存放庫,補在別的存放庫上會被讀成在講眼前這一個;圖形則在 run 結束的當下就重新整理,因為它說得出哪些分支不見了,說不出剩下的為什麼還在。
 
 同時至多一個 batch run 在飛,再開一個會被明白拒絕、不靜默吞掉 —— **唯一的例外**是停在重試詢問上、而那個詢問已經不在畫面上的那個 run:它被讀成已經結束,新的 batch 照常開始。代價是它第一回合的結果沒有地方報,所以這只是 abandon 漏接時的最後一道防線,不是主要的收場方式。初始確認框不屬於 batch run —— 那是各動作自己的 interface。
 _Avoid_: 批次流程, batch flow, retry loop
@@ -137,18 +137,18 @@ _Avoid_: cursor, 游標, selected match, current match index
 _Avoid_: jump, 跳轉
 
 **Pending Find navigation**:
-落在「名字匹配的分支」上的 Find step,在新的 branch index 回來之前的樣子。分支可能在手上那份 index 抓取之後移動過,所以落點以回覆為準,不以按下的那一刻為準。在那之前它只是一個**願望**:Find position 不動、方向不記;回覆抵達時才找出那條分支現在的 commit,照 Find step 的規則決定發生或不發生,被拒絕(`hold`)就回到原本的 Find position。它雖然叫 navigation,卻**不是** Navigation:它不改變哪些 commit 該在畫面上,也不作廢在飛的載入。等待期間再按步進,從這個待決的目標起算,所以連按不會被吞掉。換搜尋、關閉 Find、或 branch index 作廢時,它被丟棄。程式裡是 `pendingFindNavigation`(型別 `PendingFindNavigation`)。
+落在「名字匹配的分支」上的 Find step,在新的 branch index 回來之前的樣子。分支可能在手上那份 index 抓取之後移動過,所以落點以回覆為準,不以按下的那一刻為準。在那之前它只是一個**願望**:Find position 不動、方向不記;回覆抵達時才找出那條分支現在的 commit,照 Find step 的規則決定發生或不發生,被拒絕(`hold`)或那條分支已不在回覆裡(刪掉了),就回到原本的 Find position,畫面也不動。它雖然叫 navigation,卻**不是** Navigation:它不改變哪些 commit 該在畫面上,也不作廢在飛的載入。等待期間再按步進,從這個待決的目標起算,所以連按不會被吞掉;那一按若落在沒有分支名稱匹配的 match 上,它當場就移過去,待決的這一步被它取代,回覆抵達時也不會把 Find 拉回去。換搜尋、關閉 Find、branch index 作廢,或被後一按這樣取代時,它被丟棄;使用者在 Find 的確認框按下 Yes 也一樣取代它。程式裡是 `pendingFindNavigation`(型別 `PendingFindNavigation`)。
 它與 `pendingFindTargetHash` 不可互換:這個等的是 branch index,step **尚未發生**;那個等的是一頁 commit,step **已經發生**,只是目標那一列還沒畫出來。
 _Avoid_: pending step, queued step
 
 ### 忙碌指示
 
 **Busy indicator**:
-Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重新載入時,告訴使用者「有載入在進行」的那個標示。它亮著,當且僅當還有至少一個 busy claim 沒有放下;它不是一個「有人設了、還沒人取消」的旗標。不是每個載入都認領它:載入更多、捲動自動載入、以及頁尾的 loaded commit window 重設入口都不認領,它們用頁尾自己的標示;從欄位標題選單改 commit 排序也不認領。
+Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重新載入時,告訴使用者「有載入在進行」的那個標示。它亮著,當且僅當還有至少一個 busy claim 沒有放下;它不是一個「有人設了、還沒人取消」的旗標。不是每個載入都認領它:載入更多、捲動自動載入、以及頁尾的 loaded commit window 重設入口都不認領,它們用頁尾自己的標示。
 _Avoid_: loading flag, spinner, refreshing state
 
 **Busy claim**:
-一次載入對 busy indicator 的認領。載入開始時舉起(`beginBusyLoad`),並在它可能結束的**每一條**路上恰好放下一次(`endBusyLoad`)—— 包括請求被丟棄、根本沒有載入發生的那些路,以及被導覽作廢的那些。`busyLoads` 是當下還沒放下的 claim 數,indicator 只隨最後一個熄滅。來源有四:分支與 commit 整套的重新載入(refresh,以及走同一條路的開機與導覽)、branch filter 變更後的重新載入、需要翻頁的 Find step,以及從 Repository Settings 抽屜改了一個要重載 commit 的設定(`applyRepoSettings`)。
+一次載入對 busy indicator 的認領。載入開始時舉起(`beginBusyLoad`),並在它可能結束的**每一條**路上恰好放下一次(`endBusyLoad`)—— 包括請求被丟棄、根本沒有載入發生的那些路,請求在送出途中就拋錯的那些,以及被導覽作廢的那些。`busyLoads` 是當下還沒放下的 claim 數,indicator 只隨最後一個熄滅。來源有五:分支與 commit 整套的重新載入(refresh,以及走同一條路的開機與導覽)、branch filter 變更後的重新載入、需要翻頁的 Find step、從 Repository Settings 抽屜改了一個要重載 commit 的設定(`applyRepoSettings`),以及從欄位標題選單改 commit 排序。抽屜會為好幾個欄位重載 commit,`commitOrdering` 只是其中之一,而選單改的正是這一個;兩條路重載的都是整張圖形,所以認領的方式一樣。
 它是計數而不是旗標,因為這些來源會重疊 —— 一次 refresh 的分支半段出去之後、commit 半段還不存在時,第二次 refresh 就能開始。用設定 / 取消,先結束的那個會替還在跑的那個宣告閒置。舉起而沒放下,按鈕就轉到面板關掉為止;放下兩次,就帶走了別人的 claim。
 _Avoid_: busy flag, loading state, refreshing
 
@@ -157,7 +157,7 @@ _Avoid_: busy flag, loading state, refreshing
 重繪(`renderTable`)把整張圖形表格從資料重新畫一次 —— commit 載入帶回不同的內容(載入更多、refresh、導覽)、remote 清單改變、切換欄位都會觸發它;只有 soft 載入帶回一模一樣的 commit 時才不重繪 —— hard 載入(手動 refresh、載入更多、loaded commit window 重設、面板還原)即使 commit 相同也重繪。它不是使用者的操作,所以焦點不得帶著畫面移動(ADR-0019);唯一讓畫面跟著還原後的焦點走的例外,是頁尾的 loaded commit window 重設。重繪時移動畫面的其他來源 —— 還原先前的捲動位置、開場捲到 HEAD、重繪途中發生的 CDV opening —— 都不是由焦點帶動的。要分辨「同一份內容重繪了一次」與「換成了新內容」,靠的是身分,不是 DOM 元素。
 
 **Row identity**:
-一列**代表什麼**,而不是它是哪一個 DOM 元素。重繪會換掉每一個列物件,所以要撐過重繪的東西 —— 首先是鍵盤焦點 —— 在重繪前記下持有它的那一列的身分,重繪後用身分在新的列裡找回同一列。commit 列的身分是 commit hash(`graphRowKey`);欄位表頭列與未提交變更列各只有一列,身分就是「那一列」;Commit Details View 的檔案列是檔案路徑(`cdvFileKey`,rename 取新路徑),不用位置,因為 Tree 與 List 兩種版面排列不同,同一個檔案在兩邊的序號不一樣。身分只細到列:焦點在列內的 ref 標籤上時,重繪後回到那一列本身。找不到同一個身分時,圖形只把 tab stop 放到展開的 commit 那一列(沒有就是第一個 commit),不搶焦點;檔案清單則不還原焦點。CDV 自己的身分(見 CDV opening)與 Find position 以 hash 記位置,都是同一個想法。
+一列**代表什麼**,而不是它是哪一個 DOM 元素。重繪會換掉每一個列物件,所以要撐過重繪的東西 —— 首先是鍵盤焦點 —— 在重繪前記下持有它的那一列的身分,重繪後用身分在新的列裡找回同一列。commit 列的身分是 commit hash(`graphRowKey`);欄位表頭列與未提交變更列各只有一列,身分就是「那一列」;Commit Details View 的檔案列是檔案路徑(`cdvFileKey`,rename 取新路徑),不用位置,因為 Tree 與 List 兩種版面排列不同,同一個檔案在兩邊的序號不一樣。身分只細到列:焦點在列內的 ref 標籤上時,重繪後回到那一列本身。找不到同一個身分時,圖形只把 tab stop 放到展開的 commit 那一列(沒有就是第一個 commit),不搶焦點;檔案清單則不還原焦點。CDV 摘要裡的連結(`.commitBodyLink`)不屬於任何一個 roving 群組,它的身分是指向的位址,加上它在指向同一位址的連結裡排第幾(同一個網址可以在訊息裡出現兩次);找不到時焦點不留在 `<body>`,改落到檔案清單的 tab stop,再不然落到展開的 commit 那一列(#251)。CDV 自己的身分(見 CDV opening)與 Find position 以 hash 記位置,都是同一個想法。
 _Avoid_: row index, 列號, 第幾列
 
 ### Commit Details View
@@ -173,11 +173,11 @@ _Avoid_: details panel, commit details panel, 細節面板, 詳細資料面板
 _Avoid_: expanded row
 
 **Docked CDV**:
-`detailsPanel.position` 為 `Docked to Bottom` 時的 CDV —— 固定在視窗底部,不在圖形表格裡、也不在文件流中,所以不推動任何一列。圖形的列從它底下捲過,就像從 frozen header 底下捲過:被它蓋住的那一段不算看得見 —— 方向鍵把列帶進視野時,視野的底邊是它的頂邊;Page Up/Down 只捲動,一次翻的高度也扣掉它。換掉表格不會順手帶走它,所以關閉它、或它展開的 commit 不再被載入時,都要另外把它拿掉。
+`detailsPanel.position` 為 `Docked to Bottom` 時的 CDV —— 固定在視窗底部,不在圖形表格裡、也不在文件流中,所以不推動任何一列。圖形的列從它底下捲過,就像從 frozen header 底下捲過:被它蓋住的那一段不算看得見 —— 方向鍵把列帶進視野時,視野的底邊是它的頂邊;Page Up/Down 只捲動,一次翻的高度也扣掉它。換掉表格不會順手帶走它,所以關閉它、或它展開的 commit 不再被載入時,都要另外把它拿掉。它佔的空間(`cdvDocked`,頁尾等高的 padding)在 docked CDV 第一次畫出來時才加上,之後保留到 CDV 被關閉為止,中途換 commit 也不拿掉:舊的 CDV 先拿掉,新的等內容到了才畫,這段期間空間照樣保留;否則頁面短了一個 CDV 高,停在頁尾的使用者會被夾上去,CDV 回來時又被推回(#256)。內容載入失敗等於關閉,空間也跟著拿掉。
 _Avoid_: bottom panel, 底部面板
 
 **CDV opening**:
-CDV 變成**另一個** CDV 的那一刻 —— 從無到有、換了展開的 commit、或換了比較對象。CDV 的身分是「展開的 commit + 比較對象」(`cdvIdentity`)。身分改變就是開啟;身分沒變、中間也沒關閉過,就不是,不論重繪了幾次。展開 commit 的請求一律先關掉舊的 CDV,所以經由它抵達的都是開啟,即使展開的是同一個 commit;面板重載也一樣 —— 重新變得可見的面板第一次畫出的 CDV 是開啟。只有開啟會把 CDV 帶進視野(ADR-0019),inline 與 docked 都一樣;判斷「這個身分帶進視野過沒有」的是 `cdvBroughtIntoView`。`detailsPanel.autoScroll` 開著時置中:inline 置中的是 commit 列連同底下的 CDV,docked 置中的是 commit 列本身,範圍是凍結表頭底部到 docked CDV 頂部之間。關著時只捲到剛好看得見:inline 讓列與 CDV 都進入視野,docked 只把列從 CDV 底下帶出來(#231)。關掉它不等於不捲。
+CDV 變成**另一個** CDV 的那一刻 —— 從無到有、換了展開的 commit、或換了比較對象。CDV 的身分是「展開的 commit + 比較對象」(`cdvIdentity`)。身分改變就是開啟;身分沒變、中間也沒關閉過,就不是,不論重繪了幾次。展開 commit 的請求一律先關掉舊的 CDV,所以經由它抵達的都是開啟,即使展開的是同一個 commit;面板重載也一樣 —— 重新變得可見的面板第一次畫出的 CDV 是開啟。只有開啟會把 CDV 帶進視野(ADR-0019),inline 與 docked 都一樣;判斷「這個身分帶進視野過沒有」的是 `cdvBroughtIntoView`。`detailsPanel.autoScroll` 開著時置中:inline 置中的是 commit 列連同底下的 CDV,docked 置中的是 commit 列本身,範圍是凍結表頭底部到 docked CDV 頂部之間。關著時只捲到剛好看得見:inline 讓列與 CDV 都進入視野,docked 只把列從 CDV 底下帶出來(#231)。關掉它不等於不捲。Find 在「開啟 details」模式下開啟 CDV 時,若 `autoScroll` 開著,Find 不先自己置中,整段只由開啟捲一次 —— Find 置中時還不知道 CDV 會在哪裡,兩者都捲就會多跳半個 CDV 高(#256)。內容載入失敗、開啟不會發生時,Find 才補上自己的置中。
 _Avoid_: reopen, 重新顯示
 
 **CDV rebind**:

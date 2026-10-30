@@ -1,14 +1,24 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
+import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  DEFAULT_REPO,
+  makeViewState,
+  openMenuOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The busy indicator on the Refresh button is one class driven by a count
-// (`busyLoads`), and four things raise a claim on it: a refresh, a
-// branch-change reload, a Find step that has to page, and a Repository Setting
-// that reloads the commits. Each claim has to be dropped exactly once on every
+// (`busyLoads`), and five things raise a claim on it: a refresh, a
+// branch-change reload, a Find step that has to page, a Repository Setting
+// that reloads the commits, and a commit ordering picked from the
+// column-header menu. Each claim has to be dropped exactly once on every
 // way its load can end. droppedLoadRequests and navigationDuringLoad pin the
 // ways a request can be dropped or abandoned; repoSettingsDrawer pins its own
 // reload. This file pins what was left: the ordinary end of the paths no test
@@ -23,6 +33,8 @@ import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } fro
 // One webview is booted for the whole file and the scenarios run in order;
 // re-importing per scenario would leave the previous instance listening on
 // `window`.
+
+const L = getWebviewLocalizedStrings();
 
 const viewState = makeViewState();
 
@@ -273,6 +285,36 @@ describe("a refresh told its repo is gone, with nothing else out", () => {
   });
 });
 
+// The menu's twin of the drawer's commit-ordering field: the same field, the
+// same reload, and it used to load with no indicator at all (#245).
+describe("a commit ordering picked from the column-header menu", () => {
+  let reloadRequests: unknown[] = [];
+  let spinningWhileLoading = false;
+
+  beforeAll(() => {
+    receive(branchesResponse); // back to a repo after the scenario above
+    receive(commitsResponse);
+    mock.clearMessages();
+    openMenuOn('th[data-col="date"]');
+    clickItem(L.commitOrderAuthorDate);
+    reloadRequests = sentOf("loadCommits");
+    spinningWhileLoading = refreshing();
+    receive(commitsResponse);
+  });
+
+  it("reloads the commits", () => {
+    expect(reloadRequests).toMatchObject([{ hard: true, commitOrder: "author-date" }]);
+  });
+
+  it("spins the Refresh button while that load is out", () => {
+    expect(spinningWhileLoading).toBe(true);
+  });
+
+  it("stops spinning when it lands", () => {
+    expect(refreshing()).toBe(false);
+  });
+});
+
 describe("when something throws part-way through a load", () => {
   beforeAll(() => {
     // Reported through the console as well as to the host; keep it quiet.
@@ -445,6 +487,163 @@ describe("when something throws part-way through a load", () => {
       mock.clearMessages();
       refreshLands();
       expect(sentOf("loadBranches")).toHaveLength(1);
+      expect(refreshing()).toBe(false);
+    });
+  });
+
+  // The request itself failing on its way out (#241). The callback is set
+  // before the message is posted, so a bridge that throws there leaves the
+  // gate shut on a load that was never sent — and the claim with it.
+  describe("a refresh's commit request, as the bridge refuses it", () => {
+    let reported: (string | null)[] = [];
+    let spinningAfterTheThrow = true;
+    let cleanupDialogAfterTheThrow = false;
+
+    beforeAll(() => {
+      const bridge = throwOnSending("loadCommits");
+      mock.clearMessages();
+      receive({ command: "refresh" });
+      // A side-view action arriving while the branch half is out waits for
+      // the load — and the commit half's request is where the load ends.
+      receive({
+        command: "showBranchCleanup",
+        repo: DEFAULT_REPO,
+        seq: ++cleanupSeq,
+        payload: cleanupPayload
+      });
+      receive(branchesResponse);
+      reported = reportedCommands();
+      spinningAfterTheThrow = refreshing();
+      cleanupDialogAfterTheThrow =
+        document.querySelector('#dialog .cleanupRow input[data-ref="merged"]') !== null;
+      bridge.mockRestore();
+      document
+        .getElementById("dialogDismiss")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    it("is still reported to the host", () => {
+      expect(reported).toEqual(["loadBranches"]);
+    });
+
+    it("stops spinning", () => {
+      expect(spinningAfterTheThrow).toBe(false);
+    });
+
+    it("still runs the side-view action that was waiting on the load", () => {
+      // Nothing else would: the gate is open again, but the action is only
+      // retried as a load ends, and the next load is the user's to start.
+      expect(cleanupDialogAfterTheThrow).toBe(true);
+    });
+
+    it("leaves the commit gate open for the next refresh", () => {
+      mock.clearMessages();
+      click("refreshBtn");
+      receive(branchesResponse);
+      expect(sentOf("loadCommits")).toHaveLength(1);
+      receive(commitsResponse);
+      expect(refreshing()).toBe(false);
+    });
+  });
+
+  describe("a refresh's branch request, as the bridge refuses it", () => {
+    let reported: (string | null)[] = [];
+    let spinningAfterTheThrow = true;
+
+    beforeAll(() => {
+      const bridge = throwOnSending("loadBranches");
+      mock.clearMessages();
+      receive({ command: "refresh" });
+      reported = reportedCommands();
+      spinningAfterTheThrow = refreshing();
+      bridge.mockRestore();
+    });
+
+    it("is still reported to the host", () => {
+      expect(reported).toEqual(["refresh"]);
+    });
+
+    it("stops spinning", () => {
+      expect(spinningAfterTheThrow).toBe(false);
+    });
+
+    it("leaves the branch gate open for the next refresh", () => {
+      mock.clearMessages();
+      refreshLands();
+      expect(sentOf("loadBranches")).toHaveLength(1);
+      expect(refreshing()).toBe(false);
+    });
+  });
+
+  // A hard refresh owes the dismissal of the action it follows whether or not
+  // anything changed, and a request that never went out is closed out as a
+  // load that changed nothing — so it still owes it.
+  describe("a hard refresh's branch request, as the bridge refuses it", () => {
+    let dialogUpBefore = false;
+    let spinningAfterTheThrow = true;
+    let dialogUpAfterTheThrow = true;
+
+    beforeAll(() => {
+      click("fetchBtn");
+      dialogUpBefore = progressDialogIsUp();
+      const bridge = throwOnSending("loadBranches");
+      // A click, so the throw escapes through `window`'s error event rather
+      // than the message listener — the other way ADR-0016 reports one.
+      click("refreshBtn");
+      spinningAfterTheThrow = refreshing();
+      dialogUpAfterTheThrow = progressDialogIsUp();
+      bridge.mockRestore();
+    });
+
+    it("had the progress dialog up", () => {
+      expect(dialogUpBefore).toBe(true);
+    });
+
+    it("stops spinning", () => {
+      expect(spinningAfterTheThrow).toBe(false);
+    });
+
+    it("dismisses the progress dialog", () => {
+      expect(dialogUpAfterTheThrow).toBe(false);
+    });
+
+    it("leaves the branch gate open for the next refresh", () => {
+      mock.clearMessages();
+      refreshLands();
+      expect(sentOf("loadBranches")).toHaveLength(1);
+      expect(refreshing()).toBe(false);
+    });
+  });
+
+  // A caller that claims for itself and hands `requestLoadCommits` the
+  // callback that drops the claim — here, a filter pushed from the side-view.
+  describe("a branch-change reload's request, as the bridge refuses it", () => {
+    let reported: (string | null)[] = [];
+    let spinningAfterTheThrow = true;
+
+    beforeAll(() => {
+      const bridge = throwOnSending("loadCommits");
+      mock.clearMessages();
+      receive({ command: "setBranchFilter", branches: ["main"] });
+      reported = reportedCommands();
+      spinningAfterTheThrow = refreshing();
+      bridge.mockRestore();
+    });
+
+    it("is still reported to the host", () => {
+      expect(reported).toEqual(["setBranchFilter"]);
+    });
+
+    it("stops spinning", () => {
+      expect(spinningAfterTheThrow).toBe(false);
+    });
+
+    it("leaves the commit gate open for the next refresh", () => {
+      mock.clearMessages();
+      click("refreshBtn");
+      receive(branchesResponse);
+      expect(sentOf("loadCommits")).toHaveLength(1);
+      receive(commitsResponse);
       expect(refreshing()).toBe(false);
     });
   });

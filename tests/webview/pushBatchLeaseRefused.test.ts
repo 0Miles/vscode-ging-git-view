@@ -3,7 +3,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { BatchPushResult, GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
-import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  DEFAULT_REPO,
+  clickId,
+  createVscodeMock,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A batch Force with lease can be refused for some branches because their
 // remote tip was fetched but never integrated (ADR-0025). Each refused branch
@@ -26,7 +33,7 @@ function pushed(
   status: string | null,
   facts: Partial<Omit<BatchPushResult, "ref" | "status">> = {}
 ): BatchPushResult {
-  return { ref, status, remoteUpdatedSinceCheckout: false, staleInfoRef: null, ...facts };
+  return { ref, status, remoteUpdatedSinceCheckout: false, staleInfoRefs: [], ...facts };
 }
 
 const commits: GitCommitNode[] = [
@@ -54,7 +61,7 @@ function occurrences(text: string, needle: string): number {
 }
 
 function confirmDialog() {
-  document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+  clickId("dialogAction");
 }
 
 function dismissDialog() {
@@ -174,9 +181,9 @@ describe("a batch push summary", () => {
     receive({
       command: "pushBranches",
       results: [
-        pushed("feature-a", STALE_LINE, { staleInfoRef: "origin/feature-a" }),
+        pushed("feature-a", STALE_LINE, { staleInfoRefs: ["origin/feature-a"] }),
         pushed("feature-b", "[rejected]        feature-b -> feature-b (stale info)", {
-          staleInfoRef: "origin/feature-b"
+          staleInfoRefs: ["origin/feature-b"]
         })
       ]
     });
@@ -197,7 +204,7 @@ describe("a batch push summary", () => {
     receive({
       command: "pushBranches",
       results: [
-        pushed("feature-a", STALE_LINE, { staleInfoRef: "origin/feature-a" }),
+        pushed("feature-a", STALE_LINE, { staleInfoRefs: ["origin/feature-a"] }),
         pushed(
           "feature-b",
           "[rejected]        feature-b -> feature-b (remote ref updated since checkout)",

@@ -2,7 +2,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type * as GG from "@/types";
 
-import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  DEFAULT_REPO,
+  clickId,
+  createVscodeMock,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 const REPO = DEFAULT_REPO;
 
@@ -103,7 +110,7 @@ describe("the branch cleanup dialog delivered by the host", () => {
       .find((b) => b.dataset.ref === "merged")!
       .click();
     mock.clearMessages();
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
 
     expect(mock.sentMessages.find((m) => m.command === "deleteBranches")).toMatchObject({
       repo: REPO,
