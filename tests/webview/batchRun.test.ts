@@ -260,6 +260,12 @@ describe("BatchRun", () => {
     });
   });
 
+  it("does not mistake an action named like an object builtin for the run in flight", () => {
+    const run = new BatchRun();
+    run.start(["a"], { ...batch, retryWhen: () => true });
+    expect(run.onResults([{ ref: "a", status: null }], "toString")).toEqual({ kind: "none" });
+  });
+
   it("types what it hands back by the action the run was started for", () => {
     // Two actions whose results carry different flags, as delete and push do.
     type Types = {

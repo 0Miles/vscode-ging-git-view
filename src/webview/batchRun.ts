@@ -122,7 +122,7 @@ export class BatchRun<TTypes extends BatchRunTypes = BatchRunTypes> {
     if (this.state !== "awaitingRound1" && this.state !== "awaitingRound2") {
       return { kind: "none" }; // not ours (or already summarised)
     }
-    const record = this.records[action];
+    const record = this.recordOf(action);
     if (record === undefined) return { kind: "none" }; // another action's results
     if (this.state === "awaitingRound1" && record.retryWhen !== null) {
       const retryable = results.filter(record.retryWhen).map((r) => r.ref);
@@ -143,8 +143,8 @@ export class BatchRun<TTypes extends BatchRunTypes = BatchRunTypes> {
   }
 
   onRetryConfirmed<K extends keyof TTypes>(action: K): BatchRunCommand<TTypes, K> {
-    const record = this.records[action];
-    if (this.state !== "offeringRetry" || record === undefined) return { kind: "none" };
+    const record = this.offeredRecordOf(action);
+    if (record === undefined) return { kind: "none" };
     this.state = "awaitingRound2";
     return { kind: "send", refs: this.retryRefs, round: 2, params: record.params };
   }
@@ -182,9 +182,22 @@ export class BatchRun<TTypes extends BatchRunTypes = BatchRunTypes> {
    *  `abandon()` at a dialog-destruction site should not have to know that
    *  declining is what it turns into. */
   private endOnRound1<K extends keyof TTypes>(action: K): BatchRunCommand<TTypes, K> {
-    const record = this.records[action];
-    if (this.state !== "offeringRetry" || record === undefined) return { kind: "none" };
+    const record = this.offeredRecordOf(action);
+    if (record === undefined) return { kind: "none" };
     this.state = "idle";
     return { kind: "summarise", results: record.round1, action };
+  }
+
+  /** The run's record, if `action` names the run. Own keys only: an action
+   *  that happens to share a name with something on `Object.prototype` is no
+   *  more ours than any other. */
+  private recordOf<K extends keyof TTypes>(action: K): RunRecord<TTypes, K> | undefined {
+    return Object.hasOwn(this.records, action) ? this.records[action] : undefined;
+  }
+
+  /** The run's record while its retry offer stands, if `action` names the run
+   *  — what both answers to the offer, and abandoning it, act on. */
+  private offeredRecordOf<K extends keyof TTypes>(action: K): RunRecord<TTypes, K> | undefined {
+    return this.state === "offeringRetry" ? this.recordOf(action) : undefined;
   }
 }
