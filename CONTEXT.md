@@ -137,18 +137,18 @@ _Avoid_: cursor, 游標, selected match, current match index
 _Avoid_: jump, 跳轉
 
 **Pending Find navigation**:
-落在「名字匹配的分支」上的 Find step,在新的 branch index 回來之前的樣子。分支可能在手上那份 index 抓取之後移動過,所以落點以回覆為準,不以按下的那一刻為準。在那之前它只是一個**願望**:Find position 不動、方向不記;回覆抵達時才找出那條分支現在的 commit,照 Find step 的規則決定發生或不發生,被拒絕(`hold`)就回到原本的 Find position。它雖然叫 navigation,卻**不是** Navigation:它不改變哪些 commit 該在畫面上,也不作廢在飛的載入。等待期間再按步進,從這個待決的目標起算,所以連按不會被吞掉。換搜尋、關閉 Find、或 branch index 作廢時,它被丟棄。程式裡是 `pendingFindNavigation`(型別 `PendingFindNavigation`)。
+落在「名字匹配的分支」上的 Find step,在新的 branch index 回來之前的樣子。分支可能在手上那份 index 抓取之後移動過,所以落點以回覆為準,不以按下的那一刻為準。在那之前它只是一個**願望**:Find position 不動、方向不記;回覆抵達時才找出那條分支現在的 commit,照 Find step 的規則決定發生或不發生,被拒絕(`hold`)或那條分支已不在回覆裡(刪掉了),就回到原本的 Find position,畫面也不動。它雖然叫 navigation,卻**不是** Navigation:它不改變哪些 commit 該在畫面上,也不作廢在飛的載入。等待期間再按步進,從這個待決的目標起算,所以連按不會被吞掉;那一按若落在沒有分支名稱匹配的 match 上,它當場就移過去,待決的這一步被它取代,回覆抵達時也不會把 Find 拉回去。換搜尋、關閉 Find、branch index 作廢,或被後一按這樣取代時,它被丟棄;使用者在 Find 的確認框按下 Yes 也一樣取代它。程式裡是 `pendingFindNavigation`(型別 `PendingFindNavigation`)。
 它與 `pendingFindTargetHash` 不可互換:這個等的是 branch index,step **尚未發生**;那個等的是一頁 commit,step **已經發生**,只是目標那一列還沒畫出來。
 _Avoid_: pending step, queued step
 
 ### 忙碌指示
 
 **Busy indicator**:
-Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重新載入時,告訴使用者「有載入在進行」的那個標示。它亮著,當且僅當還有至少一個 busy claim 沒有放下;它不是一個「有人設了、還沒人取消」的旗標。不是每個載入都認領它:載入更多、捲動自動載入、以及頁尾的 loaded commit window 重設入口都不認領,它們用頁尾自己的標示;從欄位標題選單改 commit 排序也不認領。
+Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重新載入時,告訴使用者「有載入在進行」的那個標示。它亮著,當且僅當還有至少一個 busy claim 沒有放下;它不是一個「有人設了、還沒人取消」的旗標。不是每個載入都認領它:載入更多、捲動自動載入、以及頁尾的 loaded commit window 重設入口都不認領,它們用頁尾自己的標示。
 _Avoid_: loading flag, spinner, refreshing state
 
 **Busy claim**:
-一次載入對 busy indicator 的認領。載入開始時舉起(`beginBusyLoad`),並在它可能結束的**每一條**路上恰好放下一次(`endBusyLoad`)—— 包括請求被丟棄、根本沒有載入發生的那些路,以及被導覽作廢的那些。`busyLoads` 是當下還沒放下的 claim 數,indicator 只隨最後一個熄滅。來源有四:分支與 commit 整套的重新載入(refresh,以及走同一條路的開機與導覽)、branch filter 變更後的重新載入、需要翻頁的 Find step,以及從 Repository Settings 抽屜改了一個要重載 commit 的設定(`applyRepoSettings`)。
+一次載入對 busy indicator 的認領。載入開始時舉起(`beginBusyLoad`),並在它可能結束的**每一條**路上恰好放下一次(`endBusyLoad`)—— 包括請求被丟棄、根本沒有載入發生的那些路,請求在送出途中就拋錯的那些,以及被導覽作廢的那些。`busyLoads` 是當下還沒放下的 claim 數,indicator 只隨最後一個熄滅。來源有五:分支與 commit 整套的重新載入(refresh,以及走同一條路的開機與導覽)、branch filter 變更後的重新載入、需要翻頁的 Find step、從 Repository Settings 抽屜改了一個要重載 commit 的設定(`applyRepoSettings`),以及從欄位標題選單改 commit 排序。抽屜會為好幾個欄位重載 commit,`commitOrdering` 只是其中之一,而選單改的正是這一個;兩條路重載的都是整張圖形,所以認領的方式一樣。
 它是計數而不是旗標,因為這些來源會重疊 —— 一次 refresh 的分支半段出去之後、commit 半段還不存在時,第二次 refresh 就能開始。用設定 / 取消,先結束的那個會替還在跑的那個宣告閒置。舉起而沒放下,按鈕就轉到面板關掉為止;放下兩次,就帶走了別人的 claim。
 _Avoid_: busy flag, loading state, refreshing
 

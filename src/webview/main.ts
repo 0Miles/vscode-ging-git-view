@@ -1884,9 +1884,10 @@ class GitGraphView {
    *  button.
    *
    *  Counted rather than set, because the indicator is one class on one button
-   *  and four separate things raise it: a refresh, a branch-change reload, a
-   *  Find step that has to page, and a Repository Setting that reloads the
-   *  commits ({@link applyRepoSettings}). ADR-0019's "at most one commit load in
+   *  and five separate things raise it: a refresh, a branch-change reload, a
+   *  Find step that has to page, a Repository Setting that reloads the commits
+   *  ({@link applyRepoSettings}), and a commit ordering picked from the
+   *  column-header menu. ADR-0019's "at most one commit load in
    *  flight" is what makes the overlap easy to miss — it holds, and it is not
    *  the whole story. A refresh's branch half is out well before its commit
    *  half exists, so a second refresh starting in that window is a second live
@@ -1936,18 +1937,29 @@ class GitGraphView {
   /** Request the branch list, reporting whether it was actually sent. Dropped
    *  while {@link branchLoadInFlight}, on the same terms as
    *  {@link requestLoadCommits}: nothing is sent and `loadedCallback` never
-   *  runs. */
+   *  runs.
+   *
+   *  A request the bridge throws on is not in flight either, so the gate is
+   *  opened again before the throw goes on (#241). Unlike the commit side's,
+   *  the callback is not run: its tail is the commit half of the load, not a
+   *  close-out, so running it would send that half for a load whose first half
+   *  never went out. The caller, which holds the claim, closes the reload. */
   private requestLoadBranches(
     hard: boolean,
     loadedCallback: (changes: boolean, isRepo: boolean) => void
   ): boolean {
     if (this.branchLoadInFlight) return false;
     this.loadBranchesCallback = loadedCallback;
-    sendMessage({ command: "selectRepo", repo: this.currentRepo });
-    sendMessage({ command: "loadRemotes" });
-    // No showRemoteBranches: the host resolves the repo's own state, which is
-    // what this copy echoes anyway (ADR-0013).
-    sendMessage({ command: "loadBranches", hard: hard, token: this.loadToken });
+    try {
+      sendMessage({ command: "selectRepo", repo: this.currentRepo });
+      sendMessage({ command: "loadRemotes" });
+      // No showRemoteBranches: the host resolves the repo's own state, which is
+      // what this copy echoes anyway (ADR-0013).
+      sendMessage({ command: "loadBranches", hard: hard, token: this.loadToken });
+    } catch (error) {
+      this.loadBranchesCallback = null;
+      throw error;
+    }
     return true;
   }
   public loadRemotes(remotes: string[], pushDefault: string | null) {
@@ -2064,20 +2076,38 @@ class GitGraphView {
    *  by then the state would already be wrong — so they check
    *  {@link commitLoadInFlight} up front instead. The return value is for the
    *  one caller that requests from inside a callback and so has nowhere
-   *  earlier to stand: {@link requestLoadBranchesAndCommits}. */
+   *  earlier to stand: {@link requestLoadBranchesAndCommits}.
+   *
+   *  A request the bridge throws on was accepted and then never went out, so
+   *  `loadedCallback` **does** run, with no changes to report, before the throw
+   *  goes on to be reported (ADR-0016) — the same "a load that never ran
+   *  brought no changes with it" {@link abandonLoadsInFlight} settles a load
+   *  with. Left set, it was the gate shut and the caller's busy claim up for the
+   *  life of the panel (#241). Through {@link triggerLoadCommitsCallback}, so a
+   *  delegated ref action waiting on the load is retried as well: when this is
+   *  the commit half of a refresh, the action was waiting on the branch half,
+   *  and with both gates now open nothing else would retry it until a load the
+   *  user has to start. If it throws in turn, its exception masks the bridge's
+   *  and ADR-0016 reports only that one — the trade #138 made for a throwing
+   *  close-out. */
   private requestLoadCommits(hard: boolean, loadedCallback: (changes: boolean) => void): boolean {
     if (this.commitLoadInFlight) return false;
     this.loadCommitsCallback = loadedCallback;
-    sendMessage({
-      command: "loadCommits",
-      repo: this.currentRepo!,
-      branchNames: this.currentBranches !== null ? this.currentBranches : [""],
-      maxCommits: this.maxCommits,
-      hard: hard,
-      token: this.loadToken,
-      commitOrder: this.gitRepos[this.currentRepo!]?.commitOrdering ?? undefined,
-      hiddenRemotes: this.gitRepos[this.currentRepo!]?.hiddenRemotes ?? undefined
-    });
+    try {
+      sendMessage({
+        command: "loadCommits",
+        repo: this.currentRepo!,
+        branchNames: this.currentBranches !== null ? this.currentBranches : [""],
+        maxCommits: this.maxCommits,
+        hard: hard,
+        token: this.loadToken,
+        commitOrder: this.gitRepos[this.currentRepo!]?.commitOrdering ?? undefined,
+        hiddenRemotes: this.gitRepos[this.currentRepo!]?.hiddenRemotes ?? undefined
+      });
+    } catch (error) {
+      this.triggerLoadCommitsCallback(false);
+      throw error;
+    }
     return true;
   }
   private requestLoadBranchesAndCommits(hard: boolean) {
@@ -2107,12 +2137,12 @@ class GitGraphView {
     // is added, this is where it comes back.
     if (!this.currentRepo) return;
     this.beginBusyLoad();
-    // Refresh the conflict banner alongside every (re)load so it tracks the
-    // repo's operation state (.git changes trigger a refresh via the watcher).
-    sendMessage({ command: "operationState", repo: this.currentRepo });
-    const branchesSent = this.requestLoadBranches(
-      hard,
-      (branchChanges: boolean, isRepo: boolean) => {
+    let branchesSent: boolean;
+    try {
+      // Refresh the conflict banner alongside every (re)load so it tracks the
+      // repo's operation state (.git changes trigger a refresh via the watcher).
+      sendMessage({ command: "operationState", repo: this.currentRepo });
+      branchesSent = this.requestLoadBranches(hard, (branchChanges: boolean, isRepo: boolean) => {
         if (isRepo) {
           const finish = (commitChanges: boolean) => {
             this.endBusyLoad();
@@ -2150,8 +2180,17 @@ class GitGraphView {
           this.endBusyLoad();
           sendMessage({ command: "loadRepos", check: true });
         }
-      }
-    );
+      });
+    } catch (error) {
+      // The bridge threw on one of the messages above, so no branch load is out
+      // and nothing is coming to close this reload: it is closed here, as a
+      // load that never ran and so brought no changes — its claim dropped, and
+      // the dismissal `finish` owes on that same footing, which is `hard`
+      // alone. The throw goes on to be reported (ADR-0016) (#241).
+      this.endBusyLoad();
+      if (hard) hideReloadOwnedOverlays();
+      throw error;
+    }
     // The same asymmetry one level out: a dropped branches request takes the
     // whole reload with it, callback included, so this refresh has to drop its
     // own claim. Only its own — the request was dropped onto another refresh's
@@ -2850,7 +2889,12 @@ class GitGraphView {
           state: repoState
         });
         this.shrinkLoadedCommitWindow();
-        this.requestLoadCommits(true, () => {});
+        // Claimed, as the drawer's reload of the same field is
+        // ({@link applyRepoSettings}): the whole graph is reordered, so this
+        // is a reload of what is on screen rather than a page at the footer,
+        // and it said nothing at all while it ran (#245).
+        this.beginBusyLoad();
+        this.requestLoadCommits(true, () => this.endBusyLoad());
       };
       const orderItem = (order: CommitOrdering | null, label: string) => ({
         title: label,
@@ -5901,8 +5945,14 @@ class GitGraphView {
    *  stand, keeping the current match on the same commit where it survived.
    *
    *  `source` says what arrived, and it — not the identity — is what decides
-   *  whether this may move the viewport. See the comment on the decision. */
-  private refreshFind(source: "redraw" | "branchIndex", preferredHash: string | null) {
+   *  whether this may move the viewport. See the comment on the decision.
+   *  `mayScroll` false takes the decision away altogether, for a caller that
+   *  makes it itself once the rebuild is done. */
+  private refreshFind(
+    source: "redraw" | "branchIndex",
+    preferredHash: string | null,
+    mayScroll = true
+  ) {
     const input = <HTMLInputElement | null>document.getElementById("findInput");
     const previousIndex = this.findCurrent;
     const currentHash =
@@ -5947,8 +5997,9 @@ class GitGraphView {
     // unconditional: those are moves, and one that happens to land back on the
     // current match still owes the user the scroll.
     const scroll =
-      preferredHash !== null ||
-      (source === "branchIndex" && this.findIdentity() !== this.findSettledOn);
+      mayScroll &&
+      (preferredHash !== null ||
+        (source === "branchIndex" && this.findIdentity() !== this.findSettledOn));
     this.applyFindHighlights(scroll);
   }
   public loadBranchSearchIndex(
@@ -5969,7 +6020,15 @@ class GitGraphView {
     // the user is looking at — and `refreshFind` is about to move off it, which
     // is why it is read here rather than after.
     const position = this.findPosition();
-    this.refreshFind("branchIndex", pendingNavigation?.hash ?? this.pendingFindTargetHash);
+    // With a step pending, the rebuild only resolves: whether anything moves
+    // is the step's to decide, below, and it scrolls for itself if it goes
+    // ahead. Left to scroll here, a step that turns out not to be happening
+    // has already centred the row the rebuild guessed for it (#246).
+    this.refreshFind(
+      "branchIndex",
+      pendingNavigation?.hash ?? this.pendingFindTargetHash,
+      pendingNavigation === null
+    );
     if (pendingNavigation === null) return;
 
     this.pendingFindNavigation = null;
@@ -5988,7 +6047,15 @@ class GitGraphView {
     const movedIndex = this.findMatches.findIndex((match) =>
       match.branches.some((branch) => branchRefs.has(branch.ref))
     );
-    if (movedIndex === -1) return;
+    // No match carries the branch any more — it was deleted, or the index no
+    // longer lists it — so the step has nowhere to go and does not happen. The
+    // rebuild above resolved Find onto the target regardless, or onto its
+    // neighbour, and that has to be taken back like any other step that is
+    // not happening (#246).
+    if (movedIndex === -1) {
+      this.restoreFindPosition(position);
+      return;
+    }
     if (this.loadFindMatch(this.findMatches[movedIndex], navigation.direction) === "hold") {
       this.restoreFindPosition(position);
       return;
@@ -6032,6 +6099,11 @@ class GitGraphView {
     // branch to revalidate means no round trip, so the guard and the state
     // change are already in the same synchronous stretch (ADR-0019).
     if (this.loadFindMatch(match, direction) === "hold") return;
+    // This press counted from a step still waiting on its answer, and went
+    // past it. That step is superseded, not merely overtaken: left standing,
+    // its answer would land after this move and take Find back to the branch,
+    // undoing the press that counted from it (#247).
+    this.pendingFindNavigation = null;
     this.findCurrent = next;
     this.findDirection = direction;
     this.applyFindHighlights(true);
@@ -6154,6 +6226,15 @@ class GitGraphView {
       // half-state to report.
       const current = this.findMatches.find((m) => m.hash === match.hash);
       if (current === undefined) return;
+      // The step happens from here on, either way below. A step still waiting
+      // on its branch index is superseded by it, as {@link findStep} supersedes
+      // one with a press that moves at once (#247): the answer to a question is
+      // the last thing the user asked for, and a wish left standing would have
+      // the page's own index answer carry Find back off it. Only a wish raised
+      // under the question can be standing here, and #141's `inert` keeps the
+      // widget out of reach while one stands — kept for the rule, as the
+      // re-take below is.
+      this.pendingFindNavigation = null;
       const now = planFindLoad(this.maxCommits, current);
       if (now === null) {
         // Nothing left to load — but the step the user pressed Yes for still
