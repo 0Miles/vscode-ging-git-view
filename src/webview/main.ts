@@ -2504,10 +2504,10 @@ class GitGraphView {
     // destroys, and it is read here for the same reason — one capture point
     // covers both layouts, because this runs before the table an inline panel
     // lives in is replaced and before a docked one is rebuilt further down.
-    // At most one of the two keys is non-null: a file row is never inside a
-    // commit row.
     const focusedFileKey = this.focusedCdvFileKey();
-    // And the panel's links, which no roving group holds (#251).
+    // And the panel's links, which no roving group holds (#251). At most one
+    // of the three keys is non-null: focus is in one place, and neither a file
+    // row nor a link is ever inside a commit row or each other.
     const focusedLinkKey = this.focusedCdvLinkKey();
     const hiddenDate = this.columnVisibility.date ? "" : " hidden";
     const hiddenAuthor = this.columnVisibility.author ? "" : " hidden";
@@ -2799,11 +2799,12 @@ class GitGraphView {
         }
       }
     }
-    // Both restores run after the expanded commit has been re-bound to its new
-    // row: the panel is by now either redrawn from cache, with file rows to be
-    // found, or gone pending a re-request, which restoreCdvFileFocus documents
-    // as its one reachable miss. The graph's tab stop can likewise land back on
-    // the expanded commit rather than on the top of the graph.
+    // All three restores run after the expanded commit has been re-bound to its
+    // new row: the panel is by now either redrawn from cache, with file rows and
+    // links to be found, or gone pending a re-request, which restoreCdvFileFocus
+    // documents as its one reachable miss (a link's miss falls back to that
+    // row). The graph's tab stop can likewise land back on the expanded commit
+    // rather than on the top of the graph, so it goes last.
     this.restoreCdvFileFocus(focusedFileKey);
     this.restoreCdvLinkFocus(focusedLinkKey);
     this.restoreGraphFocus(focusedKey, focusMayScroll);
