@@ -8,7 +8,11 @@ import {
   clickElem,
   createVscodeMock,
   graphRow,
+  hideMenu,
   makeViewState,
+  MENU_KEY_EVENT,
+  menuItemLabels,
+  moveDialogAheadOfTheGraph,
   receive,
   rightClick,
   setupHtml
@@ -95,20 +99,6 @@ const commitsResponse: GG.ResponseMessage = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-/** Mirrors `main.ts`'s private `MENU_KEY_EVENT`: the keyboard's way of raising a
- *  context menu, bound alongside the pointer's. */
-const MENU_KEY_EVENT = "ging.contextMenuKey";
-
-/** Put `#dialog` ahead of the graph in document order, so that an unscoped
- *  binding meets the stand-ins before it meets the graph — see
- *  `graphCommitRowReads` for why this is not a hypothetical layout. */
-function moveDialogAheadOfTheGraph() {
-  document.body.insertBefore(
-    document.getElementById("dialog")!,
-    document.getElementById("content")!
-  );
-}
-
 /** One element of each of the six classes, standing in `#dialog`, then a redraw
  *  so that `renderTable` binds with them in the page. Rewritten per scenario: an
  *  unscoped binding leaves a handler on these per redraw, and a scenario that
@@ -140,16 +130,6 @@ function inGraph(selector: string) {
   const elem = document.querySelector<HTMLElement>(`#commitTable ${selector}`);
   expect(elem, selector).not.toBeNull();
   return elem!;
-}
-
-function hideMenu() {
-  document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-}
-
-function menuItemLabels() {
-  return Array.from(document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")).map(
-    (li) => (li.textContent ?? "").trim()
-  );
 }
 
 /** What raising a menu on `elem` opens, by pointer and then by menu key. */

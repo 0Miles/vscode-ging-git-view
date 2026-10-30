@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { mergeContextMenuActionsVisibility } from "@/backend/utils/contextMenuVisibility";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { createVscodeMock, makeViewState, menuItemStartingWith, receive, setupHtml } from "./setup";
 
 const viewState = makeViewState({
   contextMenuActionsVisibility: mergeContextMenuActionsVisibility({}),
@@ -33,18 +33,6 @@ const commits: GitCommitNode[] = [
 
 const menu = () => document.getElementById("contextMenu")!;
 const menuItems = () => Array.from(menu().querySelectorAll<HTMLElement>(".contextMenuItem"));
-
-function itemStartingWith(prefix: string) {
-  const item = menuItems().find((li) => (li.textContent ?? "").trim().startsWith(prefix));
-  if (item === undefined) {
-    throw new Error(
-      `menu item "${prefix}" not found; items: ${menuItems()
-        .map((i) => i.textContent)
-        .join(" | ")}`
-    );
-  }
-  return item;
-}
 
 function gutterOf(item: HTMLElement) {
   return item.querySelector<HTMLElement>(".contextMenuItemGutter")!;
@@ -102,11 +90,11 @@ describe("context menu gutter, activation and keyboard navigation", () => {
       openCommitMenu();
 
       // Git operations get a glyph...
-      expect(gutterOf(itemStartingWith("Merge")).querySelector("svg")).not.toBeNull();
-      expect(gutterOf(itemStartingWith("Cherry Pick")).querySelector("svg")).not.toBeNull();
+      expect(gutterOf(menuItemStartingWith("Merge")).querySelector("svg")).not.toBeNull();
+      expect(gutterOf(menuItemStartingWith("Cherry Pick")).querySelector("svg")).not.toBeNull();
       // ...while actions that read fine from their label alone stay blank.
-      expect(gutterOf(itemStartingWith("Copy Commit Hash")).querySelector("svg")).toBeNull();
-      expect(gutterOf(itemStartingWith("Export Patch")).querySelector("svg")).toBeNull();
+      expect(gutterOf(menuItemStartingWith("Copy Commit Hash")).querySelector("svg")).toBeNull();
+      expect(gutterOf(menuItemStartingWith("Export Patch")).querySelector("svg")).toBeNull();
 
       // Every item reserves the gutter even when it holds nothing, so the
       // labels of icon-less items stay aligned with the rest.
@@ -118,8 +106,8 @@ describe("context menu gutter, activation and keyboard navigation", () => {
     it("marks toggles up as menuitemcheckbox and checks only the enabled ones", () => {
       openColumnHeaderMenu();
 
-      const date = itemStartingWith("Date");
-      const author = itemStartingWith("Author");
+      const date = menuItemStartingWith("Date");
+      const author = menuItemStartingWith("Author");
       expect(date.getAttribute("role")).toBe("menuitemcheckbox");
       expect(date.getAttribute("aria-checked")).toBe("true");
       expect(author.getAttribute("aria-checked")).toBe("false");
@@ -131,8 +119,8 @@ describe("context menu gutter, activation and keyboard navigation", () => {
 
     it("gives plain actions role=menuitem and dividers role=separator", () => {
       openCommitMenu();
-      expect(itemStartingWith("Merge").getAttribute("role")).toBe("menuitem");
-      expect(itemStartingWith("Merge").hasAttribute("aria-checked")).toBe(false);
+      expect(menuItemStartingWith("Merge").getAttribute("role")).toBe("menuitem");
+      expect(menuItemStartingWith("Merge").hasAttribute("aria-checked")).toBe(false);
       expect(menu().querySelector('[role="separator"]')).not.toBeNull();
     });
   });
@@ -142,7 +130,7 @@ describe("context menu gutter, activation and keyboard navigation", () => {
       expect(dateHeader().classList.contains("hidden")).toBe(false);
 
       openColumnHeaderMenu();
-      const glyph = gutterOf(itemStartingWith("Date")).querySelector("svg")!;
+      const glyph = gutterOf(menuItemStartingWith("Date")).querySelector("svg")!;
 
       // Regression: the handler used to read ev.target.dataset.index, which is
       // undefined once the click lands on a child of the <li>. Toggling the
@@ -154,7 +142,7 @@ describe("context menu gutter, activation and keyboard navigation", () => {
 
       // Put it back so the later cases see the menu they expect.
       openColumnHeaderMenu();
-      itemStartingWith("Date").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      menuItemStartingWith("Date").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       expect(dateHeader().classList.contains("hidden")).toBe(false);
     });
   });
@@ -188,7 +176,7 @@ describe("context menu gutter, activation and keyboard navigation", () => {
 
     it("runs the focused action on Enter", () => {
       openCommitMenu();
-      const copyItem = itemStartingWith("Copy Commit Subject");
+      const copyItem = menuItemStartingWith("Copy Commit Subject");
       copyItem.focus();
       mock.clearMessages();
       press("Enter");

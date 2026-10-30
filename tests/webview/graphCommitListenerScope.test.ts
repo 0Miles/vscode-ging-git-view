@@ -5,13 +5,18 @@ import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
+  bodyLink,
   clickElem,
   clickItem,
+  contextMenuEntries,
   createVscodeMock,
   DEFAULT_REPO,
   dialogRow,
   graphRow,
+  hideMenu,
   makeViewState,
+  MENU_KEY_EVENT,
+  menuItemLabels,
   openMenuOn,
   receive,
   rightClick,
@@ -160,43 +165,6 @@ const redundancyResult: BranchRedundancy = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-/** The keyboard's way of raising a context menu, mirroring `main.ts`'s private
- *  `MENU_KEY_EVENT`. Dispatched directly rather than via Shift+F10, because the
- *  document keydown handler that would normally synthesise it returns early
- *  while a dialog stands, before the branch that reads Shift+F10. Since #145
- *  the arrows and Enter reach a dialog row, through the dialog's own branch,
- *  but the menu key still does not. What is asserted here is the *binding*,
- *  which is what `addGraphContextMenuListener` wires and what would outlive
- *  the menu key ever being routed there. */
-const MENU_KEY_EVENT = "ging.contextMenuKey";
-
-/** A `.commitBodyLink` under `root`, addressed by the address it points at:
- *  `commitSummaryHtml` emits one per commit for the author and one for the
- *  committer, and both surfaces render them. */
-function bodyLink(root: string, email: string) {
-  const elem = document.querySelector<HTMLElement>(
-    `${root} .commitBodyLink[href="mailto:${encodeURIComponent(email)}"]`
-  );
-  expect(elem, `${root} ${email}`).not.toBeNull();
-  return elem!;
-}
-
-/** Every child of the open menu, dividers included, so that "nothing opened" is
- *  asserted against the whole element rather than against the items alone. */
-function contextMenuEntries() {
-  return Array.from(document.getElementById("contextMenu")!.children).map((li) =>
-    (li.textContent ?? "").trim()
-  );
-}
-
-/** Just the actionable labels, which is what a menu's *contents* are asked
- *  about — the dividers between them are not items and carry no text. */
-function menuItemLabels() {
-  return Array.from(document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")).map(
-    (li) => (li.textContent ?? "").trim()
-  );
-}
-
 /** The seven the ticket names: everything on the graph's commit menu that
  *  changes the repository. Written out here rather than derived from the menu,
  *  because the point of the list is what a user could do from a modal by
@@ -210,10 +178,6 @@ const REPO_MUTATING_ITEMS = [
   L.addTag + E,
   L.createBranch + E
 ];
-
-function hideMenu() {
-  document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-}
 
 /** A soft refresh landing behind the standing dialog — the file watcher's, or
  *  any of the other redraws that leave the panel open. Each one re-runs

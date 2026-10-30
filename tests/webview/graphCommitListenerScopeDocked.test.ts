@@ -5,12 +5,15 @@ import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
+  bodyLink,
   clickElem,
   clickItem,
   createVscodeMock,
   dialogRow,
   graphRow,
+  hideMenu,
   makeViewState,
+  menuItemLabels,
   openMenuOn,
   receive,
   rightClick,
@@ -125,24 +128,6 @@ const redundancyResult: BranchRedundancy = {
 };
 
 let mock: ReturnType<typeof createVscodeMock>;
-
-function bodyLink(root: string, email: string) {
-  const elem = document.querySelector<HTMLElement>(
-    `${root} .commitBodyLink[href="mailto:${encodeURIComponent(email)}"]`
-  );
-  expect(elem, `${root} ${email}`).not.toBeNull();
-  return elem!;
-}
-
-function menuItemLabels() {
-  return Array.from(document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")).map(
-    (li) => (li.textContent ?? "").trim()
-  );
-}
-
-function hideMenu() {
-  document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-}
 
 describe("the docked Commit Details View's body links, with a dialog standing", () => {
   let panelIsOutsideTable = false;

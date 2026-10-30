@@ -2,7 +2,16 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickElem,
+  createVscodeMock,
+  graphRow,
+  makeViewState,
+  menuItemStartingWith,
+  receive,
+  rightClick,
+  setupHtml
+} from "./setup";
 
 const viewState = makeViewState({ combineLocalAndRemoteBranchLabels: false });
 
@@ -32,20 +41,13 @@ const commits: GitCommitNode[] = [
 ];
 
 function openCommitMenu(hash: string) {
-  const row = document.querySelector<HTMLElement>(`tr.commit[data-hash="${hash}"]`);
-  expect(row).not.toBeNull();
-  row!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  rightClick(graphRow(hash));
 }
 
+/** Matched on the start of the label: the whole of it carries more than the
+ *  verb (Merge's "into current branch", the ellipsis). */
 function clickMenuItem(startsWith: string) {
-  const items = Array.from(document.querySelectorAll<HTMLElement>("#contextMenu li"));
-  const item = items.find((li) => (li.textContent ?? "").trim().startsWith(startsWith));
-  if (!item) {
-    throw new Error(
-      `menu item "${startsWith}" not found; items: ${items.map((i) => i.textContent).join(" | ")}`
-    );
-  }
-  item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  clickElem(menuItemStartingWith(startsWith));
 }
 
 describe("'Remember my choice' checkbox visibility", () => {

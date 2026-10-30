@@ -5,6 +5,7 @@ import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
 import {
+  clickId,
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
@@ -119,10 +120,6 @@ function dialogIsOpen() {
   return document.getElementById("dialogAction") !== null;
 }
 
-function clickYes() {
-  document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
-}
-
 describe("the repository a confirmation dialog was answered for", () => {
   let mock: ReturnType<typeof createVscodeMock>;
 
@@ -159,7 +156,7 @@ describe("the repository a confirmation dialog was answered for", () => {
 
     hostSwitchesRepoTo(REPO_B);
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("resetUncommittedChanges")).toEqual([
       { command: "resetUncommittedChanges", repo: DEFAULT_REPO }
@@ -173,7 +170,7 @@ describe("the repository a confirmation dialog was answered for", () => {
 
     hostSwitchesRepoTo(REPO_C);
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("cleanUntrackedFiles")).toEqual([
       { command: "cleanUntrackedFiles", repo: REPO_B }
@@ -194,7 +191,7 @@ describe("the repository a confirmation dialog was answered for", () => {
 
     hostSwitchesRepoTo(DEFAULT_REPO);
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("resetFileToRevision")).toEqual([
       { command: "resetFileToRevision", repo: REPO_C, commitHash: "aaa111", filePath: "src/a.ts" }
@@ -228,7 +225,7 @@ describe("the repository a confirmation dialog was answered for", () => {
 
     hostSwitchesRepoTo(REPO_B);
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("deleteBranches")).toEqual([
       {
@@ -259,7 +256,7 @@ describe("the repository a confirmation dialog was answered for", () => {
     openMenuOn('.gitRef.head[data-name="feature"]');
     clickItem(L.deleteBranch + E);
     expect(dialogIsOpen()).toBe(true);
-    clickYes(); // the ordinary, non-force delete
+    clickId("dialogAction"); // the ordinary, non-force delete
     expect(sentOf("deleteBranch")).toEqual([
       {
         command: "deleteBranch",
@@ -277,7 +274,7 @@ describe("the repository a confirmation dialog was answered for", () => {
     expect(dialogIsOpen(), "the force-delete question was never asked").toBe(true);
 
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("deleteBranch")).toEqual([
       {
@@ -308,7 +305,7 @@ describe("the repository a confirmation dialog was answered for", () => {
 
     hostSwitchesRepoTo(DEFAULT_REPO);
     mock.clearMessages();
-    clickYes();
+    clickId("dialogAction");
 
     expect(sentOf("fastForwardBranches")).toEqual([
       { command: "fastForwardBranches", repo: REPO_C, branchNames: ["feature"] }
