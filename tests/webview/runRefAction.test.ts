@@ -2,7 +2,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
 
-import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  DEFAULT_REPO,
+  clickId,
+  createVscodeMock,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 const REPO = DEFAULT_REPO;
 
@@ -110,7 +117,7 @@ describe("runRefAction delegated from the Branches side-view", () => {
 
     // Confirming sends the action with remote and branch split on the first slash.
     mock.clearMessages();
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
     expect(mock.sentMessages.find((m) => m.command === "deleteRemoteBranch")).toMatchObject({
       remote: "origin",
       branchName: "feature"

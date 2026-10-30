@@ -3,7 +3,14 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import { mergeContextMenuActionsVisibility } from "@/backend/utils/contextMenuVisibility";
 
-import { createVscodeMock, makeViewState, menuItemStartingWith, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  graphRow,
+  makeViewState,
+  menuItemStartingWith,
+  receive,
+  setupHtml
+} from "./setup";
 
 const viewState = makeViewState({
   contextMenuActionsVisibility: mergeContextMenuActionsVisibility({}),
@@ -39,7 +46,7 @@ function gutterOf(item: HTMLElement) {
 }
 
 function openCommitMenu() {
-  const row = document.querySelector<HTMLElement>('tr.commit[data-hash="abc123"]')!;
+  const row = graphRow("abc123");
   row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
   return row;
 }

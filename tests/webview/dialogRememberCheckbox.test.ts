@@ -4,6 +4,7 @@ import type { GitCommitNode } from "@/backend/types";
 
 import {
   clickElem,
+  clickId,
   createVscodeMock,
   graphRow,
   makeViewState,
@@ -116,9 +117,7 @@ describe("'Remember my choice' checkbox visibility", () => {
     // Tick "Remember my choice" and confirm with the default ("existing").
     remember!.checked = true;
     mock.clearMessages();
-    document
-      .getElementById("dialogAction")!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    clickId("dialogAction");
 
     expect(mock.sentMessages.find((m) => m.command === "saveDialogMemory")).toMatchObject({
       dialogKey: "checkoutRemoteExists",

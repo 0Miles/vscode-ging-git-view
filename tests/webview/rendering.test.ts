@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 const defaultViewState = makeViewState({
   // Asserted below: merge commits (>1 parent) render with the `muted` class.
@@ -309,7 +309,7 @@ describe("webview rendering", () => {
       )
     ).toBe(false);
 
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
     expect(
       vscodeMock.sentMessages.find(
         (message) => (message as { command: string }).command === "loadCommits"

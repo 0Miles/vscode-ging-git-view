@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
 const viewState = makeViewState({ combineLocalAndRemoteBranchLabels: false });
 
@@ -62,17 +62,13 @@ describe("checking out a remote branch when a divergent local branch already exi
     // Pick the reset option and action the dialog.
     select.value = "reset";
     mock.clearMessages();
-    document
-      .getElementById("dialogAction")!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    clickId("dialogAction");
 
     // The destructive checkout is gated behind a confirmation: nothing sent yet.
     expect(mock.sentMessages.find((m) => m.command === "checkoutBranch")).toBeUndefined();
 
     // Confirm -> a forced checkoutBranch message is sent against the remote ref.
-    document
-      .getElementById("dialogAction")!
-      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    clickId("dialogAction");
 
     const checkout = mock.sentMessages.find((m) => m.command === "checkoutBranch");
     expect(checkout).toMatchObject({

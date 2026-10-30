@@ -7,6 +7,7 @@ import type * as GG from "@/types";
 import {
   clickId,
   createVscodeMock,
+  graphRow,
   makeViewState,
   NEAR_BOTTOM,
   parkViewportAt,
@@ -124,9 +125,7 @@ function loadCommitsRequests() {
 
 /** Open a commit's CDV, answering the request the click sends. */
 function expandCommit(hash: string) {
-  const row = document.querySelector<HTMLElement>(`.commit[data-hash="${hash}"]`);
-  expect(row, hash).not.toBeNull();
-  row!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  graphRow(hash).dispatchEvent(new MouseEvent("click", { bubbles: true }));
   receive({ command: "commitDetails", commitDetails: tipDetails });
 }
 
