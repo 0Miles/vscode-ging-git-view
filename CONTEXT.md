@@ -55,7 +55,7 @@ _Avoid_: dimmed branch, hidden branch
 _Avoid_: deletable branch, disposable branch, stale branch, 可刪除分支, 遺留分支
 
 **Branch filter**:
-圖形要顯示哪些分支的選集,每個存放庫一份,空集合表示顯示全部。它決定圖形讀得到哪些 commit,也是 hidable branch 的豁免來源之一。分支側檢視的選取會寫入它,但兩者**不對稱**:選取非空時必定等於 filter;filter 非空時選取卻可能是空的 —— 多選搜尋、設定帶來的開場篩選、以及切換存放庫後還原的選集,都沒有對應的樹選取。圖形工具列上的篩選標示讀的是 filter,不是選取。
+圖形要顯示哪些分支的選集,每個存放庫一份,空集合表示顯示全部。它決定圖形讀得到哪些 commit,也是 hidable branch 的豁免來源之一。分支側檢視的選取會寫入它,但兩者**不對稱**:選取非空時必定等於 filter;filter 非空時選取卻可能是空的 —— 多選搜尋(一次 direct write)、設定帶來的開場篩選、以及切換存放庫後還原的選集,都沒有對應的樹選取。圖形工具列上的篩選標示讀的是 filter,不是選取。
 _Avoid_: branch selection, selected branches
 
 ### Ref 的兩種形
@@ -100,6 +100,17 @@ _Avoid_: 多選動作, bulk action, 批次處理
 
 同時至多一個 batch run 在飛,再開一個會被明白拒絕、不靜默吞掉 —— **唯一的例外**是停在重試詢問上、而那個詢問已經不在畫面上的那個 run:它被讀成已經結束,新的 batch 照常開始。代價是它第一回合的結果沒有地方報,所以這只是 abandon 漏接時的最後一道防線,不是主要的收場方式。初始確認框不屬於 batch run —— 那是各動作自己的 interface。
 _Avoid_: 批次流程, batch flow, retry loop
+
+### 繞過樹的篩選寫入
+
+側檢視寫入 branch filter 的路有兩條。一般的那條從樹出發:使用者改了反白,VS Code 回報原始 tree selection,換算成 branch selection 之後寫進 filter —— filter 跟著選取走。另一條是樹表達不出來的時候走的:先寫 filter,再回頭把樹收拾乾淨。
+
+**Direct write**:
+側檢視不經 tree selection、直接寫入 branch filter 的一次寫入 —— 寫入的一方同時負責清掉樹的反白,不讓畫面留著一個與 filter 對不上的選取。它存在是因為擴充功能設定不了 TreeView 的選取:`reveal` 一次只選得了一個,清除選取也沒有 API(`clearSelection` 是替 leaf 換 id,讓 VS Code 自己丟掉選取),所以 filter 要變成樹表達不出來的集合時,只能繞過樹寫,再把反白整個清掉(ADR-0018)。呼叫端有兩個:多選搜尋確認了零個或多個分支 —— 只勾一個、且它還在樹裡時,改用 `reveal` 選取它,走一般路徑 —— 以及「Show All」(`branches.showAll`,側檢視標題列的按鈕、命令選擇區、圖形的篩選標示都走它)。兩者走同一套步驟,寫入的集合可以是空的,「Show All」的一律是空的;多選搜尋寫完之後另外把第一個分支捲進視野,但不選取它。
+它與一般路徑有三處不同。一般路徑等選取事件停下來才寫(debounce,讓連續 Ctrl/Cmd 點選只重載一次圖形),direct write 當場寫,並丟掉還在等的那次寫入。一般路徑寫入後 filter 等於 branch selection;direct write 寫入後 branch selection 是空的,filter 卻不一定 —— branch filter 那份不對稱,多半從這裡來。而清掉反白本身會讓樹送出一個空的選取事件,照一般路徑讀,那就是使用者要「顯示全部」,會把剛寫進去的 filter 蓋掉;所以 direct write 先舉起一次性的抑制(`suppressEmptySelectionOnce`),吞掉接下來的第一個空選取事件。
+寫入本身當場完成:先舉起抑制、再寫 filter、最後才清反白,圖形只重載一次。留下來的只有那個抑制 —— 第一個空選取事件消耗它,非空的事件不消耗;真的換了存放庫就放棄它,因為等的那個事件已經不會來了,但把側檢視重新指向同一個存放庫不算。要不要舉起,量的是即將被清掉的 **branch selection**,不是原始 tree selection:清除只動 leaf,只反白 folder 時原始集合非空、branch selection 是空的,清除什麼都沒改、也不送事件 —— 照原始集合舉起的抑制會一直留著,吞掉使用者下一次真的「全部取消選取」(#42)。
+它與兩種選取不可互換:原始 tree selection 與 branch selection 的分別見 **Branch selection**,而 direct write 是**不經過**兩者的那一次 filter 寫入。branch filter 那份不對稱裡的其他情形(開場篩選、切換存放庫後還原的選集)都不是 direct write —— 它們不是側檢視的手勢,也不碰樹的反白。程式裡規則在 `onDirectWrite`,前後的步驟順序只在 `createDirectFilterWriter` 寫一次;呼叫端自己握著一份順序,正是讓 #42 與 #43 得以發生的條件。
+_Avoid_: programmatic selection, 程式設定的選取, filter override
 
 ### 圖形載入的 commit
 

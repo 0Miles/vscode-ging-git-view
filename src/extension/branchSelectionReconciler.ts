@@ -7,11 +7,12 @@
  * A branch selection is the one set that serves both the graph filter and the
  * batch actions (ADR-0008), and an empty selection is the user's explicit
  * "show all" — but not every empty selection *event* is a user gesture. The
- * TreeView also emits one when its items are re-keyed (a repo switch, or the
- * search picker clearing the visual selection), and honouring those would
- * clobber a filter that was just written. This module owns the rules that tell
- * the gestures apart; `branchesView.ts` stays a thin adapter that pipes VS Code
- * events in and interprets the decisions.
+ * TreeView also emits one when its items are re-keyed (a repo switch, or a
+ * direct write — the multi-pick search or "Show All" — clearing the visual
+ * selection), and honouring those would clobber a filter that was just
+ * written. This module owns the rules that tell the gestures apart;
+ * `branchesView.ts` stays a thin adapter that pipes VS Code events in and
+ * interprets the decisions.
  *
  * Not every filter write starts as a tree gesture, though. A **direct write** —
  * the multi-pick search's chosen set, "Show All"'s empty one — writes the filter
