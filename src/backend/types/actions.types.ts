@@ -74,10 +74,10 @@ export type BatchRefResult = { ref: string; status: GitCommandStatus };
  *  before `formatGitError` narrows it to its first line. */
 export type BatchDeleteResult = BatchRefResult & { notFullyMerged: boolean };
 
-/** A batch push result, plus the fact a single push reports alongside its
+/** A batch push result, plus the facts a single push reports alongside its
  *  status (`ActionResponseExtras["pushBranch"]`), read off the raw git error
- *  the same way. See `isRemoteUpdatedSinceCheckoutError`. */
-export type BatchPushResult = BatchRefResult & { remoteUpdatedSinceCheckout: boolean };
+ *  the same way. */
+export type BatchPushResult = BatchRefResult & ActionResponseExtras["pushBranch"];
 
 /**
  * Batch actions. Unlike the actions above, each ref succeeds or fails on its
@@ -125,6 +125,12 @@ export type BatchActionResponse = {
 export type BatchActionPayload<T extends keyof BatchActionPayloads> =
   BatchActionPayloads[T]["request"];
 
+/** What one ref of batch action `T` reports — `BatchDeleteResult` for a delete,
+ *  and so on — read off the response above rather than restated, so a flag an
+ *  action's results carry is a flag its readers see. */
+export type BatchResultOf<T extends keyof BatchActionPayloads> =
+  BatchActionPayloads[T]["response"]["results"][number];
+
 /**
  * Fields an action's response carries on top of `status`. Reserved for facts
  * the host can establish and the webview cannot: `status` has been narrowed to
@@ -143,6 +149,10 @@ type ActionResponseExtras = {
      *  integrated into the local branch. A fact, not a claim that the remote
      *  has new commits — see `isRemoteUpdatedSinceCheckoutError`. */
     remoteUpdatedSinceCheckout: boolean;
+    /** The tracking ref (`<remote>/<branch>`) git refused a force-with-lease
+     *  push for with "(stale info)": missing locally, or out of date.
+     *  Null for any other outcome — see `staleLeaseInfoRef`. */
+    staleInfoRef: string | null;
   };
 };
 

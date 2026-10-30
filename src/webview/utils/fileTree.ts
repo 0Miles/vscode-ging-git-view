@@ -271,6 +271,43 @@ export function generateGitFileListHtml(
   return html + "</ul>";
 }
 
+/* The rendered tree. A folder row is the `.gitFolder` span heading its `<li>`,
+   whose `.gitFolderContents` list follows it; a file row is a `.gitFile` `<li>`.
+   The root folder renders no row of its own, only its list. */
+
+/** Whether a rendered folder row is open. */
+export function isGitFolderOpen(folderRow: HTMLElement): boolean {
+  return folderRow.parentElement?.classList.contains("closed") !== true;
+}
+
+/** Open or close a rendered folder row: its icon, and whether its contents show.
+ *  The markup only — a caller that persists the tree records it separately. */
+export function setGitFolderOpen(folderRow: HTMLElement, open: boolean): void {
+  const item = folderRow.parentElement;
+  if (item === null) return;
+  item.classList.toggle("closed", !open);
+  const icon = folderRow.querySelector(".gitFolderIcon");
+  if (icon !== null) icon.innerHTML = open ? svgIcons.openFolder : svgIcons.closedFolder;
+  item.querySelector(":scope > .gitFolderContents")?.classList.toggle("hidden", !open);
+}
+
+/** The folder and file rows under `root` that are showing, in visual order —
+ *  a row inside a closed folder is `display: none`, and stepping onto one would
+ *  strand focus. */
+export function visibleGitFileTreeRows(root: ParentNode): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(".gitFolder, .gitFile")).filter(
+    (row) => row.closest(".hidden") === null
+  );
+}
+
+/** The folder row `row` sits directly in, or null at the top level — and always
+ *  in the flat File List, which has no folders. */
+export function parentGitFolderRow(row: HTMLElement): HTMLElement | null {
+  const item = row.matches(".gitFolder") ? row.parentElement : row;
+  const heading = item?.parentElement?.parentElement?.firstElementChild ?? null;
+  return heading instanceof HTMLElement && heading.matches(".gitFolder") ? heading : null;
+}
+
 /** Depth-first search for the folder whose `folderPath` equals `folderPath`. */
 function findGitFolder(folder: GitFolder, folderPath: string): GitFolder | null {
   if (folder.folderPath === folderPath) return folder;

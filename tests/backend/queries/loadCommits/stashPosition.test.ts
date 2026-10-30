@@ -49,13 +49,19 @@ function hardenAgainstGc(repo: string) {
   }
 }
 
-function commitAt(repo: string, message: string, date: string, file: string) {
+function commitAt(
+  repo: string,
+  message: string,
+  date: string,
+  file: string,
+  committerDate: string = date
+) {
   fs.writeFileSync(path.join(repo, file), message);
   cp.execFileSync("git", ["add", "."], { cwd: repo, stdio: "pipe" });
   cp.execFileSync("git", ["commit", "-m", message], {
     cwd: repo,
     stdio: "pipe",
-    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }
+    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: committerDate }
   });
   return rev(repo, "HEAD");
 }
@@ -99,7 +105,11 @@ function assertStashListed(repo: string, hash: string, label: string) {
   }
 }
 
-function load(repo: string, maxCommits: number) {
+function load(
+  repo: string,
+  maxCommits: number,
+  { includeCommitsMentionedByReflogs = false, showStashes = true } = {}
+) {
   return loadCommits(simpleGit(repo), {
     branchNames: [""],
     maxCommits,
@@ -110,9 +120,9 @@ function load(repo: string, maxCommits: number) {
     onlyFollowFirstParent: false,
     showCommitsOnlyReferencedByTags: true,
     showRemoteHeads: true,
-    includeCommitsMentionedByReflogs: false,
+    includeCommitsMentionedByReflogs,
     showSignatureStatus: false,
-    showStashes: true,
+    showStashes,
     useMailmap: false,
     hiddenRemotes: []
   });
@@ -135,6 +145,14 @@ let midNewerHash: string;
 // commits however far the window is opened.
 let orphanStashRepo: string;
 let orphanStashHash: string;
+
+// A stash whose date position and `git log` position disagree: the commit on
+// top was authored before the stash but committed after it, so a date compare
+// (author date, "Author Date") places the stash above it while `--date-order`
+// (committer date) lists the stash below it.
+let skewedStashRepo: string;
+let skewedStashHash: string;
+let skewedTopHash: string;
 
 beforeAll(() => {
   oldStashRepo = makeRepo();
@@ -169,12 +187,20 @@ beforeAll(() => {
   commitAt(orphanStashRepo, "later-1", daysAgo(2), "l1.txt");
   commitAt(orphanStashRepo, "later-2", daysAgo(1), "l2.txt");
   assertStashListed(orphanStashRepo, orphanStashHash, "orphanStashRepo");
+
+  skewedStashRepo = makeRepo();
+  hardenAgainstGc(skewedStashRepo);
+  commitAt(skewedStashRepo, "base", daysAgo(20), "b.txt");
+  skewedStashHash = stashAt(skewedStashRepo, "skewed WIP", daysAgo(18), "b.txt");
+  skewedTopHash = commitAt(skewedStashRepo, "top", daysAgo(19), "t.txt", daysAgo(1));
+  assertStashListed(skewedStashRepo, skewedStashHash, "skewedStashRepo");
 });
 
 afterAll(() => {
   rmrf(oldStashRepo);
   rmrf(midStashRepo);
   rmrf(orphanStashRepo);
+  rmrf(skewedStashRepo);
 });
 
 describe("loadCommits stash placement", () => {
@@ -263,5 +289,77 @@ describe("loadCommits stash placement", () => {
       // whose only parent points upward hangs it.
       expect(result.commits[stashIdx + 1].hash).toBe(midBaseHash);
     }
+  });
+
+  it("marks the stash row it splices in, and no `git log` entry", async () => {
+    const result = await load(midStashRepo, 300);
+    for (const commit of result.commits) {
+      expect(commit.spliced).toBe(commit.hash === midStashHash ? true : undefined);
+    }
+  });
+});
+
+// `--reflog` reaches `refs/stash`'s own reflog, so with reflog commits included
+// a stash is already a `git log` entry before the splice runs (#105).
+describe("loadCommits stash placement with reflog commits included", () => {
+  const withReflog = { includeCommitsMentionedByReflogs: true };
+
+  it("lists the stash once, as the `git log` entry it already is", async () => {
+    const withStashes = await load(midStashRepo, 300, withReflog);
+    const withoutStashes = await load(midStashRepo, 300, { ...withReflog, showStashes: false });
+    expect(withStashes.commits.filter((c) => c.hash === midStashHash)).toHaveLength(1);
+    // Nothing spliced, nothing moved: the rows are git's, in git's order.
+    expect(withStashes.commits.map((c) => c.hash)).toEqual(
+      withoutStashes.commits.map((c) => c.hash)
+    );
+    const stashNode = withStashes.commits.find((c) => c.hash === midStashHash)!;
+    expect(stashNode.spliced).toBeUndefined();
+    expect(stashNode.refs).toContainEqual({
+      hash: midStashHash,
+      name: "stash@{0}",
+      type: "stash"
+    });
+    // git's own parents — base and index commit — not the splice's base-only.
+    expect(stashNode.parentHashes).toEqual(rev(midStashRepo, "stash@{0}^@").split(/\r?\n/));
+  });
+
+  it("labels the stash's log row even where a splice would have to wait", async () => {
+    // A window that ends on the stash's own row: nothing loaded is older than
+    // it and its base is out of reach, which is the splice's "wait" case. The
+    // row is git's, though, so it is already there to label. The window is
+    // measured rather than hard-coded, because `--reflog` also brings in what
+    // HEAD's reflog remembers (the root as it was before `redateRoot`).
+    const whole = await load(oldStashRepo, 300, withReflog);
+    const stashRow = whole.commits.findIndex((c) => c.hash === oldStashHash);
+    expect(stashRow).toBeGreaterThan(0);
+    const result = await load(oldStashRepo, stashRow + 1, withReflog);
+    expect(result.moreCommitsAvailable).toBe(true);
+    expect(result.commits.at(-1)!.hash).toBe(oldStashHash);
+    expect(result.commits.at(-1)!.refs.some((r) => r.type === "stash")).toBe(true);
+  });
+
+  it("never splices a stash in ahead of the `git log` row it will have", async () => {
+    // A window of 1 holds only `top`, which the date compare puts below the
+    // stash. Splicing there would draw a row that jumps to the stash's log
+    // position on the next load, and that Find counts twice for anything
+    // past the window: once as a spliced row, once in the unbounded log.
+    const narrow = await load(skewedStashRepo, 1, withReflog);
+    expect(narrow.moreCommitsAvailable).toBe(true);
+    expect(narrow.commits.map((c) => c.hash)).toEqual([skewedTopHash]);
+
+    const windows = await Promise.all(
+      [1, 2, 3, 4, 300].map((n) => load(skewedStashRepo, n, withReflog))
+    );
+    for (const result of windows) {
+      expect(result.commits.some((c) => c.spliced)).toBe(false);
+    }
+    for (let i = 1; i < windows.length; i++) {
+      const smaller = windows[i - 1].commits.map((c) => c.hash);
+      const larger = windows[i].commits.map((c) => c.hash);
+      expect(larger.slice(0, smaller.length)).toEqual(smaller);
+    }
+    const whole = windows.at(-1)!;
+    expect(whole.commits.map((c) => c.hash).slice(0, 2)).toEqual([skewedTopHash, skewedStashHash]);
+    expect(whole.commits[1].refs.some((r) => r.type === "stash")).toBe(true);
   });
 });

@@ -423,6 +423,7 @@
   "dialog.pushForce.force": "Force",
   "dialog.pushForce.lease": "Force with lease",
   "dialog.pushForce.leaseRefused": "Git couldn't confirm you've integrated the remote's current version — usually because a fetch or auto-fetch brought in commits you haven't integrated yet. Pull or rebase first, then push again. To overwrite anyway, choose {0}.",
+  "dialog.pushForce.leaseStaleInfo": "Git has no up-to-date state of {0} — there is no remote-tracking reference for it here, or it is out of date. Fetch the remote and integrate its commits (pull or rebase), then push again. To overwrite anyway, choose {1}.",
   "detail.commitDate": "Commit Date: ",
   "detail.comparingCommits": "Displaying all changes from {0} to {1}.",
   "branchView.current": "current",

@@ -43,6 +43,10 @@ webview 那一側(真實 Chromium):3000 列的字串組裝加 `innerHTML` 加逐
 
 這件事本身值得記下來:**一條自稱「不需量測所以更硬」的推論,被一張修 bug 的票推翻了。**免於量測的 caveat,不等於免於前提被改變。
 
+**補記(#105 落地之後):「stash 不是 `git log` 的輸出」這個前提,在 reflog 模式下不成立。**
+
+開著 `history.includeReflogCommits` 時,`--reflog` 會走到 `refs/stash` 自己的 reflog,所以每個 stash 本來就是 `git log` 的一列。這時 stash 列的 prefix-stable **不是靠 `stashInsertIndex` 撐著的**,而是靠兩件事:`gitLogScopeReachesReflogs` 判定這個 scope 會走 reflog 時,`loadCommits` 一律不 splice,只把 stash ref 掛到 git 給的那一列上;視窗還沒載到那一列,stash 就等著,跟其他 commit 一樣隨視窗往下追加。另一件是 `GitCommitNode.spliced` 標記:只有真的被 splice 進來的列不在 `git log` 的尺上,Find 換算 `logDepth` 只排除這些列,不再看有沒有 stash ref。釘住它的測試在 `stashPosition.test.ts` 的 ``never splices a stash in ahead of the `git log` row it will have``。上面那條 #93 的證明,只涵蓋 stash 真的被 splice 的情況。
+
 **「ADR-0019 說 webview 可以只追加 DOM。」** 那半句是錯的,而且不是工程難度問題 —— **是版面演算法不允許**。
 
 `graph.ts` 在只載第一頁時,把**所有**落在圖外的 parent 摺成同一個 id 為 -1 的 sentinel vertex。而 merge 的處理有兩條路。走 merge 那一支需要「這個 parent 當下已經掛在某條 branch 上」,而 sentinel 永遠不在 vertex 陣列裡、永遠沒被指派到 branch,所以第一頁一律走「配一條新 branch」那一支 —— 配新顏色、把線一路畫到下緣、下方每一列各吃掉一個 lane。第二頁讓那個 parent 變成真的 vertex **且它當下已經掛在某條 branch 上**時,同一個 merge 改走 merge 那一支,併進既有接點後提早收尾:不再吃 lane、不再配顏色,於是之後每一次顏色配置的結果整串位移。

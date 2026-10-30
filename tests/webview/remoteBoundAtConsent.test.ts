@@ -342,7 +342,9 @@ describe("the remotes a push form showed", () => {
     // busy on purpose.
     receive({
       command: "pushBranches",
-      results: [{ ref: "main", status: null, remoteUpdatedSinceCheckout: false }]
+      results: [
+        { ref: "main", status: null, remoteUpdatedSinceCheckout: false, staleInfoRef: null }
+      ]
     });
   });
 });

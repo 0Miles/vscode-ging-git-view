@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 
 // What a redraw costs in *layouts*, not in milliseconds.
 //
@@ -316,10 +316,6 @@ function dateHeader() {
   return document.querySelector<HTMLElement>('.tableColHeader[data-col="date"]')!;
 }
 
-function commitRow(hash: string) {
-  return document.querySelector<HTMLElement>(`tr.commit[data-hash="${hash}"]`)!;
-}
-
 /** Toggle the Date column through its header menu — a redraw with no commit
  *  load behind it, and the one other route into `render()`. */
 function toggleDateColumn() {
@@ -428,13 +424,13 @@ describe("how many times a redraw makes the browser lay the commit table out", (
     let paddingWithCdv: string;
 
     beforeAll(() => {
-      commitRow("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive(commitDetailsResponse);
       cdvTrace = redraw(0);
       paddingWithCdv = graphColumnPadding();
       // Closed again, so the fixed-width scenario below describes the same
       // table shape the auto one did.
-      commitRow("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     it("has the panel open, so this is the path being described", () => {

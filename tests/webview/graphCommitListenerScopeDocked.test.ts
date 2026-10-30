@@ -4,7 +4,18 @@ import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@/backen
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 import type * as GG from "@/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickElem,
+  clickItem,
+  createVscodeMock,
+  dialogRow,
+  graphRow,
+  makeViewState,
+  openMenuOn,
+  receive,
+  rightClick,
+  setupHtml
+} from "./setup";
 
 // The one place #144's two scopes must *differ*, and the only scenario that can
 // tell them apart.
@@ -115,14 +126,6 @@ const redundancyResult: BranchRedundancy = {
 
 let mock: ReturnType<typeof createVscodeMock>;
 
-function click(elem: Element) {
-  elem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-}
-
-function rightClick(elem: Element) {
-  elem.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
 function bodyLink(root: string, email: string) {
   const elem = document.querySelector<HTMLElement>(
     `${root} .commitBodyLink[href="mailto:${encodeURIComponent(email)}"]`
@@ -135,14 +138,6 @@ function menuItemLabels() {
   return Array.from(document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")).map(
     (li) => (li.textContent ?? "").trim()
   );
-}
-
-function clickItem(label: string) {
-  const item = Array.from(
-    document.querySelectorAll<HTMLElement>("#contextMenu .contextMenuItem")
-  ).find((li) => (li.textContent ?? "").trim() === label);
-  expect(item, label).toBeDefined();
-  click(item!);
 }
 
 function hideMenu() {
@@ -170,10 +165,10 @@ describe("the docked Commit Details View's body links, with a dialog standing", 
     });
     receive(commitsResponse);
 
-    click(document.querySelector('#commitTable tr.commit[data-hash="aaa111"]')!);
+    clickElem(graphRow("aaa111"));
     receive({ command: "commitDetails", commitDetails: tipDetails });
 
-    rightClick(document.querySelector('#commitTable .gitRef.head[data-name="feature"]')!);
+    openMenuOn('#commitTable .gitRef.head[data-name="feature"]');
     clickItem(L.checkRedundancy);
     const requested = mock.sentMessages.filter((m) => m.command === "branchRedundancy");
     expect(requested).toHaveLength(1);
@@ -183,7 +178,7 @@ describe("the docked Commit Details View's body links, with a dialog standing", 
       result: redundancyResult,
       token: (requested[0] as Extract<GG.RequestMessage, { command: "branchRedundancy" }>).token
     });
-    click(document.querySelector('#dialog .commitList tr.commit[data-hash="ddd444"]')!);
+    clickElem(dialogRow("ddd444"));
     receive({
       command: "redundancyCommitDetails",
       commitHash: "ddd444",
