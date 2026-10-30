@@ -8,7 +8,9 @@ html {
 /* A modal dialog holds the page still behind it (#230): its scrollbar, the
    wheel over the backing and the scrolling keys would otherwise move the graph
    under the question. The gutter stays, so the width does not jump as the
-   scrollbar goes; the scroll position is kept and stands when it comes back. */
+   scrollbar goes; the scroll position is kept and stands when it comes back.
+   The webview's own scrolling is not stopped by this, and is left alone on
+   purpose (#269; see the scroll restore in main.ts's loadCommits). */
 html.dialogOpen {
   overflow: hidden;
   scrollbar-gutter: stable;

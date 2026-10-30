@@ -265,3 +265,47 @@ describe("a confirmed step over a step still waiting on its answer", () => {
     expect(currentMatchHash()).toBe(farHash);
   });
 });
+
+// The index is an answer to a `git` call, and the user may open a dialog while
+// it is out. A step that then has to ask before loading is a host answer
+// raising a question, so it waits behind that dialog rather than writing over
+// it (#243); until the question is answered the step has not happened, owed or
+// on screen.
+const dialogText = () => document.getElementById("dialog")!.textContent ?? "";
+
+describe("a step whose index lands behind a dialog the user has opened", () => {
+  const fartherHash = "far888";
+  let fartherBranch: BranchSearchEntry;
+  let before = "";
+  let underTheAnswer = "";
+
+  beforeAll(async () => {
+    fartherBranch = {
+      ref: "fix/farther",
+      name: "fix/farther",
+      hash: fartherHash,
+      logDepth: mock.getState()!.maxCommits + 400
+    };
+    deliverBranchIndex([baseBranch, fartherBranch]);
+    search("fix"); // Find on the tip
+    before = counter() ?? "";
+    clickId("findPrev"); // wraps onto fix/farther: a wish until the index lands
+    // A dialog of the user's, opened while the index is out.
+    receive({ command: "copyToClipboard", type: "Commit Hash", success: false });
+    deliverBranchIndex([baseBranch, fartherBranch]);
+    underTheAnswer = dialogText();
+  });
+
+  it("leaves the user's dialog standing, and Find where it was", () => {
+    expect(underTheAnswer).toContain(L.unableToCopyToClipboard.replace("{0}", L.typeCommitHash));
+    expect(counter()).toBe(before);
+  });
+
+  it("asks once that dialog is closed", async () => {
+    clickId("dialogDismiss");
+    await Promise.resolve();
+    expect(dialogText()).toContain(L.dialogFindLoadMoreConfirm.split("{0}")[0]);
+    expect(document.getElementById("dialogAction")).not.toBeNull();
+    clickId("dialogDismiss");
+  });
+});

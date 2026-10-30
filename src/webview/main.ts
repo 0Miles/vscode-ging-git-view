@@ -528,11 +528,6 @@ class GitGraphView {
   // The one batch run in flight (at most): rounds, retry offer and summary all
   // live behind its interface — the adapters below only execute its commands.
   private batchRun = new BatchRun<BatchActionTypes>();
-  /** A summary an ended run could not show, because the dialog slot was taken
-   *  at the moment it ended. Held until there is a screen for it; see
-   *  {@link abandonBatchRun} and {@link deliverOwedBatchSummary}. */
-  private owedSummary: Extract<BatchRunCommand<BatchActionTypes>, { kind: "summarise" }> | null =
-    null;
 
   private graph: Graph;
   private config: Config;
@@ -1361,21 +1356,30 @@ class GitGraphView {
       // Bound at consent like every other confirmation ({@link confirmForRepo}),
       // only earlier: the repository this question is about is the one the
       // refused delete went to, and currentRepo has had the host's whole
-      // round-trip to move since. So the pending record carries it.
-      showConfirmationDialog(
-        fillTemplate(
-          l10n.dialogForceDeleteBranchConfirm,
-          "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
-        ),
-        () =>
-          this.sendDeleteBranch(pending.repo, pending.branchName, true, pending.deleteOnRemotes),
-        null
+      // round-trip to move since. So the pending record carries it — which is
+      // also what lets the offer wait behind a dialog of the user's (#243).
+      // Owed, the offer goes the way of every debt if the panel moves to
+      // another repository meanwhile: it is dropped (see `owedDialogs`).
+      raiseAnswerDialog(() =>
+        showConfirmationDialog(
+          fillTemplate(
+            l10n.dialogForceDeleteBranchConfirm,
+            "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
+          ),
+          () =>
+            this.sendDeleteBranch(pending.repo, pending.branchName, true, pending.deleteOnRemotes),
+          null
+        )
       );
     } else {
       refreshGraphOrDisplayError(status, l10n.unableToDeleteBranch);
     }
   }
 
+  /** The repository the panel shows, for what is owed against it (#243). */
+  public shownRepo(): string {
+    return this.currentRepo;
+  }
   /** Switch the visible repo: driven by the toolbar's repo dropdown or by an
    *  extension-side message (e.g. user clicked a repo in the sidebar). */
   public setRepo(repo: string) {
@@ -1722,6 +1726,23 @@ class GitGraphView {
 
       // Restore the pre-refresh scroll offset now the table has its full height
       // back; this takes precedence over the one-time scroll-to-head.
+      //
+      // Not held back while a dialog stands (#269), though `html.dialogOpen`
+      // only stops the user's scrolling, not this. Three refreshes take the
+      // offset: an action's success, a batch that ended clean, and the Refresh
+      // button. The first two start under their own progress dialog — or under
+      // whatever dialog of the user's replaced a dismissed one — so the offset
+      // was taken with the page already held, and writing it back cannot move
+      // it. The button is pressed with no dialog up; a dialog opened before
+      // its load lands sees the page put back where the press found it, as it
+      // would be without one.
+      // The other scrolls that can land under a dialog — to HEAD here, Find's
+      // match (when stepped, and when the branch index re-arrives with a
+      // different current match), a CDV opening, and the focus scroll the
+      // loaded-commit-window reset asks of this redraw — each answer something
+      // the user asked for, and reach a standing dialog only when one was
+      // opened in between. Held to its close, they would jump the page just as
+      // the user looks back at it, onto a row the wait may have taken away.
       if (this.pendingScrollRestore !== null) {
         window.scrollTo(0, this.pendingScrollRestore);
         this.pendingScrollRestore = null;
@@ -4712,6 +4733,15 @@ class GitGraphView {
         showActionRunningDialog(spec.running);
         break;
       case "offerRetry":
+        // An offer cannot wait behind a dialog of the user's the way a report
+        // can (#243): the run would sit in `offeringRetry` with no question on
+        // screen, and the next batch's `start` reads exactly that as a run
+        // already over. So it is given up on arrival — the run abandoned, and
+        // what round 1 did owed like any abandoned run's summary.
+        if (usersDialogStands()) {
+          this.abandonBatchRun();
+          break;
+        }
         // No repo capture here: the run already carries the one its first round
         // was started for, and hands it back on the retry round's `send`.
         showConfirmationDialog(
@@ -4757,70 +4787,41 @@ class GitGraphView {
    *
    *  Called from {@link showDialog} whenever a dialog is raised over a standing
    *  `#batchRetryOffer`, and from the offer's own dismissal hook when the
-   *  system rather than the user closed it (#134) — the offer's two answers
+   *  system rather than the user closed it (#134). A third caller is the offer
+   *  that never reached the screen: it arrived over a dialog of the user's, and
+   *  could not wait there (`runBatchCommand`, #243). The offer's two answers
    *  both close it themselves, so arriving here means neither was given and
    *  nobody is going to give one.
    *  Without this the run holds the single in-flight slot for the life of the
    *  panel (`BatchRun.start`'s backstop then catches it, but only by dropping
    *  these results on the floor).
    *
-   *  The summary is *owed*, not shown. The dialog arriving over the offer keeps
-   *  the screen, because the route this exists for is `tryRunPendingRefAction`,
-   *  which has already taken its delegated action off `pendingRefAction` before
+   *  The summary is *owed*, not shown. The dialog arriving over the offer (or
+   *  standing where the offer would have gone) keeps the screen, because the
+   *  route this exists for is `tryRunPendingRefAction`, which has already taken
+   *  its delegated action off `pendingRefAction` before
    *  dispatching it — writing over that confirmation would lose a request the
    *  user made outright, the same harm this ticket is about pointed the other
    *  way. But a summary shown into a slot that is about to be overwritten is a
    *  summary nobody reads, which is the silent drop this exists to prevent. So
-   *  it waits: {@link deliverOwedBatchSummary} raises it at the first moment
-   *  the slot is free. Only *why* each ref failed waits — the refresh below
-   *  happens now, because the graph is worth putting right at the moment the
-   *  run ends, and it can show which branches went but never why the rest
-   *  stayed. */
-  public abandonBatchRun() {
-    const command = this.batchRun.abandon();
-    // `none` is the ordinary case, not a defensive one: the offer's markup is
-    // still up while its own summary is raised, so this re-enters once.
-    if (command.kind !== "summarise") return;
-    this.owedSummary = command;
-    this.refresh(false);
-  }
-  /** Raise a summary that had nowhere to go when its run ended.
-   *
-   *  Called from {@link hideDialog} — the one place the dialog slot is emptied
-   *  — and run as a microtask, so that whatever the closing route does *next*
-   *  has already had its turn: a Yes that fires off the next action and raises
-   *  its progress dialog, a dismissal hook that opens a dialog of its own. If
-   *  one of those claimed the slot, the summary stays owed and waits for the
-   *  next close.
-   *
-   *  Only the summary that was owed when the slot emptied, though, and that is
-   *  why it is captured here rather than read when the microtask runs. One
-   *  that this very close runs up — the system taking a retry offer away,
-   *  whose hook abandons the run after the close (#134) — is owed to the slot
-   *  freeing *again*: this close was the removal, and paying it here would put
-   *  a dialog straight back into the slot the removal emptied. Something else
-   *  being owed already does not change that, so the test is identity, not
-   *  presence.
-   *
-   *  It is deliberately not hung off `dialogDismissAction`. The slot frees for
-   *  the user's dismissal, the system's, an answer, and a summary owed is owed
-   *  whichever of those happened. What this waits for is the slot, not anyone's
-   *  dismissal — except that the close which *ran up* the debt does not pay
-   *  it.
+   *  it waits in {@link owedDialogs}, which raises it at the first moment the
+   *  slot is free — behind any summary an earlier abandoned run is still owed
+   *  (#253). Only *why* each ref failed waits — the refresh below happens now,
+   *  because the graph is worth putting right at the moment the run ends, and
+   *  it can show which branches went but never why the rest stayed.
    *
    *  If the panel never frees the slot the summary is never shown, and it does
    *  not survive a reload. That is the accepted floor: the run is already
    *  ended, the graph was already refreshed, and what is lost is the reason
    *  each remaining ref failed — the same thing that was lost unconditionally
    *  before, now only in the case where the user never closes another dialog. */
-  public deliverOwedBatchSummary() {
-    const owed = this.owedSummary;
-    if (owed === null) return;
-    queueMicrotask(() => {
-      if (this.owedSummary !== owed || isDialogOpen()) return;
-      this.owedSummary = null;
-      this.reportBatchResults(owed.results, this.batchSpec(owed.action));
-    });
+  public abandonBatchRun() {
+    const command = this.batchRun.abandon();
+    // `none` is the ordinary case, not a defensive one: the offer's markup is
+    // still up while its own summary is raised, so this re-enters once.
+    if (command.kind !== "summarise") return;
+    oweDialog(() => this.reportBatchResults(command.results, this.batchSpec(command.action)));
+    this.refresh(false);
   }
   private deleteBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     const inputs: DialogInput[] = [
@@ -4912,16 +4913,20 @@ class GitGraphView {
       this.refresh(true, true); // keep the scroll position, as single actions do
       return;
     }
-    showErrorDialog(
-      spec.errorTitle +
-        "<br>" +
-        l10n.dialogBatchResult
-          .replace("{0}", String(results.length - failed.length))
-          .replace("{1}", String(failed.length)),
-      failed.map((r) => displayRef(r.ref) + ": " + r.status).join("\n"),
-      null,
-      () => this.refresh(false),
-      spec.failureNote?.(failed) ?? null
+    // The results are the host's answer, and may land after the user has
+    // dismissed the progress dialog and opened something else (#243).
+    raiseAnswerDialog(() =>
+      showErrorDialog(
+        spec.errorTitle +
+          "<br>" +
+          l10n.dialogBatchResult
+            .replace("{0}", String(results.length - failed.length))
+            .replace("{1}", String(failed.length)),
+        failed.map((r) => displayRef(r.ref) + ": " + r.status).join("\n"),
+        null,
+        () => this.refresh(false),
+        spec.failureNote?.(failed) ?? null
+      )
     );
   }
   /** Display label for the checked-out branch in dialogs: its actual name when
@@ -6092,7 +6097,7 @@ class GitGraphView {
   ) {
     if (token !== this.branchSearchToken) return;
     if (status !== null) {
-      showErrorDialog(l10n.unableToSearchBranches, status, null);
+      raiseAnswerError(l10n.unableToSearchBranches, status);
       return;
     }
     const pendingNavigation = this.pendingFindNavigation;
@@ -6253,8 +6258,11 @@ class GitGraphView {
       // question; the measurement and why silence is not the cure are in
       // ADR-0019. This path was live too — the Find input's own keyup listener
       // stepped on Enter from behind an overlay — until #141 made the Find
-      // widget `inert` with the rest of the background.
-      showErrorDialog(l10n.dialogFindStepBusy, null, null);
+      // widget `inert` with the rest of the background. A step that waited on
+      // its branch index still gets here from behind one, though: the index is
+      // an answer, and the user may have opened a dialog while it was out. So
+      // the refusal waits its turn rather than taking the slot (#243).
+      raiseAnswerError(l10n.dialogFindStepBusy);
       return "hold";
     }
     const load = () => {
@@ -6344,10 +6352,16 @@ class GitGraphView {
       this.requestLoadCommits(true, () => this.endBusyLoad());
     };
     if (plan.confirm) {
-      showConfirmationDialog(
-        l10n.dialogFindLoadMoreConfirm.replace("{0}", String(plan.additionalCommits)),
-        load,
-        null
+      // Owed rather than raised over a dialog of the user's, for the same
+      // reason as the refusal above. Until it is answered the step has not
+      // happened, owed or on screen, so `hold` is the truth either way; `load`
+      // re-takes everything it rests on when Yes comes.
+      raiseAnswerDialog(() =>
+        showConfirmationDialog(
+          l10n.dialogFindLoadMoreConfirm.replace("{0}", String(plan.additionalCommits)),
+          load,
+          null
+        )
       );
       return "hold";
     }
@@ -7769,6 +7783,110 @@ let dialog = document.getElementById("dialog")!,
   dialogDismissAction: ((reason: DismissalReason) => void) | null = null,
   /** Where the standing run of dialogs took focus from; see {@link showDialog}. */
   dialogOpener: DialogOpener | null = null;
+/**
+ * Dialogs owed to the slot: each found it taken when it had something to say,
+ * and waits here to raise itself once the slot is free. Oldest first, one per
+ * free slot — paying one raises a dialog, and the next waits for that one to
+ * close.
+ *
+ * A queue rather than a single slot (#253). Two abandoned batch runs can each
+ * owe a summary before the user has closed anything, and a slot that held one
+ * let the second write over the first, so the first run's failures were never
+ * shown to anyone. Merging them into one summary was the other way out, and
+ * the worse one: two runs may be different actions, each with its own title,
+ * note and dismissal, and a merged dialog has to pick one of each.
+ *
+ * Each debt is owed in the repository the panel showed when it was run up,
+ * and is dropped rather than paid once the panel shows another: an error, a
+ * summary or a question about the repository the user has left would read as
+ * being about the one on screen, and none of them names its repository.
+ */
+const owedDialogs: { raise: () => void; repo: string }[] = [];
+function oweDialog(raise: () => void) {
+  owedDialogs.push({ raise, repo: gitGraph.shownRepo() });
+}
+/** Pay the oldest dialog owed, now that the slot has emptied.
+ *
+ *  Called from {@link hideDialog} — the one place the slot is emptied — and run
+ *  as a microtask, so that whatever the closing route does *next* has already
+ *  had its turn: a Yes that fires off the next action and raises its progress
+ *  dialog, a dismissal hook that opens a dialog of its own. If one of those
+ *  claimed the slot, the debt stays owed and waits for the next close.
+ *
+ *  Only when nothing was owed *by this close*, though, and that is why the
+ *  queue is read here rather than when the microtask runs. A close that runs
+ *  up a debt — the system taking a retry offer away, whose hook abandons the
+ *  run after the close (#134) — was a removal, not the slot freeing: paying
+ *  anything at it, its own debt or an older one, would put a dialog straight
+ *  back into the slot the removal emptied. Every debt then waits for the slot
+ *  to free again.
+ *
+ *  It is deliberately not hung off `dialogDismissAction`. The slot frees for
+ *  the user's dismissal, the system's, an answer, and a debt is owed whichever
+ *  of those happened. What this waits for is the slot, not anyone's dismissal
+ *  — except that the close which *ran up* a debt pays none. */
+function payOwedDialog() {
+  const due = owedDialogs[0];
+  if (due === undefined) return;
+  const owedAtClose = owedDialogs.length;
+  queueMicrotask(() => {
+    if (owedDialogs.length !== owedAtClose || owedDialogs[0] !== due || isDialogOpen()) return;
+    // Debts from a repository the panel has left are dropped on the way to the
+    // first one still owed here. One run up while the panel showed none — it
+    // had just lost its repository, and the system took a retry offer down
+    // with it — names none to have left, and is paid wherever the panel is.
+    const repo = gitGraph.shownRepo();
+    let next = owedDialogs.shift();
+    while (next !== undefined && next.repo !== "" && next.repo !== repo) {
+      next = owedDialogs.shift();
+    }
+    next?.raise();
+  });
+}
+/** Whether the dialog up is the user's: one that asks or tells them something,
+ *  as against a progress dialog, which is the webview narrating a wait. The
+ *  same line {@link hideReloadOwnedOverlays} draws, by the same mark, and for
+ *  the same reason it is an existence check rather than an identity. */
+function usersDialogStands(): boolean {
+  return isDialogOpen() && document.getElementById("actionRunning") === null;
+}
+/**
+ * Raise a dialog a host answer brings: now, over an empty slot or a progress
+ * dialog; owed until the slot frees, over a dialog of the user's (#243).
+ *
+ * An answer arrives when the host is done, not when the user is, and
+ * {@link showDialog} writes over whatever is up and runs no hook for it. Over
+ * the action's own progress dialog that is the point — the answer is what the
+ * wait was for. But a progress dialog can be dismissed while the work goes on,
+ * a request may raise none at all, and either leaves the user free to open a
+ * question of their own before the answer lands; written over, that question
+ * goes with its answers, and a form with what was typed into it. The answers
+ * that can tell their own dialog by owner already do (#127, `progressDialogOwnedBy`),
+ * and drop themselves when it has gone. These cannot be dropped: they are
+ * what the user is owed for a request they made — git's refusal, the details
+ * asked for — so they wait, behind anything owed before them.
+ *
+ * Not in `showDialog` itself. A delegated action's dialog takes the slot by
+ * design, abandoning a retry offer it lands on (see `abandonBatchRun`); the
+ * owner-checked answers replace the dialog they own; and every other raise
+ * comes from a gesture, which a standing dialog leaves no way to make (#141) —
+ * including the ones a gesture shares with an answer, such as `loadFindMatch`,
+ * which a Find step reaches at once or when its branch index lands, and which
+ * comes through here either way. The rule belongs to the answers, so it is
+ * written where they arrive.
+ */
+function raiseAnswerDialog(raise: () => void) {
+  if (usersDialogStands()) oweDialog(raise);
+  else raise();
+}
+/** {@link raiseAnswerDialog} for the commonest answer: the request was refused. */
+function raiseAnswerError(
+  message: string,
+  reason: string | null = null,
+  onDismiss?: (reason: DismissalReason) => void
+) {
+  raiseAnswerDialog(() => showErrorDialog(message, reason, null, onDismiss));
+}
 /** Marks what arrives in `<body>` while a dialog stands — a docked Commit
  *  Details View rebuilt by a background reload — inert like the rest. */
 const lateBackgroundObserver = new MutationObserver((records) => {
@@ -8968,7 +9086,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "commitDetails":
       if (msg.commitDetails === null) {
         gitGraph.failCommitDetails();
-        showErrorDialog(l10n.unableToLoadCommitDetails, null, null);
+        raiseAnswerError(l10n.unableToLoadCommitDetails);
       } else {
         gitGraph.showCommitDetails(
           msg.commitDetails,
@@ -8981,7 +9099,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
         // Close the (not-yet-rendered) comparison so the second row doesn't stay
         // highlighted with no panel, mirroring the commitDetails error path.
         gitGraph.hideCommitDetails();
-        showErrorDialog(l10n.unableToLoadCommitDetails, null, null);
+        raiseAnswerError(l10n.unableToLoadCommitDetails);
       } else {
         gitGraph.showCommitComparison(
           msg.fromHash,
@@ -9031,10 +9149,8 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
           "Tag Name": l10n.typeTagName,
           "Branch Name": l10n.typeBranchName
         };
-        showErrorDialog(
-          l10n.unableToCopyToClipboard.replace("{0}", typeLabel[msg.type] ?? msg.type),
-          null,
-          null
+        raiseAnswerError(
+          l10n.unableToCopyToClipboard.replace("{0}", typeLabel[msg.type] ?? msg.type)
         );
       }
       break;
@@ -9079,18 +9195,19 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "branchSearch":
       gitGraph.loadBranchSearchIndex(msg.branches, msg.token, msg.status);
       break;
-    case "tagDetails":
-      if (msg.details === null) {
-        showErrorDialog(l10n.unableToLoadTagDetails, null, null);
-      } else {
-        showTagDetailsDialog(msg.details);
-      }
+    case "tagDetails": {
+      const details = msg.details;
+      raiseAnswerDialog(() => {
+        if (details === null) showErrorDialog(l10n.unableToLoadTagDetails, null, null);
+        else showTagDetailsDialog(details);
+      });
       break;
+    }
     case "createArchive":
-      if (msg.success === false) showErrorDialog(l10n.unableToCreateArchive, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToCreateArchive);
       break;
     case "exportPatch":
-      if (msg.success === false) showErrorDialog(l10n.unableToExportPatch, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToExportPatch);
       break;
     case "loadRepos":
       gitGraph.loadRepos(msg.repos, msg.lastActiveRepo);
@@ -9135,16 +9252,16 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.refresh(false);
       break;
     case "viewDiff":
-      if (msg.success === false) showErrorDialog(l10n.unableToViewDiff, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToViewDiff);
       break;
     case "openFile":
-      if (msg.success === false) showErrorDialog(l10n.unableToOpenFile, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToOpenFile);
       break;
     case "viewFileAtRevision":
-      if (msg.success === false) showErrorDialog(l10n.unableToOpenFile, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToOpenFile);
       break;
     case "viewDiffWithWorking":
-      if (msg.success === false) showErrorDialog(l10n.unableToViewDiff, null, null);
+      if (msg.success === false) raiseAnswerError(l10n.unableToViewDiff);
       break;
     default: {
       // The floor under the whole dispatch. Without it a response command with
@@ -9233,7 +9350,7 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
     // revert leaves an operation in progress, and the file watcher is muted
     // during the action, so this is what surfaces the conflict banner without a
     // manual refresh. (Harmless for non-operation failures — state is unchanged.)
-    showErrorDialog(errorMessage, status, null, () => gitGraph.refresh(false));
+    raiseAnswerError(errorMessage, status, () => gitGraph.refresh(false));
   }
 }
 
@@ -9924,7 +10041,9 @@ function showDialog(
   // answer given, and the run behind it has no other way to hear about that
   // (#125). This is the one funnel every dialog is raised through, so it is the
   // one place that catches all of the offer's destruction routes rather than
-  // the eight-and-counting call sites that take it. Before the new markup, so
+  // the call sites that take it — fewer since host answers wait behind a
+  // dialog of the user's instead (#243), but a delegated action's dialog still
+  // takes the slot, and the next route need not remember. Before the new markup, so
   // the dialog arriving here keeps the screen — see `abandonBatchRun`.
   if (document.getElementById("batchRetryOffer") !== null) gitGraph.abandonBatchRun();
   // A dialog the host raises on its own — an error, a batch summary — can find
@@ -9996,10 +10115,10 @@ function hideDialog() {
     returnDialogFocus(dialogOpener);
     dialogOpener = null;
   }
-  // The slot is empty; a batch summary owed one is now due — once the closing
-  // route has finished, and only the summary owed as of now (see
-  // `deliverOwedBatchSummary`, which defers and checks both).
-  gitGraph.deliverOwedBatchSummary();
+  // The slot is empty; a dialog owed one is now due — once the closing route
+  // has finished, and only one owed as of now (see `payOwedDialog`, which
+  // defers and checks both).
+  payOwedDialog();
 }
 /** Close the dialog without an answer, running whatever it declared for that
  *  and telling it who closed it. The hook is read before the close so that a
