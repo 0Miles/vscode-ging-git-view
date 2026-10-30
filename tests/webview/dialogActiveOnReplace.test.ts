@@ -7,6 +7,7 @@ import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  graphRow,
   makeViewState,
   receive,
   setupHtml
@@ -37,9 +38,6 @@ const commits: GitCommitNode[] = [
   }
 ];
 
-const row = () =>
-  document.querySelector<HTMLElement>('#commitTable tr.commit[data-hash="aaa111"]')!;
-
 describe("a dialog replaced by another before it was answered", () => {
   beforeAll(async () => {
     vi.resetModules();
@@ -66,13 +64,16 @@ describe("a dialog replaced by another before it was answered", () => {
   });
 
   it("takes the highlight off the row the replaced dialog was about", () => {
-    row().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    graphRow("aaa111").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
     clickItem(L.addTag + E);
-    expect(row().classList.contains("dialogActive"), "the dialog never marked its row").toBe(true);
+    expect(
+      graphRow("aaa111").classList.contains("dialogActive"),
+      "the dialog never marked its row"
+    ).toBe(true);
 
     receive({ command: "runRefAction", repo: DEFAULT_REPO, ref: "main", action: "rename", seq: 1 });
     expect(document.getElementById("dialog")!.textContent).toContain(L.renameBranch);
 
-    expect(row().classList.contains("dialogActive")).toBe(false);
+    expect(graphRow("aaa111").classList.contains("dialogActive")).toBe(false);
   });
 });

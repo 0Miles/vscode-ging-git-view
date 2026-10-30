@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 
-import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 
 // A context menu opened on a row outlived the redraw that replaced it (#126),
 // on the one path where no reload close-out follows: a soft reload whose remote
@@ -50,10 +50,6 @@ const tipDetails: GitCommitDetails = {
 };
 
 const contextMenu = () => document.getElementById("contextMenu")!;
-
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
 
 function fileRow(path: string) {
   return Array.from(document.querySelectorAll<HTMLElement>("#commitDetails .gitFile")).find(
@@ -108,7 +104,7 @@ describe("a redraw arriving while a context menu is open", () => {
     let source: HTMLElement;
 
     beforeAll(() => {
-      source = row("bbb222");
+      source = graphRow("bbb222");
       openMenuOn(source);
       softReloadWithNewRemotes();
     });
@@ -124,7 +120,7 @@ describe("a redraw arriving while a context menu is open", () => {
     });
 
     it("puts focus on the same commit's new row", () => {
-      expect(document.activeElement).toBe(row("bbb222"));
+      expect(document.activeElement).toBe(graphRow("bbb222"));
     });
   });
 
@@ -132,7 +128,7 @@ describe("a redraw arriving while a context menu is open", () => {
     let source: HTMLElement;
 
     beforeAll(() => {
-      row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({ command: "commitDetails", commitDetails: tipDetails });
       source = fileRow("src/b.ts");
       openMenuOn(source);
