@@ -4,19 +4,10 @@ import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
-// A redraw replaces every row of the commit table, and the Commit Details View
-// with them. A context menu opened on one of those rows outlived it (#126): it
-// stayed at the page coordinates it was opened at, over whatever row the
-// redraw put there, still offering Reset and Delete for the old one — and its
-// source was now a detached node, so closing it could neither clear the
-// highlight nor hand focus back, and focus fell to <body>.
-//
-// Hard reloads and reloads that change something already close the menu
-// (`hideReloadOwnedOverlays`), but only after the redraw has run. A soft reload
-// that brings back new remote names redraws from `loadRemotes` and closes
-// nothing. So the menu is closed by the redraw itself, before the rows go:
-// that is the last moment its source is still in the document to take focus
-// back, and from there the redraw's own focus restore carries it over by key.
+// A context menu opened on a row outlived the redraw that replaced it (#126),
+// on the one path where no reload close-out follows: a soft reload whose remote
+// names changed, redrawn from `loadRemotes` alone. Why the redraw closes it,
+// and why first, is on `closeContextMenuAnchoredInGraph`.
 //
 // One webview is booted for the whole file and the scenarios run in order; a
 // second import would leave the first instance listening on `window` (#80).
