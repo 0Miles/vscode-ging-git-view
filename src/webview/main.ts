@@ -2812,9 +2812,19 @@ class GitGraphView {
                     : ""),
                 addTagInputs,
                 l10n.dialogAddTagSubmit,
-                (values) => {
+                this.forRepo((repo, values: string[]) => {
                   const tagName = values[0];
-                  const send = (repo: string, force: boolean) => {
+                  const pushToRemote = hasRemotes && values[3] === "checked" ? pushRemote : null;
+                  const send = (force: boolean) => {
+                    // The tag and its push are one request, so a remote that
+                    // has gone refuses both: creating the tag and failing the
+                    // push would be half of what was agreed to.
+                    if (
+                      pushToRemote !== null &&
+                      !this.remotesStillThereOrRefuse(repo, [pushToRemote])
+                    ) {
+                      return;
+                    }
                     sendMessage({
                       command: "addTag",
                       repo,
@@ -2822,27 +2832,29 @@ class GitGraphView {
                       commitHash: hash,
                       lightweight: values[1] === "lightweight",
                       message: values[2],
-                      pushToRemote: hasRemotes && values[3] === "checked" ? pushRemote : null,
+                      pushToRemote,
                       force
                     });
                   };
                   // A tag with this name already exists: confirm replacing it.
+                  // Bare, because the repo was bound one dialog earlier, by
+                  // the form this question follows.
                   const tagExists = this.commits.some((c) =>
                     c.refs.some((r) => r.type === "tag" && r.name === tagName)
                   );
                   if (tagExists) {
-                    this.confirmForRepo(
+                    showConfirmationDialog(
                       l10n.dialogAddTagExists.replace(
                         "{0}",
                         "<b><i>" + escapeHtml(tagName) + "</i></b>"
                       ),
-                      (repo) => send(repo, true),
+                      () => send(true),
                       null
                     );
                   } else {
-                    send(this.currentRepo!, false);
+                    send(false);
                   }
-                },
+                }),
                 sourceElem
               );
             }
@@ -4671,9 +4683,8 @@ class GitGraphView {
         manyRemotes: this.batchConfirmBody(l10n.dialogPushBatchSelectRemote, targets, skipped)
       },
       undefined,
-      (remotes, forceMode) => {
-        if (remotes.length === 0) return;
-        this.startBatchRun("pushBranches", this.currentRepo!, targets, {
+      (repo, remotes, forceMode) => {
+        this.startBatchRun("pushBranches", repo, targets, {
           params: { remotes, forceMode }
         });
       }
@@ -4760,6 +4771,47 @@ class GitGraphView {
   ) {
     const repo = this.currentRepo!;
     showConfirmationDialog(message, () => confirmed(repo), sourceElem);
+  }
+
+  /** {@link confirmForRepo}'s capture, for the dialogs that answer with
+   *  something — a form's values, a select's choice. Call it where the dialog
+   *  opens and hand what it returns to the dialog as its callback: the repo is
+   *  read then, and passed in front of the answer once there is one. */
+  private forRepo<A extends unknown[]>(
+    actioned: (repo: string, ...answer: A) => void
+  ): (...answer: A) => void {
+    const repo = this.currentRepo!;
+    return (...answer) => actioned(repo, ...answer);
+  }
+
+  /**
+   * Whether `remotes` — names a form showed when it opened — can still be
+   * pushed to in `repo`, re-taken at the moment of consent. A refusal is shown
+   * here, and false returned for the caller to stop on.
+   *
+   * The names are carried rather than positions in `this.remotes`, because a
+   * `git remote add` / `remove` in the terminal reorders that list under an
+   * open form, and a tick read back by position lands on another remote. A
+   * name that has gone refuses the *whole* push and says which one: the user
+   * agreed to a set, and pushing to what is left of it is a push nobody agreed
+   * to.
+   *
+   * A repo that moved is a refusal too, and for {@link confirmForRepoAndHead}'s
+   * reason: `this.remotes` describes only the repo on screen, so once that is
+   * another repo, whether the names still exist in the captured one cannot be
+   * shown — and what cannot be shown to still hold has not been shown to.
+   */
+  private remotesStillThereOrRefuse(repo: string, remotes: string[]): boolean {
+    if (this.currentRepo !== repo) {
+      showErrorDialog(l10n.dialogPushRepoMoved, null, null);
+      return false;
+    }
+    const gone = remotes.find((remote) => !this.remotes.includes(remote));
+    if (gone !== undefined) {
+      showErrorDialog(l10n.dialogPushRemoteGone.replace("{0}", escapeHtml(gone)), null, null);
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -4864,12 +4916,26 @@ class GitGraphView {
    *
    * `rememberKey` is undefined for the batch, where a force mode remembered from
    * a single push must not silently apply to several branches at once.
+   *
+   * `push` is called only with what the form showed: the repo it opened on and
+   * the remote names it listed, checked at consent by {@link remotesStillThereOrRefuse}.
+   * Unticking every remote asks for nothing, so that answer calls nothing.
    */
   private showPushForm(
     bodies: { oneRemote: string; manyRemotes: string },
     rememberKey: string | undefined,
-    push: (remotes: string[], forceMode: "normal" | "force" | "forceWithLease") => void
+    push: (
+      repo: string,
+      remotes: string[],
+      forceMode: "normal" | "force" | "forceWithLease"
+    ) => void
   ) {
+    const remotes = [...this.remotes];
+    const send = this.forRepo((repo, chosen: string[], forceMode: string) => {
+      if (chosen.length === 0) return;
+      if (!this.remotesStillThereOrRefuse(repo, chosen)) return;
+      push(repo, chosen, toPushForceMode(forceMode));
+    });
     const forceInput: DialogSelectInput = {
       type: "select",
       name: l10n.dialogPushForce,
@@ -4881,18 +4947,18 @@ class GitGraphView {
       ],
       remember: rememberKey !== undefined
     };
-    if (this.remotes.length === 1) {
+    if (remotes.length === 1) {
       showFormDialog(
         bodies.oneRemote,
         [forceInput],
         l10n.pushBranch,
-        (values) => push([this.remotes[0]], toPushForceMode(values[0])),
+        (values) => send(remotes, values[0]),
         null,
         rememberKey
       );
       return;
     }
-    const remoteInputs: DialogInput[] = this.remotes.map((r) => ({
+    const remoteInputs: DialogInput[] = remotes.map((r) => ({
       type: "checkbox",
       name: r,
       value: r === this.defaultPushRemote()
@@ -4902,9 +4968,9 @@ class GitGraphView {
       [...remoteInputs, forceInput],
       l10n.pushBranch,
       (values) =>
-        push(
-          this.remotes.filter((_, i) => values[i] === "checked"),
-          toPushForceMode(values[this.remotes.length])
+        send(
+          remotes.filter((_, i) => values[i] === "checked"),
+          values[remotes.length]
         ),
       null,
       rememberKey
@@ -4918,11 +4984,10 @@ class GitGraphView {
         manyRemotes: l10n.dialogPushBranchSelectRemote.replace("{0}", boldName)
       },
       "pushBranchForce",
-      (remotes, forceMode) => {
-        if (remotes.length === 0) return;
+      (repo, remotes, forceMode) => {
         sendMessage({
           command: "pushBranch",
-          repo: this.currentRepo!,
+          repo,
           branchName,
           remotes,
           forceMode
@@ -4934,39 +4999,28 @@ class GitGraphView {
   /** Push a tag to a remote. Confirms when a single remote exists, otherwise
    *  prompts which remote to push to. Only invoked when a remote is configured. */
   private pushTagAction(tagName: string) {
+    // Only what the dialog showed is pushed: the remote names it listed, by
+    // name, in the repo it opened on ({@link remotesStillThereOrRefuse}). The empty
+    // check stays silent — reaching it means the user unticked every remote
+    // and asked for nothing — while a remote that has gone is a refusal of
+    // something they did ask for, and is said out loud.
     const push = (repo: string, remotes: string[]) => {
       if (remotes.length === 0) return;
+      if (!this.remotesStillThereOrRefuse(repo, remotes)) return;
       sendMessage({ command: "pushTag", repo, tagName, remotes });
       showActionRunningDialog(l10n.pushingTag);
     };
     const chooseRemoteAndPush = () => {
-      if (this.remotes.length === 1) {
+      const remotes = [...this.remotes];
+      if (remotes.length === 1) {
         this.confirmForRepo(
           l10n.dialogPushTagConfirm.replace("{0}", "<b><i>" + escapeHtml(tagName) + "</i></b>"),
-          (repo) => {
-            // Re-taken here rather than read into the closure above, because
-            // the sole remote can be removed while this question is on screen
-            // and `push`'s own emptiness check cannot catch what that leaves:
-            // `[this.remotes[0]]` is `[undefined]`, which has length 1 and
-            // sails through, pushing the tag to no remote at all (ADR-0019).
-            //
-            // Reported rather than returned silently. `push`'s own empty check
-            // is silent because reaching it means the user unticked every
-            // remote — they asked for nothing. Here they asked for something
-            // and it cannot be delivered, which is the case
-            // {@link confirmForRepoAndHead} refuses out loud.
-            const remote = this.remotes[0];
-            if (remote === undefined) {
-              showErrorDialog(l10n.dialogPushRemoteGone, null, null);
-              return;
-            }
-            push(repo, [remote]);
-          },
+          (repo) => push(repo, remotes),
           null
         );
       } else {
         // One checkbox per remote so the tag can be pushed to several.
-        const remoteInputs: DialogInput[] = this.remotes.map((r) => ({
+        const remoteInputs: DialogInput[] = remotes.map((r) => ({
           type: "checkbox",
           name: r,
           value: r === this.defaultPushRemote()
@@ -4978,11 +5032,12 @@ class GitGraphView {
           ),
           remoteInputs,
           l10n.pushTag,
-          (values) =>
+          this.forRepo((repo, values: string[]) =>
             push(
-              this.currentRepo!,
-              this.remotes.filter((_, i) => values[i] === "checked")
-            ),
+              repo,
+              remotes.filter((_, i) => values[i] === "checked")
+            )
+          ),
           null
         );
       }
