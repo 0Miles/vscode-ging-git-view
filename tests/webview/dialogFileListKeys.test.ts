@@ -161,7 +161,7 @@ function dialogCommitRow(hash: string) {
 const dialogCommitRows = () =>
   Array.from(document.querySelectorAll<HTMLElement>("#dialog .commitList tr.commit"));
 
-/** The tab stops of a group, as the hash or path each one carries. */
+/** The members of a group holding its tab stop — exactly one when all is well. */
 const tabStopsOf = (rows: HTMLElement[]) => rows.filter((r) => r.tabIndex === 0);
 
 /** What a dialog file-list row is called on screen: a folder by its path, a

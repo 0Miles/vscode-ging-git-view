@@ -1841,9 +1841,9 @@ body.vscode-high-contrast-light #repoSettingsDrawer select {
   /* UA reset, first so the declarations below still win. The footer's two
      members are real `<button>`s (#88), and so are the dialog's (#141) and
      the cleanup dialog's tools (#145), while the conflict banner's are still
-     `<div>`s; a `<button>` arrives
-     carrying a platform appearance, a border box, and every one of the inherited text properties
-     replaced with a value of its own — the HTML Standard's form-control
+     `<div>`s; a `<button>` arrives carrying a platform appearance, a border
+     box, and every one of the inherited text properties replaced with a
+     value of its own — the HTML Standard's form-control
      rendering rule, which is why a button does not take the page's font.
      Restated here as what a `div` would have had, member by member, so that
      the two kinds are indistinguishable and the id rules below go on sizing

@@ -6440,7 +6440,7 @@ class GitGraphView {
    *  unhidden and returns early — and once the dialog closes and takes its rows
    *  with it, nothing calls that method until the panel is next rebuilt. So the
    *  list stays unreachable until some *other* thing redraws it: a refresh, a
-   *  page of commits, a layout toggle. Leaving the panel's where it was is the
+   *  load of more commits, a layout toggle. Leaving the panel's where it was is the
    *  whole of the fix here; the dialog's rows keep a tab stop of their own, in a
    *  group of their own (#145), which `syncDialogTabStop` points the same way
    *  this points the panel's. It claimed nothing about how those rows behave
@@ -7391,10 +7391,14 @@ let redundancyRepo: string | null = null;
  *  holder left over from the last one is simply disconnected. */
 const redundancyRowTabStop = new RovingTabStop();
 
-/** The open dialog's commit rows, in order. Within `#dialog` by selector, never
- *  a bare `tr.commit`: the graph's rows carry the same class (#144). */
+/** A commit row of the redundancy dialog's list, asked of elements already
+ *  known to be in `#dialog` — never a bare `tr.commit`: the graph's rows carry
+ *  the same class (#144). */
+const REDUNDANCY_ROW = ".commitList tr.commit";
+
+/** The open dialog's commit rows, in order. */
 function redundancyCommitRows(): HTMLElement[] {
-  return Array.from(dialog.querySelectorAll<HTMLElement>(".commitList tr.commit"));
+  return Array.from(dialog.querySelectorAll<HTMLElement>(REDUNDANCY_ROW));
 }
 
 /** Ask whether `branch` still has anything to contribute to the default branch.
@@ -8255,7 +8259,7 @@ function dialogListKeydown(e: KeyboardEvent): boolean {
   if (!(target instanceof HTMLElement) || !dialog.contains(target)) return false;
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return false;
   const fileList = dialogFileListOf(target);
-  const handled = target.matches(".commitList tr.commit")
+  const handled = target.matches(REDUNDANCY_ROW)
     ? redundancyRowKeydown(target, e.key)
     : fileList !== null
       ? dialogFileRowKeydown(fileList, target, e.key)
@@ -8284,7 +8288,7 @@ function redundancyRowKeydown(row: HTMLElement, key: string): boolean {
  *  lands in, however it got there, points its tab stop at it. */
 function syncDialogTabStop(target: EventTarget | null) {
   if (!(target instanceof HTMLElement) || !dialog.contains(target)) return;
-  if (target.matches(".commitList tr.commit")) {
+  if (target.matches(REDUNDANCY_ROW)) {
     redundancyRowTabStop.set(target);
     return;
   }
@@ -9669,7 +9673,7 @@ document.addEventListener("keydown", (e) => {
     // A list in the dialog is a roving group of its own (#145), and the keys it
     // owns — Enter on a row among them — are not "confirm".
     if (dialogListKeydown(e)) return;
-    // Enter submits the dialog's primary (left) action, but not while an IME
+    // Enter submits the dialog's primary action, but not while an IME
     // composition is in progress (e.g. the Enter that confirms a CJK candidate
     // on macOS reports isComposing on keydown). The action's own click handler
     // no-ops when the form is empty/invalid, so firing it is safe.
