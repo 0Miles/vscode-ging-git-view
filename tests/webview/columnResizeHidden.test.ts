@@ -27,8 +27,11 @@ import {
 // jsdom lays nothing out, so `clientWidth` is stood in for: a header's natural
 // width while it is displayed, 0 while it is not. "Displayed" is read off the
 // computed style with the shipped stylesheet loaded, so the stand-in answers
-// to the same rules the webview does rather than to a class name. Real
-// Chromium was checked by hand against the same scenarios (see the PR).
+// to the same rules the webview does rather than to a class name. In real
+// Chromium, driven through the built bundle with the same scenarios, the
+// hidden Date header measured 0 (the -24), the first drag then stored it at 85,
+// and shown again it came back 109px wide: its auto-layout width with Date
+// visible, 85 plus the header's padding.
 //
 // One webview is booted for the whole file and the scenarios run in order, the
 // way a session unfolds (#80).
