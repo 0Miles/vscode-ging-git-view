@@ -540,7 +540,7 @@ class GitGraphView {
   /** Which file last held the file list's tab stop, in which view, at which
    *  index. The element itself does not outlive a redraw, so this is what
    *  {@link restoreCdvFileTabStop} finds the user's place again from. */
-  private cdvFileTabStopMemory: { cdv: string | null; key: string; index: number } | null = null;
+  private cdvFileTabStopMemory: { cdvIdentity: string | null; key: string; index: number } | null = null;
 
   private loadBranchesCallback: ((changes: boolean, isRepo: boolean) => void) | null = null;
   private loadCommitsCallback: ((changes: boolean) => void) | null = null;
@@ -6382,10 +6382,18 @@ class GitGraphView {
    *  When that file is no longer among the rows the keyboard can reach — the
    *  same commit answered again with different files, as the uncommitted
    *  changes do, or a collapsed folder burying it — the stop takes the row now
-   *  at its old index, clamped to the shorter list: the nearest thing to where
-   *  the user was. Only for the same view, though. A different commit, or a
-   *  different comparison, is an opening, and its list starts from the top
-   *  even when it has a file at the same path. */
+   *  at its old index, clamped to the shorter list. That is not the index
+   *  ADR-0019 rules out as an identity: the path is still the identity, and
+   *  the index only answers what to do once that identity is gone. It is a
+   *  guess, and a rough one after a collapse — the folder's other files leave
+   *  the list too, so the index lands that many files further on — but it
+   *  keeps the user in the part of the list they were in, which the first row
+   *  did not. The stop then belongs to the row it landed on, so a file that
+   *  comes back on a later redraw does not take it back.
+   *
+   *  Only for the same view, though. A different commit, or a different
+   *  comparison, is an opening, and its list starts from the top even when it
+   *  has a file at the same path. */
   private restoreCdvFileTabStop() {
     const held = this.cdvFileTabStop.current;
     if (held !== null && held.closest(".hidden") === null) return;
@@ -6393,7 +6401,7 @@ class GitGraphView {
     if (files.length === 0) return;
     const memory = this.cdvFileTabStopMemory;
     const target =
-      memory === null || memory.cdv !== this.cdvIdentity()
+      memory === null || memory.cdvIdentity !== this.cdvIdentity()
         ? files[0]
         : (files.find((file) => cdvFileKey(file) === memory.key) ??
           files[Math.max(0, Math.min(memory.index, files.length - 1))]);
@@ -6405,7 +6413,7 @@ class GitGraphView {
    *  {@link RovingTabStop}'s `onSet`, so the memory never lags the markup. */
   private rememberCdvFileTabStop(file: HTMLElement) {
     this.cdvFileTabStopMemory = {
-      cdv: this.cdvIdentity(),
+      cdvIdentity: this.cdvIdentity(),
       key: cdvFileKey(file),
       index: this.cdvFileRows().indexOf(file)
     };

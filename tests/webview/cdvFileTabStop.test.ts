@@ -108,7 +108,7 @@ function fileRow(path: string) {
 
 /** The paths of the file rows carrying `tabindex="0"` — exactly one whenever
  *  Tab can reach the list. */
-function fileTabStops() {
+function fileTabStopPaths() {
   return Array.from(document.querySelectorAll<HTMLElement>('#commitDetails [tabindex="0"]')).map(
     (f) => filePathOf(f)
   );
@@ -176,7 +176,7 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
       row("aaa111").focus();
 
       redrawByAutoLoad();
-      tabStopsAfterRedraw = fileTabStops();
+      tabStopsAfterRedraw = fileTabStopPaths();
     });
 
     it("redraws the list without focus in it", () => {
@@ -204,11 +204,11 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
       row("aaa111").focus();
 
       clickViewType("File List");
-      tabStopsInList = fileTabStops();
+      tabStopsInList = fileTabStopPaths();
       indexInList = fileRows().indexOf(fileRow("src/b.ts"));
 
       clickViewType("File Tree");
-      tabStopsBackInTree = fileTabStops();
+      tabStopsBackInTree = fileTabStopPaths();
       indexBackInTree = fileRows().indexOf(fileRow("src/b.ts"));
     });
 
@@ -232,12 +232,12 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
 
     beforeAll(() => {
       // Left on `src/b.ts`, the second row, by the scenario above.
-      expect(fileTabStops()).toEqual(["src/b.ts"]);
+      expect(fileTabStopPaths()).toEqual(["src/b.ts"]);
       receive({
         command: "commitDetails",
         commitDetails: details("aaa111", ["src/a.ts", "CHANGELOG.md", "README.md"])
       });
-      tabStopsAtSameIndex = fileTabStops();
+      tabStopsAtSameIndex = fileTabStopPaths();
 
       fileRow("README.md").focus();
       row("aaa111").focus();
@@ -245,7 +245,7 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
         command: "commitDetails",
         commitDetails: details("aaa111", ["src/a.ts", "CHANGELOG.md"])
       });
-      tabStopsClamped = fileTabStops();
+      tabStopsClamped = fileTabStopPaths();
     });
 
     it("puts the tab stop on the row now at the same index", () => {
@@ -266,13 +266,13 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
     beforeAll(() => {
       // `CHANGELOG.md` is the second row of both commits, so neither the path
       // nor the index could tell the two views apart.
-      expect(fileTabStops()).toEqual(["CHANGELOG.md"]);
+      expect(fileTabStopPaths()).toEqual(["CHANGELOG.md"]);
       row("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({
         command: "commitDetails",
         commitDetails: details("bbb222", ["src/x.ts", "CHANGELOG.md"])
       });
-      tabStopsOnOtherCommit = fileTabStops();
+      tabStopsOnOtherCommit = fileTabStopPaths();
 
       fileRow("CHANGELOG.md").focus();
       document.getElementById("commitDetailsClose")!.click();
@@ -282,7 +282,7 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
         command: "commitDetails",
         commitDetails: details("bbb222", ["src/x.ts", "CHANGELOG.md"])
       });
-      tabStopsOnReopen = fileTabStops();
+      tabStopsOnReopen = fileTabStopPaths();
     });
 
     it("starts the new view's tab stop on its first file", () => {
