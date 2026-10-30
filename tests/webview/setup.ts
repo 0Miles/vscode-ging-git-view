@@ -174,14 +174,14 @@ export function receive(msg: GG.ResponseMessage, opts: { keepToken?: boolean } =
 }
 
 // The DOM helpers below were each held as local copies by several suites, some
-// down to the doc comment: `openMenuOn` by eight, `clickItem` by seven. They are
-// here for the reason `makeViewState` is: a guard that is wrong in one copy is
-// wrong in all of them.
+// down to the doc comment, and some under other names. They are here for the
+// reason `makeViewState` is: a guard that is wrong in one copy is wrong in all
+// of them.
 //
 // Clicking comes under two names because suites click two different things: an
-// element they already hold, and a control they know only by its id. Fourteen
-// suites had a `click` of their own under three incompatible signatures, so the
-// same name meant different things depending on which file was open.
+// element they already hold, and a control they know only by its id. Suites had
+// each kept a `click` of their own, under incompatible signatures, so the same
+// name meant different things depending on which file was open.
 
 /** Click an element the suite already holds. */
 export function clickElem(elem: Element) {

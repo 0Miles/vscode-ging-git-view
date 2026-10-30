@@ -8,6 +8,7 @@ import {
   clickId,
   createVscodeMock,
   DEFAULT_REPO,
+  graphRow,
   makeViewState,
   receive,
   setupHtml
@@ -88,10 +89,6 @@ const scrollTo = vi.fn();
 
 function loadCommitsRequests() {
   return mock.sentMessages.filter((m) => m.command === "loadCommits");
-}
-
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
 }
 
 function tabStops() {
@@ -220,7 +217,7 @@ describe("the loaded commit window on screen", () => {
 
     beforeAll(() => {
       receive(commitsResponse()); // there is more history again
-      row("bbb222").focus();
+      graphRow("bbb222").focus();
       mock.clearMessages();
       scrollTo.mockClear();
       scrolledIntoView.length = 0;
@@ -243,15 +240,15 @@ describe("the loaded commit window on screen", () => {
     });
 
     it("leaves focus on the same commit, whose row the redraw destroyed", () => {
-      expect(document.activeElement).toBe(row("bbb222"));
-      expect(tabStops()).toEqual([row("bbb222")]);
+      expect(document.activeElement).toBe(graphRow("bbb222"));
+      expect(tabStops()).toEqual([graphRow("bbb222")]);
     });
 
     it("brings the viewport to that row, so the two cannot contradict", () => {
       // ADR-0014 read literally: an operation goes back to where the operation
       // was, which is the row holding focus — not the top of the graph, which
       // would leave focus and viewport hundreds of rows apart.
-      expect(scrolledIntoView.at(-1)).toBe(row("bbb222"));
+      expect(scrolledIntoView.at(-1)).toBe(graphRow("bbb222"));
     });
 
     it("moves it by bringing that row into view, never by restoring an offset", () => {
@@ -336,7 +333,7 @@ describe("the loaded commit window on screen", () => {
       clickId("loadMoreCommitsBtn"); // widen it again, to 400
       receive(commitsResponse());
 
-      row("bbb222").focus();
+      graphRow("bbb222").focus();
       scrollTo.mockClear();
       scrolledIntoView.length = 0;
       clickId("resetLoadedCommitWindowBtn");
@@ -350,8 +347,8 @@ describe("the loaded commit window on screen", () => {
     });
 
     it("brings the viewport to the row the graph now begins at", () => {
-      expect(tabStops()).toEqual([row("aaa111")]);
-      expect(scrolledIntoView.at(-1)).toBe(row("aaa111"));
+      expect(tabStops()).toEqual([graphRow("aaa111")]);
+      expect(scrolledIntoView.at(-1)).toBe(graphRow("aaa111"));
       expect(scrollTo).not.toHaveBeenCalled();
     });
   });
@@ -371,7 +368,7 @@ describe("the loaded commit window on screen", () => {
       clickId("loadMoreCommitsBtn"); // widen it again, to 400
       receive(commitsResponse());
 
-      row("bbb222").focus();
+      graphRow("bbb222").focus();
       scrollTo.mockClear();
       scrolledIntoView.length = 0;
       clickId("resetLoadedCommitWindowBtn");
@@ -390,8 +387,8 @@ describe("the loaded commit window on screen", () => {
     });
 
     it("still moves the viewport when the reset's own page lands", () => {
-      expect(focusedAfterReset).toBe(row("bbb222"));
-      expect(scrolledIntoView.at(-1)).toBe(row("bbb222"));
+      expect(focusedAfterReset).toBe(graphRow("bbb222"));
+      expect(scrolledIntoView.at(-1)).toBe(graphRow("bbb222"));
       expect(scrollTo).not.toHaveBeenCalled();
     });
   });

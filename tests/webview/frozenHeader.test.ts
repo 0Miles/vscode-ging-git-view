@@ -5,6 +5,7 @@ import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
 import {
   VIEWPORT_HEIGHT,
   createVscodeMock,
+  graphRow,
   makeViewState,
   parkViewportAt,
   receive,
@@ -49,10 +50,6 @@ function detailsFor(hash: string): GitCommitDetails {
   };
 }
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
 function press(key: string) {
   document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 }
@@ -62,7 +59,7 @@ function press(key: string) {
 let cdvOffsetTop = 0;
 
 function openDetails(hash: string) {
-  row(hash).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  graphRow(hash).dispatchEvent(new MouseEvent("click", { bubbles: true }));
   receive({ command: "commitDetails", commitDetails: detailsFor(hash) });
 }
 
@@ -131,7 +128,7 @@ describe("the frozen header", () => {
     // of the page. Bringing it "into view" would haul the page all the way
     // back up for a row the user is already looking at.
     it("walks onto the header row, into a column and back out without scrolling", () => {
-      row("aaa111").focus();
+      graphRow("aaa111").focus();
       scrolledIntoView.length = 0;
       press("ArrowUp");
       expect(document.activeElement).toBe(headerRow());
@@ -146,7 +143,7 @@ describe("the frozen header", () => {
       headerRow().focus();
       scrolledIntoView.length = 0;
       press("ArrowDown");
-      expect(scrolledIntoView).toEqual([row("aaa111")]);
+      expect(scrolledIntoView).toEqual([graphRow("aaa111")]);
     });
   });
 
@@ -175,7 +172,7 @@ describe("the frozen header", () => {
       // to re-orient against: 768 - 63 - 48.
       const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
       try {
-        row("aaa111").focus();
+        graphRow("aaa111").focus();
         press("PageDown");
         expect(scrollBy).toHaveBeenLastCalledWith(0, VIEWPORT_HEIGHT - FROZEN - 48);
         press("PageUp");

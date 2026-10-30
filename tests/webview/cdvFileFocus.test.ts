@@ -6,6 +6,7 @@ import { generateGitFileListHtml } from "@/webview/utils/fileTree";
 
 import {
   createVscodeMock,
+  graphRow,
   makeViewState,
   NEAR_BOTTOM,
   parkViewportAt,
@@ -124,10 +125,6 @@ const comparisonChanges: GitFileChange[] = [
   }
 ];
 
-function row(hash: string) {
-  return document.querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!;
-}
-
 /** The file rows the keyboard can reach, in visual order — the same list the
  *  arrow keys walk. */
 function fileRows() {
@@ -174,7 +171,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     let movedOnRestore: unknown[] = [];
 
     beforeAll(() => {
-      row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({ command: "commitDetails", commitDetails: tipDetails });
       expect(fileRows().map((f) => filePathOf(f))).toEqual(["src/a.ts", "src/b.ts", "README.md"]);
 
@@ -209,7 +206,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     });
 
     it("redraws the file list, replacing the row that held focus", () => {
-      expect(row("ccc333")).not.toBeNull();
+      expect(graphRow("ccc333")).not.toBeNull();
       expect(fileRows()).toHaveLength(3);
       expect(fileRows()).not.toContain(focusedBefore);
     });
@@ -246,7 +243,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     let focusedAfterRedraw: Element | null = null;
 
     beforeAll(() => {
-      row("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+      graphRow("bbb222").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
       receive({
         command: "compareCommits",
         fromHash: "bbb222",
@@ -267,7 +264,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     });
 
     it("has no file list left to put focus back into", () => {
-      expect(row("bbb222")).toBeNull();
+      expect(document.querySelector('#commitTable tr.commit[data-hash="bbb222"]')).toBeNull();
       expect(document.getElementById("commitDetails")).toBeNull();
       expect(focusedAfterRedraw).toBe(document.body);
     });
@@ -275,7 +272,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     it("finishes the redraw rather than failing part-way through it", () => {
       // The restore runs before the graph's, so a miss that threw would leave
       // the table with no tab stop at all and Tab unable to reach the graph.
-      expect(graphTabStops()).toEqual([row("aaa111")]);
+      expect(graphTabStops()).toEqual([graphRow("aaa111")]);
       expect(mock.sentMessages.filter((m) => m.command === "reportError")).toEqual([]);
     });
 
@@ -283,7 +280,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
       // With no focused row to step from, the arrow keys step from the expanded
       // commit — the pre-existing fallback, reached unchanged.
       press("ArrowDown");
-      expect(document.activeElement).toBe(row("ccc333"));
+      expect(document.activeElement).toBe(graphRow("ccc333"));
     });
   });
 
@@ -296,7 +293,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     let focusedAfterLoad: Element | null = null;
 
     beforeAll(() => {
-      row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      graphRow("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
       receive({ command: "commitDetails", commitDetails: tipDetails });
 
       document
