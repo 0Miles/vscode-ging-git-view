@@ -442,12 +442,13 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     it("still lets Tab back into the file list once the redraw has rebuilt it", () => {
       // The consequence the tab stop being stolen actually has. What this is
       // really about is that the count is not zero — zero is a file list Tab can
-      // no longer reach at all. The row it names is `restoreCdvFileTabStop`'s
-      // existing fallback, which does not carry the user's place across a
-      // redraw the way `restoreCdvFileFocus` does; naming it pins today's
-      // behaviour rather than endorsing it.
+      // no longer reach at all. And it is the panel's `src/b.ts`, in its new
+      // row: the stop the dialog kept its hands off is the one the redraw
+      // carries over (#129), so focus in the dialog did not cost the user their
+      // place in the list either.
       expect(fileRows()).toHaveLength(3);
-      expect(tabStopsAfterLoad).toEqual([fileRows()[0]]);
+      expect(tabStopsAfterLoad).toEqual([fileRows()[2]]);
+      expect(filePathOf(tabStopsAfterLoad[0])).toBe("src/b.ts");
     });
   });
 });

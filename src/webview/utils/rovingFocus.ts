@@ -11,6 +11,13 @@
 export class RovingTabStop {
   private holder: HTMLElement | null = null;
 
+  /** `onSet` hears of every member that becomes the tab stop, by whichever of
+   *  the methods below. A re-render replaces the holder itself, so a group that
+   *  wants to find its place again afterwards has to note *which* member it was
+   *  while that member still exists — and `set` being the only way in makes
+   *  this the one place that sees them all. */
+  constructor(private readonly onSet?: (target: HTMLElement) => void) {}
+
   /** The member currently holding the tab stop, or null once a re-render has
    *  replaced it — fresh markup ships every member at `-1`, so the group has no
    *  tab stop until the next `set`. */
@@ -24,6 +31,7 @@ export class RovingTabStop {
     if (previous !== null && previous !== target) previous.tabIndex = -1;
     target.tabIndex = 0;
     this.holder = target;
+    this.onSet?.(target);
   }
 
   /** Move focus to `target` and bring it into view — what the arrow keys call,
