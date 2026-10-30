@@ -29,6 +29,7 @@ import {
 // owed.
 
 const L = getWebviewLocalizedStrings();
+const OTHER_REPO = "/workspace/repo-b";
 
 const commits: GitCommitNode[] = [
   {
@@ -103,7 +104,12 @@ describe("a host answer arriving over a dialog of the user's", () => {
   beforeAll(async () => {
     vi.resetModules();
     createVscodeMock();
-    setupHtml(makeViewState({ combineLocalAndRemoteBranchLabels: false }));
+    setupHtml(
+      makeViewState({
+        combineLocalAndRemoteBranchLabels: false,
+        repos: { [DEFAULT_REPO]: { columnWidths: null }, [OTHER_REPO]: { columnWidths: null } }
+      })
+    );
     await import("@/webview/main");
     settleRefresh();
   });
@@ -184,7 +190,22 @@ describe("a host answer arriving over a dialog of the user's", () => {
     ],
     ["a patch that failed", { command: "exportPatch", success: false }, L.unableToExportPatch],
     ["a diff that failed", { command: "viewDiff", success: false }, L.unableToViewDiff],
-    ["a file that failed to open", { command: "openFile", success: false }, L.unableToOpenFile]
+    ["a file that failed to open", { command: "openFile", success: false }, L.unableToOpenFile],
+    [
+      "a comparison that failed",
+      { command: "compareCommits", fromHash: "aaa111", toHash: "bbb222", fileChanges: null },
+      L.unableToLoadCommitDetails
+    ],
+    [
+      "a revision that failed to open",
+      { command: "viewFileAtRevision", success: false },
+      L.unableToOpenFile
+    ],
+    [
+      "a diff with the working tree that failed",
+      { command: "viewDiffWithWorking", success: false },
+      L.unableToViewDiff
+    ]
   ];
 
   it.each(requestAnswers)(
@@ -220,6 +241,38 @@ describe("a host answer arriving over a dialog of the user's", () => {
     expect(document.getElementById("dialogAction")!.textContent).toBe(L.dialogYes);
     expect(dialogText()).toContain("feature-b");
     dismiss();
+    settleRefresh();
+  });
+
+  // Owing the offer stretches the wait from one round-trip to however long the
+  // user's question stands, and the panel can follow Source Control onto
+  // another repository meanwhile. The offer names a branch but no repository,
+  // and its Yes deletes in the one the refused delete went to — so, raised
+  // after a switch, it would read as being about the repository on screen. It
+  // gives way to the plain refusal instead.
+  it("tells only of the refusal when the repository has changed while it was owed", async () => {
+    receive({
+      command: "runRefAction",
+      repo: DEFAULT_REPO,
+      ref: "feature-b",
+      action: "delete",
+      seq: ++seq
+    });
+    clickId("dialogAction");
+    openUsersQuestion();
+    receive({ command: "deleteBranch", status: "error: not fully merged", notFullyMerged: true });
+
+    receive({ command: "setRepo", repo: OTHER_REPO });
+    settleRefresh();
+    dismiss();
+    await flushMicrotasks();
+
+    expect(dialogText()).toContain(L.unableToDeleteBranch);
+    expect(dialogText()).toContain("error: not fully merged");
+    expect(document.getElementById("dialogAction")).toBeNull();
+
+    dismiss();
+    receive({ command: "setRepo", repo: DEFAULT_REPO });
     settleRefresh();
   });
 

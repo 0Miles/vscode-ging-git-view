@@ -1349,16 +1349,28 @@ class GitGraphView {
       // refused delete went to, and currentRepo has had the host's whole
       // round-trip to move since. So the pending record carries it — which is
       // also what lets the offer wait behind a dialog of the user's (#243).
+      // Owed, though, the wait has no bound where this one had a round-trip,
+      // and the offer names no repository: raised after the panel has moved on
+      // *while it was owed*, its Yes would read as being about the one on
+      // screen. Then only the refusal is told.
+      const repoAtAnswer = this.currentRepo;
       raiseAnswerDialog(() =>
-        showConfirmationDialog(
-          l10n.dialogForceDeleteBranchConfirm.replace(
-            "{0}",
-            "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
-          ),
-          () =>
-            this.sendDeleteBranch(pending.repo, pending.branchName, true, pending.deleteOnRemotes),
-          null
-        )
+        this.currentRepo !== repoAtAnswer
+          ? showErrorDialog(l10n.unableToDeleteBranch, status, null)
+          : showConfirmationDialog(
+              l10n.dialogForceDeleteBranchConfirm.replace(
+                "{0}",
+                "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
+              ),
+              () =>
+                this.sendDeleteBranch(
+                  pending.repo,
+                  pending.branchName,
+                  true,
+                  pending.deleteOnRemotes
+                ),
+              null
+            )
       );
     } else {
       refreshGraphOrDisplayError(status, l10n.unableToDeleteBranch);
@@ -4700,15 +4712,17 @@ class GitGraphView {
    *
    *  Called from {@link showDialog} whenever a dialog is raised over a standing
    *  `#batchRetryOffer`, and from the offer's own dismissal hook when the
-   *  system rather than the user closed it (#134) — the offer's two answers
+   *  system rather than the user closed it (#134). A third caller is the offer
+   *  that never reached the screen: it arrived over a dialog of the user's, and
+   *  could not wait there (`runBatchCommand`, #243). The offer's two answers
    *  both close it themselves, so arriving here means neither was given and
    *  nobody is going to give one.
    *  Without this the run holds the single in-flight slot for the life of the
    *  panel (`BatchRun.start`'s backstop then catches it, but only by dropping
    *  these results on the floor).
    *
-   *  The summary is *owed*, not shown. The dialog arriving over the offer keeps
-   *  the screen, because the route this exists for is `tryRunPendingRefAction`,
+   *  The summary is *owed*, not shown. The dialog arriving over the offer (or
+   *  standing where the offer would have gone) keeps the screen, because the route this exists for is `tryRunPendingRefAction`,
    *  which has already taken its delegated action off `pendingRefAction` before
    *  dispatching it — writing over that confirmation would lose a request the
    *  user made outright, the same harm this ticket is about pointed the other
@@ -9724,7 +9738,9 @@ function showDialog(
   // answer given, and the run behind it has no other way to hear about that
   // (#125). This is the one funnel every dialog is raised through, so it is the
   // one place that catches all of the offer's destruction routes rather than
-  // the eight-and-counting call sites that take it. Before the new markup, so
+  // the call sites that take it — fewer since host answers wait behind a
+  // dialog of the user's instead (#243), but a delegated action's dialog still
+  // takes the slot, and the next route need not remember. Before the new markup, so
   // the dialog arriving here keeps the screen — see `abandonBatchRun`.
   if (document.getElementById("batchRetryOffer") !== null) gitGraph.abandonBatchRun();
   // A dialog the host raises on its own — an error, a batch summary — can find
