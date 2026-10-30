@@ -173,11 +173,11 @@ _Avoid_: details panel, commit details panel, 細節面板, 詳細資料面板
 _Avoid_: expanded row
 
 **Docked CDV**:
-`detailsPanel.position` 為 `Docked to Bottom` 時的 CDV —— 固定在視窗底部,不在圖形表格裡、也不在文件流中,所以不推動任何一列。圖形的列從它底下捲過,就像從 frozen header 底下捲過:被它蓋住的那一段不算看得見 —— 方向鍵把列帶進視野時,視野的底邊是它的頂邊;Page Up/Down 只捲動,一次翻的高度也扣掉它。換掉表格不會順手帶走它,所以關閉它、或它展開的 commit 不再被載入時,都要另外把它拿掉。它佔的空間(`cdvDocked`,頁尾等高的 padding)跟著「CDV 開著」走,不跟著面板元素走:換到另一個 commit 時,舊面板先拿掉、新面板等內容到了才畫,這段期間空間照樣保留;否則頁面短了一個面板高,停在頁尾的使用者會被夾上去,面板回來時又被推回(#256)。
+`detailsPanel.position` 為 `Docked to Bottom` 時的 CDV —— 固定在視窗底部,不在圖形表格裡、也不在文件流中,所以不推動任何一列。圖形的列從它底下捲過,就像從 frozen header 底下捲過:被它蓋住的那一段不算看得見 —— 方向鍵把列帶進視野時,視野的底邊是它的頂邊;Page Up/Down 只捲動,一次翻的高度也扣掉它。換掉表格不會順手帶走它,所以關閉它、或它展開的 commit 不再被載入時,都要另外把它拿掉。它佔的空間(`cdvDocked`,頁尾等高的 padding)在 docked CDV 第一次畫出來時才加上,之後保留到 CDV 被關閉為止,中途換 commit 也不拿掉:舊的 CDV 先拿掉,新的等內容到了才畫,這段期間空間照樣保留;否則頁面短了一個 CDV 高,停在頁尾的使用者會被夾上去,CDV 回來時又被推回(#256)。內容載入失敗等於關閉,空間也跟著拿掉。
 _Avoid_: bottom panel, 底部面板
 
 **CDV opening**:
-CDV 變成**另一個** CDV 的那一刻 —— 從無到有、換了展開的 commit、或換了比較對象。CDV 的身分是「展開的 commit + 比較對象」(`cdvIdentity`)。身分改變就是開啟;身分沒變、中間也沒關閉過,就不是,不論重繪了幾次。展開 commit 的請求一律先關掉舊的 CDV,所以經由它抵達的都是開啟,即使展開的是同一個 commit;面板重載也一樣 —— 重新變得可見的面板第一次畫出的 CDV 是開啟。只有開啟會把 CDV 帶進視野(ADR-0019),inline 與 docked 都一樣;判斷「這個身分帶進視野過沒有」的是 `cdvBroughtIntoView`。`detailsPanel.autoScroll` 開著時置中:inline 置中的是 commit 列連同底下的 CDV,docked 置中的是 commit 列本身,範圍是凍結表頭底部到 docked CDV 頂部之間。關著時只捲到剛好看得見:inline 讓列與 CDV 都進入視野,docked 只把列從 CDV 底下帶出來(#231)。關掉它不等於不捲。Find 在「開啟 details」模式下開啟 CDV 時,若 `autoScroll` 開著,Find 不先自己置中,整段只由開啟捲一次 —— Find 置中時還不知道 CDV 會在哪裡,兩者都捲就會多跳半個面板高(#256)。
+CDV 變成**另一個** CDV 的那一刻 —— 從無到有、換了展開的 commit、或換了比較對象。CDV 的身分是「展開的 commit + 比較對象」(`cdvIdentity`)。身分改變就是開啟;身分沒變、中間也沒關閉過,就不是,不論重繪了幾次。展開 commit 的請求一律先關掉舊的 CDV,所以經由它抵達的都是開啟,即使展開的是同一個 commit;面板重載也一樣 —— 重新變得可見的面板第一次畫出的 CDV 是開啟。只有開啟會把 CDV 帶進視野(ADR-0019),inline 與 docked 都一樣;判斷「這個身分帶進視野過沒有」的是 `cdvBroughtIntoView`。`detailsPanel.autoScroll` 開著時置中:inline 置中的是 commit 列連同底下的 CDV,docked 置中的是 commit 列本身,範圍是凍結表頭底部到 docked CDV 頂部之間。關著時只捲到剛好看得見:inline 讓列與 CDV 都進入視野,docked 只把列從 CDV 底下帶出來(#231)。關掉它不等於不捲。Find 在「開啟 details」模式下開啟 CDV 時,若 `autoScroll` 開著,Find 不先自己置中,整段只由開啟捲一次 —— Find 置中時還不知道 CDV 會在哪裡,兩者都捲就會多跳半個 CDV 高(#256)。內容載入失敗、開啟不會發生時,Find 才補上自己的置中。
 _Avoid_: reopen, 重新顯示
 
 **CDV rebind**:

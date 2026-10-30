@@ -474,6 +474,11 @@ class GitGraphView {
   private findSettledOn: string | null = null;
   // When on, navigating find matches also opens each one's details view.
   private findOpenCommitDetails = false;
+  /** The match Find left the centring of to the CDV opening it asked for
+   *  (#256), until that opening scrolls — or until the details cannot be
+   *  loaded, when there is no opening and the centring falls back to Find
+   *  ({@link failCommitDetails}). Null once anything else becomes of it. */
+  private findCentreOwed: string | null = null;
   private branchSearchToken = 0;
   private branchSearchIndex: BranchSearchEntry[] = [];
   private findDirection: -1 | 1 = 1;
@@ -5728,9 +5733,21 @@ class GitGraphView {
     if (this.expandedCommit === null) return null;
     return this.expandedCommit.hash + "|" + (this.expandedCommit.compareWithHash ?? "");
   }
-  public hideCommitDetails(reopening = false) {
+  /** The host could not load the expanded commit's details: close the view.
+   *  If Find was leaving the centring of its match to this view's opening
+   *  (#256), there will be no opening, so Find's centring happens here
+   *  instead — otherwise the match it moved to never comes into view. */
+  public failCommitDetails() {
+    const owed = this.findCentreOwed;
+    this.hideCommitDetails();
+    const row = owed === null ? null : this.graphRowByHash(owed);
+    if (row !== null && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "center" });
+    }
+  }
+  public hideCommitDetails(anotherOpening = false) {
     if (this.expandedCommit !== null) {
-      this.clearExpandedCommit(reopening);
+      this.clearExpandedCommit(anotherOpening);
       this.saveState();
       this.renderGraph();
     }
@@ -5742,26 +5759,27 @@ class GitGraphView {
    *  that drops the expanded commit must go through this so a docked panel
    *  (which is NOT inside the re-rendered table) can never be orphaned.
    *
-   *  `reopening` keeps `cdvDocked`, for a view about to be replaced by
+   *  `anotherOpening` keeps `cdvDocked`, for a view about to be replaced by
    *  another one (#256). The class is the page's bottom padding: dropped for
    *  the round trip, the page is a panel's height shorter, and a user scrolled
    *  to the bottom is clamped up by it — at once, too, since `renderGraph`
    *  reads layout straight after — and pushed back when the panel arrives.
    *  Whatever closes the view for good instead, an unanswerable request
    *  included, comes through here without it and takes the class away. */
-  private clearExpandedCommit(reopening = false) {
+  private clearExpandedCommit(anotherOpening = false) {
     const panel = document.getElementById("commitDetails");
     if (panel !== null) panel.remove();
     // The next CDV is an opening, however it compares to this one.
     this.cdvBroughtIntoView = null;
     this.cdvFileTabStopMemory = null;
+    this.findCentreOwed = null;
     if (this.expandedCommit !== null) {
       if (this.expandedCommit.srcElem !== null)
         this.expandedCommit.srcElem.classList.remove("commitDetailsOpen");
       if (this.expandedCommit.compareWithSrcElem !== null)
         this.expandedCommit.compareWithSrcElem.classList.remove("commitDetailsOpen");
     }
-    if (!reopening) document.body.classList.remove("cdvDocked");
+    if (!anotherOpening) document.body.classList.remove("cdvDocked");
     this.expandedCommit = null;
   }
 
@@ -6309,7 +6327,10 @@ class GitGraphView {
         if (scroll && !openingCentres && typeof currentRow.scrollIntoView === "function") {
           currentRow.scrollIntoView({ block: "center" });
         }
-        if (opensDetails) this.loadCommitDetails(currentRow);
+        if (opensDetails) {
+          this.loadCommitDetails(currentRow);
+          if (openingCentres) this.findCentreOwed = this.findMatches[this.findCurrent].hash;
+        }
       }
     }
   }
@@ -7126,6 +7147,7 @@ class GitGraphView {
     // once per CDV, and again only when the CDV becomes a different one.
     if (cdv !== this.cdvBroughtIntoView) {
       this.cdvBroughtIntoView = cdv;
+      this.findCentreOwed = null;
       const commitRow = this.expandedCommit.srcElem;
       const centre = this.config.autoCenterCommitDetailsView;
       if (docked && !centre) {
@@ -8788,7 +8810,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "commitDetails":
       if (msg.commitDetails === null) {
-        gitGraph.hideCommitDetails();
+        gitGraph.failCommitDetails();
         showErrorDialog(l10n.unableToLoadCommitDetails, null, null);
       } else {
         gitGraph.showCommitDetails(

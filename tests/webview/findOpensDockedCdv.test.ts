@@ -143,4 +143,24 @@ describe("Find opening a closed docked Commit Details View", () => {
     expect(scrollTo).toHaveBeenCalledTimes(1);
     expect(scrollTo).toHaveBeenCalledWith(0, SCROLLED + ROW_TOP + ROW_HEIGHT / 2 - MIDDLE);
   });
+
+  // Find left the centring to an opening, and the opening never comes: the
+  // details could not be loaded. The match still has to come into view.
+  describe("when the next match's details cannot be loaded", () => {
+    beforeAll(() => {
+      scrollTo.mockClear();
+      centred.length = 0;
+      search("Commit ccc");
+      expect(centred).toEqual([]);
+      receive({ command: "commitDetails", commitDetails: null });
+    });
+
+    it("closes the view", () => {
+      expect(document.getElementById("commitDetails")).toBeNull();
+    });
+
+    it("centres the match itself after all", () => {
+      expect(centred).toEqual(["ccc333"]);
+    });
+  });
 });
