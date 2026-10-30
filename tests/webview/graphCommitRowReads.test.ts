@@ -6,6 +6,7 @@ import type * as GG from "@/types";
 
 import {
   clickElem,
+  clickId,
   clickItem,
   createVscodeMock,
   dialogRow,
@@ -361,7 +362,7 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
   describe("locating HEAD", () => {
     beforeAll(() => {
       scrolledTo.length = 0;
-      clickElem(document.getElementById("blinkHeadBtn")!);
+      clickId("blinkHeadBtn");
     });
 
     it("centres and flashes the graph's HEAD row", () => {
@@ -439,7 +440,7 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
   describe("highlighting a search", () => {
     beforeAll(() => {
       scrolledTo.length = 0;
-      clickElem(document.getElementById("findBtn")!);
+      clickId("findBtn");
       search("Fix");
     });
 

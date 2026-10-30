@@ -6,9 +6,11 @@ import type * as GG from "@/types";
 
 import {
   clickElem,
+  clickId,
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogRow,
   graphRow,
   makeViewState,
   openMenuOn,
@@ -240,7 +242,7 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
       result: redundancyResult,
       token: (requested[0] as Extract<GG.RequestMessage, { command: "branchRedundancy" }>).token
     });
-    clickElem(document.querySelector('#dialog .commitList tr.commit[data-hash="ddd444"]')!);
+    clickElem(dialogRow("ddd444"));
     receive({
       command: "redundancyCommitDetails",
       commitHash: "ddd444",
@@ -512,7 +514,7 @@ describe("the Commit Details View's file actions, with a dialog showing its own 
     let dialogFolderCollapsed = false;
 
     beforeAll(() => {
-      clickElem(document.getElementById("commitDetailsClose")!);
+      clickId("commitDetailsClose");
       expect(document.getElementById("commitDetails")).toBeNull();
       mock.clearMessages();
 
