@@ -2234,12 +2234,10 @@ class GitGraphView {
       .forEach((elem) => elem.addEventListener(event, listener));
   }
 
-  /** Wire a context-menu handler within `root` to both ways of raising one. It
-   *  replaced the unscoped `addContextMenuListener`, whose last callers left in
-   *  #166. Both, not just the
-   *  pointer's: the keyboard's `MENU_KEY_EVENT` is dispatched at whatever holds
-   *  focus, and focus reaches the branch-redundancy dialog's rows the moment
-   *  anything gives them a tab stop (#141, #145). */
+  /** Wire a context-menu handler within `root` to both ways of raising one.
+   *  Both, not just the pointer's: the keyboard's `MENU_KEY_EVENT` is dispatched
+   *  at whatever holds focus, and focus reaches the branch-redundancy dialog's
+   *  rows the moment anything gives them a tab stop (#141, #145). */
   private addScopedContextMenuListener(
     root: HTMLElement,
     className: string,

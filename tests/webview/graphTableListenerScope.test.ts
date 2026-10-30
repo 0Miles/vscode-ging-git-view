@@ -15,11 +15,13 @@ import {
 } from "./setup";
 
 // #144 scoped the graph's commit-row bindings to `#commitTable` and #150 its
-// reads. Six bindings `renderTable` makes were left starting at `document`: the
-// ref chip's `click`, `dblclick` and context menu, the uncommitted-changes row's
-// menu, the column header's menu, and the resize handle's `mousedown`. They were
-// fine for the reason `tr.commit` was fine until it was not — one view drew the
-// class — and that reason had already failed once (#166).
+// reads. Six bindings on the graph's table were left starting at `document`
+// (#166): the ref chip's `click`, `dblclick` and context menu, the
+// uncommitted-changes row's menu and the column header's menu, all made in
+// `renderTable`, and the resize handle's `mousedown`, made in
+// `makeTableResizable`. They were fine for the reason `tr.commit` was fine until
+// it was not — one view drew the class — and that reason had already failed once
+// (#144).
 //
 // It fails for `.gitRef` without any dialog at all. A branch drag clones the
 // chip it carries onto `<body>` (`branchDrag.ts`), so for as long as a drag is
@@ -162,9 +164,11 @@ function menusOn(elem: HTMLElement) {
   return { byPointer, byMenuKey };
 }
 
-function mouse(type: string, target: Element, x: number, buttons: number) {
+/** A mouse event at `clientX` on one fixed line, with `buttons` held: 1 (the
+ *  primary) from the press until the release, 0 from the release on. */
+function mouse(type: string, target: Element, clientX: number, buttons: 0 | 1) {
   target.dispatchEvent(
-    new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 100, buttons })
+    new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 100, buttons })
   );
 }
 
@@ -194,7 +198,6 @@ describe("the graph table's chip, header and resize bindings, with a dialog's co
     // dialog's header must still carry only the one it was written with, or the
     // redraw read it as one of the graph's columns.
     expect(dialog.querySelectorAll(".resizeCol")).toHaveLength(1);
-    expect(inGraph(".unsavedChanges")).not.toBeNull();
   });
 
   describe("the menus", () => {
@@ -205,12 +208,17 @@ describe("the graph table's chip, header and resize bindings, with a dialog's co
       }
     });
 
-    it("still open on the graph's own", () => {
-      const ref = menusOn(inGraph('.gitRef[data-name="feature"]'));
-      expect(ref.byPointer).toContain(L.checkRedundancy);
-      expect(ref.byMenuKey).toEqual(ref.byPointer);
-      expect(menusOn(inGraph(".unsavedChanges")).byPointer).toContain(L.openScmView);
-      expect(menusOn(inGraph('.tableColHeader[data-col="date"]')).byPointer).toContain(L.date);
+    it("still open on the graph's own, by pointer and by menu key alike", () => {
+      const expected: [string, string][] = [
+        ['.gitRef[data-name="feature"]', L.checkRedundancy],
+        [".unsavedChanges", L.openScmView],
+        ['.tableColHeader[data-col="date"]', L.date]
+      ];
+      for (const [selector, label] of expected) {
+        const menus = menusOn(inGraph(selector));
+        expect(menus.byPointer, selector).toContain(label);
+        expect(menus.byMenuKey, selector).toEqual(menus.byPointer);
+      }
     });
   });
 

@@ -16,8 +16,9 @@
  *
  *  **#166 took the graph's last six.** The ref chip's `click`, `dblclick` and
  *  menu, the uncommitted-changes row's menu, the column header's menu and the
- *  resize handle's `mousedown` all bind within `#commitTable` now, and the
- *  menu-pair wrapper they shared, `addContextMenuListener`, went with them. Their
+ *  resize handle's `mousedown` all bind within `#commitTable` now, and
+ *  `addContextMenuListener`, the menu-pair wrapper the three menus went
+ *  through, was left with no callers and deleted. Their
  *  safety had rested on "only one view renders this class", and for `gitRef`
  *  that was already untrue: a branch drag clones the chip onto `<body>`
  *  (`branchDrag.ts`), and a redraw during the drag bound the chip's handlers to
