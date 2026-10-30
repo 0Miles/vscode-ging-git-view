@@ -5686,7 +5686,9 @@ class GitGraphView {
 
   /* Commit Details */
   private loadCommitDetails(sourceElem: HTMLElement) {
-    this.hideCommitDetails();
+    // A docked panel is coming straight back, so the space it takes stays
+    // reserved until it does — see `clearExpandedCommit`.
+    this.hideCommitDetails(true);
     this.expandedCommit = {
       id: parseInt(sourceElem.dataset.id!),
       hash: sourceElem.dataset.hash!,
@@ -5721,9 +5723,9 @@ class GitGraphView {
     if (this.expandedCommit === null) return null;
     return this.expandedCommit.hash + "|" + (this.expandedCommit.compareWithHash ?? "");
   }
-  public hideCommitDetails() {
+  public hideCommitDetails(reopening = false) {
     if (this.expandedCommit !== null) {
-      this.clearExpandedCommit();
+      this.clearExpandedCommit(reopening);
       this.saveState();
       this.renderGraph();
     }
@@ -5733,8 +5735,16 @@ class GitGraphView {
    *  `<body>`-level panel — clear both rows' highlights and the
    *  `cdvDocked` body class, and reset the expanded-commit state. Every place
    *  that drops the expanded commit must go through this so a docked panel
-   *  (which is NOT inside the re-rendered table) can never be orphaned. */
-  private clearExpandedCommit() {
+   *  (which is NOT inside the re-rendered table) can never be orphaned.
+   *
+   *  `reopening` keeps `cdvDocked`, for a view about to be replaced by
+   *  another one (#256). The class is the page's bottom padding: dropped for
+   *  the round trip, the page is a panel's height shorter, and a user scrolled
+   *  to the bottom is clamped up by it — at once, too, since `renderGraph`
+   *  reads layout straight after — and pushed back when the panel arrives.
+   *  Whatever closes the view for good instead, an unanswerable request
+   *  included, comes through here without it and takes the class away. */
+  private clearExpandedCommit(reopening = false) {
     const panel = document.getElementById("commitDetails");
     if (panel !== null) panel.remove();
     // The next CDV is an opening, however it compares to this one.
@@ -5746,7 +5756,7 @@ class GitGraphView {
       if (this.expandedCommit.compareWithSrcElem !== null)
         this.expandedCommit.compareWithSrcElem.classList.remove("commitDetailsOpen");
     }
-    document.body.classList.remove("cdvDocked");
+    if (!reopening) document.body.classList.remove("cdvDocked");
     this.expandedCommit = null;
   }
 
@@ -6277,19 +6287,24 @@ class GitGraphView {
       const currentRow = this.graphRowByHash(this.findMatches[this.findCurrent].hash);
       if (currentRow !== null) {
         currentRow.classList.add("findMatchCurrent");
-        if (scroll && typeof currentRow.scrollIntoView === "function") {
-          currentRow.scrollIntoView({ block: "center" });
-        }
         // In "open details" mode, open the current match's details view,
         // unless it's already the expanded commit.
-        if (
+        const opensDetails =
           scroll &&
           this.findOpenCommitDetails &&
           (this.expandedCommit === null ||
-            this.expandedCommit.hash !== this.findMatches[this.findCurrent].hash)
-        ) {
-          this.loadCommitDetails(currentRow);
+            this.expandedCommit.hash !== this.findMatches[this.findCurrent].hash);
+        // A view Find opens centres the row itself once its panel is drawn,
+        // when centring is on, and knows where the panel is — this centre
+        // does not: a docked one is not open yet, an inline one not under the
+        // row. Doing both moved the page twice, the second time by half the
+        // panel's height (#256). With centring off the opening only nudges,
+        // so Find's own centre is still the one that brings the match in.
+        const openingCentres = opensDetails && this.config.autoCenterCommitDetailsView;
+        if (scroll && !openingCentres && typeof currentRow.scrollIntoView === "function") {
+          currentRow.scrollIntoView({ block: "center" });
         }
+        if (opensDetails) this.loadCommitDetails(currentRow);
       }
     }
   }
