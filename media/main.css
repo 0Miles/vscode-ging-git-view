@@ -805,7 +805,7 @@ body.tagLabelsRightAligned .gitRef.tag {
   /* Frozen at the top (#206): reaching Fetch or Refresh must not mean
      scrolling back up through the history first. Opaque for the same reason
      as the column headers, and above them and the graph SVG.
-     Below the dialog backing (z-index: 9), though, and that is the whole
+     Below the dialog backing (z-index: 400), though, and that is the whole
      reason for the rule after this one: a sticky box is a stacking context, so
      the dropdown and drawer hanging off this bar can climb no higher than the
      bar itself. Raising the bar to their 300 for good would lift it over the
@@ -1264,6 +1264,25 @@ body.vscode-high-contrast #contextMenu {
 }
 
 /* Dialogs */
+/* The stacking order, bottom to top. Everything here competes in the root
+   stacking context except where noted; tests/backend/utils/
+   stackingOrderLock.test.ts holds every z-index in this file to it.
+     2    #commitGraph — over the row backgrounds, click-through
+     3    #commitTable th — the frozen column headers, over the graph
+     4    #controls — the frozen bar, over the headers
+     80   #commitDetails.docked
+     100  .gitRef.branchDragGhost (on body)
+     200  #scrollShadow
+     250  #findWidget
+     300  #contextMenu, and #controls while its dropdown or drawer is open
+          (both popups are 300 too, but inside the bar's sticky context)
+     400  #dialogBacking — over everything above, so nothing outside the
+          dialog is clickable while it is open (#218)
+     401  #dialog
+   No popup opens from inside a dialog (its selects are native, drawn by the
+   browser over the page), so nothing needs to sit above 401. One that ever
+   does goes above the dialog, not at 300 under the backing. The CDV's grips
+   (1) only compete inside the CDV. */
 #dialog,
 #dialogBacking {
   display: none;
@@ -1293,7 +1312,7 @@ body.vscode-high-contrast #contextMenu {
   text-align: center;
   max-width: 400px;
   max-height: 80%;
-  z-index: 10;
+  z-index: 401;
   box-shadow: 0 0 30px 5px var(--vscode-widget-shadow);
   overflow-y: auto;
 }
@@ -1736,7 +1755,7 @@ body.vscode-high-contrast-light #repoSettingsDrawer select {
   right: 0;
   top: 0;
   bottom: 0;
-  z-index: 9;
+  z-index: 400;
 }
 #dialog.noInput #dialogAction,
 #dialog.inputInvalid #dialogAction {
