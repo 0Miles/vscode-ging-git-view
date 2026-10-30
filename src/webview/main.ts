@@ -1,9 +1,8 @@
 import type {
   ActionRequest,
+  BatchActionPayload,
   BatchActionRequest,
-  BatchDeleteResult,
-  BatchPushResult,
-  BatchRefResult,
+  BatchResultOf,
   BranchSearchEntry,
   BranchRedundancy,
   CommitOrdering,
@@ -272,15 +271,15 @@ type BatchActionKind = BatchActionRequest["command"];
 /** What one batch action needs to execute its run's commands: how to send a
  *  round, what to show while it runs, how to title a failed summary, and —
  *  for actions with a retry round — the retry confirmation's body. */
-type BatchSpec = {
-  send: (refs: string[], round: 1 | 2, params: unknown) => void;
+type BatchSpec<K extends BatchActionKind> = {
+  send: (refs: string[], round: 1 | 2, params: BatchParams & BatchActionParams<K>) => void;
   running: string;
   errorTitle: string;
   retryBody?: (refs: string[]) => string;
   /** HTML shown once beneath a failed summary's list of refs, or null for
    *  none — for a reason several refs share that git's own lines leave
    *  unexplained. Handed only the failed results. */
-  failureNote?: (failed: BatchRefResult[]) => string | null;
+  failureNote?: (failed: BatchResultOf<K>[]) => string | null;
 };
 /** What every batch run carries for its adapter whatever the action is: the
  *  repository the run was started for. Each action's own parameters intersect
@@ -288,6 +287,17 @@ type BatchSpec = {
  *  confirmation, the host round-trip and possibly a retry dialog have all
  *  happened. */
 type BatchParams = { repo: string };
+/** One batch action's own parameters: its request, less the refs that each
+ *  round names for itself. */
+type BatchActionParams<K extends BatchActionKind> = Omit<
+  BatchActionPayload<K>,
+  "refs" | "branchNames"
+>;
+/** What a {@link BatchRun} is told about each batch action: its per-ref result
+ *  and the parameters its run echoes. */
+type BatchActionTypes = {
+  [K in BatchActionKind]: { result: BatchResultOf<K>; params: BatchParams & BatchActionParams<K> };
+};
 
 /** Where Find is standing, in the form something that moved it can put it back.
  *  The hash is the position; the index is only what `resolveFindCurrent` falls
@@ -490,11 +500,12 @@ class GitGraphView {
   private lastRefActionSeq = 0;
   // The one batch run in flight (at most): rounds, retry offer and summary all
   // live behind its interface — the adapters below only execute its commands.
-  private batchRun = new BatchRun<BatchActionKind>();
+  private batchRun = new BatchRun<BatchActionTypes>();
   /** A summary an ended run could not show, because the dialog slot was taken
    *  at the moment it ended. Held until there is a screen for it; see
    *  {@link abandonBatchRun} and {@link deliverOwedBatchSummary}. */
-  private owedSummary: { results: BatchRefResult[]; action: BatchActionKind } | null = null;
+  private owedSummary: Extract<BatchRunCommand<BatchActionTypes>, { kind: "summarise" }> | null =
+    null;
 
   private graph: Graph;
   private config: Config;
@@ -4497,66 +4508,63 @@ class GitGraphView {
       note(l10n.dialogBatchSkippedRemote, "remote")
     );
   }
-  /** The {@link BatchSpec} for `action`. */
-  private batchSpec(action: BatchActionKind): BatchSpec {
-    switch (action) {
-      case "deleteBranches":
-        return {
-          send: (refs, round, params) => {
-            const p = params as BatchParams & { forceDelete: boolean; deleteOnRemotes: boolean };
-            sendMessage({
-              command: "deleteBranches",
-              repo: p.repo,
-              refs,
-              // The retry round exists to force what round 1 could not delete.
-              forceDelete: round === 2 || p.forceDelete,
-              deleteOnRemotes: p.deleteOnRemotes
-            });
-          },
-          running: l10n.deletingBranches,
-          errorTitle: l10n.unableToDeleteBranch,
-          retryBody: (refs) =>
-            l10n.dialogDeleteBatchForceConfirm.replace("{0}", String(refs.length)) +
-            "<br>" +
-            this.batchRefNames(refs)
-        };
-      case "pushBranches":
-        return {
-          send: (refs, _round, params) => {
-            const p = params as BatchParams & {
-              remotes: string[];
-              forceMode: "normal" | "force" | "forceWithLease";
-            };
-            sendMessage({
-              command: "pushBranches",
-              repo: p.repo,
-              branchNames: refs,
-              remotes: p.remotes,
-              forceMode: p.forceMode
-            });
-          },
-          running: l10n.pushingBranch,
-          errorTitle: l10n.unableToPushBranch,
-          // Explained once for the whole batch, like a single push explains it
-          // (ADR-0025). Each ref keeps git's own line; no force round is offered.
-          failureNote: (failed) =>
-            failed.some((r) => (r as BatchPushResult).remoteUpdatedSinceCheckout)
-              ? leaseRefusedExplanation()
-              : null
-        };
-      case "fastForwardBranches":
-        return {
-          send: (refs, _round, params) => {
-            sendMessage({
-              command: "fastForwardBranches",
-              repo: (params as BatchParams).repo,
-              branchNames: refs
-            });
-          },
-          running: l10n.fastForwardingBranches,
-          errorTitle: l10n.unableToFastForward
-        };
-    }
+  /** The {@link BatchSpec} for `action`. A table looked up by the action rather
+   *  than a switch over it: a switch cannot narrow a generic `K`, and the
+   *  lookup is what lets each entry's `send` and `failureNote` see their own
+   *  action's params and results. */
+  private batchSpec<K extends BatchActionKind>(action: K): BatchSpec<K> {
+    const specs: { [A in BatchActionKind]: BatchSpec<A> } = {
+      deleteBranches: {
+        send: (refs, round, p) => {
+          sendMessage({
+            command: "deleteBranches",
+            repo: p.repo,
+            refs,
+            // The retry round exists to force what round 1 could not delete.
+            forceDelete: round === 2 || p.forceDelete,
+            deleteOnRemotes: p.deleteOnRemotes
+          });
+        },
+        running: l10n.deletingBranches,
+        errorTitle: l10n.unableToDeleteBranch,
+        retryBody: (refs) =>
+          l10n.dialogDeleteBatchForceConfirm.replace("{0}", String(refs.length)) +
+          "<br>" +
+          this.batchRefNames(refs)
+      },
+      pushBranches: {
+        send: (refs, _round, p) => {
+          sendMessage({
+            command: "pushBranches",
+            repo: p.repo,
+            branchNames: refs,
+            remotes: p.remotes,
+            forceMode: p.forceMode
+          });
+        },
+        running: l10n.pushingBranch,
+        errorTitle: l10n.unableToPushBranch,
+        // Each kind of lease refusal is explained once for the whole batch, like
+        // a single push explains it (ADR-0025). Each ref keeps git's own line;
+        // no force round is offered.
+        failureNote: (failed) => {
+          const staleInfoRefs = failed.flatMap((r) => r.staleInfoRef ?? []);
+          const notes = [
+            failed.some((r) => r.remoteUpdatedSinceCheckout) ? leaseRefusedExplanation() : null,
+            staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
+          ].filter((note) => note !== null);
+          return notes.length > 0 ? notes.join("<br>") : null;
+        }
+      },
+      fastForwardBranches: {
+        send: (refs, _round, p) => {
+          sendMessage({ command: "fastForwardBranches", repo: p.repo, branchNames: refs });
+        },
+        running: l10n.fastForwardingBranches,
+        errorTitle: l10n.unableToFastForward
+      }
+    };
+    return specs[action];
   }
   /** Start one batch run and execute its first command. The action tag feeds
    *  the run and the command executor from the one argument, so the two can
@@ -4584,11 +4592,13 @@ class GitGraphView {
    *  abandons the run (see {@link abandonBatchRun}). By the time a start is
    *  reached the offer is gone and the run really is over, which is the state
    *  `BatchRun.start` then reads. A guard here would never fire. */
-  private startBatchRun(
-    action: BatchActionKind,
+  private startBatchRun<K extends BatchActionKind>(
+    action: K,
     repo: string,
     targets: string[],
-    options: Omit<BatchRunOptions<BatchActionKind>, "action" | "params"> & { params?: object } = {}
+    options: Pick<BatchRunOptions<BatchActionTypes, K>, "retryWhen"> & {
+      params: BatchActionParams<K>;
+    }
   ) {
     this.runBatchCommand(
       this.batchRun.start(targets, { ...options, action, params: { ...options.params, repo } }),
@@ -4597,7 +4607,10 @@ class GitGraphView {
   }
   /** Execute one BatchRun command, re-entering as the retry dialog resolves.
    *  All round state lives in the run; this only performs its side effects. */
-  private runBatchCommand(command: BatchRunCommand<BatchActionKind>, action: BatchActionKind) {
+  private runBatchCommand<K extends BatchActionKind>(
+    command: BatchRunCommand<BatchActionTypes, K>,
+    action: K
+  ) {
     const spec = this.batchSpec(action);
     switch (command.kind) {
       case "send":
@@ -4615,7 +4628,7 @@ class GitGraphView {
           // destroy it by destroying the dialog, so it is present exactly while
           // the question is on screen with neither answer given.
           '<span id="batchRetryOffer">' + (spec.retryBody?.(command.refs) ?? "") + "</span>",
-          () => this.runBatchCommand(this.batchRun.onRetryConfirmed(), action),
+          () => this.runBatchCommand(this.batchRun.onRetryConfirmed(action), action),
           null,
           // Declining the retry round still ends a batch that did real work, so
           // report what the first round managed rather than closing in silence.
@@ -4624,7 +4637,7 @@ class GitGraphView {
           // rather than raising it into the slot just emptied (#134).
           (reason) => {
             if (reason === "system") this.abandonBatchRun();
-            else this.runBatchCommand(this.batchRun.onRetryDeclined(), action);
+            else this.runBatchCommand(this.batchRun.onRetryDeclined(action), action);
           }
         );
         break;
@@ -4639,7 +4652,10 @@ class GitGraphView {
     }
   }
   /** Feed a batch action's response to the run in flight. */
-  public handleBatchActionResponse(action: BatchActionKind, results: BatchRefResult[]) {
+  public handleBatchActionResponse<K extends BatchActionKind>(
+    action: K,
+    results: BatchResultOf<K>[]
+  ) {
     this.runBatchCommand(this.batchRun.onResults(results, action), action);
   }
   /** End the run whose retry offer has just been taken away, and keep what
@@ -4670,8 +4686,8 @@ class GitGraphView {
     const command = this.batchRun.abandon();
     // `none` is the ordinary case, not a defensive one: the offer's markup is
     // still up while its own summary is raised, so this re-enters once.
-    if (command.kind !== "summarise" || command.action === null) return;
-    this.owedSummary = { results: command.results, action: command.action };
+    if (command.kind !== "summarise") return;
+    this.owedSummary = command;
     this.refresh(false);
   }
   /** Raise a summary that had nowhere to go when its run ended.
@@ -4733,7 +4749,7 @@ class GitGraphView {
         this.startBatchRun("deleteBranches", this.currentRepo!, targets, {
           // A classification the host makes more reliably than us: a refusal
           // a force round can fix.
-          retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
+          retryWhen: (r) => r.notFullyMerged,
           params: {
             forceDelete: values[0] === "checked",
             deleteOnRemotes: inputs.length > 1 && values[1] === "checked"
@@ -4757,7 +4773,7 @@ class GitGraphView {
     // Delete, nothing happened" whenever the host had posted `setRepo` in the
     // meantime.
     this.startBatchRun("deleteBranches", repo, refs, {
-      retryWhen: (r) => (r as BatchDeleteResult).notFullyMerged,
+      retryWhen: (r) => r.notFullyMerged,
       params
     });
   }
@@ -4785,7 +4801,7 @@ class GitGraphView {
   private fastForwardBranchesAction(targets: string[], skipped: GG.BatchSkipped[]) {
     this.confirmForRepo(
       this.batchConfirmBody(l10n.dialogFastForwardBatchConfirm, targets, skipped),
-      (repo) => this.startBatchRun("fastForwardBranches", repo, targets),
+      (repo) => this.startBatchRun("fastForwardBranches", repo, targets, { params: {} }),
       null
     );
   }
@@ -4793,9 +4809,9 @@ class GitGraphView {
    *  each ref and its git error — one dialog per failed ref would punish exactly
    *  the case the batch exists to make cheap. The spec's `failureNote`, if any,
    *  goes once beneath the list. */
-  public reportBatchResults(
-    results: BatchRefResult[],
-    spec: Pick<BatchSpec, "errorTitle" | "failureNote">
+  public reportBatchResults<K extends BatchActionKind>(
+    results: BatchResultOf<K>[],
+    spec: Pick<BatchSpec<K>, "errorTitle" | "failureNote">
   ) {
     const failed = results.filter((r) => r.status !== null);
     if (failed.length === 0) {
@@ -8613,7 +8629,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
       break;
     case "pushBranch":
-      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout);
+      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout, msg.staleInfoRef);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -8811,14 +8827,22 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
 /** Handle a pushBranch response. A Force with lease refused because the remote
  *  tip was never integrated (ADR-0025) gets an explanation — git's own reason,
  *  "remote ref updated since checkout", names no next step — with git's line
- *  kept beneath it. The explanation names the Force option instead of offering
+ *  kept beneath it. So does one refused for "(stale info)", which names only
+ *  the remote's URL. The explanation names the Force option instead of offering
  *  it: overwriting someone's work stays a separate, deliberate choice. */
-function handlePushBranchResponse(status: GitCommandStatus, remoteUpdatedSinceCheckout: boolean) {
+function handlePushBranchResponse(
+  status: GitCommandStatus,
+  remoteUpdatedSinceCheckout: boolean,
+  staleInfoRef: string | null
+) {
+  const explanation = remoteUpdatedSinceCheckout
+    ? leaseRefusedExplanation()
+    : staleInfoRef !== null
+      ? leaseStaleInfoExplanation([staleInfoRef])
+      : null;
   refreshGraphOrDisplayError(
     status,
-    remoteUpdatedSinceCheckout
-      ? l10n.unableToPushBranch + "<br>" + leaseRefusedExplanation()
-      : l10n.unableToPushBranch
+    explanation === null ? l10n.unableToPushBranch : l10n.unableToPushBranch + "<br>" + explanation
   );
 }
 
@@ -8829,6 +8853,20 @@ function leaseRefusedExplanation(): string {
   return l10n.dialogPushForceLeaseRefused.replace(
     "{0}",
     "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>"
+  );
+}
+
+/** Why a Force with lease was refused for "(stale info)" — the tracking refs
+ *  named are missing locally or out of date — and what to do about it.
+ *  Asks to integrate, not just fetch: a fetch alone only trades this refusal
+ *  for {@link leaseRefusedExplanation}'s (ADR-0025). Shared like that one. */
+function leaseStaleInfoExplanation(trackingRefs: string[]): string {
+  // One pass, with a function: a ref name is free text to `replace`, and may
+  // hold "$&" or "{1}" itself.
+  const args = [trackingRefs.join(", "), l10n.dialogPushForceForce];
+  return l10n.dialogPushForceLeaseStaleInfo.replace(
+    /\{([01])\}/g,
+    (_, i: string) => "<b>" + escapeHtml(args[Number(i)]) + "</b>"
   );
 }
 

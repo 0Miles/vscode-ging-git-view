@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { formatGitError, isRemoteUpdatedSinceCheckoutError } from "@/backend/utils/gitError";
+import {
+  formatGitError,
+  isRemoteUpdatedSinceCheckoutError,
+  isStaleLeaseInfoError
+} from "@/backend/utils/gitError";
 
 describe("formatGitError", () => {
   it("surfaces remote-provided reasons and strips the 'remote:' prefix", () => {
@@ -83,5 +87,20 @@ describe("isRemoteUpdatedSinceCheckoutError", () => {
       )
     ).toBe(false);
     expect(isRemoteUpdatedSinceCheckoutError("plain string failure")).toBe(false);
+  });
+});
+
+describe("isStaleLeaseInfoError", () => {
+  it("recognises a lease refused because the tracking ref is missing or behind", () => {
+    expect(isStaleLeaseInfoError(rejectedPush("stale info"))).toBe(true);
+  });
+
+  it("does not claim a lease refused for an unintegrated remote tip", () => {
+    expect(isStaleLeaseInfoError(rejectedPush("remote ref updated since checkout"))).toBe(false);
+  });
+
+  it("does not claim a non-fast-forward rejection or an unrelated failure", () => {
+    expect(isStaleLeaseInfoError(rejectedPush("non-fast-forward"))).toBe(false);
+    expect(isStaleLeaseInfoError("plain string failure")).toBe(false);
   });
 });

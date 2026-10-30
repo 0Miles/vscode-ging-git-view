@@ -17,6 +17,7 @@ import {
   pullBranch,
   pushBranch,
   pushBranches,
+  pushRefusalFacts,
   renameBranch
 } from "@/backend/actions/branch";
 import {
@@ -55,15 +56,11 @@ import { tagDetails } from "@/backend/queries/tagDetails";
 import type {
   ActionResponseExtra,
   BatchActionRequest,
-  BatchRefResult,
+  BatchResultOf,
   BranchSearchEntry
 } from "@/backend/types";
 import { GitFileChangeType } from "@/backend/types";
-import {
-  formatGitError,
-  isNotFullyMergedError,
-  isRemoteUpdatedSinceCheckoutError
-} from "@/backend/utils/gitError";
+import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 import { parseRemoteUrl, pullRequestCreateUrl } from "@/backend/utils/pullRequest";
 import { abbrevCommit } from "@/backend/utils/string";
 import { Config } from "@/config";
@@ -220,7 +217,7 @@ export function registerMessageHandlers(
    *  actions therefore never throw — they report per ref. */
   function registerBatchAction<T extends BatchActionRequest["command"]>(
     command: T,
-    handler: (msg: Extract<RequestMessage, { command: T }>) => Promise<BatchRefResult[]>
+    handler: (msg: Extract<RequestMessage, { command: T }>) => Promise<BatchResultOf<T>[]>
   ) {
     bridge.onMessage(
       command,
@@ -253,11 +250,7 @@ export function registerMessageHandlers(
   registerAction("fetchIntoLocalBranch", (msg) =>
     fetchIntoLocalBranch(gitClient.getInstance(), msg)
   );
-  registerAction(
-    "pushBranch",
-    (msg) => pushBranch(gitClient.getInstance(), msg),
-    (error) => ({ remoteUpdatedSinceCheckout: isRemoteUpdatedSinceCheckoutError(error) })
-  );
+  registerAction("pushBranch", (msg) => pushBranch(gitClient.getInstance(), msg), pushRefusalFacts);
   registerAction("pullBranch", (msg) => pullBranch(gitClient.getInstance(), msg));
   registerAction("renameBranch", (msg) => renameBranch(gitClient.getInstance(), msg));
   registerAction("moveBranch", (msg) => moveBranch(gitClient.getInstance(), msg));
