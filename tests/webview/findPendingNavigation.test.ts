@@ -208,3 +208,60 @@ describe("a second press past a step still waiting on its answer", () => {
     expect(currentMatchHash()).toBe("aaa111");
   });
 });
+
+// The confirmed load's twin of the case above. A step far enough out to ask
+// first leaves the question standing, and a step waiting on its index can be
+// raised under it; Yes then sends the page, the page re-requests the index,
+// and that answer used to carry the wish back over the step the user had just
+// confirmed. In the real webview the Find widget is `inert` behind the dialog
+// (#141), so the press under the question is out of reach there — jsdom does
+// not enforce `inert`, which is the only way in for this test. What it pins is
+// the rule, not the route: the answer to a question is the last thing the user
+// asked for, so it supersedes any wish still standing.
+describe("a confirmed step over a step still waiting on its answer", () => {
+  const farHash = "far999";
+  let farBranch: BranchSearchEntry;
+  let dialogUpUnderThePress = false;
+
+  beforeAll(() => {
+    farBranch = {
+      ref: "fix/far",
+      name: "fix/far",
+      hash: farHash,
+      // Over 200 past the loaded window, so the step asks before loading.
+      logDepth: mock.getState()!.maxCommits + 400
+    };
+    deliverBranchIndex([baseBranch, farBranch]);
+    search("fix"); // the tip, the branch, the base and the far tip; Find on the tip
+    clickId("findPrev"); // wraps back onto the far tip
+    deliverBranchIndex([baseBranch, farBranch]); // and asks first
+    dialogUpUnderThePress = document.getElementById("dialogAction") !== null;
+    clickId("findNext"); // onto fix/base: a wish, raised under the question
+    clickId("dialogAction"); // Yes, to the far tip, before that wish's answer
+    receive({
+      ...commitsResponse,
+      commits: [
+        ...commits,
+        {
+          hash: farHash,
+          parentHashes: [],
+          author: "Dan",
+          email: "dan@example.com",
+          date: 1690000000,
+          message: "Far commit",
+          refs: []
+        }
+      ]
+    });
+    deliverBranchIndex([baseBranch, farBranch]); // the page's own re-request
+  });
+
+  it("had the question standing when the second press was made", () => {
+    expect(dialogUpUnderThePress).toBe(true);
+  });
+
+  it("stays on the step the user confirmed", () => {
+    expect(counter()).toBe(counterFor(4, 4));
+    expect(currentMatchHash()).toBe(farHash);
+  });
+});

@@ -137,7 +137,7 @@ _Avoid_: cursor, 游標, selected match, current match index
 _Avoid_: jump, 跳轉
 
 **Pending Find navigation**:
-落在「名字匹配的分支」上的 Find step,在新的 branch index 回來之前的樣子。分支可能在手上那份 index 抓取之後移動過,所以落點以回覆為準,不以按下的那一刻為準。在那之前它只是一個**願望**:Find position 不動、方向不記;回覆抵達時才找出那條分支現在的 commit,照 Find step 的規則決定發生或不發生,被拒絕(`hold`)或那條分支已不在回覆裡(刪掉了),就回到原本的 Find position,畫面也不動。它雖然叫 navigation,卻**不是** Navigation:它不改變哪些 commit 該在畫面上,也不作廢在飛的載入。等待期間再按步進,從這個待決的目標起算,所以連按不會被吞掉;那一按若落在沒有分支名稱匹配的 match 上,它當場就移過去,待決的這一步被它取代,回覆抵達時也不會把 Find 拉回去。換搜尋、關閉 Find、branch index 作廢,或被後一按這樣取代時,它被丟棄。程式裡是 `pendingFindNavigation`(型別 `PendingFindNavigation`)。
+落在「名字匹配的分支」上的 Find step,在新的 branch index 回來之前的樣子。分支可能在手上那份 index 抓取之後移動過,所以落點以回覆為準,不以按下的那一刻為準。在那之前它只是一個**願望**:Find position 不動、方向不記;回覆抵達時才找出那條分支現在的 commit,照 Find step 的規則決定發生或不發生,被拒絕(`hold`)或那條分支已不在回覆裡(刪掉了),就回到原本的 Find position,畫面也不動。它雖然叫 navigation,卻**不是** Navigation:它不改變哪些 commit 該在畫面上,也不作廢在飛的載入。等待期間再按步進,從這個待決的目標起算,所以連按不會被吞掉;那一按若落在沒有分支名稱匹配的 match 上,它當場就移過去,待決的這一步被它取代,回覆抵達時也不會把 Find 拉回去。換搜尋、關閉 Find、branch index 作廢,或被後一按這樣取代時,它被丟棄;使用者在 Find 的確認框按下 Yes 也一樣取代它。程式裡是 `pendingFindNavigation`(型別 `PendingFindNavigation`)。
 它與 `pendingFindTargetHash` 不可互換:這個等的是 branch index,step **尚未發生**;那個等的是一頁 commit,step **已經發生**,只是目標那一列還沒畫出來。
 _Avoid_: pending step, queued step
 

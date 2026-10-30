@@ -6226,6 +6226,15 @@ class GitGraphView {
       // half-state to report.
       const current = this.findMatches.find((m) => m.hash === match.hash);
       if (current === undefined) return;
+      // The step happens from here on, either way below. A step still waiting
+      // on its branch index is superseded by it, as {@link findStep} supersedes
+      // one with a press that moves at once (#247): the answer to a question is
+      // the last thing the user asked for, and a wish left standing would have
+      // the page's own index answer carry Find back off it. Only a wish raised
+      // under the question can be standing here, and #141's `inert` keeps the
+      // widget out of reach while one stands — kept for the rule, as the
+      // re-take below is.
+      this.pendingFindNavigation = null;
       const now = planFindLoad(this.maxCommits, current);
       if (now === null) {
         // Nothing left to load — but the step the user pressed Yes for still
