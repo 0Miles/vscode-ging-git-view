@@ -112,7 +112,8 @@ export const NEAR_BOTTOM = PAGE_HEIGHT - 250 - VIEWPORT_HEIGHT;
  *  for context-menu placement *and* as the place an opening Commit Details View
  *  scrolls the page on from (`main.ts` around the `cdvBroughtIntoView` guard;
  *  whether it scrolls at all is measured on screen). A viewport that is in two
- *  places at once would describe a page neither suite means. */
+ *  places at once would describe a page no suite means: one reader would see
+ *  it in one place and the other in another. */
 export function parkViewportAt(offset: number) {
   Object.defineProperty(window, "scrollY", { value: offset, configurable: true });
   Object.defineProperty(window, "pageYOffset", { value: offset, configurable: true });

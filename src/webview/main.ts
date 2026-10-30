@@ -154,6 +154,9 @@ function dockedCdvHeight(
   return Number.isFinite(margin) ? margin : 0;
 }
 
+/** A stretch of the viewport, top to bottom, in px down from its top edge. */
+type VerticalSpan = { top: number; bottom: number };
+
 /** How far to scroll the page — down when positive — to bring `block` into
  *  `visible`, the stretch of the viewport rows can be seen in (below the
  *  frozen header, above anything docked over the bottom). Both are in viewport
@@ -165,11 +168,7 @@ function dockedCdvHeight(
  *  under it. Either way a block too tall to fit stops with its top right at
  *  `visible`'s: the top is the row that was clicked, and it stays in sight
  *  (#216, #228). */
-function revealDelta(
-  block: { top: number; bottom: number },
-  visible: { top: number; bottom: number },
-  centre: boolean
-): number {
+function revealDelta(block: VerticalSpan, visible: VerticalSpan, centre: boolean): number {
   const toTop = block.top - visible.top;
   if (centre) {
     return Math.min((block.top + block.bottom) / 2 - (visible.top + visible.bottom) / 2, toTop);
