@@ -102,6 +102,10 @@ function row(hash: string) {
   return elem!;
 }
 
+function openCommitMenu(hash: string) {
+  rightClick(row(hash));
+}
+
 function dialogText() {
   return document.getElementById("dialog")!.textContent ?? "";
 }
@@ -202,6 +206,56 @@ describe("the branch a confirmation dialog named", () => {
 
     expect(sentOf("dropCommit")).toEqual([]);
     expect(dialogText()).toContain(L.dialogHeadMoved.replace("{0}", "main"));
+  });
+
+  // The same premise for the rest of the actions git aims at HEAD: each writes
+  // onto whatever is checked out when git runs — a merge commit, a reset of
+  // the checked-out branch, a cherry-picked or reverting commit — while its
+  // dialog was answered about the branch checked out when it opened. All but
+  // revert ask through a form here; a single-parent revert asks through the
+  // plain confirmation. Merge and reset even print that branch's name.
+  it.each([
+    ["merging a branch", "mergeBranch", () => openMenuOn('.gitRef.head[data-name="feature"]')],
+    ["merging a commit", "mergeCommit", () => openCommitMenu("bbb222")],
+    ["resetting to a commit", "resetToCommit", () => openCommitMenu("bbb222")],
+    ["cherry-picking a commit", "cherrypickCommit", () => openCommitMenu("bbb222")],
+    ["reverting a commit", "revertCommit", () => openCommitMenu("bbb222")]
+  ])("refuses %s once the branch it would write to has changed", (_, command, openMenu) => {
+    const item = {
+      mergeBranch: L.merge,
+      mergeCommit: L.merge,
+      resetToCommit: L.reset,
+      cherrypickCommit: L.cherryPick,
+      revertCommit: L.revert
+    }[command]!;
+    openMenu();
+    clickItem(item + E);
+    expect(document.getElementById("dialogAction"), "the form").not.toBeNull();
+
+    hostChecksOutRelease();
+    mock.clearMessages();
+    clickYes();
+
+    expect(sentOf(command)).toEqual([]);
+    expect(dialogText()).toContain(L.dialogHeadMoved.replace("{0}", "main"));
+  });
+
+  it("still merges when the branch has not changed", () => {
+    openMenuOn('.gitRef.head[data-name="feature"]');
+    clickItem(L.merge + E);
+    mock.clearMessages();
+    clickYes();
+
+    expect(sentOf("mergeBranch")).toEqual([
+      {
+        command: "mergeBranch",
+        repo: DEFAULT_REPO,
+        branchName: "feature",
+        createNewCommit: true, // the config's default no-fast-forward tick
+        squash: false,
+        noCommit: false
+      }
+    ]);
   });
 
   // Last, because it leaves the view on another repo.
