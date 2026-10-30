@@ -14,7 +14,8 @@ import {
   formatGitError,
   isNotFullyMergedError,
   isRemoteUpdatedSinceCheckoutError,
-  isStaleLeaseInfoError
+  isStaleLeaseInfoError,
+  LabelledGitErrors
 } from "@/backend/utils/gitError";
 
 export async function createBranch(
@@ -173,7 +174,7 @@ export async function pushBranches(
       ref: r.ref,
       status: r.status,
       remoteUpdatedSinceCheckout: facts.remoteUpdatedSinceCheckout,
-      staleInfoRef: facts.staleInfoRef
+      staleInfoRefs: facts.staleInfoRefs
     };
   });
 }
@@ -229,13 +230,16 @@ class RemotePushError extends Error {
   }
 }
 
-/** The tracking ref (`<remote>/<branch>`) a force-with-lease push was refused
- *  for with "(stale info)", or null for any other failure. See
+/** The tracking refs (`<remote>/<branch>`) a force-with-lease push was refused
+ *  for with "(stale info)", one per remote that refused that way, in the order
+ *  the remotes were given. Empty for any other failure. See
  *  `isStaleLeaseInfoError`. */
-export function staleLeaseInfoRef(error: unknown): string | null {
-  return error instanceof RemotePushError && isStaleLeaseInfoError(error)
-    ? error.trackingRef
-    : null;
+export function staleLeaseInfoRefs(error: unknown): string[] {
+  const failures =
+    error instanceof LabelledGitErrors ? error.failures.map((f) => f.error) : [error];
+  return failures.flatMap((e) =>
+    e instanceof RemotePushError && isStaleLeaseInfoError(e) ? [e.trackingRef] : []
+  );
 }
 
 type PushRefusalFacts = ActionResponseExtra<"pushBranch">;
@@ -246,22 +250,31 @@ type PushRefusalFacts = ActionResponseExtra<"pushBranch">;
 export function pushRefusalFacts(error: unknown): PushRefusalFacts {
   return {
     remoteUpdatedSinceCheckout: isRemoteUpdatedSinceCheckoutError(error),
-    staleInfoRef: staleLeaseInfoRef(error)
+    staleInfoRefs: staleLeaseInfoRefs(error)
   };
 }
 
+/** Push to each selected remote; simple-git serialises them internally. Every
+ *  remote is pushed and heard from before this settles (#264). A lone refusal
+ *  is thrown as it is, so one remote reads as it always has; several are
+ *  thrown together, each under its remote's name, since git's own output names
+ *  a remote only by URL. */
 export async function pushBranch(
   git: SimpleGit,
   input: ActionPayload<"pushBranch">
 ): Promise<void> {
-  // Push to each selected remote; simple-git serialises them internally.
-  await Promise.all(
+  const outcomes = await Promise.allSettled(
     input.remotes.map((remote) =>
       git.raw(pushArgs(remote, input.branchName, input.forceMode)).catch((e: unknown) => {
         throw new RemotePushError(`${remote}/${input.branchName}`, e);
       })
     )
   );
+  const failures = outcomes.flatMap((outcome, i) =>
+    outcome.status === "rejected" ? [{ label: input.remotes[i], error: outcome.reason }] : []
+  );
+  if (failures.length === 1) throw failures[0].error;
+  if (failures.length > 1) throw new LabelledGitErrors(failures);
 }
 
 export async function deleteRemoteBranch(

@@ -4572,12 +4572,10 @@ class GitGraphView {
         // a single push explains it (ADR-0025). Each ref keeps git's own line;
         // no force round is offered.
         failureNote: (failed) => {
-          const staleInfoRefs = failed.flatMap((r) => r.staleInfoRef ?? []);
-          const notes = [
-            failed.some((r) => r.remoteUpdatedSinceCheckout) ? leaseRefusedExplanation() : null,
-            staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
-          ].filter((note) => note !== null);
-          return notes.length > 0 ? notes.join("<br>") : null;
+          return leaseRefusalNote(
+            failed.some((r) => r.remoteUpdatedSinceCheckout),
+            failed.flatMap((r) => r.staleInfoRefs)
+          );
         }
       },
       fastForwardBranches: {
@@ -8838,7 +8836,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
       break;
     case "pushBranch":
-      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout, msg.staleInfoRef);
+      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout, msg.staleInfoRefs);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -9038,21 +9036,29 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
  *  "remote ref updated since checkout", names no next step — with git's line
  *  kept beneath it. So does one refused for "(stale info)", which names only
  *  the remote's URL. The explanation names the Force option instead of offering
- *  it: overwriting someone's work stays a separate, deliberate choice. */
+ *  it: overwriting someone's work stays a separate, deliberate choice. Pushed
+ *  to several remotes, each may have refused for its own reason (#264), so
+ *  every reason that applies is explained. */
 function handlePushBranchResponse(
   status: GitCommandStatus,
   remoteUpdatedSinceCheckout: boolean,
-  staleInfoRef: string | null
+  staleInfoRefs: string[]
 ) {
-  const explanation = remoteUpdatedSinceCheckout
-    ? leaseRefusedExplanation()
-    : staleInfoRef !== null
-      ? leaseStaleInfoExplanation([staleInfoRef])
-      : null;
+  const explanation = leaseRefusalNote(remoteUpdatedSinceCheckout, staleInfoRefs);
   refreshGraphOrDisplayError(
     status,
     explanation === null ? l10n.unableToPushBranch : l10n.unableToPushBranch + "<br>" + explanation
   );
+}
+
+/** Each kind of lease refusal explained once, or null when there was none.
+ *  Shared by the single push and the batch push summary. */
+function leaseRefusalNote(remoteUpdatedSinceCheckout: boolean, staleInfoRefs: string[]) {
+  const notes = [
+    remoteUpdatedSinceCheckout ? leaseRefusedExplanation() : null,
+    staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
+  ].filter((note) => note !== null);
+  return notes.length > 0 ? notes.join("<br>") : null;
 }
 
 /** Why a Force with lease was refused for an unintegrated remote tip, and what

@@ -4,6 +4,17 @@ function rawGitErrorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Several git commands of one action that failed on their own, each under
+ *  the name of what it was run for (a remote, say). The message is every
+ *  failure's raw text, so the classifiers below see all of them; and
+ *  `formatGitError` gives one labelled line per failure rather than picking
+ *  one failure's line for all. */
+export class LabelledGitErrors extends Error {
+  constructor(readonly failures: readonly { label: string; error: unknown }[]) {
+    super(failures.map((f) => rawGitErrorText(f.error)).join("\n"));
+  }
+}
+
 /** Turn a noisy git / simple-git error into a concise, human-readable message.
  *
  *  simple-git concatenates the failed command's stdout and stderr into
@@ -14,6 +25,9 @@ function rawGitErrorText(error: unknown): string {
  *  (push hooks, branch protection), a push/fetch rejection reason, then git's
  *  own `fatal:` / `error:` line. Falls back to the first meaningful line. */
 export function formatGitError(error: unknown): string {
+  if (error instanceof LabelledGitErrors) {
+    return error.failures.map((f) => f.label + ": " + formatGitError(f.error)).join("\n");
+  }
   const raw = rawGitErrorText(error);
   const lines = raw
     .split(/\r\n|\r|\n/)

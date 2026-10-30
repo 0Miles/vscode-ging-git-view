@@ -3,8 +3,43 @@ import { describe, expect, it } from "vitest";
 import {
   formatGitError,
   isRemoteUpdatedSinceCheckoutError,
-  isStaleLeaseInfoError
+  isStaleLeaseInfoError,
+  LabelledGitErrors
 } from "@/backend/utils/gitError";
+
+describe("LabelledGitErrors", () => {
+  const nonFastForward = new Error(
+    [
+      "To /srv/origin.git",
+      " ! [rejected]        main -> main (non-fast-forward)",
+      "error: failed to push some refs to '/srv/origin.git'"
+    ].join("\n")
+  );
+  const updatedSinceCheckout = new Error(
+    [
+      "To /srv/backup.git",
+      " ! [rejected]        main -> main (remote ref updated since checkout)",
+      "error: failed to push some refs to '/srv/backup.git'"
+    ].join("\n")
+  );
+  const errors = new LabelledGitErrors([
+    { label: "origin", error: nonFastForward },
+    { label: "backup", error: updatedSinceCheckout }
+  ]);
+
+  it("formats one line per failure, each under its label", () => {
+    expect(formatGitError(errors)).toBe(
+      [
+        "origin: [rejected]        main -> main (non-fast-forward)",
+        "backup: [rejected]        main -> main (remote ref updated since checkout)"
+      ].join("\n")
+    );
+  });
+
+  it("lets the classifiers see every failure, not only the first", () => {
+    expect(isRemoteUpdatedSinceCheckoutError(errors)).toBe(true);
+  });
+});
 
 describe("formatGitError", () => {
   it("surfaces remote-provided reasons and strips the 'remote:' prefix", () => {
