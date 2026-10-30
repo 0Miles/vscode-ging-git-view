@@ -1507,8 +1507,11 @@ class GitGraphView {
     //
     // Unlike there, a throw reports no changes even after the state has moved
     // — the same "a load that never ran brought none with it" a dropped request
-    // gets. Nothing is lost by it: the only reader is the close-out's
-    // dismissal, and a hard reload is dismissed on `hard` alone.
+    // gets. The only reader is the close-out's dismissal, and a hard reload is
+    // dismissed on `hard` alone; what it costs is a soft reload that throws
+    // after the branch state is written and finds no commit change either —
+    // that one skips the dismissal it was owed, and the progress dialog stays
+    // up until the next reload that changes something.
     let changes = false;
     try {
       if (!isRepo) return;
@@ -1535,6 +1538,9 @@ class GitGraphView {
       this.saveState();
       changes = true;
     } finally {
+      // If the body threw and the callback throws too, the callback's
+      // exception replaces the original one, and ADR-0016 reports only that
+      // second failure.
       this.triggerLoadBranchesCallback(changes, isRepo);
     }
   }
@@ -1681,6 +1687,8 @@ class GitGraphView {
 
       this.fetchAvatars(avatarsNeeded);
     } finally {
+      // As in {@link loadBranches}: a callback that throws here masks the
+      // body's own exception, and ADR-0016 reports only the second one.
       this.triggerLoadCommitsCallback(changes);
     }
   }
