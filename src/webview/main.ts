@@ -1774,7 +1774,9 @@ class GitGraphView {
    *  predates this — and through {@link reloadForBranchChange}
    *  that is a way in the panel did not have before: a filter pushed from the
    *  side-view can now take down a Branch Cleanup deep scan (its dismissal hook
-   *  sends `branchCleanupScanCancel`) or a "Check for Unmerged Changes" whose
+   *  sends `branchCleanupScanCancel`, and, told the system closed it, abandons
+   *  the list so the cancelled answer does not bring it back — #134) or a
+   *  "Check for Unmerged Changes" whose
    *  answer is then dropped on arrival (by its owner token, so it cannot land
    *  in a progress dialog raised since — #127). It is the same trade
    *  {@link hideReloadOwnedOverlays} already makes, made once more: a dialog
@@ -3481,7 +3483,7 @@ class GitGraphView {
     addListenerToClass("gitRef", "click", (e: Event) => e.stopPropagation());
     addListenerToClass("gitRef", "dblclick", (e: Event) => {
       e.stopPropagation();
-      hideDialogAndContextMenu();
+      hideDialogAndContextMenu("user");
       let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitRef")!;
       // Only branches are checkout-able; tag/stash refs share the gitRef class.
       if (sourceElem.classList.contains("head") || sourceElem.classList.contains("remote")) {
@@ -3671,7 +3673,7 @@ class GitGraphView {
    *  The state goes with the rows for the same reason: any later redraw (a
    *  remote list arriving, a column toggled) would put them straight back. */
   private renderNoRepo() {
-    hideDialogAndContextMenu();
+    hideDialogAndContextMenu("system");
     this.commits = [];
     this.commitLookup = {};
     this.commitHead = null;
@@ -3687,7 +3689,7 @@ class GitGraphView {
     this.renderFooter();
   }
   private renderShowLoading() {
-    hideDialogAndContextMenu();
+    hideDialogAndContextMenu("system");
     this.graph.clear();
     this.tableElem.innerHTML =
       '<h2 id="loadingHeader">' + svgIcons.loading + l10n.loading + "</h2>";
@@ -4538,7 +4540,13 @@ class GitGraphView {
           null,
           // Declining the retry round still ends a batch that did real work, so
           // report what the first round managed rather than closing in silence.
-          () => this.runBatchCommand(this.batchRun.onRetryDeclined(), action)
+          // Only the user declines, though: an offer the system took away was
+          // answered by nobody, which is an abandoned run and owes its summary
+          // rather than raising it into the slot just emptied (#134).
+          (reason) => {
+            if (reason === "user") this.runBatchCommand(this.batchRun.onRetryDeclined(), action);
+            else this.abandonBatchRun();
+          }
         );
         break;
       case "summarise":
@@ -4555,12 +4563,14 @@ class GitGraphView {
   public handleBatchActionResponse(action: BatchActionKind, results: BatchRefResult[]) {
     this.runBatchCommand(this.batchRun.onResults(results, action), action);
   }
-  /** End the run whose retry offer has just been written over, and keep what
+  /** End the run whose retry offer has just been taken away, and keep what
    *  its first round did until there is a screen to say it on.
    *
    *  Called from {@link showDialog} whenever a dialog is raised over a standing
-   *  `#batchRetryOffer` — the offer's two answers both close it themselves, so
-   *  arriving here means neither was given and nobody is going to give one.
+   *  `#batchRetryOffer`, and from the offer's own dismissal hook when the
+   *  system rather than the user closed it (#134) — the offer's two answers
+   *  both close it themselves, so arriving here means neither was given and
+   *  nobody is going to give one.
    *  Without this the run holds the single in-flight slot for the life of the
    *  panel (`BatchRun.start`'s backstop then catches it, but only by dropping
    *  these results on the floor).
@@ -4585,6 +4595,10 @@ class GitGraphView {
     this.owedSummary = { results: command.results, action: command.action };
     this.refresh(false);
   }
+  /** Whether a batch summary is waiting for the slot. */
+  public owesBatchSummary(): boolean {
+    return this.owedSummary !== null;
+  }
   /** Raise a summary that had nowhere to go when its run ended.
    *
    *  Queued from {@link hideDialog} — the one place the dialog slot is emptied
@@ -4594,10 +4608,11 @@ class GitGraphView {
    *  one of those claimed the slot, the summary stays owed and waits for the
    *  next close.
    *
-   *  It is deliberately not hung off `dialogDismissAction`. That hook cannot
-   *  tell a dialog the user dismissed from one the webview took away (#134),
-   *  and a summary owed is owed whichever of those happened. What this waits
-   *  for is the slot, not anyone's dismissal.
+   *  It is deliberately not hung off `dialogDismissAction`. The slot frees for
+   *  the user's dismissal, the system's, an answer, and a summary owed is owed
+   *  whichever of those happened. What this waits for is the slot, not anyone's
+   *  dismissal — except that the close which *ran up* the debt does not pay
+   *  it (see {@link hideDialog}).
    *
    *  If the panel never frees the slot the summary is never shown, and it does
    *  not survive a reload. That is the accepted floor: the run is already
@@ -7219,14 +7234,19 @@ let dialog = document.getElementById("dialog")!,
    *
    *  The five of them do quite different things, and it is worth not flattening
    *  that. The cleanup refetch clears the state a late answer would otherwise
-   *  put back on screen; the cleanup scan stops work the host is still doing,
-   *  and stops *only* that — Stop is a "come back with what you found"
-   *  contract, so the answer still arrives and still fills the dialog back in;
+   *  put back on screen; the cleanup scan stops work the host is still doing;
    *  the error dialog and the batch summary go and fetch what they were
    *  standing in front of (the conflict banner); the batch retry's decline ends
    *  a run that did real work, and opens a summary dialog of its own. What they
-   *  share is only the occasion — the user is done with this dialog — and that
-   *  is as true of the routes that close it *for* them as of the button.
+   *  share is only the occasion — the dialog is gone unanswered.
+   *
+   *  Who took it away is passed in ({@link DismissalReason}), because two of
+   *  them answer differently for it (#134). The cleanup scan's Stop is a "come
+   *  back with what you found" contract, so after the user's dismissal the
+   *  answer fills the list back in; after the system's nobody asked for it, and
+   *  it would land over whatever the user is on by then. The retry offer taken
+   *  away by the system was not declined — nobody answered — so the run is
+   *  abandoned rather than summarised on the spot.
    *
    *  Set on every {@link showDialog}, including the ones that overwrite an open
    *  dialog, so a stale hook can never outlive its dialog. Overwriting does not
@@ -7234,7 +7254,7 @@ let dialog = document.getElementById("dialog")!,
    *  dialog it was awaited by is not a dismissal — `handleBranchCleanupOpen`
    *  builds the new `cleanupState` before rendering over the refetch dialog,
    *  and running that dialog's hook would null it straight back out. */
-  dialogDismissAction: (() => void) | null = null;
+  dialogDismissAction: ((reason: DismissalReason) => void) | null = null;
 // "Remember my choice" values per dialog key, seeded from the extension host at
 // load and updated optimistically on each confirm (the save message is one-way).
 let dialogMemory: GG.DialogMemoryStore = viewState.dialogMemory ?? {};
@@ -7911,10 +7931,10 @@ function bindBranchCleanupHandlers(state: NonNullable<typeof cleanupState>) {
   });
   document.getElementById("cleanupRefetch")?.addEventListener("click", () => {
     if (cleanupState === null) return;
-    // Dismissing the progress dialog abandons the dialog with it. The fetch
-    // itself cannot be recalled, but the answer must not reopen a dialog the
-    // user has closed — unlike the scan's Stop, which exists precisely to come
-    // back with what it found.
+    // Dismissing the progress dialog abandons the dialog with it, whoever
+    // dismissed it. The fetch itself cannot be recalled, but the answer must not
+    // reopen a dialog that has been closed — unlike the scan's Stop, which
+    // exists precisely to come back with what it found.
     cleanupRefetchDialogOwner = showActionRunningDialogWith(
       l10n.loading,
       l10n.dialogDismiss,
@@ -7938,7 +7958,14 @@ function startBranchCleanupScan(repo: string, token: number) {
   cleanupScanDialogOwner = showActionRunningDialogWith(
     escapeHtml(fillTemplate(l10n.cleanupScanning, "0", "?")),
     l10n.cleanupScanStop,
-    () => sendMessage({ command: "branchCleanupScanCancel" })
+    (reason) => {
+      sendMessage({ command: "branchCleanupScanCancel" });
+      // Stop and Escape ask for what was found, and the cancelled answer brings
+      // the list back. The system closing the dialog asked for nothing: the
+      // answer would land over whatever the user is on by then, so the list is
+      // abandoned the way the refetch's hook abandons it (#134).
+      if (reason === "system") cleanupState = null;
+    }
   );
   sendMessage({ command: "branchCleanupScan", repo, token });
 }
@@ -8769,11 +8796,20 @@ function hideContextMenu() {
 }
 
 /* Dialogs */
+/** Who took a dialog away without answering it, as its dismissal hook is told
+ *  (#134). `"user"` is the user walking away: the Dismiss button (Stop, for the
+ *  cleanup scan), Escape, a ref's double-click. `"system"` is the webview
+ *  closing it for reasons of its own, which the user did not choose and may not
+ *  have seen: a reload finishing the progress dialog it owns
+ *  ({@link hideReloadOwnedOverlays}), the panel losing its repository or
+ *  loading from scratch. An overwrite is neither — it runs no hook at all (see
+ *  `dialogDismissAction`). */
+type DismissalReason = "user" | "system";
 function showConfirmationDialog(
   message: string,
   confirmed: () => void,
   sourceElem: HTMLElement | null,
-  onDismiss?: () => void
+  onDismiss?: (reason: DismissalReason) => void
 ) {
   showDialog(
     message,
@@ -9048,7 +9084,7 @@ function showErrorDialog(
   message: string,
   reason: string | null,
   sourceElem: HTMLElement | null,
-  onDismiss?: () => void,
+  onDismiss?: (reason: DismissalReason) => void,
   note: string | null = null
 ) {
   showDialog(
@@ -9096,7 +9132,7 @@ let progressDialogSeq = 0;
 function showActionRunningDialogWith(
   content: string,
   dismissName: string | null,
-  onDismiss?: () => void
+  onDismiss?: (reason: DismissalReason) => void
 ): number {
   const owner = ++progressDialogSeq;
   showDialog(
@@ -9129,7 +9165,7 @@ function showDialog(
   dismissName: string | null,
   actioned: (() => void) | null,
   sourceElem: HTMLElement | null,
-  onDismiss?: () => void
+  onDismiss?: (reason: DismissalReason) => void
 ) {
   // Writing over the batch retry offer takes away a question with neither
   // answer given, and the run behind it has no other way to hear about that
@@ -9160,7 +9196,7 @@ function showDialog(
   if (actionName !== null && actioned !== null)
     document.getElementById("dialogAction")!.addEventListener("click", actioned);
   dialogDismissAction = onDismiss ?? null;
-  document.getElementById("dialogDismiss")?.addEventListener("click", dismissDialog);
+  document.getElementById("dialogDismiss")?.addEventListener("click", () => dismissDialog("user"));
 
   // A dialog arriving over another one takes its row's highlight too: the row
   // the old dialog was about is no longer what any dialog is about, and nothing
@@ -9187,15 +9223,22 @@ function hideDialog() {
   // — the Yes that closes this dialog goes on to raise the next one — and the
   // summary is only due if the slot is *still* free once it has (see
   // `deliverOwedBatchSummary`, which checks).
-  queueMicrotask(() => gitGraph.deliverOwedBatchSummary());
+  //
+  // Only a summary already owed when the slot emptied, though. One that this
+  // very close runs up — the system taking a retry offer away, whose hook
+  // abandons the run after the close (#134) — is owed to the slot freeing
+  // *again*: this close was the removal, and paying it here would raise the
+  // dialog the removal was for taking down.
+  if (gitGraph.owesBatchSummary()) queueMicrotask(() => gitGraph.deliverOwedBatchSummary());
 }
-/** Close the dialog the way its own Dismiss button does, running whatever it
- *  declared for that. The hook is read before the close so that a hook which
- *  opens a dialog of its own is not undone by the close that invited it. */
-function dismissDialog() {
+/** Close the dialog without an answer, running whatever it declared for that
+ *  and telling it who closed it. The hook is read before the close so that a
+ *  hook which opens a dialog of its own is not undone by the close that
+ *  invited it. */
+function dismissDialog(reason: DismissalReason) {
   const onDismiss = dialogDismissAction;
   hideDialog();
-  if (onDismiss !== null) onDismiss();
+  if (onDismiss !== null) onDismiss(reason);
 }
 
 /** Whether a modal dialog is up. Three callers want quite different things of
@@ -9206,11 +9249,12 @@ function isDialogOpen() {
   return dialog.classList.contains("active");
 }
 
-/** Escape, and the other places that close both overlays on the user's behalf.
- *  A dismissal, not a plain close: reaching here means the user walked away
- *  from the dialog rather than answering it. */
-function hideDialogAndContextMenu() {
-  if (isDialogOpen()) dismissDialog();
+/** Escape, and the other places that close both overlays without an answer.
+ *  A dismissal, not a plain close; `reason` says whether the user walked away
+ *  (Escape, a ref's double-click) or the panel took the dialog down under them
+ *  (no repository, a load from scratch). */
+function hideDialogAndContextMenu(reason: DismissalReason) {
+  if (isDialogOpen()) dismissDialog(reason);
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
@@ -9235,9 +9279,12 @@ function hideDialogAndContextMenu() {
  * closed here along with an action's. What the owner token on the mark does
  * settle is what happens next: closing the dialog takes its owner with it, so
  * the query's late answer is dropped on arrival rather than written into
- * whatever progress dialog the user has raised since (#127). Every progress
- * dialog is built by {@link showActionRunningDialogWith} rather than by hand so
- * that the mark, and its owner, are produced in one place.
+ * whatever progress dialog the user has raised since (#127). And the dialog's
+ * hook is told the system closed it, not the user (#134), so a hook whose
+ * answer differs — the cleanup scan's, whose Stop asks for the list back — does
+ * not treat this close as the user asking for anything. Every progress dialog
+ * is built by {@link showActionRunningDialogWith} rather than by hand so that
+ * the mark, and its owner, are produced in one place.
  *
  * The context menu is not held back with it, deliberately. Its contents are a
  * snapshot — what can be dropped, what is HEAD, which refs are cleanup
@@ -9248,7 +9295,7 @@ function hideDialogAndContextMenu() {
  * costs one right-click; a half-filled dialog cannot be reopened at all.
  */
 function hideReloadOwnedOverlays() {
-  if (document.getElementById("actionRunning") !== null) dismissDialog();
+  if (document.getElementById("actionRunning") !== null) dismissDialog("system");
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
@@ -9262,7 +9309,7 @@ document.addEventListener("keyup", (e) => {
     e.key === "Escape" &&
     !(isDialogOpen() && document.getElementById("dialogDismiss") === null)
   ) {
-    hideDialogAndContextMenu();
+    hideDialogAndContextMenu("user");
   }
 });
 // Rows of overlap kept when Page Up/Down jumps a screenful, so the user has

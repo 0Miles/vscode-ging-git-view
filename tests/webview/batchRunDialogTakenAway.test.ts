@@ -327,4 +327,42 @@ describe("a batch retry offer whose dialog is taken away", () => {
     });
     settleRefresh();
   });
+
+  // Escape is the user walking away from the question, which is an answer of
+  // sorts — the same one Cancel gives — so the summary comes now (#134).
+  it("reports round 1 straight away when the user presses Escape on it", () => {
+    offerRetry();
+
+    document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true }));
+
+    expect(dialogText()).toContain("1 succeeded, 1 failed");
+    expect(dialogText()).toContain("feature-b");
+    dismissDialog();
+    settleRefresh();
+  });
+
+  // Last, because it leaves the panel with no repository.
+  //
+  // The panel losing its repository takes the offer down from underneath, the
+  // same as an overwrite does: nobody answered it, and nobody will. So it is
+  // the abandoned ending, not the declined one — the summary is owed (#134).
+  // Answering it as a Cancel raised the summary into the slot the removal had
+  // just emptied, a dialog nobody asked for over a panel that has just said it
+  // has no repository.
+  it("is abandoned, not declined, when the panel loses its repository", async () => {
+    offerRetry();
+
+    receive({ command: "loadRepos", repos: {}, lastActiveRepo: null });
+    await flushMicrotasks();
+
+    expect(document.getElementById("dialog")!.classList.contains("active")).toBe(false);
+    expect(dialogText()).not.toContain("1 succeeded, 1 failed");
+
+    // Owed rather than dropped: the next time the slot frees, it is paid.
+    receive({ command: "copyToClipboard", type: "Commit Hash", success: false });
+    dismissDialog();
+    await flushMicrotasks();
+    expect(dialogText()).toContain("1 succeeded, 1 failed");
+    expect(dialogText()).toContain("feature-b");
+  });
 });
