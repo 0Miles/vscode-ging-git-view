@@ -5944,8 +5944,14 @@ class GitGraphView {
    *  stand, keeping the current match on the same commit where it survived.
    *
    *  `source` says what arrived, and it — not the identity — is what decides
-   *  whether this may move the viewport. See the comment on the decision. */
-  private refreshFind(source: "redraw" | "branchIndex", preferredHash: string | null) {
+   *  whether this may move the viewport. See the comment on the decision.
+   *  `mayScroll` false takes the decision away altogether, for a caller that
+   *  makes it itself once the rebuild is done. */
+  private refreshFind(
+    source: "redraw" | "branchIndex",
+    preferredHash: string | null,
+    mayScroll = true
+  ) {
     const input = <HTMLInputElement | null>document.getElementById("findInput");
     const previousIndex = this.findCurrent;
     const currentHash =
@@ -5990,8 +5996,9 @@ class GitGraphView {
     // unconditional: those are moves, and one that happens to land back on the
     // current match still owes the user the scroll.
     const scroll =
-      preferredHash !== null ||
-      (source === "branchIndex" && this.findIdentity() !== this.findSettledOn);
+      mayScroll &&
+      (preferredHash !== null ||
+        (source === "branchIndex" && this.findIdentity() !== this.findSettledOn));
     this.applyFindHighlights(scroll);
   }
   public loadBranchSearchIndex(
@@ -6012,7 +6019,15 @@ class GitGraphView {
     // the user is looking at — and `refreshFind` is about to move off it, which
     // is why it is read here rather than after.
     const position = this.findPosition();
-    this.refreshFind("branchIndex", pendingNavigation?.hash ?? this.pendingFindTargetHash);
+    // With a step pending, the rebuild only resolves: whether anything moves
+    // is the step's to decide, below, and it scrolls for itself if it goes
+    // ahead. Left to scroll here, a step that turns out not to be happening
+    // has already centred the row the rebuild guessed for it (#246).
+    this.refreshFind(
+      "branchIndex",
+      pendingNavigation?.hash ?? this.pendingFindTargetHash,
+      pendingNavigation === null
+    );
     if (pendingNavigation === null) return;
 
     this.pendingFindNavigation = null;
@@ -6031,7 +6046,15 @@ class GitGraphView {
     const movedIndex = this.findMatches.findIndex((match) =>
       match.branches.some((branch) => branchRefs.has(branch.ref))
     );
-    if (movedIndex === -1) return;
+    // No match carries the branch any more — it was deleted, or the index no
+    // longer lists it — so the step has nowhere to go and does not happen. The
+    // rebuild above resolved Find onto the target regardless, or onto its
+    // neighbour, and that has to be taken back like any other step that is
+    // not happening (#246).
+    if (movedIndex === -1) {
+      this.restoreFindPosition(position);
+      return;
+    }
     if (this.loadFindMatch(this.findMatches[movedIndex], navigation.direction) === "hold") {
       this.restoreFindPosition(position);
       return;
