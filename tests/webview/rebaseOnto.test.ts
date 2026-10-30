@@ -4,6 +4,7 @@ import type { GitCommitNode } from "@/backend/types";
 import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
 
 import {
+  clickId,
   clickItem,
   compareRows,
   createVscodeMock,
@@ -148,7 +149,7 @@ describe("rebase --onto from the commit context menu", () => {
     graphRow("keep").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     menuEntries("target");
     clickItem(REBASE_ON);
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
 
     expect(mock.sentMessages).toContainEqual({
       command: "rebaseOn",
@@ -223,7 +224,7 @@ describe("rebase --onto from the commit context menu", () => {
       "git rebase --onto main base topic"
     );
 
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
     expect(mock.sentMessages).toContainEqual({
       command: "rebaseOnto",
       repo: DEFAULT_REPO,
@@ -238,7 +239,7 @@ describe("rebase --onto from the commit context menu", () => {
     compareRows("w2", "keep");
     menuEntries("target");
     clickItem(REBASE_ONTO);
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
 
     expect(mock.sentMessages).toContainEqual({
       command: "rebaseOnto",
@@ -261,7 +262,7 @@ describe("rebase --onto from the commit context menu", () => {
     // The detached-HEAD consequence is spelled out rather than left to be found.
     expect(dialog.querySelector(".dialogNote")!.textContent).toContain("detached");
 
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
     expect(mock.sentMessages).toContainEqual({
       command: "rebaseOnto",
       repo: DEFAULT_REPO,
@@ -325,7 +326,7 @@ describe("rebase --onto from the commit context menu", () => {
     expect(document.getElementById("dialogAction"), "the dialog was dismissed").not.toBeNull();
 
     mock.clearMessages();
-    document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+    clickId("dialogAction");
 
     expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([]);
     expect(document.getElementById("dialog")!.textContent).toContain(
@@ -375,7 +376,7 @@ describe("rebase --onto from the commit context menu", () => {
     it("sends the branch picked when it still points at the tip", () => {
       pick("dup-b");
       mock.clearMessages();
-      document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+      clickId("dialogAction");
 
       expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([
         {
@@ -394,7 +395,7 @@ describe("rebase --onto from the commit context menu", () => {
 
       pick("dup-a");
       mock.clearMessages();
-      document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+      clickId("dialogAction");
 
       expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([]);
       expect(document.getElementById("dialog")!.textContent).toContain(
@@ -423,7 +424,7 @@ describe("rebase --onto from the commit context menu", () => {
 
     function submitAndExpectRefusal(branch: string) {
       mock.clearMessages();
-      document.getElementById("dialogAction")!.dispatchEvent(new MouseEvent("click"));
+      clickId("dialogAction");
 
       expect(mock.sentMessages.filter((m) => m.command === "rebaseOnto")).toEqual([]);
       expect(document.getElementById("dialog")!.textContent).toContain(
