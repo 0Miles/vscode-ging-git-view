@@ -557,7 +557,12 @@ class GitGraphView {
   // move within them. Two groups, not one: they are separate widgets, and
   // arrowing through files must not walk out into the commits behind them.
   private graphTabStop = new RovingTabStop();
-  private cdvFileTabStop = new RovingTabStop();
+  private cdvFileTabStop = new RovingTabStop((file) => this.rememberCdvFileTabStop(file));
+  /** Which file last held the file list's tab stop, in which view, at which
+   *  index. The element itself does not outlive a redraw, so this is what
+   *  {@link restoreCdvFileTabStop} finds the user's place again from. */
+  private cdvFileTabStopMemory: { cdvIdentity: string | null; key: string; index: number } | null =
+    null;
 
   private loadBranchesCallback: ((changes: boolean, isRepo: boolean) => void) | null = null;
   private loadCommitsCallback: ((changes: boolean) => void) | null = null;
@@ -5618,6 +5623,7 @@ class GitGraphView {
     if (panel !== null) panel.remove();
     // The next CDV is an opening, however it compares to this one.
     this.cdvBroughtIntoView = null;
+    this.cdvFileTabStopMemory = null;
     if (this.expandedCommit !== null) {
       if (this.expandedCommit.srcElem !== null)
         this.expandedCommit.srcElem.classList.remove("commitDetailsOpen");
@@ -6500,12 +6506,54 @@ class GitGraphView {
    *  stop of its own that `bindDialogFileList` gives it — a question #128 was
    *  asked and the maintainer deferred to #145, so that #128's own defect (the
    *  file actions crossing between the two lists) could be fixed without a
-   *  keyboard design riding along. */
+   *  keyboard design riding along.
+   *
+   *  The stop goes back onto the file that last held it, found by
+   *  {@link cdvFileKey} in the new rows — the same lookup
+   *  {@link restoreCdvFileFocus} makes, for the same reason: the tree and list
+   *  layouts put a file at different indices, so only the path survives the
+   *  layout toggle, and a redraw (a page of commits, a refresh) replaces every
+   *  row. Without it Tab came back to the first file after every one of those,
+   *  wherever the user had left the list (#129).
+   *
+   *  When that file is no longer among the rows the keyboard can reach — the
+   *  same commit answered again with different files, as the uncommitted
+   *  changes do, or a collapsed folder burying it — the stop takes the row now
+   *  at its old index, clamped to the shorter list. That is not the index
+   *  ADR-0019 rules out as an identity: the path is still the identity, and
+   *  the index only answers what to do once that identity is gone. It is a
+   *  guess, and a rough one after a collapse — the folder's other files leave
+   *  the list too, so the index lands that many files further on — but it
+   *  keeps the user in the part of the list they were in, which the first row
+   *  did not. The stop then belongs to the row it landed on, so a file that
+   *  comes back on a later redraw does not take it back.
+   *
+   *  Only for the same view, though. A different commit, or a different
+   *  comparison, is an opening, and its list starts from the top even when it
+   *  has a file at the same path. */
   private restoreCdvFileTabStop() {
     const held = this.cdvFileTabStop.current;
     if (held !== null && held.closest(".hidden") === null) return;
-    const first = this.cdvFileRows()[0];
-    if (first !== undefined) this.cdvFileTabStop.set(first);
+    const files = this.cdvFileRows();
+    if (files.length === 0) return;
+    const memory = this.cdvFileTabStopMemory;
+    const target =
+      memory === null || memory.cdvIdentity !== this.cdvIdentity()
+        ? files[0]
+        : (files.find((file) => cdvFileKey(file) === memory.key) ??
+          files[Math.max(0, Math.min(memory.index, files.length - 1))]);
+    this.cdvFileTabStop.set(target);
+  }
+
+  /** Note which file now holds the file list's tab stop — see
+   *  {@link cdvFileTabStopMemory}. Every way the stop moves ends here, through
+   *  {@link RovingTabStop}'s `onSet`, so the memory never lags the markup. */
+  private rememberCdvFileTabStop(file: HTMLElement) {
+    this.cdvFileTabStopMemory = {
+      cdvIdentity: this.cdvIdentity(),
+      key: cdvFileKey(file),
+      index: this.cdvFileRows().indexOf(file)
+    };
   }
 
   /** Keep each group's tab stop wherever it last held focus, however focus got
