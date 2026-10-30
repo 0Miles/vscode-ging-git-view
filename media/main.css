@@ -245,6 +245,12 @@ code {
 #commitTable td.hidden {
   display: none;
 }
+/* Only for the moment the first column resize measures a hidden column's
+   width; see `makeTableResizable` in main.ts. */
+#commitTable.measuringHiddenColumns th.hidden,
+#commitTable.measuringHiddenColumns td.hidden {
+  display: table-cell;
+}
 .gitFileChangeTypeIndicator {
   display: inline-block;
   min-width: 1.1em;

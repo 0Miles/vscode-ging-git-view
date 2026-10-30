@@ -1653,7 +1653,7 @@ class GitGraphView {
         )
       ) {
         if (this.commits.length > 0 && this.commits[0].hash === "*") {
-          this.commits[0] = commits[0];
+          this.commits[0] = localizeUncommittedChanges(commits[0]);
           this.saveState();
           this.renderUncommitedChanges();
         }
@@ -1667,9 +1667,7 @@ class GitGraphView {
       this.commits = commits;
       this.commitHead = commitHead;
       if (this.commits.length > 0 && this.commits[0].hash === "*") {
-        const match = this.commits[0].message.match(/\((\d+)\)$/);
-        const count = match ? match[1] : "?";
-        this.commits[0].message = l10n.uncommittedChanges.replace("{0}", count);
+        this.commits[0] = localizeUncommittedChanges(this.commits[0]);
       }
       this.commitLookup = {};
       this.saveState();
@@ -3610,16 +3608,21 @@ class GitGraphView {
 
     return applyGraphColumnWidth;
   }
+  /** Rewrite the uncommitted-changes row in place, for a reload that changed
+   *  nothing else. Found within `#commitTable`, as the graph's reads are since
+   *  #150: a dialog can draw a row of the same class (#261). The cells match
+   *  the ones `renderTable` draws, a hidden column's included. */
   private renderUncommitedChanges() {
+    const row = this.tableElem.querySelector("tr.unsavedChanges");
+    if (row === null) return;
     let date = getCommitDate(this.commits[0].date);
-    document.getElementsByClassName("unsavedChanges")[0].innerHTML =
+    row.innerHTML =
       '<td role="gridcell"></td><td role="gridcell"><b>' +
       escapeHtml(this.commits[0].message) +
-      '</b></td><td role="gridcell" title="' +
-      date.title +
-      '">' +
-      date.value +
-      '</td><td role="gridcell" title="* <>">*</td><td role="gridcell" title="*">*</td>';
+      "</b></td>" +
+      optionalColumnCell(this.columnVisibility.date, date.title, date.value) +
+      optionalColumnCell(this.columnVisibility.author, "* &lt;&gt;", "*") +
+      optionalColumnCell(this.columnVisibility.commit, "*", "*");
   }
   /** The footer under the graph: Load More while there is more history to
    *  fetch — or the spinner that stands in for it while its page is on the way
@@ -5268,7 +5271,18 @@ class GitGraphView {
     // and clicking one did nothing at all.
     let columnWidths = this.gitRepos[this.currentRepo]?.columnWidths ?? null,
       mouseX = -1,
-      col = -1;
+      col = -1,
+      colRight = -1;
+    // A negative width is what the first drag stored for a hidden column before
+    // #261: there is nothing to apply, so lay the table out afresh, and the next
+    // drag measures every column again.
+    if (columnWidths?.some((width) => width < 0)) columnWidths = null;
+    // The handles pair each column with its nearest *displayed* neighbour. A
+    // hidden column has no edge on screen, and resizing it from a visible one's
+    // would change a width nobody can see (#261).
+    const visibleCols = Array.from(cols, (_, i) => i).filter(
+      (i) => !cols[i].classList.contains("hidden")
+    );
 
     const makeTableFixedLayout = () => {
       if (columnWidths !== null) {
@@ -5287,6 +5301,7 @@ class GitGraphView {
       // header back — and only the persistence depends on there being a repo
       // to persist against.
       col = -1;
+      colRight = -1;
       mouseX = -1;
       colHeadersElem.classList.remove("resizing");
       const repoState = this.gitRepos[this.currentRepo];
@@ -5299,11 +5314,17 @@ class GitGraphView {
       });
     };
 
-    for (let i = 0; i < cols.length; i++) {
+    // An edge's `data-col` is the column on its left; the one on its right is
+    // the next displayed column, looked up when the drag starts.
+    visibleCols.forEach((i, k) => {
       cols[i].innerHTML +=
-        (i > 0 ? '<span class="resizeCol left" data-col="' + (i - 1) + '"></span>' : "") +
-        (i < cols.length - 1 ? '<span class="resizeCol right" data-col="' + i + '"></span>' : "");
-    }
+        (k > 0
+          ? '<span class="resizeCol left" data-col="' + visibleCols[k - 1] + '"></span>'
+          : "") +
+        (k < visibleCols.length - 1
+          ? '<span class="resizeCol right" data-col="' + i + '"></span>'
+          : "");
+    });
     let applyGraphColumnWidth: () => void;
     if (columnWidths !== null) {
       makeTableFixedLayout();
@@ -5332,14 +5353,24 @@ class GitGraphView {
 
     this.addGraphListenerToClass("resizeCol", "mousedown", (e) => {
       col = parseInt((<HTMLElement>e.target).dataset.col!);
+      colRight = visibleCols[visibleCols.indexOf(col) + 1];
       mouseX = (<MouseEvent>e).clientX;
       if (columnWidths === null) {
-        columnWidths = [
-          cols[0].clientWidth - 24,
-          cols[2].clientWidth - 24,
-          cols[3].clientWidth - 24,
-          cols[4].clientWidth - 24
-        ];
+        const sized = [0, 2, 3, 4];
+        // No narrower than a drag may leave a column, and never negative.
+        const measure = (i: number) => Math.max(cols[i].clientWidth - 24, 40);
+        const widths = sized.map(measure);
+        // A hidden header measures 0, which stored as -24 (#261). Displayed for
+        // the one read, it measures what auto layout would give it — the width
+        // it should come back at. All hidden columns in one pass, so this
+        // costs a single extra layout.
+        const hidden = sized.filter((i) => !visibleCols.includes(i));
+        if (hidden.length > 0) {
+          this.tableElem.classList.add("measuringHiddenColumns");
+          for (const i of hidden) widths[widthIndex(i)] = measure(i);
+          this.tableElem.classList.remove("measuringHiddenColumns");
+        }
+        columnWidths = widths;
         makeTableFixedLayout();
       }
       colHeadersElem.classList.add("resizing");
@@ -5356,19 +5387,24 @@ class GitGraphView {
             cols[0].style.width = columnWidths[0] + "px";
             this.graph.limitMaxWidth(columnWidths[0] + 16);
             break;
-          case 1:
+          case 1: {
+            const right = widthIndex(colRight);
             if (cols[1].clientWidth + mouseDeltaX < 64) mouseDeltaX = -cols[1].clientWidth + 64;
-            if (columnWidths[1] - mouseDeltaX < 40) mouseDeltaX = columnWidths[1] - 40;
-            columnWidths[1] -= mouseDeltaX;
-            cols[2].style.width = columnWidths[1] + "px";
+            if (columnWidths[right] - mouseDeltaX < 40) mouseDeltaX = columnWidths[right] - 40;
+            columnWidths[right] -= mouseDeltaX;
+            cols[colRight].style.width = columnWidths[right] + "px";
             break;
-          default:
-            if (columnWidths[col - 1] + mouseDeltaX < 40) mouseDeltaX = -columnWidths[col - 1] + 40;
-            if (columnWidths[col] - mouseDeltaX < 40) mouseDeltaX = columnWidths[col] - 40;
-            columnWidths[col - 1] += mouseDeltaX;
-            columnWidths[col] -= mouseDeltaX;
-            cols[col].style.width = columnWidths[col - 1] + "px";
-            cols[col + 1].style.width = columnWidths[col] + "px";
+          }
+          default: {
+            const left = widthIndex(col),
+              right = widthIndex(colRight);
+            if (columnWidths[left] + mouseDeltaX < 40) mouseDeltaX = -columnWidths[left] + 40;
+            if (columnWidths[right] - mouseDeltaX < 40) mouseDeltaX = columnWidths[right] - 40;
+            columnWidths[left] += mouseDeltaX;
+            columnWidths[right] -= mouseDeltaX;
+            cols[col].style.width = columnWidths[left] + "px";
+            cols[colRight].style.width = columnWidths[right] + "px";
+          }
         }
         mouseX = mouseEvent.clientX;
       }
@@ -8291,6 +8327,33 @@ function updateBranchCleanupScanProgress(done: number, total: number, token: num
   if (running === null) return;
   running.innerHTML =
     svgIcons.loading + escapeHtml(fillTemplate(l10n.cleanupScanning, String(done), String(total)));
+}
+
+/** A cell of the Date, Author or Commit column, hidden with its header. */
+function optionalColumnCell(visible: boolean, title: string, content: string): string {
+  return (
+    '<td role="gridcell" class="' +
+    (visible ? "" : "hidden") +
+    '" title="' +
+    title +
+    '">' +
+    content +
+    "</td>"
+  );
+}
+
+/** Where the graph table's column `i` keeps its width in `columnWidths`:
+ *  Description, the one column that takes up the slack, has no entry. */
+function widthIndex(i: number): number {
+  return i === 0 ? 0 : i - 1;
+}
+
+/** The uncommitted-changes node with the host's English label ("Uncommitted
+ *  Changes (3)") swapped for the localized one. Both paths that take a new
+ *  node in run it: the redraw, and the soft reload that only rewrites the row. */
+function localizeUncommittedChanges(node: GitCommitNode): GitCommitNode {
+  const match = node.message.match(/\((\d+)\)$/);
+  return { ...node, message: fillTemplate(l10n.uncommittedChanges, match ? match[1] : "?") };
 }
 
 /** Substitute `{0}`, `{1}`, … in an l10n template. Function replacements
