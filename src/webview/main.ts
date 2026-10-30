@@ -2780,26 +2780,18 @@ class GitGraphView {
         '">' +
         graphCell +
         descCell +
-        '<td role="gridcell" class="' +
-        (hiddenDate ? "hidden" : "") +
-        '" title="' +
-        date.title +
-        '">' +
-        date.value +
-        '</td><td role="gridcell" class="' +
-        (hiddenAuthor ? "hidden" : "") +
-        '" title="' +
-        escapeHtml(this.commits[i].author + " <" + this.commits[i].email + ">") +
-        '">' +
-        this.avatarHtml(this.commits[i].email) +
-        escapeHtml(this.commits[i].author) +
-        '</td><td role="gridcell" class="' +
-        (hiddenCommit ? "hidden" : "") +
-        '" title="' +
-        escapeHtml(this.commits[i].hash) +
-        '">' +
-        abbrevCommit(this.commits[i].hash) +
-        "</td></tr>";
+        optionalColumnCell(this.columnVisibility.date, date.title, date.value) +
+        optionalColumnCell(
+          this.columnVisibility.author,
+          escapeHtml(this.commits[i].author + " <" + this.commits[i].email + ">"),
+          this.avatarHtml(this.commits[i].email) + escapeHtml(this.commits[i].author)
+        ) +
+        optionalColumnCell(
+          this.columnVisibility.commit,
+          escapeHtml(this.commits[i].hash),
+          abbrevCommit(this.commits[i].hash)
+        ) +
+        "</tr>";
     }
     // `role="grid"` rather than the implicit `table`: the rows are interactive
     // and keyboard-navigable, which is the distinction between the two roles.
@@ -3696,8 +3688,9 @@ class GitGraphView {
   }
   /** Rewrite the uncommitted-changes row in place, for a reload that changed
    *  nothing else. Found within `#commitTable`, as the graph's reads are since
-   *  #150: a dialog can draw a row of the same class (#261). The cells match
-   *  the ones `renderTable` draws, a hidden column's included. */
+   *  #150: a dialog can draw a row of the same class (#261). Its Date, Author
+   *  and Commit cells come from `optionalColumnCell`, as `renderTable`'s do,
+   *  so a hidden column stays hidden. */
   private renderUncommitedChanges() {
     const row = this.tableElem.querySelector("tr.unsavedChanges");
     if (row === null) return;
