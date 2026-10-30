@@ -149,10 +149,11 @@ type ActionResponseExtras = {
      *  integrated into the local branch. A fact, not a claim that the remote
      *  has new commits — see `isRemoteUpdatedSinceCheckoutError`. */
     remoteUpdatedSinceCheckout: boolean;
-    /** The tracking ref (`<remote>/<branch>`) git refused a force-with-lease
-     *  push for with "(stale info)": missing locally, or out of date.
-     *  Null for any other outcome — see `staleLeaseInfoRef`. */
-    staleInfoRef: string | null;
+    /** The tracking refs (`<remote>/<branch>`) git refused a force-with-lease
+     *  push for with "(stale info)": missing locally, or out of date. One per
+     *  remote refused that way, and empty for any other outcome — see
+     *  `staleLeaseInfoRefs`. */
+    staleInfoRefs: string[];
   };
 };
 

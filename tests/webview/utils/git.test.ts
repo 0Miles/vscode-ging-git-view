@@ -72,6 +72,14 @@ describe("commitNodeTooltip", () => {
   it("shows only the HEAD line for a detached HEAD with no refs", () => {
     expect(commitNodeTooltip([], true, tooltipLabels)).toBe("On HEAD");
   });
+
+  it("lists a ref name holding replacement patterns as written (#264)", () => {
+    const refs = [
+      { name: "fix/$&-$1", type: "head" },
+      { name: "v$'", type: "tag" }
+    ];
+    expect(commitNodeTooltip(refs, false, tooltipLabels)).toBe("Branches: fix/$&-$1\nTags: v$'");
+  });
 });
 
 describe("latestTagName", () => {
@@ -343,6 +351,10 @@ describe("branchFilterLabel", () => {
 
   it("returns null for an empty filter, which means show all", () => {
     expect(branchFilterLabel([], tooltip)).toBeNull();
+  });
+
+  it("names a branch holding replacement patterns as written (#264)", () => {
+    expect(branchFilterLabel(["fix/$&-$`"], tooltip)?.tooltip).toBe("Showing only:\nfix/$&-$`");
   });
 
   it("shows the branch name when a single branch is filtered", () => {

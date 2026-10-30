@@ -1363,8 +1363,8 @@ class GitGraphView {
       // refused delete went to, and currentRepo has had the host's whole
       // round-trip to move since. So the pending record carries it.
       showConfirmationDialog(
-        l10n.dialogForceDeleteBranchConfirm.replace(
-          "{0}",
+        fillTemplate(
+          l10n.dialogForceDeleteBranchConfirm,
           "<b><i>" + escapeHtml(pending.branchName) + "</i></b>"
         ),
         () =>
@@ -1662,7 +1662,7 @@ class GitGraphView {
         )
       ) {
         if (this.commits.length > 0 && this.commits[0].hash === "*") {
-          this.commits[0] = commits[0];
+          this.commits[0] = localizeUncommittedChanges(commits[0]);
           this.saveState();
           this.renderUncommitedChanges();
         }
@@ -1676,9 +1676,7 @@ class GitGraphView {
       this.commits = commits;
       this.commitHead = commitHead;
       if (this.commits.length > 0 && this.commits[0].hash === "*") {
-        const match = this.commits[0].message.match(/\((\d+)\)$/);
-        const count = match ? match[1] : "?";
-        this.commits[0].message = l10n.uncommittedChanges.replace("{0}", count);
+        this.commits[0] = localizeUncommittedChanges(this.commits[0]);
       }
       this.commitLookup = {};
       this.saveState();
@@ -2986,7 +2984,7 @@ class GitGraphView {
                 l10n.dialogAddTagTitle.replace("{0}", "<b><i>" + abbrevCommit(hash) + "</i></b>") +
                   (latestTag !== null
                     ? "<br>" +
-                      l10n.dialogAddTagLatest.replace("{0}", "<b>" + escapeHtml(latestTag) + "</b>")
+                      fillTemplate(l10n.dialogAddTagLatest, "<b>" + escapeHtml(latestTag) + "</b>")
                     : ""),
                 addTagInputs,
                 l10n.dialogAddTagSubmit,
@@ -3026,8 +3024,8 @@ class GitGraphView {
                     );
                   if (tagExists) {
                     showConfirmationDialog(
-                      l10n.dialogAddTagExists.replace(
-                        "{0}",
+                      fillTemplate(
+                        l10n.dialogAddTagExists,
                         "<b><i>" + escapeHtml(tagName) + "</i></b>"
                       ),
                       () => send(true),
@@ -3082,8 +3080,8 @@ class GitGraphView {
                   // taken name out loud.
                   if (this.currentRepo === repo && this.gitBranches.includes(branchName)) {
                     showConfirmationDialog(
-                      l10n.dialogCreateBranchExists.replace(
-                        "{0}",
+                      fillTemplate(
+                        l10n.dialogCreateBranchExists,
                         "<b><i>" + escapeHtml(branchName) + "</i></b>"
                       ),
                       () => send(true),
@@ -3277,10 +3275,11 @@ class GitGraphView {
             icon: "gitMerge",
             onClick: () => {
               showFormDialog(
-                l10n.dialogMergeConfirm
-                  .replace("{0}", `<b><i>${abbrevCommit(hash)}</i></b>`)
-                  .replace("{1}", this.currentBranchLabel()) +
-                  conflictPredictionPlaceholder(this.currentRepo!, hash),
+                fillTemplate(
+                  l10n.dialogMergeConfirm,
+                  `<b><i>${abbrevCommit(hash)}</i></b>`,
+                  this.currentBranchLabel()
+                ) + conflictPredictionPlaceholder(this.currentRepo!, hash),
                 [
                   {
                     type: "checkbox",
@@ -3503,7 +3502,7 @@ class GitGraphView {
       );
       const applyOrPop = (command: "applyStash" | "popStash", title: string) => {
         showFormDialog(
-          title.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
+          fillTemplate(title, "<b><i>" + escapeHtml(refName) + "</i></b>"),
           [
             {
               type: "checkbox",
@@ -3536,7 +3535,7 @@ class GitGraphView {
           // away with it, so the selector is bound like the other two stash
           // dialogs' ({@link forStash}).
           showConfirmationDialog(
-            l10n.dialogStashDropConfirm.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
+            fillTemplate(l10n.dialogStashDropConfirm, "<b><i>" + escapeHtml(refName) + "</i></b>"),
             this.forStash(refName, (repo) => {
               sendMessage({ command: "dropStash", repo, selector: refName });
             }),
@@ -3551,7 +3550,7 @@ class GitGraphView {
             sendMessage({ command: "renameStash", repo, selector: refName, message });
           });
           showFormDialog(
-            l10n.dialogStashRenameTitle.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
+            fillTemplate(l10n.dialogStashRenameTitle, "<b><i>" + escapeHtml(refName) + "</i></b>"),
             [{ type: "text", name: "", default: currentMessage, placeholder: null }],
             l10n.dialogStashRenameSubmit,
             (values) => {
@@ -3566,9 +3565,11 @@ class GitGraphView {
           sendMessage({ command: "tagDetails", repo: this.currentRepo!, tagName: refName });
         },
         deleteTag: () => {
-          const confirmMsg = l10n.dialogDeleteConfirm
-            .replace("{0}", l10n.labelTag)
-            .replace("{1}", "<b><i>" + escapeHtml(refName) + "</i></b>");
+          const confirmMsg = fillTemplate(
+            l10n.dialogDeleteConfirm,
+            l10n.labelTag,
+            "<b><i>" + escapeHtml(refName) + "</i></b>"
+          );
           if (this.remotes.length === 0) {
             this.confirmForRepo(
               confirmMsg,
@@ -3671,16 +3672,21 @@ class GitGraphView {
 
     return applyGraphColumnWidth;
   }
+  /** Rewrite the uncommitted-changes row in place, for a reload that changed
+   *  nothing else. Found within `#commitTable`, as the graph's reads are since
+   *  #150: a dialog can draw a row of the same class (#261). The cells match
+   *  the ones `renderTable` draws, a hidden column's included. */
   private renderUncommitedChanges() {
+    const row = this.tableElem.querySelector("tr.unsavedChanges");
+    if (row === null) return;
     let date = getCommitDate(this.commits[0].date);
-    document.getElementsByClassName("unsavedChanges")[0].innerHTML =
+    row.innerHTML =
       '<td role="gridcell"></td><td role="gridcell"><b>' +
       escapeHtml(this.commits[0].message) +
-      '</b></td><td role="gridcell" title="' +
-      date.title +
-      '">' +
-      date.value +
-      '</td><td role="gridcell" title="* <>">*</td><td role="gridcell" title="*">*</td>';
+      "</b></td>" +
+      optionalColumnCell(this.columnVisibility.date, date.title, date.value) +
+      optionalColumnCell(this.columnVisibility.author, "* &lt;&gt;", "*") +
+      optionalColumnCell(this.columnVisibility.commit, "*", "*");
   }
   /** The footer under the graph: Load More while there is more history to
    *  fetch — or the spinner that stands in for it while its page is on the way
@@ -3879,9 +3885,11 @@ class GitGraphView {
    *  opens too (#208). */
   private resetToCommitAction(hash: string, sourceElem: HTMLElement) {
     showSelectDialog(
-      l10n.dialogResetConfirm
-        .replace("{0}", this.currentBranchLabel())
-        .replace("{1}", "<b><i>" + abbrevCommit(hash) + "</i></b>"),
+      fillTemplate(
+        l10n.dialogResetConfirm,
+        this.currentBranchLabel(),
+        "<b><i>" + abbrevCommit(hash) + "</i></b>"
+      ),
       this.config.dialogResetMode,
       [
         { name: l10n.dialogResetSoft, value: "soft" },
@@ -3960,7 +3968,7 @@ class GitGraphView {
       const leaf = remote !== undefined ? refName.slice(remote.length + 1) : refName;
       const promptNewLocalBranch = (repo: string) => {
         showRefInputDialog(
-          l10n.dialogCreateBranchTitle.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
+          fillTemplate(l10n.dialogCreateBranchTitle, "<b><i>" + escapeHtml(refName) + "</i></b>"),
           leaf,
           l10n.checkoutBranch,
           (newBranch) => {
@@ -3981,7 +3989,7 @@ class GitGraphView {
         // it out directly, reset it to the remote (discarding local commits), or
         // create a new local branch under a different name.
         showSelectDialog(
-          l10n.dialogCheckoutRemoteExists.replace("{0}", "<b><i>" + escapeHtml(leaf) + "</i></b>"),
+          fillTemplate(l10n.dialogCheckoutRemoteExists, "<b><i>" + escapeHtml(leaf) + "</i></b>"),
           "existing",
           [
             { name: l10n.dialogCheckoutExistingLocal, value: "existing" },
@@ -4005,8 +4013,8 @@ class GitGraphView {
             } else if (choice === "reset") {
               // Destructive: confirm before discarding the local branch's commits.
               showConfirmationDialog(
-                l10n.dialogCheckoutResetLocalConfirm.replace(
-                  "{0}",
+                fillTemplate(
+                  l10n.dialogCheckoutResetLocalConfirm,
                   "<b><i>" + escapeHtml(leaf) + "</i></b>"
                 ),
                 () => {
@@ -4037,7 +4045,7 @@ class GitGraphView {
   }
   private renameBranchAction(refName: string) {
     showRefInputDialog(
-      l10n.dialogRenameBranchTitle.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
+      fillTemplate(l10n.dialogRenameBranchTitle, "<b><i>" + escapeHtml(refName) + "</i></b>"),
       refName,
       l10n.dialogRenameBranchSubmit,
       this.forRepo((repo, newName: string) => {
@@ -4047,9 +4055,11 @@ class GitGraphView {
     );
   }
   private deleteBranchAction(refName: string) {
-    const confirmMsg = l10n.dialogDeleteConfirm
-      .replace("{0}", l10n.labelBranch)
-      .replace("{1}", "<b><i>" + escapeHtml(refName) + "</i></b>");
+    const confirmMsg = fillTemplate(
+      l10n.dialogDeleteConfirm,
+      l10n.labelBranch,
+      "<b><i>" + escapeHtml(refName) + "</i></b>"
+    );
     if (this.remotes.length > 0) {
       // Offer to also delete the branch on the remote(s) it exists on.
       showFormDialog(
@@ -4172,9 +4182,11 @@ class GitGraphView {
                   (command.tip === null ? "" : " " + command.tip))
       );
     this.confirmForRepoAndHead(
-      l10n.dialogRebaseConfirm
-        .replace("{0}", "<b><i>" + escapeHtml(obj.label) + "</i></b>")
-        .replace("{1}", this.currentBranchLabel()) + openRebasePick(replay, range, preview),
+      fillTemplate(
+        l10n.dialogRebaseConfirm,
+        "<b><i>" + escapeHtml(obj.label) + "</i></b>",
+        this.currentBranchLabel()
+      ) + openRebasePick(replay, range, preview),
       (repo) => {
         const command = rebasePickCommand(range.tip);
         // The list stands on a reading of `obj..HEAD` taken when the dialog
@@ -4184,7 +4196,7 @@ class GitGraphView {
         // out loud when it has changed (ADR-0019).
         if (command.kind !== "unchanged" && this.commitHead !== tipHash) {
           showErrorDialog(
-            l10n.dialogHeadMoved.replace("{0}", this.currentBranchLabel()),
+            fillTemplate(l10n.dialogHeadMoved, this.currentBranchLabel()),
             null,
             null
           );
@@ -4264,7 +4276,7 @@ class GitGraphView {
         (this.currentRepo !== repo || !this.branchPointsAt(branch, range.tip))
       ) {
         showErrorDialog(
-          l10n.dialogRebaseOntoTipMoved.replace("{0}", "<b><i>" + escapeHtml(branch) + "</i></b>"),
+          fillTemplate(l10n.dialogRebaseOntoTipMoved, "<b><i>" + escapeHtml(branch) + "</i></b>"),
           null,
           null
         );
@@ -4361,7 +4373,7 @@ class GitGraphView {
   }
   private fastForwardBranchAction(refName: string) {
     this.confirmForRepo(
-      l10n.dialogFastForwardConfirm.replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>"),
+      fillTemplate(l10n.dialogFastForwardConfirm, "<b><i>" + escapeHtml(refName) + "</i></b>"),
       (repo) => {
         sendMessage({
           command: "fastForwardBranch",
@@ -4376,9 +4388,11 @@ class GitGraphView {
     const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
     this.confirmForRepoAndHead(
-      l10n.dialogPullConfirm
-        .replace("{0}", "<b><i>" + escapeHtml(refName) + "</i></b>")
-        .replace("{1}", this.currentBranchLabel()),
+      fillTemplate(
+        l10n.dialogPullConfirm,
+        "<b><i>" + escapeHtml(refName) + "</i></b>",
+        this.currentBranchLabel()
+      ),
       (repo) => {
         sendMessage({
           command: "pullBranch",
@@ -4395,8 +4409,8 @@ class GitGraphView {
     const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
     showFormDialog(
-      l10n.dialogFetchIntoLocalBranchTitle.replace(
-        "{0}",
+      fillTemplate(
+        l10n.dialogFetchIntoLocalBranchTitle,
         "<b><i>" + escapeHtml(refName) + "</i></b>"
       ),
       [
@@ -4432,8 +4446,8 @@ class GitGraphView {
     const parts = splitDisplayRemoteRef(refName);
     if (parts === null) return;
     this.confirmForRepo(
-      l10n.dialogDeleteRemoteBranchConfirm.replace(
-        "{0}",
+      fillTemplate(
+        l10n.dialogDeleteRemoteBranchConfirm,
         "<b><i>" + escapeHtml(refName) + "</i></b>"
       ),
       (repo) => {
@@ -4580,7 +4594,7 @@ class GitGraphView {
       const refs = skipped.filter((s) => s.reason === reason).map((s) => s.ref);
       return refs.length === 0
         ? ""
-        : "<br><br>" + noteTemplate.replace("{0}", this.batchRefNames(refs));
+        : "<br><br>" + fillTemplate(noteTemplate, this.batchRefNames(refs));
     };
     return (
       template.replace("{0}", String(targets.length)) +
@@ -4630,12 +4644,10 @@ class GitGraphView {
         // a single push explains it (ADR-0025). Each ref keeps git's own line;
         // no force round is offered.
         failureNote: (failed) => {
-          const staleInfoRefs = failed.flatMap((r) => r.staleInfoRef ?? []);
-          const notes = [
-            failed.some((r) => r.remoteUpdatedSinceCheckout) ? leaseRefusedExplanation() : null,
-            staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
-          ].filter((note) => note !== null);
-          return notes.length > 0 ? notes.join("<br>") : null;
+          return leaseRefusalNote(
+            failed.some((r) => r.remoteUpdatedSinceCheckout),
+            failed.flatMap((r) => r.staleInfoRefs)
+          );
         }
       },
       fastForwardBranches: {
@@ -5021,7 +5033,7 @@ class GitGraphView {
       // repo anyway" — that answer needs a premise about the captured repo,
       // and a repo switch is exactly what takes it away.
       if (this.currentRepo !== repo || this.gitBranchHead !== head) {
-        showErrorDialog(l10n.dialogHeadMoved.replace("{0}", branchLabel(head)), null, null);
+        showErrorDialog(fillTemplate(l10n.dialogHeadMoved, branchLabel(head)), null, null);
         return;
       }
       actioned(repo, ...answer);
@@ -5055,7 +5067,7 @@ class GitGraphView {
     const stashHash = this.stashNodeFor(selector)?.hash;
     return this.forRepo((repo, ...answer: A) => {
       if (this.stashNodeFor(selector)?.hash !== stashHash) {
-        showErrorDialog(l10n.dialogStashMoved.replace("{0}", escapeHtml(selector)), null, null);
+        showErrorDialog(fillTemplate(l10n.dialogStashMoved, escapeHtml(selector)), null, null);
         return;
       }
       actioned(repo, ...answer);
@@ -5086,7 +5098,7 @@ class GitGraphView {
     }
     const gone = remotes.find((remote) => !this.remotes.includes(remote));
     if (gone !== undefined) {
-      showErrorDialog(l10n.dialogPushRemoteGone.replace("{0}", escapeHtml(gone)), null, null);
+      showErrorDialog(fillTemplate(l10n.dialogPushRemoteGone, escapeHtml(gone)), null, null);
       return false;
     }
     return true;
@@ -5095,10 +5107,11 @@ class GitGraphView {
    *  prompting for the no-fast-forward / squash / no-commit options. */
   private mergeBranchAction(branchName: string) {
     showFormDialog(
-      l10n.dialogMergeConfirm
-        .replace("{0}", "<b><i>" + escapeHtml(branchName) + "</i></b>")
-        .replace("{1}", this.currentBranchLabel()) +
-        conflictPredictionPlaceholder(this.currentRepo!, branchName),
+      fillTemplate(
+        l10n.dialogMergeConfirm,
+        "<b><i>" + escapeHtml(branchName) + "</i></b>",
+        this.currentBranchLabel()
+      ) + conflictPredictionPlaceholder(this.currentRepo!, branchName),
       [
         {
           type: "checkbox",
@@ -5213,8 +5226,8 @@ class GitGraphView {
     const boldName = "<b><i>" + escapeHtml(branchName) + "</i></b>";
     this.showPushForm(
       {
-        oneRemote: l10n.dialogPushBranchConfirm.replace("{0}", boldName),
-        manyRemotes: l10n.dialogPushBranchSelectRemote.replace("{0}", boldName)
+        oneRemote: fillTemplate(l10n.dialogPushBranchConfirm, boldName),
+        manyRemotes: fillTemplate(l10n.dialogPushBranchSelectRemote, boldName)
       },
       "pushBranchForce",
       (repo, remotes, forceMode) => {
@@ -5250,7 +5263,7 @@ class GitGraphView {
       const remotes = [...this.remotes];
       if (remotes.length === 1) {
         showConfirmationDialog(
-          l10n.dialogPushTagConfirm.replace("{0}", "<b><i>" + escapeHtml(tagName) + "</i></b>"),
+          fillTemplate(l10n.dialogPushTagConfirm, "<b><i>" + escapeHtml(tagName) + "</i></b>"),
           () => push(repo, remotes),
           null
         );
@@ -5262,10 +5275,7 @@ class GitGraphView {
           value: r === this.defaultPushRemote()
         }));
         showFormDialog(
-          l10n.dialogPushTagSelectRemote.replace(
-            "{0}",
-            "<b><i>" + escapeHtml(tagName) + "</i></b>"
-          ),
+          fillTemplate(l10n.dialogPushTagSelectRemote, "<b><i>" + escapeHtml(tagName) + "</i></b>"),
           remoteInputs,
           l10n.pushTag,
           (values) =>
@@ -5283,7 +5293,7 @@ class GitGraphView {
       chooseRemoteAndPush(this.currentRepo!);
     } else {
       showConfirmationDialog(
-        l10n.dialogPushTagNotOnRemote.replace("{0}", "<b><i>" + escapeHtml(tagName) + "</i></b>"),
+        fillTemplate(l10n.dialogPushTagNotOnRemote, "<b><i>" + escapeHtml(tagName) + "</i></b>"),
         this.forRepo(chooseRemoteAndPush),
         null
       );
@@ -5329,7 +5339,18 @@ class GitGraphView {
     // and clicking one did nothing at all.
     let columnWidths = this.gitRepos[this.currentRepo]?.columnWidths ?? null,
       mouseX = -1,
-      col = -1;
+      col = -1,
+      colRight = -1;
+    // A negative width is what the first drag stored for a hidden column before
+    // #261: there is nothing to apply, so lay the table out afresh, and the next
+    // drag measures every column again.
+    if (columnWidths?.some((width) => width < 0)) columnWidths = null;
+    // The handles pair each column with its nearest *displayed* neighbour. A
+    // hidden column has no edge on screen, and resizing it from a visible one's
+    // would change a width nobody can see (#261).
+    const visibleCols = Array.from(cols, (_, i) => i).filter(
+      (i) => !cols[i].classList.contains("hidden")
+    );
 
     const makeTableFixedLayout = () => {
       if (columnWidths !== null) {
@@ -5348,6 +5369,7 @@ class GitGraphView {
       // header back — and only the persistence depends on there being a repo
       // to persist against.
       col = -1;
+      colRight = -1;
       mouseX = -1;
       colHeadersElem.classList.remove("resizing");
       const repoState = this.gitRepos[this.currentRepo];
@@ -5360,11 +5382,17 @@ class GitGraphView {
       });
     };
 
-    for (let i = 0; i < cols.length; i++) {
+    // An edge's `data-col` is the column on its left; the one on its right is
+    // the next displayed column, looked up when the drag starts.
+    visibleCols.forEach((i, k) => {
       cols[i].innerHTML +=
-        (i > 0 ? '<span class="resizeCol left" data-col="' + (i - 1) + '"></span>' : "") +
-        (i < cols.length - 1 ? '<span class="resizeCol right" data-col="' + i + '"></span>' : "");
-    }
+        (k > 0
+          ? '<span class="resizeCol left" data-col="' + visibleCols[k - 1] + '"></span>'
+          : "") +
+        (k < visibleCols.length - 1
+          ? '<span class="resizeCol right" data-col="' + i + '"></span>'
+          : "");
+    });
     let applyGraphColumnWidth: () => void;
     if (columnWidths !== null) {
       makeTableFixedLayout();
@@ -5393,14 +5421,24 @@ class GitGraphView {
 
     this.addGraphListenerToClass("resizeCol", "mousedown", (e) => {
       col = parseInt((<HTMLElement>e.target).dataset.col!);
+      colRight = visibleCols[visibleCols.indexOf(col) + 1];
       mouseX = (<MouseEvent>e).clientX;
       if (columnWidths === null) {
-        columnWidths = [
-          cols[0].clientWidth - 24,
-          cols[2].clientWidth - 24,
-          cols[3].clientWidth - 24,
-          cols[4].clientWidth - 24
-        ];
+        const sized = [0, 2, 3, 4];
+        // No narrower than a drag may leave a column, and never negative.
+        const measure = (i: number) => Math.max(cols[i].clientWidth - 24, 40);
+        const widths = sized.map(measure);
+        // A hidden header measures 0, which stored as -24 (#261). Displayed for
+        // the one read, it measures what auto layout would give it — the width
+        // it should come back at. All hidden columns in one pass, so this
+        // costs a single extra layout.
+        const hidden = sized.filter((i) => !visibleCols.includes(i));
+        if (hidden.length > 0) {
+          this.tableElem.classList.add("measuringHiddenColumns");
+          for (const i of hidden) widths[widthIndex(i)] = measure(i);
+          this.tableElem.classList.remove("measuringHiddenColumns");
+        }
+        columnWidths = widths;
         makeTableFixedLayout();
       }
       colHeadersElem.classList.add("resizing");
@@ -5417,19 +5455,24 @@ class GitGraphView {
             cols[0].style.width = columnWidths[0] + "px";
             this.graph.limitMaxWidth(columnWidths[0] + 16);
             break;
-          case 1:
+          case 1: {
+            const right = widthIndex(colRight);
             if (cols[1].clientWidth + mouseDeltaX < 64) mouseDeltaX = -cols[1].clientWidth + 64;
-            if (columnWidths[1] - mouseDeltaX < 40) mouseDeltaX = columnWidths[1] - 40;
-            columnWidths[1] -= mouseDeltaX;
-            cols[2].style.width = columnWidths[1] + "px";
+            if (columnWidths[right] - mouseDeltaX < 40) mouseDeltaX = columnWidths[right] - 40;
+            columnWidths[right] -= mouseDeltaX;
+            cols[colRight].style.width = columnWidths[right] + "px";
             break;
-          default:
-            if (columnWidths[col - 1] + mouseDeltaX < 40) mouseDeltaX = -columnWidths[col - 1] + 40;
-            if (columnWidths[col] - mouseDeltaX < 40) mouseDeltaX = columnWidths[col] - 40;
-            columnWidths[col - 1] += mouseDeltaX;
-            columnWidths[col] -= mouseDeltaX;
-            cols[col].style.width = columnWidths[col - 1] + "px";
-            cols[col + 1].style.width = columnWidths[col] + "px";
+          }
+          default: {
+            const left = widthIndex(col),
+              right = widthIndex(colRight);
+            if (columnWidths[left] + mouseDeltaX < 40) mouseDeltaX = -columnWidths[left] + 40;
+            if (columnWidths[right] - mouseDeltaX < 40) mouseDeltaX = columnWidths[right] - 40;
+            columnWidths[left] += mouseDeltaX;
+            columnWidths[right] -= mouseDeltaX;
+            cols[col].style.width = columnWidths[left] + "px";
+            cols[colRight].style.width = columnWidths[right] + "px";
+          }
         }
         mouseX = mouseEvent.clientX;
       }
@@ -7499,9 +7542,11 @@ class GitGraphView {
           icon: "history",
           onClick: () => {
             this.confirmForRepo(
-              l10n.dialogResetFileConfirm
-                .replace("{0}", "<b><i>" + escapeHtml(filePath) + "</i></b>")
-                .replace("{1}", "<b><i>" + abbrevCommit(commitHash) + "</i></b>"),
+              fillTemplate(
+                l10n.dialogResetFileConfirm,
+                "<b><i>" + escapeHtml(filePath) + "</i></b>",
+                "<b><i>" + abbrevCommit(commitHash) + "</i></b>"
+              ),
               (repo) => {
                 sendMessage({
                   command: "resetFileToRevision",
@@ -8484,12 +8529,43 @@ function updateBranchCleanupScanProgress(done: number, total: number, token: num
     svgIcons.loading + escapeHtml(fillTemplate(l10n.cleanupScanning, String(done), String(total)));
 }
 
-/** Substitute `{0}`, `{1}`, … in an l10n template. Function replacements
- *  throughout: the values are branch names and commit text, which may contain
- *  `$&` or `$'` — a string replacement would expand those, and `escapeHtml`
- *  leaves `$` alone. */
+/** A cell of the Date, Author or Commit column, hidden with its header. */
+function optionalColumnCell(visible: boolean, title: string, content: string): string {
+  return (
+    '<td role="gridcell" class="' +
+    (visible ? "" : "hidden") +
+    '" title="' +
+    title +
+    '">' +
+    content +
+    "</td>"
+  );
+}
+
+/** Where the graph table's column `i` keeps its width in `columnWidths`:
+ *  Description, the one column that takes up the slack, has no entry. */
+function widthIndex(i: number): number {
+  return i === 0 ? 0 : i - 1;
+}
+
+/** The uncommitted-changes node with the host's English label ("Uncommitted
+ *  Changes (3)") swapped for the localized one. Both paths that take a new
+ *  node in run it: the redraw, and the soft reload that only rewrites the row. */
+function localizeUncommittedChanges(node: GitCommitNode): GitCommitNode {
+  const match = node.message.match(/\((\d+)\)$/);
+  return { ...node, message: fillTemplate(l10n.uncommittedChanges, match ? match[1] : "?") };
+}
+
+/** Substitute `{0}`, `{1}`, … in an l10n template. Every template that takes
+ *  a ref name, a file path or commit text goes through here rather than
+ *  `.replace("{0}", value)` (#264). A function replacement: those values may
+ *  contain `$&` or `$'`, which a string replacement would expand, and
+ *  `escapeHtml` leaves `$` alone. And one pass, so a value holding "{1}"
+ *  itself is not filled in turn. */
 function fillTemplate(template: string, ...values: string[]): string {
-  return values.reduce((text, value, i) => text.replace("{" + i + "}", () => value), template);
+  return template.replace(/\{(\d+)\}/g, (placeholder, i: string) =>
+    Number(i) < values.length ? values[Number(i)] : placeholder
+  );
 }
 
 /**
@@ -8966,7 +9042,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
       break;
     case "pushBranch":
-      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout, msg.staleInfoRef);
+      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout, msg.staleInfoRefs);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -9166,21 +9242,29 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
  *  "remote ref updated since checkout", names no next step — with git's line
  *  kept beneath it. So does one refused for "(stale info)", which names only
  *  the remote's URL. The explanation names the Force option instead of offering
- *  it: overwriting someone's work stays a separate, deliberate choice. */
+ *  it: overwriting someone's work stays a separate, deliberate choice. Pushed
+ *  to several remotes, each may have refused for its own reason (#264), so
+ *  every reason that applies is explained. */
 function handlePushBranchResponse(
   status: GitCommandStatus,
   remoteUpdatedSinceCheckout: boolean,
-  staleInfoRef: string | null
+  staleInfoRefs: string[]
 ) {
-  const explanation = remoteUpdatedSinceCheckout
-    ? leaseRefusedExplanation()
-    : staleInfoRef !== null
-      ? leaseStaleInfoExplanation([staleInfoRef])
-      : null;
+  const explanation = leaseRefusalNote(remoteUpdatedSinceCheckout, staleInfoRefs);
   refreshGraphOrDisplayError(
     status,
     explanation === null ? l10n.unableToPushBranch : l10n.unableToPushBranch + "<br>" + explanation
   );
+}
+
+/** Each kind of lease refusal explained once, or null when there was none.
+ *  Shared by the single push and the batch push summary. */
+function leaseRefusalNote(remoteUpdatedSinceCheckout: boolean, staleInfoRefs: string[]) {
+  const notes = [
+    remoteUpdatedSinceCheckout ? leaseRefusedExplanation() : null,
+    staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
+  ].filter((note) => note !== null);
+  return notes.length > 0 ? notes.join("<br>") : null;
 }
 
 /** Why a Force with lease was refused for an unintegrated remote tip, and what
