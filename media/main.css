@@ -28,12 +28,9 @@ html {
   --ging-controls-height: 32px;
   --ging-col-headers-height: 31px;
   --ging-frozen-header-height: calc(var(--ging-controls-height) + var(--ging-col-headers-height));
-  /* The Commit Details View docked to the bottom: the whole strip it covers,
-     its 2px top border included. The bottom-edge counterpart of the frozen
-     header — the panel's height, the room left under the graph for it, and the
-     rows' bottom scroll margin all need the same number. Anything that resizes
-     the panel must resize it through this, here at the root where the rows
-     can see it, or their margin goes on clearing the old height. */
+  /* The Commit Details View docked to the bottom (#217): the whole strip it
+     covers, its 2px top border included. The panel's height, the room left
+     under the graph for it, and the rows' bottom scroll margin all use it. */
   --ging-docked-cdv-height: 254px;
 }
 body {

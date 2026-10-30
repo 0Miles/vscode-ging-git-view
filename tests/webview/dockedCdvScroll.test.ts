@@ -9,12 +9,11 @@ import { VIEWPORT_HEIGHT, createVscodeMock, makeViewState, receive, setupHtml } 
  * the frozen header at the top (#206). Page Up/Down's screenful is what is
  * left between the two (#217).
  *
- * jsdom does no layout, so both heights are declared: the header's through
- * the rows' scroll margin, as frozenHeader.test.ts does, and the panel's
- * through its own box, which is what the webview measures — the panel's
- * height is not a number the arithmetic may keep a copy of. 254 is the 252px
- * panel and its 2px top border. One webview per file (#80): the location is
- * read at boot. */
+ * jsdom does no layout, so both heights are declared the way main.css
+ * declares them, through the rows' scroll margins — see the note atop
+ * frozenHeader.test.ts. The bottom one applies only while the panel is
+ * docked, as main.css's does. 254 is the 252px panel and its 2px top border.
+ * One webview per file (#80): the location is read at boot. */
 const FROZEN = 63;
 const DOCKED = 254;
 const OVERLAP = 48;
@@ -52,12 +51,6 @@ function press(key: string) {
   document.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 }
 
-/** Give the docked panel a laid-out height. */
-function sizePanel(height: number) {
-  const panel = document.getElementById("commitDetails")!;
-  panel.getBoundingClientRect = () => ({ height }) as DOMRect;
-}
-
 describe("Page Up/Down with the Commit Details View docked to the bottom", () => {
   const frozenStyle = document.createElement("style");
   const scrollBy = vi.fn();
@@ -74,7 +67,9 @@ describe("Page Up/Down with the Commit Details View docked to the bottom", () =>
     vi.resetModules();
     createVscodeMock();
     setupHtml(viewState);
-    frozenStyle.textContent = `#commitTable tr { scroll-margin-top: ${FROZEN}px; }`;
+    frozenStyle.textContent =
+      `#commitTable tr { scroll-margin-top: ${FROZEN}px; }` +
+      `body.cdvDocked #commitTable tr { scroll-margin-bottom: ${DOCKED}px; }`;
     document.head.appendChild(frozenStyle);
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     window.scrollBy = scrollBy as unknown as typeof window.scrollBy;
@@ -108,16 +103,10 @@ describe("Page Up/Down with the Commit Details View docked to the bottom", () =>
     row("aaa111").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     receive({ command: "commitDetails", commitDetails: details });
     expect(document.getElementById("commitDetails")!.classList.contains("docked")).toBe(true);
-    sizePanel(DOCKED);
 
     const screenful = VIEWPORT_HEIGHT - FROZEN - DOCKED - OVERLAP;
     expect(stepOf("PageDown")).toBe(screenful);
     expect(stepOf("PageUp")).toBe(-screenful);
-  });
-
-  it("follows the panel's height as laid out, not a number of its own", () => {
-    sizePanel(DOCKED + 100);
-    expect(stepOf("PageDown")).toBe(VIEWPORT_HEIGHT - FROZEN - DOCKED - 100 - OVERLAP);
   });
 
   it("jumps by the whole space below the header again once the panel is closed", () => {
