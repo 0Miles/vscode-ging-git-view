@@ -68,7 +68,7 @@ describe("a refused push", () => {
   });
 
   // Refused before the integration check: there is no tracking ref, or it is
-  // behind the remote. "Fetch" alone would only lead to the refusal above.
+  // out of date. "Fetch" alone would only lead to the refusal above.
   it("explains stale info by naming the tracking ref, and asks to integrate, not just fetch", () => {
     const staleLine = "[rejected]        main -> main (stale info)";
     receive({
@@ -81,6 +81,9 @@ describe("a refused push", () => {
     const text = dialogText();
     expect(text).toContain(L.unableToPushBranch);
     expect(text).toContain("Git has no up-to-date state of origin/main");
+    // The bundle's own term, and "out of date": a rewound or diverged remote
+    // is stale info too, not only one the tracking ref is behind.
+    expect(text).toContain("no remote-tracking reference for it here, or it is out of date.");
     expect(text).toContain("Fetch the remote and integrate its commits (pull or rebase)");
     expect(text).toContain(`To overwrite anyway, choose ${L.dialogPushForceForce}.`);
     expect(text).not.toMatch(/\{\d\}/);

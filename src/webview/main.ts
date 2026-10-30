@@ -8511,7 +8511,7 @@ function leaseRefusedExplanation(): string {
 }
 
 /** Why a Force with lease was refused for "(stale info)" — the tracking refs
- *  named are missing locally or behind their remote — and what to do about it.
+ *  named are missing locally or out of date — and what to do about it.
  *  Asks to integrate, not just fetch: a fetch alone only trades this refusal
  *  for {@link leaseRefusedExplanation}'s (ADR-0025). Shared like that one. */
 function leaseStaleInfoExplanation(trackingRefs: string[]): string {
