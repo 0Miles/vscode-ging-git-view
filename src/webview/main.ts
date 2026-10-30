@@ -1242,24 +1242,27 @@ class GitGraphView {
    *  repo picks the new defaults up the next time it is switched to, since the
    *  host resolves the scope afresh on every load.
    *
-   *  Recognised by comparison, like the repo state {@link loadRepos} receives,
-   *  and for the same reason it is a navigation that does not shrink the
-   *  loaded commit window: it arrives from outside the panel, as a fact rather
-   *  than as a call (ADR-0024). */
-  public setRepoSettingDefaults(defaults: GG.RepoSettingDefaults) {
-    const before = viewState.repoSettingDefaults;
+   *  It arrives from outside the panel, as a fact rather than as a call, so it
+   *  is a navigation that leaves the loaded commit window where the user put
+   *  it, as the repo state {@link loadRepos} recognises does (ADR-0024). */
+  public setRepoSettingDefaults(
+    defaults: GG.RepoSettingDefaults,
+    showRemoteBranches: boolean,
+    changed: GG.RepoSettingField[]
+  ) {
     viewState.repoSettingDefaults = defaults;
+    this.config.showRemoteBranches = showRemoteBranches;
+    this.applyShowRemoteBranchesForRepo();
+    this.saveState();
     this.refreshRepoSettings();
     const state = this.gitRepos[this.currentRepo];
     if (state === undefined) return;
-    const moved = REPO_SETTING_TOGGLES.some(
-      (t) =>
-        t.reload === "commits" &&
-        t.field !== "showRemoteBranches" &&
-        before[t.field] !== defaults[t.field] &&
-        (state[t.field] ?? null) === null
-    );
-    if (moved) this.navigateReload();
+    const steersLoad = (field: GG.RepoSettingField) =>
+      field === "commitOrdering" ||
+      (REPO_SETTING_TOGGLES.find((t) => t.field === field)?.reload ?? null) !== null;
+    if (changed.some((field) => steersLoad(field) && (state[field] ?? null) === null)) {
+      this.navigateReload();
+    }
   }
 
   /** Send a branch-deletion request, remembering its parameters so a failed
@@ -8294,7 +8297,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.setScmMultiRepoSelection(msg.enabled);
       break;
     case "setRepoSettingDefaults":
-      gitGraph.setRepoSettingDefaults(msg.defaults);
+      gitGraph.setRepoSettingDefaults(msg.defaults, msg.showRemoteBranches, msg.changed);
       break;
     case "runRefAction":
       gitGraph.runRefAction(msg);

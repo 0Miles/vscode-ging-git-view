@@ -62,11 +62,17 @@ const commitsResponse: GG.ResponseMessage = {
 };
 
 let mock: ReturnType<typeof createVscodeMock>;
-let pushed: GG.RepoSettingDefaults = { ...defaults };
+let pushed = { ...defaults, showRemoteBranches: viewState.showRemoteBranches };
 
-function pushDefaults(changes: Partial<GG.RepoSettingDefaults>) {
+/** As the host sends it: every default now in force, and the settings that
+ *  moved — by default, the ones whose values are given. */
+function pushDefaults(
+  changes: Partial<typeof pushed>,
+  changed = Object.keys(changes) as GG.RepoSettingField[]
+) {
   pushed = { ...pushed, ...changes };
-  receive({ command: "setRepoSettingDefaults", defaults: pushed });
+  const { showRemoteBranches, ...rest } = pushed;
+  receive({ command: "setRepoSettingDefaults", defaults: rest, showRemoteBranches, changed });
 }
 
 function reloadsSent() {
@@ -159,16 +165,38 @@ describe("a Repository Setting default changed in VS Code's settings", () => {
     });
   });
 
-  describe("defaults that arrive unchanged", () => {
-    it("leave the graph alone", () => {
+  describe("the commit order, which the repo has not overridden", () => {
+    it("reloads the graph, though the panel holds no copy of it", () => {
       mock.clearMessages();
-      pushDefaults({});
-      expect(reloadsSent()).toBe(0);
+      pushDefaults({}, ["commitOrdering"]);
+      expect(mock.sentOf("loadBranches")).toHaveLength(1);
+      receive(branchesResponse);
+      receive(commitsResponse);
+    });
+  });
+
+  describe("Show remote branches, which the repo has not overridden", () => {
+    beforeAll(() => {
+      mock.clearMessages();
+      pushDefaults({ showRemoteBranches: !viewState.showRemoteBranches });
+    });
+
+    it("reloads the graph", () => {
+      expect(mock.sentOf("loadBranches")).toHaveLength(1);
+      receive(branchesResponse);
+      receive(commitsResponse);
+    });
+
+    it("shows the new default in the open drawer", () => {
+      expect(checkbox(L.repoSettingsShowRemoteBranches).checked).toBe(
+        !viewState.showRemoteBranches
+      );
     });
   });
 
   describe("while a load is still in flight", () => {
     it("abandons it and reloads, rather than being refused by it", () => {
+      mock.clearMessages();
       receive({ command: "refresh" });
       expect(mock.sentOf("loadBranches")).toHaveLength(1);
       mock.clearMessages();
