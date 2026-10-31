@@ -27,6 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Marketplace Trusted Publishing: vsce trades the job's OIDC token for a
+      # short-lived publish credential, so no PAT is stored. The publisher's
+      # "Release workflow" policy names this repository and release.yml.
+      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -36,13 +40,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test
+      # vsce 4 needs Node 22; --oidc arrived in 4.1.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
       # dependencies are bundled by esbuild and pnpm's node_modules layout
       # cannot be scanned by vsce, so --no-dependencies is required
-      - run: npx @vscode/vsce package --no-dependencies
+      - run: npx @vscode/vsce@4.1.0 package --no-dependencies
       - name: Publish to VS Code Marketplace
-        run: npx @vscode/vsce publish --no-dependencies --packagePath ./*.vsix
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx @vscode/vsce@4.1.0 publish --oidc --no-dependencies --packagePath ./*.vsix
       - name: Upload .vsix to the GitHub Release
         run: gh release upload "${{ needs.release-please.outputs.tag_name }}" ./*.vsix
         env:
