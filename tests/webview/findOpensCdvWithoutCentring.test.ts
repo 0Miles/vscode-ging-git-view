@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@/backend/types";
 
-import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import { clickId, createVscodeMock, makeViewState, receive, search, setupHtml } from "./setup";
 
 /* findOpensDockedCdv.test.ts with "Center Commit Details View" off. Then the
  * opening only brings the row out from under the panel, and centring the
@@ -60,9 +60,7 @@ describe("Find opening a Commit Details View with centring off", () => {
     clickId("findOpenCdv");
     centred.length = 0;
     mock.clearMessages();
-    const input = document.getElementById("findInput") as HTMLInputElement;
-    input.value = "Commit bbb";
-    input.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true }));
+    search("Commit bbb");
   });
 
   it("centres the match itself, and asks for its details", () => {

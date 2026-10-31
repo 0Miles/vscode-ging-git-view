@@ -83,6 +83,16 @@ export function rmrf(dir: string): void {
   }
 }
 
+/** The error `op` rejects with, failing the test when it resolves instead. */
+export async function rejection(op: Promise<unknown>): Promise<unknown> {
+  try {
+    await op;
+  } catch (e: unknown) {
+    return e;
+  }
+  throw new Error("expected the operation to fail");
+}
+
 /** Repo paths handed to the backend always use "/" separators (see
  *  `getPathFromUri`), and git reports them that way too. `path.join` yields "\"
  *  on Windows, so normalise before comparing against either. */
@@ -115,11 +125,13 @@ const REPO_CONFIG = `[user]
  *
  * Keep the git spawns to a minimum. Inside the VS Code extension host on Windows
  * each one costs 100–250ms, and the extension tests called this from a `setup`
- * hook with Mocha's 2000ms budget; the nine spawns this used to take went over
- * it under load (#116), and later the three it takes now did too (#283), so
- * those hooks use `copyRepo` instead. The config is appended to `.git/config`
- * directly instead of one `git config` per key, and `--template=` skips copying
- * the sample hooks, which also keeps the `fs.cpSync` copies small.
+ * hook with Mocha's 2000ms budget. The nine spawns this used to take went over
+ * that under load (#116). The three it takes now can still go over it (#283),
+ * so those suites make one seed in `suiteSetup` and `copyRepo` it per test.
+ *
+ * The config is appended to `.git/config` directly instead of one `git config`
+ * per key, and `--template=` skips copying the sample hooks, which also keeps
+ * the `fs.cpSync` copies small.
  *
  * `init -b` needs git 2.28; setup.ts already relies on GIT_CONFIG_COUNT (2.31).
  */

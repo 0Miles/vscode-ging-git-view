@@ -9,9 +9,12 @@ import {
   compareRows,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogText,
   graphRow,
   makeViewState,
+  openDetailsOn,
   receive,
+  rightClick,
   setupHtml
 } from "./setup";
 
@@ -65,7 +68,7 @@ const commits: GitCommitNode[] = [
 ];
 
 function openMenu(hash: string) {
-  graphRow(hash).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  rightClick(graphRow(hash));
 }
 
 /** The hashes the checklist is showing, top row first. */
@@ -90,24 +93,14 @@ function printedCommand() {
   return document.querySelector("#dialog .commandPreview")!.textContent;
 }
 
-function dialogText() {
-  return document.getElementById("dialog")!.textContent ?? "";
-}
-
 describe("the rebase dialog's replay checklist", () => {
   let mock: ReturnType<typeof createVscodeMock>;
 
   /** Leave any comparison a previous test set up behind, so the rebase entries
    *  read and behave as the plain rebase again (#173). Expanding one commit's
-   *  details is what clears the compared row; the retry is `compareRows`'s, for
-   *  the same reason — a click on the already-anchored row closes the view. */
+   *  details is what clears the compared row. */
   function noComparison() {
-    const click = () => graphRow("base").dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    const opened = () =>
-      mock.sentMessages.some((m) => m.command === "commitDetails" && m.commitHash === "base");
-    click();
-    if (!opened()) click();
-    expect(opened(), "details never opened on base").toBe(true);
+    openDetailsOn("base");
   }
 
   beforeAll(async () => {

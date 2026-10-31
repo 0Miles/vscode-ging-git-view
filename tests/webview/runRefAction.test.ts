@@ -3,9 +3,10 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 
 import {
-  DEFAULT_REPO,
   clickId,
   createVscodeMock,
+  DEFAULT_REPO,
+  dialogText,
   makeViewState,
   receive,
   setupHtml
@@ -38,10 +39,6 @@ const commits: GitCommitNode[] = [
     ]
   }
 ];
-
-function dialogText(): string {
-  return document.getElementById("dialog")!.textContent ?? "";
-}
 
 function dismissDialog() {
   document.getElementById("dialogDismiss")?.dispatchEvent(new MouseEvent("click"));

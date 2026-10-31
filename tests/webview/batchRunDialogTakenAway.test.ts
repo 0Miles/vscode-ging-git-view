@@ -7,6 +7,7 @@ import {
   clickId,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogText,
   makeViewState,
   receive,
   setupHtml
@@ -69,10 +70,6 @@ const commits: GitCommitNode[] = [
     ]
   }
 ];
-
-function dialogText(): string {
-  return document.getElementById("dialog")!.textContent ?? "";
-}
 
 function confirmDialog() {
   clickId("dialogAction");

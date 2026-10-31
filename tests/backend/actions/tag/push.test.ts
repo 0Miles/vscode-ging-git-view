@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { pushTag } from "@/backend/actions/tag";
 import { formatGitError } from "@/backend/utils/gitError";
 
-import { bareGit, makeRepo, rmrf } from "@tests/backend/helpers";
+import { bareGit, makeRepo, rejection, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 let bare: string;
@@ -48,15 +48,6 @@ describe("pushTag", () => {
 // Each remote is pushed and heard from on its own, as `pushBranch` does since
 // #264: stopping at the first refusal named one remote and answered while the
 // others were still pushing.
-async function rejection(push: Promise<void>): Promise<unknown> {
-  try {
-    await push;
-  } catch (e: unknown) {
-    return e;
-  }
-  throw new Error("expected the push to be rejected");
-}
-
 describe("pushTag to several remotes", () => {
   it("still pushes to every other remote, and reports the one refusal as it is", async () => {
     cp.execFileSync("git", ["tag", "v2.0"], { cwd: repo });

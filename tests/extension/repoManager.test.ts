@@ -6,7 +6,9 @@ import { ExtensionState } from "@/extensionState";
 import { StatusBarItem } from "@/statusBarItem";
 import { GitRepoSet } from "@/types";
 
-import { copyRepo, makeRepo, rmrf, SEED_TIMEOUT_MS } from "@tests/backend/helpers";
+import { rmrf } from "@tests/backend/helpers";
+
+import { useSeededRepo } from "./helpers";
 
 function makeManager(initialRepos: GitRepoSet = {}) {
   const store = { repos: { ...initialRepos } };
@@ -189,28 +191,9 @@ suite("repoManager", () => {
   });
 
   suite("checkReposExist", () => {
-    let seed: string;
     let repo: string;
-
-    // The three spawns are paid once, in a hook given room for them; each test's
-    // `setup` then copies the seed for one spawn (#283).
-    suiteSetup(function () {
-      this.timeout(SEED_TIMEOUT_MS);
-      seed = makeRepo();
-    });
-
-    suiteTeardown(() => {
-      rmrf(seed);
-    });
-
-    setup(() => {
-      repo = copyRepo(seed);
-    });
-
-    // rmrf, not rmSync: a bare rmSync cannot delete git's read-only objects in the
-    // extension host's Node build, and fails the hook with EPERM. See `rmrf`.
-    teardown(() => {
-      rmrf(repo);
+    useSeededRepo((dir) => {
+      repo = dir;
     });
 
     test("returns false and keeps repos when all repos still exist", async () => {

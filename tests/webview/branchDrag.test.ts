@@ -9,6 +9,7 @@ import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogText,
   graphRow,
   makeViewState,
   receive,
@@ -105,7 +106,6 @@ function drag(
 }
 
 const dialogOpen = () => document.getElementById("dialog")!.className === "active";
-const dialogText = () => document.getElementById("dialog")!.textContent ?? "";
 const confirm = () => clickId("dialogAction");
 const dismiss = () =>
   document

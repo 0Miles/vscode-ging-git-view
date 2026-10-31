@@ -15,6 +15,7 @@ import {
   moveDialogAheadOfTheGraph,
   openMenuOn,
   receive,
+  search,
   setupHtml
 } from "./setup";
 
@@ -251,14 +252,6 @@ function ctrlClick(elem: Element) {
 
 function pressCtrl(key: string) {
   document.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true }));
-}
-
-/** Type a search. The widget searches on `keyup`, one keystroke at a time; the
- *  key itself only has to be neither Enter (step) nor Escape (close). */
-function search(query: string) {
-  const input = document.getElementById("findInput") as HTMLInputElement;
-  input.value = query;
-  input.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true }));
 }
 
 /** Every row wearing find highlighting anywhere in the page, in document order,

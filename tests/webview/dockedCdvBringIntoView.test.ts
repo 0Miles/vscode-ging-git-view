@@ -1,8 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@/backend/types";
 
-import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
+import {
+  commitDetails,
+  createVscodeMock,
+  graphRow,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 /* cdvBringIntoView.test.ts with the Commit Details View docked to the bottom
  * and "Center Commit Details View" off (dockedCdvAutoCenter.test.ts has it
@@ -34,21 +41,6 @@ const commits: GitCommitNode[] = HASHES.map((hash, i, all) => ({
   refs: i === 0 ? [{ hash, name: "main", type: "head" }] : []
 }));
 
-function details(hash: string): GitCommitDetails {
-  return {
-    hash,
-    parents: [],
-    author: "Alice",
-    email: "alice@example.com",
-    committer: "Alice",
-    committerEmail: "alice@example.com",
-    authorDate: 1700000000,
-    commitDate: 1700000000,
-    body: "Body",
-    fileChanges: []
-  };
-}
-
 /** A soft refresh that found something new — a tag pushed from elsewhere — so
  *  the table, and the panel with it, is redrawn. One that found nothing would
  *  short-circuit before drawing anything. */
@@ -78,7 +70,7 @@ describe("bringing an opening docked Commit Details View's commit into view", ()
   function openDetails(hash: string) {
     graphRow(hash).dispatchEvent(new MouseEvent("click", { bubbles: true }));
     scrolledIntoView.length = 0;
-    receive({ command: "commitDetails", commitDetails: details(hash) });
+    receive({ command: "commitDetails", commitDetails: commitDetails(hash) });
   }
 
   beforeAll(async () => {

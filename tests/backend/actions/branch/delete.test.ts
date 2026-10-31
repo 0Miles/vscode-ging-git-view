@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { deleteBranch } from "@/backend/actions/branch";
 import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 
-import { bareGit, git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { bareGit, git, makeRepo, rejection, rmrf } from "@tests/backend/helpers";
 
 let repo: string;
 
@@ -20,15 +20,6 @@ beforeAll(() => {
 afterAll(() => {
   rmrf(repo);
 });
-
-async function rejection(del: Promise<void>): Promise<unknown> {
-  try {
-    await del;
-  } catch (e: unknown) {
-    return e;
-  }
-  throw new Error("expected the delete to fail on a remote");
-}
 
 describe("deleteBranch", () => {
   it("deletes an existing branch", async () => {

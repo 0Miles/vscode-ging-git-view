@@ -7,6 +7,7 @@ import type * as GG from "@/types";
 import {
   clickItem,
   createVscodeMock,
+  dialogText,
   makeViewState,
   receive,
   rightClick,
@@ -47,10 +48,6 @@ const commits: GitCommitNode[] = [
     refs: [{ hash: "bbb222", name: OTHER, type: "head" }]
   }
 ];
-
-function dialogText(): string {
-  return document.getElementById("dialog")?.textContent ?? "";
-}
 
 /** The bold names the dialog shows, in order. */
 function boldNames(): string[] {

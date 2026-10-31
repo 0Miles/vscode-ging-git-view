@@ -8,6 +8,7 @@ import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogText,
   makeViewState,
   receive,
   setupHtml
@@ -94,10 +95,6 @@ function openMenuOn(selector: string) {
   const elem = document.querySelector<HTMLElement>(selector);
   expect(elem, selector).not.toBeNull();
   elem!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
-function dialogText() {
-  return document.getElementById("dialog")!.textContent ?? "";
 }
 
 /** The form's checkbox labelled `name`, which for a push form is a remote. */

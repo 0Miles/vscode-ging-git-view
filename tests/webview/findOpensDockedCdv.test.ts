@@ -1,15 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@/backend/types";
 
 import {
-  VIEWPORT_HEIGHT,
   clickId,
+  commitDetails,
   createVscodeMock,
   makeViewState,
   parkViewportAt,
   receive,
-  setupHtml
+  search,
+  setupHtml,
+  VIEWPORT_HEIGHT
 } from "./setup";
 
 /* Find in "open details" mode, opening a docked Commit Details View that was
@@ -40,27 +42,6 @@ const commits: GitCommitNode[] = HASHES.map((hash, i, all) => ({
   message: "Commit " + hash,
   refs: i === 0 ? [{ hash, name: "main", type: "head" }] : []
 }));
-
-function details(hash: string): GitCommitDetails {
-  return {
-    hash,
-    parents: [],
-    author: "Alice",
-    email: "alice@example.com",
-    committer: "Alice",
-    committerEmail: "alice@example.com",
-    authorDate: 1700000000,
-    commitDate: 1700000000,
-    body: "Body",
-    fileChanges: []
-  };
-}
-
-function search(query: string) {
-  const input = document.getElementById("findInput") as HTMLInputElement;
-  input.value = query;
-  input.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true }));
-}
 
 describe("Find opening a closed docked Commit Details View", () => {
   const scrollTo = vi.fn();
@@ -137,7 +118,7 @@ describe("Find opening a closed docked Commit Details View", () => {
   });
 
   it("centres it once, between the header and the panel, when the panel opens", () => {
-    receive({ command: "commitDetails", commitDetails: details("bbb222") });
+    receive({ command: "commitDetails", commitDetails: commitDetails("bbb222") });
     expect(document.getElementById("commitDetails")!.classList.contains("docked")).toBe(true);
     expect(centred).toEqual([]);
     expect(scrollTo).toHaveBeenCalledTimes(1);

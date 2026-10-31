@@ -1,14 +1,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@/backend/types";
 
 import {
-  VIEWPORT_HEIGHT,
+  commitDetails,
   createVscodeMock,
   makeViewState,
   parkViewportAt,
   receive,
-  setupHtml
+  setupHtml,
+  VIEWPORT_HEIGHT
 } from "./setup";
 
 /* dockedCdvBringIntoView.test.ts with "Center Commit Details View" on: docked,
@@ -43,21 +44,6 @@ const commits: GitCommitNode[] = HASHES.map((hash, i, all) => ({
   message: "Commit " + hash,
   refs: i === 0 ? [{ hash, name: "main", type: "head" }] : []
 }));
-
-function details(hash: string): GitCommitDetails {
-  return {
-    hash,
-    parents: [],
-    author: "Alice",
-    email: "alice@example.com",
-    committer: "Alice",
-    committerEmail: "alice@example.com",
-    authorDate: 1700000000,
-    commitDate: 1700000000,
-    body: "Body",
-    fileChanges: []
-  };
-}
 
 function loadCommits() {
   receive({
@@ -97,7 +83,7 @@ function openDetails(hash: string, top: number) {
   document
     .querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!
     .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  receive({ command: "commitDetails", commitDetails: details(hash) });
+  receive({ command: "commitDetails", commitDetails: commitDetails(hash) });
 }
 
 describe("centring the commit between the frozen header and the docked panel", () => {

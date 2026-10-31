@@ -8,6 +8,7 @@ import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogText,
   makeViewState,
   receive,
   setupHtml
@@ -90,10 +91,6 @@ function openMenuOnFeature() {
   document
     .querySelector('#commitTable .gitRef.head[data-name="feature"]')!
     .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
-}
-
-function dialogText() {
-  return document.getElementById("dialog")!.textContent ?? "";
 }
 
 function dialogIsOpen() {

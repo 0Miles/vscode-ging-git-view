@@ -1,14 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@/backend/types";
 
 import {
-  VIEWPORT_HEIGHT,
+  commitDetails,
   createVscodeMock,
   makeViewState,
   parkViewportAt,
   receive,
-  setupHtml
+  setupHtml,
+  VIEWPORT_HEIGHT
 } from "./setup";
 
 /* cdvBringIntoView.test.ts with "Center Commit Details View" on: centring has to
@@ -59,21 +60,6 @@ const commits: GitCommitNode[] = [
   }
 ];
 
-function details(hash: string): GitCommitDetails {
-  return {
-    hash,
-    parents: [],
-    author: "Alice",
-    email: "alice@example.com",
-    committer: "Alice",
-    committerEmail: "alice@example.com",
-    authorDate: 1700000000,
-    commitDate: 1700000000,
-    body: "Body",
-    fileChanges: []
-  };
-}
-
 /** Open `hash`'s Commit Details View with the panel `height` px tall. Each
  *  test opens a different commit: the view is brought into view once per
  *  commit, not again for one already open (ADR-0019). */
@@ -83,7 +69,7 @@ function openDetails(hash: string, height: number) {
   document
     .querySelector<HTMLElement>(`#commitTable tr.commit[data-hash="${hash}"]`)!
     .dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  receive({ command: "commitDetails", commitDetails: details(hash) });
+  receive({ command: "commitDetails", commitDetails: commitDetails(hash) });
 }
 
 describe("centring the Commit Details View under the frozen header", () => {
