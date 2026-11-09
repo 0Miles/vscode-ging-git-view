@@ -3,7 +3,7 @@ import type { BlameLine } from "@/backend/queries/blameFile";
 import { abbrevCommit } from "@/backend/utils/string";
 
 import { type BlameAnnotationContext, isUser, relativeTime } from "./blameAnnotation";
-import { lineChangeOf } from "./blameLineChange";
+import { isCommitHash, lineChangeOf } from "./blameLineChange";
 
 const AVATAR_SIZE = 16;
 
@@ -130,7 +130,7 @@ function escapeText(text: string): string {
  * link could be handed.
  */
 export function copyableSha(arg: unknown): string | null {
-  return typeof arg === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(arg) ? arg : null;
+  return isCommitHash(arg) ? arg : null;
 }
 
 const NO_DETAILS: BlameHoverDetails = { message: null, hunk: null, avatar: null };

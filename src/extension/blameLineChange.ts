@@ -59,7 +59,8 @@ export function lineChangeDiff(change: LineChange): CommitDiffRequest {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isCommitHash = (value: unknown): value is string =>
+/** A full SHA-1 or SHA-256 commit hash, as git writes them. */
+export const isCommitHash = (value: unknown): value is string =>
   typeof value === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
 
 /** A path inside the repository, relative to its root, as git writes one. */
@@ -67,7 +68,7 @@ const isRepoPath = (value: unknown): value is string =>
   typeof value === "string" &&
   value !== "" &&
   !value.includes("\0") &&
-  !/^(?:[\\/]|[A-Za-z]:)/.test(value) &&
+  !/^(?:[\\/]|[A-Za-z]:[\\/])/.test(value) &&
   !value.split(/[\\/]/).includes("..");
 
 /**

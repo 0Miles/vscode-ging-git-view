@@ -458,12 +458,8 @@ export function registerBlameOpenLineChange(deps: {
   return vscode.commands.registerCommand(OPEN_LINE_CHANGE_COMMAND, async (arg: unknown) => {
     const change = lineChangeArgs(arg, deps.knownRepos());
     if (change === null) return;
-    // The same editor group as a diff opened from the graph. EditorGroup values
-    // are vscode.ViewColumn enum keys (Active, Beside, One..Nine).
-    const opened = await openCommitDiff(
-      lineChangeDiff(change),
-      vscode.ViewColumn[config.openNewTabEditorGroup()]
-    );
+    // The same editor group as a diff opened from the graph.
+    const opened = await openCommitDiff(lineChangeDiff(change), config.openNewTabEditorGroup());
     if (!opened) void vscode.window.showErrorMessage(l10n.t("error.unableToViewDiff"));
   });
 }

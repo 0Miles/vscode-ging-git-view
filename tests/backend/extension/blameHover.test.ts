@@ -131,7 +131,9 @@ describe("blameHoverMarkdown", () => {
 
   it("lists only the commit itself when it has no parent", () => {
     const markdown = hover(line({ previous: null }));
-    expect(markdown.split("\n").at(-3)).toBe(`Changes ${copyLink(SHA)}`);
+    expect(markdown.split("\n").find((l) => l.startsWith("Changes "))).toBe(
+      `Changes ${copyLink(SHA)}`
+    );
     expect(markdown).not.toContain("↔");
   });
 

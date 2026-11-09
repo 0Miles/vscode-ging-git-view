@@ -319,9 +319,10 @@ export function activate(context: vscode.ExtensionContext) {
   // that contains it, whatever the graph's current repository is. Created after
   // the mirror above so a repo the built-in git just found is known by the time
   // the controller hears about it.
+  const knownRepos = () => Object.keys(repoManager.getRepos());
   context.subscriptions.push(
     createBlameController({
-      knownRepos: () => Object.keys(repoManager.getRepos()),
+      knownRepos,
       gitPath: config.gitPath,
       gitEnv,
       onCommand: logger.logCmd,
@@ -336,7 +337,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     registerBlameToggle(),
     registerBlameCopySha(),
-    registerBlameOpenLineChange({ knownRepos: () => Object.keys(repoManager.getRepos()) })
+    registerBlameOpenLineChange({ knownRepos })
   );
 
   // Publish the SC-focused repos so the `scm/repository` row button can show itself on just those

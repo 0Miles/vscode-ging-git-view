@@ -101,6 +101,11 @@ describe("lineChangeArgs", () => {
     expect(lineChangeArgs({ ...change, filename: "a\0b" }, REPOS)).toBeNull();
   });
 
+  it("accepts a name that only looks like a drive, as a file may be called on Linux", () => {
+    const odd = { ...change, filename: "c:notes.txt" };
+    expect(lineChangeArgs(odd, REPOS)).toEqual(odd);
+  });
+
   it("refuses a line that isn't a positive whole number", () => {
     for (const bad of [0, -1, 1.5, "7", Number.NaN]) {
       expect(lineChangeArgs({ ...change, line: bad }, REPOS)).toBeNull();

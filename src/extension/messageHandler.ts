@@ -889,8 +889,6 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "viewDiff",
     async (msg) => {
-      // EditorGroup values are vscode.ViewColumn enum keys (Active, Beside, One..Nine).
-      const viewColumn = vscode.ViewColumn[config.openNewTabEditorGroup()];
       bridge.post({
         command: "viewDiff",
         success: await openCommitDiff(
@@ -902,7 +900,7 @@ export function registerMessageHandlers(
             type: msg.type,
             fromHash: msg.fromHash
           },
-          viewColumn
+          config.openNewTabEditorGroup()
         )
       });
     },
