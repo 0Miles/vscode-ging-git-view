@@ -198,21 +198,31 @@ export async function pullBranch(
 
 /** The `git` arguments that push `branch` to `remote` in `forceMode`. Raw
  *  arguments rather than simple-git's `git.push`, which appends `--porcelain`
- *  and so turns a rejection into a line nobody can read. */
+ *  and so turns a rejection into a line nobody can read.
+ *
+ *  `target` names a remote branch other than `branch` itself (#303). The
+ *  refspec then spells the destination out in full, `refs/heads/<target>`: an
+ *  unqualified dst that does not exist on the remote yet makes git guess what
+ *  kind of ref it is from the source, and refuse when it cannot. Without a
+ *  target the bare `branch` stays, so those arguments are what they always
+ *  were. A bare lease protects the dst either way, and for a named target that
+ *  is `<remote>/<target>`'s tracking ref (ADR-0025). */
 function pushArgs(
   remote: string,
   branch: string,
-  forceMode: ActionPayload<"pushBranch">["forceMode"]
+  forceMode: ActionPayload<"pushBranch">["forceMode"],
+  target?: string
 ): string[] {
+  const refspec = target === undefined ? branch : `${branch}:refs/heads/${target}`;
   switch (forceMode) {
     case "normal":
-      return ["push", remote, branch];
+      return ["push", remote, refspec];
     case "force":
-      return ["push", "--force", remote, branch];
+      return ["push", "--force", remote, refspec];
     case "forceWithLease":
       // The lease only holds if the remote tip was integrated, not just fetched;
       // `-c`, not `--force-if-includes`, so git < 2.30 still pushes. See ADR-0025.
-      return ["-c", "push.useForceIfIncludes=true", "push", "--force-with-lease", remote, branch];
+      return ["-c", "push.useForceIfIncludes=true", "push", "--force-with-lease", remote, refspec];
   }
 }
 
@@ -261,10 +271,15 @@ export async function pushBranch(
   git: SimpleGit,
   input: ActionPayload<"pushBranch">
 ): Promise<void> {
+  // The tracking ref is the destination's, so a stale lease on a named target
+  // is explained as `<remote>/<target>`: the ref the lease actually protected.
+  const remoteBranch = input.targetBranch ?? input.branchName;
   await attemptOnEachRemote(input.remotes, (remote) =>
-    git.raw(pushArgs(remote, input.branchName, input.forceMode)).catch((e: unknown) => {
-      throw new RemotePushError(`${remote}/${input.branchName}`, e);
-    })
+    git
+      .raw(pushArgs(remote, input.branchName, input.forceMode, input.targetBranch))
+      .catch((e: unknown) => {
+        throw new RemotePushError(`${remote}/${remoteBranch}`, e);
+      })
   );
 }
 

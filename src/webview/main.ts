@@ -111,10 +111,11 @@ const MENU_SOURCES =
 const ACTIVATABLE = GRAPH_FOCUSABLE + ", .gitFile";
 
 /** The controls inside a dialog whose own Enter means something — a button
- *  presses itself, a link follows, a textarea breaks the line — so the
- *  dialog's "Enter confirms" stays out of their way (#141). `a[href]`, not
- *  `a`: an anchor without one does nothing on Enter, and so confirms. */
-const OWNS_ENTER = "button, a[href], textarea";
+ *  presses itself, a link follows, a textarea breaks the line, a summary
+ *  opens or closes its details (#303) — so the dialog's "Enter confirms" stays
+ *  out of their way (#141). `a[href]`, not `a`: an anchor without one does
+ *  nothing on Enter, and so confirms. */
+const OWNS_ENTER = "button, a[href], textarea, summary";
 
 /** The graph footer's controls, by id. Peers rather than a roving group: Tab
  *  visits each of them, so neither needs a tabindex and there is no tab stop to
@@ -5180,6 +5181,15 @@ class GitGraphView {
    * `rememberKey` is undefined for the batch, where a force mode remembered from
    * a single push must not silently apply to several branches at once.
    *
+   * `sourceBranch` is given by the single-branch push alone, and adds the
+   * collapsed "Advanced options" section (#303): one remote from a dropdown,
+   * the push-default one first, and a target branch name on it, the source's
+   * own to start with. Collapsed, the form asks and answers exactly as it did
+   * before the section existed. Open, the section is the destination — the
+   * remote ticks are disabled, and ignored — and `push` is given that one
+   * remote and the target. The batch has no section: several branches cannot
+   * share one target name.
+   *
    * `push` is called only with what the form showed: the repo it opened on and
    * the remote names it listed, checked at consent by {@link remotesStillThereOrRefuse}.
    * Unticking every remote asks for nothing, so that answer calls nothing.
@@ -5190,15 +5200,19 @@ class GitGraphView {
     push: (
       repo: string,
       remotes: string[],
-      forceMode: "normal" | "force" | "forceWithLease"
-    ) => void
+      forceMode: "normal" | "force" | "forceWithLease",
+      targetBranch: string | undefined
+    ) => void,
+    sourceBranch?: string
   ) {
     const remotes = [...this.remotes];
-    const send = this.forRepo((repo, chosen: string[], forceMode: string) => {
-      if (chosen.length === 0) return;
-      if (!this.remotesStillThereOrRefuse(repo, chosen)) return;
-      push(repo, chosen, toPushForceMode(forceMode));
-    });
+    const send = this.forRepo(
+      (repo, chosen: string[], forceMode: string, targetBranch: string | undefined) => {
+        if (chosen.length === 0) return;
+        if (!this.remotesStillThereOrRefuse(repo, chosen)) return;
+        push(repo, chosen, toPushForceMode(forceMode), targetBranch);
+      }
+    );
     const forceInput: DialogSelectInput = {
       type: "select",
       name: l10n.dialogPushForce,
@@ -5210,33 +5224,61 @@ class GitGraphView {
       ],
       remember: rememberKey !== undefined
     };
+    // Neither input is flagged `remember`, and the framework would not remember
+    // them if they were: a destination chosen once is not a habit.
+    const advanced: DialogAdvancedSection | undefined =
+      sourceBranch === undefined
+        ? undefined
+        : {
+            summary: l10n.dialogPushBranchAdvanced,
+            inputs: [
+              {
+                type: "select",
+                name: l10n.dialogPushBranchRemote,
+                options: remotes.map((r) => ({ name: r, value: r })),
+                default: this.defaultPushRemote()
+              },
+              { type: "text-ref", name: l10n.dialogPushBranchTarget, default: sourceBranch }
+            ]
+          };
+    // The advanced values follow the form's own, so they sit at the end of
+    // `values` whatever shape the form above them has.
+    const sendAdvanced = (values: string[], forceMode: string) =>
+      send([values[values.length - 2]], forceMode, values[values.length - 1]);
     if (remotes.length === 1) {
       showFormDialog(
         bodies.oneRemote,
         [forceInput],
         l10n.pushBranch,
-        (values) => send(remotes, values[0]),
+        (values, advancedOpen) =>
+          advancedOpen ? sendAdvanced(values, values[0]) : send(remotes, values[0], undefined),
         null,
-        rememberKey
+        rememberKey,
+        advanced
       );
       return;
     }
     const remoteInputs: DialogInput[] = remotes.map((r) => ({
       type: "checkbox",
       name: r,
-      value: r === this.defaultPushRemote()
+      value: r === this.defaultPushRemote(),
+      supersededByAdvanced: true
     }));
     showFormDialog(
       bodies.manyRemotes,
       [...remoteInputs, forceInput],
       l10n.pushBranch,
-      (values) =>
-        send(
-          remotes.filter((_, i) => values[i] === "checked"),
-          values[remotes.length]
-        ),
+      (values, advancedOpen) =>
+        advancedOpen
+          ? sendAdvanced(values, values[remotes.length])
+          : send(
+              remotes.filter((_, i) => values[i] === "checked"),
+              values[remotes.length],
+              undefined
+            ),
       null,
-      rememberKey
+      rememberKey,
+      advanced
     );
   }
   private pushBranchAction(branchName: string) {
@@ -5247,16 +5289,20 @@ class GitGraphView {
         manyRemotes: fillTemplate(l10n.dialogPushBranchSelectRemote, boldName)
       },
       "pushBranchForce",
-      (repo, remotes, forceMode) => {
+      (repo, remotes, forceMode, targetBranch) => {
+        // No `targetBranch` key at all unless the advanced section named one:
+        // the collapsed form's message is the one it always sent.
         sendMessage({
           command: "pushBranch",
           repo,
           branchName,
           remotes,
-          forceMode
+          forceMode,
+          ...(targetBranch !== undefined ? { targetBranch } : {})
         });
         showActionRunningDialog(l10n.pushingBranch);
-      }
+      },
+      branchName
     );
   }
   /** Push a tag to a remote. Confirms when a single remote exists, otherwise
@@ -9777,26 +9823,18 @@ function saveOrForgetDialogMemory(
     sendMessage({ command: "saveDialogMemory", dialogKey: rememberKey, values: null });
   }
 }
-function showFormDialog(
-  message: string,
-  inputs: DialogInput[],
-  actionName: string,
-  actioned: (values: string[]) => void,
-  sourceElem: HTMLElement | null,
-  rememberKey?: string
-) {
-  // With a rememberKey, seed the remembered selects/checkboxes and offer a
-  // "Remember my choice" toggle below the form (free-text inputs are never
-  // remembered). hasMemory drives both the seeding and the toggle's checked
-  // state, and lets a later un-check forget the stored choice.
-  const hasMemory = rememberKey !== undefined && dialogMemory[rememberKey] !== undefined;
-  if (rememberKey !== undefined) inputs = applyDialogMemory(inputs, dialogMemory[rememberKey]);
-  let textRefInput = -1,
-    multiElementForm = inputs.length > 1;
-  let html =
-    message + '<br><table class="dialogForm ' + (multiElementForm ? "multi" : "single") + '">';
+/** A form dialog's input `i`, in `showFormDialog`'s one index space. */
+function dialogInputElem(i: number) {
+  return document.getElementById("dialogInput" + i);
+}
+/** The rows of a form table: one per input, `dialogInput<offset + i>` each. A
+ *  multi-input table gives every row a label column; a single one shows only
+ *  its control. */
+function dialogFormRows(inputs: DialogInput[], offset: number, multiElementForm: boolean) {
+  let html = "";
   for (let i = 0; i < inputs.length; i++) {
-    let input = inputs[i];
+    const input = inputs[i],
+      id = offset + i;
     if (input.type === "checkbox") {
       // Checkboxes always sit to the left of their own label (the native
       // VS Code direction), spanning the label column in multi-input forms.
@@ -9804,7 +9842,7 @@ function showFormDialog(
         "<tr><td" +
         (multiElementForm ? ' colspan="2"' : "") +
         '><span class="dialogFormCheckbox"><label><input id="dialogInput' +
-        i +
+        id +
         '" type="checkbox"' +
         (input.value ? " checked" : "") +
         "/>" +
@@ -9814,11 +9852,14 @@ function showFormDialog(
     }
     html += "<tr>" + (multiElementForm ? "<td>" + input.name + "</td>" : "") + "<td>";
     if (input.type === "select") {
-      html += '<select id="dialogInput' + i + '">';
+      html += '<select id="dialogInput' + id + '">';
       for (let j = 0; j < input.options.length; j++) {
+        // The value is escaped as well as the name: a remote's name is an
+        // option value (the Push dialog's advanced remote), and git allows a
+        // `"` in one.
         html +=
           '<option value="' +
-          input.options[j].value +
+          escapeHtml(input.options[j].value) +
           '"' +
           (input.options[j].value === input.default ? " selected" : "") +
           ">" +
@@ -9829,7 +9870,7 @@ function showFormDialog(
     } else {
       html +=
         '<input id="dialogInput' +
-        i +
+        id +
         '" type="text" value="' +
         escapeHtml(input.default) +
         '"' +
@@ -9837,15 +9878,67 @@ function showFormDialog(
           ? ' placeholder="' + escapeHtml(input.placeholder) + '"'
           : "") +
         "/>";
-      if (input.type === "text-ref") textRefInput = i;
     }
     html += "</td></tr>";
   }
-  html += "</table>";
+  return html;
+}
+/**
+ * A dialog that asks for a few values at once, and answers `actioned` with
+ * them in input order.
+ *
+ * `advanced`, when given, folds a further set of inputs under a native
+ * `<details>/<summary>` disclosure beneath the form, collapsed when it opens
+ * (#303): the disclosure is keyboard-reachable and toggles without any code of
+ * ours. Those inputs follow the form's own in one index space — their
+ * `dialogInput<i>` ids and their values continue where the form's stop — and
+ * `actioned` is told whether the section was open when the user agreed. What
+ * a collapsed section's values mean is the caller's to say; the framework only
+ * keeps them from counting while they cannot be seen: a ref input among them
+ * neither blocks submitting nor is checked until the section is open, and is
+ * checked again the moment it opens or closes. Inputs flagged
+ * `supersededByAdvanced` are disabled while it is open. Advanced inputs are
+ * never remembered — see `DialogAdvancedSection`.
+ */
+function showFormDialog(
+  message: string,
+  inputs: DialogInput[],
+  actionName: string,
+  actioned: (values: string[], advancedOpen: boolean) => void,
+  sourceElem: HTMLElement | null,
+  rememberKey?: string,
+  advanced?: DialogAdvancedSection
+) {
+  // With a rememberKey, seed the remembered selects/checkboxes and offer a
+  // "Remember my choice" toggle below the form (free-text inputs are never
+  // remembered). hasMemory drives both the seeding and the toggle's checked
+  // state, and lets a later un-check forget the stored choice. Only the form's
+  // own inputs take part: the advanced ones are never handed to the memory.
+  const hasMemory = rememberKey !== undefined && dialogMemory[rememberKey] !== undefined;
+  if (rememberKey !== undefined) inputs = applyDialogMemory(inputs, dialogMemory[rememberKey]);
+  const allInputs = advanced === undefined ? inputs : [...inputs, ...advanced.inputs];
+  const multiElementForm = inputs.length > 1;
+  let html =
+    message +
+    '<br><table class="dialogForm ' +
+    (multiElementForm ? "multi" : "single") +
+    '">' +
+    dialogFormRows(inputs, 0, multiElementForm) +
+    "</table>";
+  if (advanced !== undefined) {
+    // An explicit tabindex: `summary` is focusable by nature, but the dialog's
+    // own Tab cycling only visits what `dialogTabStops` selects.
+    html +=
+      '<details class="dialogAdvanced"><summary tabindex="0">' +
+      escapeHtml(advanced.summary) +
+      '</summary><table class="dialogForm multi">' +
+      dialogFormRows(advanced.inputs, inputs.length, true) +
+      "</table></details>";
+  }
   if (rememberKey !== undefined) {
-    // Its own single-row form table (a direct child of #dialog) so it inherits
-    // the themed checkbox styling without changing the layout of the inputs
-    // above. Read back by its fixed id on submit.
+    // Its own single-row form table so it inherits the themed checkbox styling
+    // without changing the layout of the inputs above. Read back by its fixed
+    // id on submit.
     html +=
       '<br><table class="dialogForm single"><tr><td>' +
       '<span class="dialogFormCheckbox"><label><input id="dialogRememberChoice" type="checkbox"' +
@@ -9854,6 +9947,27 @@ function showFormDialog(
       l10n.dialogRememberChoice +
       "</label></span></td></tr></table>";
   }
+  // Read off the dialog when asked, since the closures below outlive this call.
+  const advancedOpen = () =>
+    advanced !== undefined &&
+    dialog.querySelector<HTMLDetailsElement>("details.dialogAdvanced")?.open === true;
+  // The ref inputs whose value must be a usable ref name before the form can
+  // be submitted: the form's own always, the advanced ones while they show.
+  const refInputs = allInputs.flatMap((input, i) => (input.type === "text-ref" ? [i] : []));
+  const checkRefInputs = () => {
+    const live = refInputs
+      .filter((i) => i < inputs.length || advancedOpen())
+      .map((i) => <HTMLInputElement>dialogInputElem(i));
+    const noInput = live.some((elem) => elem.value === ""),
+      invalidInput = live.some((elem) => elem.value.match(refInvalid) !== null);
+    const newClassName = "active" + (noInput ? " noInput" : invalidInput ? " inputInvalid" : "");
+    if (dialog.className !== newClassName) {
+      dialog.className = newClassName;
+      document.getElementById("dialogAction")!.title = invalidInput
+        ? l10n.invalidCharacters.replace("{0}", actionName)
+        : "";
+    }
+  };
   // A form lays its buttons out the native way, primary outermost: Cancel
   // first, in the markup as well as on screen.
   const dismissFirst = true;
@@ -9862,12 +9976,15 @@ function showFormDialog(
     actionName,
     l10n.dialogCancel,
     () => {
+      // Checked again rather than trusted: the classes are only as fresh as
+      // the last keyup or toggle, and what is submitted is what is there now.
+      if (refInputs.length > 0) checkRefInputs();
       if (dialog.className === "active noInput" || dialog.className === "active inputInvalid")
         return;
       let values = [];
-      for (let i = 0; i < inputs.length; i++) {
-        let input = inputs[i],
-          elem = document.getElementById("dialogInput" + i);
+      for (let i = 0; i < allInputs.length; i++) {
+        let input = allInputs[i],
+          elem = dialogInputElem(i);
         if (input.type === "select") {
           values.push((<HTMLSelectElement>elem).value);
         } else if (input.type === "checkbox") {
@@ -9876,22 +9993,21 @@ function showFormDialog(
           values.push((<HTMLInputElement>elem).value);
         }
       }
+      const open = advancedOpen();
       if (rememberKey !== undefined)
         saveOrForgetDialogMemory(rememberKey, inputs, values, hasMemory);
       hideDialog();
-      actioned(values);
+      actioned(values, open);
     },
     sourceElem,
     undefined,
     dismissFirst
   );
   // A form starts on its first input (#141), not on the dialog it sits in.
-  document.getElementById("dialogInput0")?.focus();
+  dialogInputElem(0)?.focus();
 
-  if (textRefInput > -1) {
-    let dialogInput = <HTMLInputElement>document.getElementById("dialogInput" + textRefInput),
-      dialogAction = document.getElementById("dialogAction")!;
-    if (dialogInput.value === "") dialog.className = "active noInput";
+  for (const i of refInputs) {
+    const dialogInput = <HTMLInputElement>dialogInputElem(i);
     dialogInput.addEventListener("keyup", () => {
       const sub = viewState.referenceInputSpaceSubstitution;
       if (sub !== "None" && dialogInput.value.includes(" ")) {
@@ -9899,13 +10015,24 @@ function showFormDialog(
         dialogInput.value = substituteRefSpaces(dialogInput.value, sub);
         if (pos !== null) dialogInput.setSelectionRange(pos, pos);
       }
-      let noInput = dialogInput.value === "",
-        invalidInput = dialogInput.value.match(refInvalid) !== null;
-      let newClassName = "active" + (noInput ? " noInput" : invalidInput ? " inputInvalid" : "");
-      if (dialog.className !== newClassName) {
-        dialog.className = newClassName;
-        dialogAction.title = invalidInput ? l10n.invalidCharacters.replace("{0}", actionName) : "";
-      }
+      checkRefInputs();
+    });
+  }
+  if (refInputs.length > 0) checkRefInputs();
+  if (advanced !== undefined) {
+    const section = <HTMLDetailsElement>dialog.querySelector("details.dialogAdvanced");
+    const superseded = inputs.flatMap((input, i) =>
+      input.type === "checkbox" && input.supersededByAdvanced === true
+        ? [<HTMLInputElement>dialogInputElem(i)]
+        : []
+    );
+    section.addEventListener("toggle", () => {
+      // `toggle` is queued, not dispatched in place: by the time it lands the
+      // form may have been answered or replaced, and the `dialogInput<i>` ids
+      // then belong to another dialog's inputs.
+      if (!section.isConnected) return;
+      for (const elem of superseded) elem.disabled = section.open;
+      if (refInputs.length > 0) checkRefInputs();
     });
   }
 }
