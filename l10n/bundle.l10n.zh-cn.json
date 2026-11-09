@@ -395,7 +395,6 @@
   "detail.tagObject": "Tag 对象：",
   "dialog.pushBranch.confirm": "确定要 push branch {0} 吗？",
   "dialog.pushBranch.advanced": "高级选项",
-  "dialog.pushBranch.remote": "Remote",
   "dialog.pushBranch.target": "目标 branch",
   "dialog.pushForce": "强制 push",
   "dialog.pushRemote": "Remote",

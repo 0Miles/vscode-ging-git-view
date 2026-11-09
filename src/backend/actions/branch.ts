@@ -211,7 +211,7 @@ function pushArgs(
   remote: string,
   branch: string,
   forceMode: ActionPayload<"pushBranch">["forceMode"],
-  target?: string
+  target: ActionPayload<"pushBranch">["targetBranch"]
 ): string[] {
   const refspec = target === undefined ? branch : `${branch}:refs/heads/${target}`;
   switch (forceMode) {

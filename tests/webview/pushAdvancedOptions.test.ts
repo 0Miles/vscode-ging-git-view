@@ -102,7 +102,7 @@ function field<T extends HTMLElement>(label: string): T {
 }
 
 function remoteSelect() {
-  return field<HTMLSelectElement>(L.dialogPushBranchRemote);
+  return field<HTMLSelectElement>(L.dialogPushRemote);
 }
 
 function targetInput() {
@@ -404,6 +404,34 @@ describe("the Push dialog's advanced options", () => {
     summary.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     expect(mock.sentOf("pushBranch")).toEqual([]);
     expect(document.getElementById("dialogAction"), "the dialog stays up").not.toBeNull();
+  });
+
+  // git takes `<`, `&` and `"` in a remote's name. Shown as a tick's label or a
+  // dropdown option it must read as itself, not as markup, and what is pushed
+  // to is still the name itself, unescaped.
+  const ODD = 'x<b>&"y';
+
+  it("shows a remote's name as text in its tick, and pushes to the name itself", () => {
+    remotesAre(["origin", ODD]);
+    openBranchPush();
+    expect(document.querySelector("#dialog label b"), "no markup from the name").toBeNull();
+    remoteBox(ODD).checked = true;
+
+    submit();
+
+    expect(mock.sentOf("pushBranch")).toMatchObject([{ remotes: ["origin", ODD] }]);
+  });
+
+  it("offers a remote's name as itself in the dropdown, and pushes to it", async () => {
+    remotesAre(["origin", ODD]);
+    openBranchPush();
+    await expandAdvanced();
+    expect(Array.from(remoteSelect().options).map((o) => o.textContent)).toEqual(["origin", ODD]);
+    remoteSelect().value = ODD;
+
+    submit();
+
+    expect(mock.sentOf("pushBranch")).toMatchObject([{ remotes: [ODD], targetBranch: "feature" }]);
   });
 
   it("is not offered by the batch push, which sends what it always sent", () => {

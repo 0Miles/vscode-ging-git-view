@@ -116,9 +116,10 @@ declare global {
   }
   type DialogInput = DialogTextInput | DialogTextRefInput | DialogSelectInput | DialogCheckboxInput;
   /** Inputs `showFormDialog` folds under a disclosure, collapsed when the form
-   *  opens. They share the form's one index space, after its own inputs, and
-   *  are never remembered: "Remember my choice" is about the choices every use
-   *  of the dialog makes, and these are the ones a single use makes. */
+   *  opens. Their values reach the form's answer apart from its own, and only
+   *  when the section was open; they are never remembered: "Remember my
+   *  choice" is about the choices every use of the dialog makes, and these are
+   *  the ones a single use makes. */
   interface DialogAdvancedSection {
     /** The disclosure's label. */
     summary: string;

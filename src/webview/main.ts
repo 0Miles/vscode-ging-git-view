@@ -1,4 +1,5 @@
 import type {
+  ActionPayload,
   ActionRequest,
   BatchActionPayload,
   BatchActionRequest,
@@ -5200,14 +5201,19 @@ class GitGraphView {
     push: (
       repo: string,
       remotes: string[],
-      forceMode: "normal" | "force" | "forceWithLease",
-      targetBranch: string | undefined
+      forceMode: ActionPayload<"pushBranch">["forceMode"],
+      targetBranch: ActionPayload<"pushBranch">["targetBranch"]
     ) => void,
     sourceBranch?: string
   ) {
     const remotes = [...this.remotes];
     const send = this.forRepo(
-      (repo, chosen: string[], forceMode: string, targetBranch: string | undefined) => {
+      (
+        repo,
+        chosen: string[],
+        forceMode: string,
+        targetBranch: ActionPayload<"pushBranch">["targetBranch"]
+      ) => {
         if (chosen.length === 0) return;
         if (!this.remotesStillThereOrRefuse(repo, chosen)) return;
         push(repo, chosen, toPushForceMode(forceMode), targetBranch);
@@ -5224,6 +5230,20 @@ class GitGraphView {
       ],
       remember: rememberKey !== undefined
     };
+    // A lone remote needs no tick: it is the push's only possible destination.
+    // A checkbox label is HTML to the form, and a remote's name is not ours to
+    // trust — git allows `<`, `&` and `"` in one — so it is escaped here, where
+    // it is known to be a name, rather than in the form, whose other labels are
+    // l10n strings that may carry markup on purpose.
+    const remoteInputs: DialogInput[] =
+      remotes.length === 1
+        ? []
+        : remotes.map((r) => ({
+            type: "checkbox",
+            name: escapeHtml(r),
+            value: r === this.defaultPushRemote(),
+            supersededByAdvanced: true
+          }));
     // Neither input is flagged `remember`, and the framework would not remember
     // them if they were: a destination chosen once is not a habit.
     const advanced: DialogAdvancedSection | undefined =
@@ -5234,48 +5254,28 @@ class GitGraphView {
             inputs: [
               {
                 type: "select",
-                name: l10n.dialogPushBranchRemote,
+                name: l10n.dialogPushRemote,
                 options: remotes.map((r) => ({ name: r, value: r })),
                 default: this.defaultPushRemote()
               },
               { type: "text-ref", name: l10n.dialogPushBranchTarget, default: sourceBranch }
             ]
           };
-    // The advanced values follow the form's own, so they sit at the end of
-    // `values` whatever shape the form above them has.
-    const sendAdvanced = (values: string[], forceMode: string) =>
-      send([values[values.length - 2]], forceMode, values[values.length - 1]);
-    if (remotes.length === 1) {
-      showFormDialog(
-        bodies.oneRemote,
-        [forceInput],
-        l10n.pushBranch,
-        (values, advancedOpen) =>
-          advancedOpen ? sendAdvanced(values, values[0]) : send(remotes, values[0], undefined),
-        null,
-        rememberKey,
-        advanced
-      );
-      return;
-    }
-    const remoteInputs: DialogInput[] = remotes.map((r) => ({
-      type: "checkbox",
-      name: r,
-      value: r === this.defaultPushRemote(),
-      supersededByAdvanced: true
-    }));
     showFormDialog(
-      bodies.manyRemotes,
+      remotes.length === 1 ? bodies.oneRemote : bodies.manyRemotes,
       [...remoteInputs, forceInput],
       l10n.pushBranch,
-      (values, advancedOpen) =>
-        advancedOpen
-          ? sendAdvanced(values, values[remotes.length])
-          : send(
-              remotes.filter((_, i) => values[i] === "checked"),
-              values[remotes.length],
-              undefined
-            ),
+      (values, advancedValues) => {
+        const forceMode = values[remoteInputs.length];
+        if (advancedValues !== null) {
+          // Open, the section is the destination, and the ticks are not read.
+          send([advancedValues[0]], forceMode, advancedValues[1]);
+        } else {
+          const ticked =
+            remotes.length === 1 ? remotes : remotes.filter((_, i) => values[i] === "checked");
+          send(ticked, forceMode, undefined);
+        }
+      },
       null,
       rememberKey,
       advanced
@@ -9519,7 +9519,7 @@ function getCommitDate(dateVal: number) {
 }
 
 /* Utils */
-function toPushForceMode(v: string): "normal" | "force" | "forceWithLease" {
+function toPushForceMode(v: string): ActionPayload<"pushBranch">["forceMode"] {
   return v === "force" ? "force" : v === "forceWithLease" ? "forceWithLease" : "normal";
 }
 function abbrevCommit(commitHash: string) {
@@ -9827,6 +9827,17 @@ function saveOrForgetDialogMemory(
 function dialogInputElem(i: number) {
   return document.getElementById("dialogInput" + i);
 }
+/** What the user left in the form inputs `dialogInput<offset + i>`: a select's
+ *  value, "checked" or "unchecked" for a checkbox, a text box's text. */
+function dialogFormValues(inputs: DialogInput[], offset: number): string[] {
+  return inputs.map((input, i) => {
+    const elem = dialogInputElem(offset + i);
+    if (input.type === "select") return (<HTMLSelectElement>elem).value;
+    if (input.type === "checkbox")
+      return (<HTMLInputElement>elem).checked ? "checked" : "unchecked";
+    return (<HTMLInputElement>elem).value;
+  });
+}
 /** The rows of a form table: one per input, `dialogInput<offset + i>` each. A
  *  multi-input table gives every row a label column; a single one shows only
  *  its control. */
@@ -9890,21 +9901,21 @@ function dialogFormRows(inputs: DialogInput[], offset: number, multiElementForm:
  * `advanced`, when given, folds a further set of inputs under a native
  * `<details>/<summary>` disclosure beneath the form, collapsed when it opens
  * (#303): the disclosure is keyboard-reachable and toggles without any code of
- * ours. Those inputs follow the form's own in one index space — their
- * `dialogInput<i>` ids and their values continue where the form's stop — and
- * `actioned` is told whether the section was open when the user agreed. What
- * a collapsed section's values mean is the caller's to say; the framework only
- * keeps them from counting while they cannot be seen: a ref input among them
- * neither blocks submitting nor is checked until the section is open, and is
- * checked again the moment it opens or closes. Inputs flagged
- * `supersededByAdvanced` are disabled while it is open. Advanced inputs are
- * never remembered — see `DialogAdvancedSection`.
+ * ours. `actioned` gets the form's own values as ever, and the section's
+ * values beside them — in its own input order, or null when the section was
+ * collapsed as the user agreed, so a caller cannot read values the user could
+ * not see. (Their `dialogInput<i>` ids continue where the form's stop, so the
+ * two never collide.) While collapsed they do not count in the form either: a
+ * ref input among them neither blocks submitting nor is checked until the
+ * section is open, and is checked again the moment it opens or closes. Inputs
+ * flagged `supersededByAdvanced` are disabled while it is open. Advanced
+ * inputs are never remembered — see `DialogAdvancedSection`.
  */
 function showFormDialog(
   message: string,
   inputs: DialogInput[],
   actionName: string,
-  actioned: (values: string[], advancedOpen: boolean) => void,
+  actioned: (values: string[], advanced: string[] | null) => void,
   sourceElem: HTMLElement | null,
   rememberKey?: string,
   advanced?: DialogAdvancedSection
@@ -9981,23 +9992,15 @@ function showFormDialog(
       if (refInputs.length > 0) checkRefInputs();
       if (dialog.className === "active noInput" || dialog.className === "active inputInvalid")
         return;
-      let values = [];
-      for (let i = 0; i < allInputs.length; i++) {
-        let input = allInputs[i],
-          elem = dialogInputElem(i);
-        if (input.type === "select") {
-          values.push((<HTMLSelectElement>elem).value);
-        } else if (input.type === "checkbox") {
-          values.push((<HTMLInputElement>elem).checked ? "checked" : "unchecked");
-        } else {
-          values.push((<HTMLInputElement>elem).value);
-        }
-      }
-      const open = advancedOpen();
+      const values = dialogFormValues(inputs, 0);
+      const advancedValues =
+        advanced !== undefined && advancedOpen()
+          ? dialogFormValues(advanced.inputs, inputs.length)
+          : null;
       if (rememberKey !== undefined)
         saveOrForgetDialogMemory(rememberKey, inputs, values, hasMemory);
       hideDialog();
-      actioned(values, open);
+      actioned(values, advancedValues);
     },
     sourceElem,
     undefined,

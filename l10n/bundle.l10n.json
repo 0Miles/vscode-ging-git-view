@@ -395,7 +395,6 @@
   "detail.tagObject": "Tag Object: ",
   "dialog.pushBranch.confirm": "Are you sure you want to push the branch {0}?",
   "dialog.pushBranch.advanced": "Advanced options",
-  "dialog.pushBranch.remote": "Remote",
   "dialog.pushBranch.target": "Target branch",
   "dialog.pushForce": "Force Push",
   "dialog.pushRemote": "Remote",
