@@ -139,6 +139,39 @@ describe("blameFile (real git)", () => {
     ]);
   });
 
+  // VS Code hands over an editor's text without the file's UTF-8 BOM.
+  it("keeps the first line committed when the editor's text lacks the file's BOM", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), "﻿one\ntwo\n");
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "one\ntwo\nthree\n"
+    });
+
+    expect(lines?.map((l) => l.uncommitted)).toEqual([false, false, true]);
+  });
+
+  // The editor's text can't be turned back into the file's own bytes (Big5,
+  // Latin-1, ...), so every line with a non-ASCII character would look changed.
+  it("gives no result for unsaved edits to a file saved in an encoding other than UTF-8", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a])); // "café" in Latin-1
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "café\nmore\n"
+    });
+
+    expect(lines).toBeNull();
+  });
+
   it("blames a linked worktree's file against that worktree's own history", async () => {
     const r = newRepo();
     fs.writeFileSync(path.join(r, "a.txt"), "main line\n");

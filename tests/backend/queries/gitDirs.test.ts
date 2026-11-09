@@ -4,7 +4,7 @@ import * as path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { findGitDirs } from "@/backend/queries/gitDirs";
+import { findGitDirs, gitDirWatchPaths } from "@/backend/queries/gitDirs";
 
 import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
@@ -66,6 +66,19 @@ describe("findGitDirs (real git)", () => {
     expect(found).toEqual({ gitDir: modules, commonDir: modules });
   });
 
+  it("finds nothing past the deadline, without running git", async () => {
+    const r = track(makeRepo());
+    const log: string[][] = [];
+    const found = await findGitDirs({
+      gitPath: "git",
+      repoPath: r,
+      deadline: Date.now() - 1,
+      onCommand: (_c, args) => log.push(args)
+    });
+    expect(found).toBeNull();
+    expect(log).toEqual([]);
+  });
+
   it("finds nothing outside a repository", async () => {
     const plain = track(fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-")));
     // Stop git from walking up into whatever repository holds the temp dir.
@@ -75,5 +88,19 @@ describe("findGitDirs (real git)", () => {
       gitEnv: { GIT_CEILING_DIRECTORIES: path.dirname(plain) }
     });
     expect(found).toBeNull();
+  });
+});
+
+describe("gitDirWatchPaths", () => {
+  // A linked worktree: HEAD and its reflog are its own, the branches shared.
+  it("watches HEAD and its reflog in the git dir, and the branches in the common dir", () => {
+    const gitDir = path.join("/r", ".git", "worktrees", "linked");
+    const commonDir = path.join("/r", ".git");
+    expect(gitDirWatchPaths({ gitDir, commonDir })).toEqual([
+      { base: gitDir, glob: "HEAD" },
+      { base: path.join("/r", ".git", "worktrees", "linked", "logs"), glob: "HEAD" },
+      { base: path.join("/r", ".git", "refs", "heads"), glob: "**" },
+      { base: commonDir, glob: "packed-refs" }
+    ]);
   });
 });

@@ -14,7 +14,8 @@ function fakeWatching() {
       live.set(repo, onChange);
       return Promise.resolve({ dispose: () => live.delete(repo) });
     },
-    onChange: (repo) => changed.push(repo)
+    onChange: (repo) => changed.push(repo),
+    onRelease: () => {}
   });
   return {
     watchers,
@@ -95,7 +96,8 @@ describe("createBlameRepoWatchers", () => {
       const disposed: string[] = [];
       const watchers = createBlameRepoWatchers({
         watch: (repo) => new Promise((resolve) => pending.push({ repo, resolve })),
-        onChange: () => {}
+        onChange: () => {},
+        onRelease: () => {}
       });
       const finish = async (i: number, ok = true) => {
         const { repo, resolve } = pending[i];
@@ -133,22 +135,27 @@ describe("createBlameRepoWatchers", () => {
     });
   });
 
-  // e.g. git can't find its git dir: blaming the next file in that repository,
-  // or the same one again, must not run git again each time.
-  it("does not keep retrying a repository that cannot be watched while it stays blamed", async () => {
+  // e.g. finding the git dir ran out of time on a busy machine: the
+  // repository must not go unwatched for as long as its files stay open.
+  it("tries a repository that couldn't be watched again the next time one of its files is blamed, one attempt at a time", async () => {
     const started: string[] = [];
+    const attempts: ((watch: { dispose(): void } | null) => void)[] = [];
     const watchers = createBlameRepoWatchers({
       watch: (repo) => {
         started.push(repo);
-        return Promise.resolve(null);
+        return new Promise((resolve) => attempts.push(resolve));
       },
-      onChange: () => {}
+      onChange: () => {},
+      onRelease: () => {}
     });
     watchers.blaming("file:///app/a.ts", "/app");
-    await new Promise((r) => setTimeout(r, 0));
     watchers.blaming("file:///app/b.ts", "/app");
-    watchers.blaming("file:///app/a.ts", "/app");
     expect(started).toEqual(["/app"]);
+
+    attempts[0](null);
+    await new Promise((r) => setTimeout(r, 0));
+    watchers.blaming("file:///app/a.ts", "/app");
+    expect(started).toEqual(["/app", "/app"]);
   });
 
   // Nothing tells a blame of that repository is stale any more, so whoever

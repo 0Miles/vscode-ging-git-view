@@ -1,8 +1,6 @@
 import * as path from "node:path";
 
-import { spawnGit } from "@/backend/gitSpawn";
-
-import { BLAME_TIMEOUT_MS, type BlameGit } from "./blameFile";
+import { BLAME_TIMEOUT_MS, type BlameGit, runWithin } from "./blameFile";
 
 /** Where a repository's git metadata really lives. */
 export type GitDirs = {
@@ -23,17 +21,9 @@ export type GitDirs = {
  * elsewhere, so the directories can't be guessed from the repository path.
  */
 export async function findGitDirs(git: BlameGit): Promise<GitDirs | null> {
-  const remaining = (git.deadline ?? Date.now() + BLAME_TIMEOUT_MS) - Date.now();
-  if (remaining <= 0) return null;
-  const result = await spawnGit({
-    gitPath: git.gitPath,
-    cwd: git.repoPath,
-    args: ["rev-parse", "--git-dir", "--git-common-dir"],
-    timeoutMs: remaining,
-    onCommand: git.onCommand,
-    gitEnv: git.gitEnv
-  });
-  if (result.kind !== "ok" || result.exitCode !== 0) return null;
+  const deadline = git.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
+  const result = await runWithin(git, deadline, ["rev-parse", "--git-dir", "--git-common-dir"]);
+  if (result?.kind !== "ok" || result.exitCode !== 0) return null;
   // Each comes back relative to `repoPath` (".git") or absolute.
   const [gitDir, commonDir] = result.stdout
     .toString()
@@ -41,4 +31,28 @@ export async function findGitDirs(git: BlameGit): Promise<GitDirs | null> {
     .filter((line) => line !== "")
     .map((line) => path.resolve(git.repoPath, line));
   return gitDir === undefined || commonDir === undefined ? null : { gitDir, commonDir };
+}
+
+/** A file-system watch: `glob` under the folder `base`. */
+export type WatchPath = { base: string; glob: string };
+
+/**
+ * What to watch to hear of every commit, checkout, reset or branch update
+ * that moves what a file blames to:
+ *
+ * - `HEAD` in the git dir: a checkout, or a commit on a detached HEAD.
+ * - `logs/HEAD` in the git dir: HEAD's reflog, appended on every commit,
+ *   checkout and reset in this worktree. A plain file, so a non-recursive
+ *   watch, which `files.watcherExclude` (often set to `**\/.git/**`) can't
+ *   silence the way it does the recursive one on `refs/heads`.
+ * - `refs/heads/**` and `packed-refs` in the common dir: a branch moved from
+ *   another worktree or by plumbing, and refs packed by `git gc`.
+ */
+export function gitDirWatchPaths(dirs: GitDirs): WatchPath[] {
+  return [
+    { base: dirs.gitDir, glob: "HEAD" },
+    { base: path.join(dirs.gitDir, "logs"), glob: "HEAD" },
+    { base: path.join(dirs.commonDir, "refs", "heads"), glob: "**" },
+    { base: dirs.commonDir, glob: "packed-refs" }
+  ];
 }

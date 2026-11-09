@@ -1,15 +1,14 @@
-import * as path from "node:path";
-
 import * as vscode from "vscode";
 
 import type { GitCommandHandler } from "@/backend/gitSpawn";
 import {
   BLAME_TIMEOUT_MS,
+  type BlameGit,
   type BlameLine,
   blameFile,
   readUserEmail
 } from "@/backend/queries/blameFile";
-import { findGitDirs } from "@/backend/queries/gitDirs";
+import { findGitDirs, gitDirWatchPaths } from "@/backend/queries/gitDirs";
 import { getPathFromUri } from "@/backend/utils/path";
 import { config } from "@/config";
 import * as l10n from "@/l10n";
@@ -62,22 +61,14 @@ function openDocumentKeys(): Set<string> {
 }
 
 /**
- * Watch the branches and HEAD of a repository where git really keeps them:
- * HEAD in the worktree's own git dir, `refs/heads` and `packed-refs` in the
- * common dir (they differ in a linked worktree; a submodule's live under the
- * superproject's `.git/modules`). Null when git can't say where they are.
+ * Watch what moves a repository's blame — its HEAD and branches, where git
+ * really keeps them (see `gitDirWatchPaths`). Null when git can't say where
+ * that is.
  */
-async function watchGitDir(
-  git: Parameters<typeof findGitDirs>[0],
-  onChange: () => void
-): Promise<vscode.Disposable | null> {
+async function watchGitDir(git: BlameGit, onChange: () => void): Promise<vscode.Disposable | null> {
   const dirs = await findGitDirs(git);
   if (dirs === null) return null;
-  const watchers = [
-    [dirs.gitDir, "HEAD"],
-    [path.join(dirs.commonDir, "refs", "heads"), "**"],
-    [dirs.commonDir, "packed-refs"]
-  ].map(([base, glob]) =>
+  const watchers = gitDirWatchPaths(dirs).map(({ base, glob }) =>
     vscode.workspace.createFileSystemWatcher(
       new vscode.RelativePattern(vscode.Uri.file(base), glob)
     )
@@ -165,7 +156,7 @@ export function createBlameController(deps: {
   }
 
   /** Where and how a git run in `repo` happens; its deadline starts now. */
-  function gitIn(repo: string) {
+  function gitIn(repo: string): BlameGit {
     return {
       gitPath: deps.gitPath(),
       repoPath: repo,
@@ -246,7 +237,10 @@ export function createBlameController(deps: {
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.contentChanges.length === 0) return;
-      editedAt.set(e.document, Date.now());
+      // Typing leaves the document dirty; a reload from disk (a checkout, say)
+      // leaves it clean and can be blamed without waiting for typing to stop.
+      if (e.document.isDirty) editedAt.set(e.document, Date.now());
+      else editedAt.delete(e.document);
       const active = e.document === vscode.window.activeTextEditor?.document;
       if (!active && e.document !== decorated?.document) return;
       // New content: drop the annotation and any lookup still running for the
@@ -262,9 +256,12 @@ export function createBlameController(deps: {
       cache.delete(cacheKey(document));
       repoWatchers.keepOnly(openDocumentKeys());
     }),
+    // Tabs and visible editors are updated separately, in no fixed order, so
+    // either can be the last to drop a closed editor.
     vscode.window.tabGroups.onDidChangeTabs((e) => {
       if (e.closed.length > 0) repoWatchers.keepOnly(openDocumentKeys());
     }),
+    vscode.window.onDidChangeVisibleTextEditors(() => repoWatchers.keepOnly(openDocumentKeys())),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration(`${SECTION}.${ENABLED_KEY}`)) return;
       // Clear everywhere and let every watcher go, then let the active editor

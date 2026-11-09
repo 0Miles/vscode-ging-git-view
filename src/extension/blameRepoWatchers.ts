@@ -2,8 +2,8 @@
 export type RepoWatch = { dispose(): void };
 
 type Entry = {
-  /** Undefined while still starting; null when the repository can't be watched. */
-  watch: RepoWatch | null | undefined;
+  /** Undefined while still starting. */
+  watch: RepoWatch | undefined;
   /** Whether some open, blamed file still belongs to the repository. */
   wanted: boolean;
 };
@@ -16,8 +16,9 @@ type Entry = {
  * Starting a watcher takes a git run (to find the git dir), so `watch` is
  * asynchronous; a watcher whose repository stopped being wanted while it
  * started is let go the moment it arrives, and one still starting is never
- * started a second time. A repository `watch` can't watch (null) is not tried
- * again until it has been let go and blamed afresh.
+ * started a second time. A repository `watch` can't watch (null — say finding
+ * its git dir timed out) is tried again the next time one of its files is
+ * blamed, so it doesn't go unwatched for as long as its files stay open.
  */
 export function createBlameRepoWatchers(deps: {
   /** Watch `repo`'s git dir, calling `onChange` on every change; null when it
@@ -27,7 +28,7 @@ export function createBlameRepoWatchers(deps: {
   onChange: (repo: string) => void;
   /** `repo` is no longer watched: from now on nothing would tell that a blame
    *  made in it has gone stale. */
-  onRelease?: (repo: string) => void;
+  onRelease: (repo: string) => void;
 }) {
   /** Each blamed, still open document (by key) and the repository it was blamed in. */
   const docs = new Map<string, string>();
@@ -43,10 +44,12 @@ export function createBlameRepoWatchers(deps: {
         () => null
       )
       .then((watch) => {
-        if (entry.wanted) {
+        if (entry.wanted && watch !== null) {
           entry.watch = watch;
           return;
         }
+        // Unwanted by now, or it failed: either way the next blame of the
+        // repository starts afresh.
         watch?.dispose();
         if (entries.get(repo) === entry) entries.delete(repo);
       });
@@ -57,10 +60,10 @@ export function createBlameRepoWatchers(deps: {
     for (const [repo, entry] of entries) {
       if (wanted.has(repo) || !entry.wanted) continue;
       entry.wanted = false;
-      deps.onRelease?.(repo);
+      deps.onRelease(repo);
       // One still starting is let go once it arrives (see `start`).
       if (entry.watch === undefined) continue;
-      entry.watch?.dispose();
+      entry.watch.dispose();
       entries.delete(repo);
     }
     for (const repo of wanted) {
@@ -73,7 +76,6 @@ export function createBlameRepoWatchers(deps: {
   return {
     /** The document `key` is being blamed in `repo`. */
     blaming(key: string, repo: string) {
-      if (docs.get(key) === repo) return;
       docs.set(key, repo);
       sync();
     },

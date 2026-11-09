@@ -119,7 +119,7 @@ export type BlameGit = {
 
 /** Run git within `deadline`; null when it has already passed,
  *  without spawning anything. */
-function runWithin(
+export function runWithin(
   git: BlameGit,
   deadline: number,
   args: string[],
@@ -142,9 +142,29 @@ export type BlameFileOptions = BlameGit & {
   /** The file, relative to `repoPath`, with "/" separators. */
   filePath: string;
   /** Blame these contents (e.g. an editor's unsaved text) instead of the file
-   *  on disk; they are passed to git on stdin. */
+   *  on disk; they are passed to git on stdin, as UTF-8. */
   contents?: string;
 };
+
+const UTF8_BOM = "\uFEFF";
+
+/**
+ * An editor's text as the bytes git should compare with the committed file,
+ * judged by the copy saved on disk (null when there is none): the UTF-8 BOM
+ * VS Code strips from the text goes back in front, and null — nothing to
+ * blame — when the saved file isn't UTF-8, since the text can't be turned back
+ * into its bytes and every line with a non-ASCII character would look changed.
+ */
+function asSavedText(text: string, saved: Buffer | null): string | null {
+  if (saved === null) return text;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(saved);
+  } catch {
+    return null;
+  }
+  const hasBom = saved[0] === 0xef && saved[1] === 0xbb && saved[2] === 0xbf;
+  return hasBom && !text.startsWith(UTF8_BOM) ? UTF8_BOM + text : text;
+}
 
 /**
  * Blame a whole file: one entry per line, in order. Resolves null — never
@@ -154,13 +174,22 @@ export type BlameFileOptions = BlameGit & {
  */
 export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] | null> {
   const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
-  const size =
-    options.contents === undefined
-      ? await fileSize(path.join(options.repoPath, options.filePath))
-      : Buffer.byteLength(options.contents);
-  if (size === null || size > BLAME_MAX_BYTES) return null;
-  // git's own test for binary: a NUL in the first 8000 bytes (buffer_is_binary).
-  if (options.contents?.slice(0, 8000).includes("\0") === true) return null;
+  const onDisk = path.join(options.repoPath, options.filePath);
+  const diskSize = await fileSize(onDisk);
+  let contents: string | undefined;
+  if (options.contents === undefined) {
+    if (diskSize === null || diskSize > BLAME_MAX_BYTES) return null;
+  } else {
+    // The saved copy is read whole to judge its encoding, so it is held to the
+    // same limit as the contents.
+    if (diskSize !== null && diskSize > BLAME_MAX_BYTES) return null;
+    const saved = diskSize === null ? null : await readFile(onDisk);
+    const text = asSavedText(options.contents, saved);
+    if (text === null || Buffer.byteLength(text) > BLAME_MAX_BYTES) return null;
+    // git's own test for binary: a NUL in the first 8000 bytes (buffer_is_binary).
+    if (text.slice(0, 8000).includes("\0")) return null;
+    contents = text;
+  }
 
   // One listing answers both questions: no output means git doesn't track the
   // file, and `i/-text` / `w/-text` is git's verdict that the index or working
@@ -172,12 +201,12 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
   const listing = listed.stdout.toString().split("\t")[0];
   if (listing.trim() === "" || /(?:^|\s)[iw]\/-text(?:\s|$)/.test(listing)) return null;
 
-  const contentsArgs = options.contents === undefined ? [] : ["--contents", "-"];
+  const contentsArgs = contents === undefined ? [] : ["--contents", "-"];
   const blamed = await runWithin(
     options,
     deadline,
     ["blame", "--porcelain", ...contentsArgs, "--", options.filePath],
-    options.contents
+    contents
   );
   if (blamed?.kind !== "ok" || blamed.exitCode !== 0) return null;
   return parseBlamePorcelain(blamed.stdout.toString());
@@ -193,6 +222,13 @@ export async function readUserEmail(git: BlameGit): Promise<string> {
   const deadline = git.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
   const result = await runWithin(git, deadline, ["config", "--get", "user.email"]);
   return result?.kind === "ok" && result.exitCode === 0 ? result.stdout.toString().trim() : "";
+}
+
+function readFile(filePath: string): Promise<Buffer | null> {
+  return fs.promises.readFile(filePath).then(
+    (bytes) => bytes,
+    () => null
+  );
 }
 
 function fileSize(filePath: string): Promise<number | null> {
