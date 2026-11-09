@@ -172,6 +172,49 @@ describe("blameFile (real git)", () => {
     expect(lines).toBeNull();
   });
 
+  // An editor with no unsaved edits holds the saved text, so blaming the file
+  // on disk is the next best thing to blaming its contents.
+  it("blames the file on disk instead, when told to, for a saved file in an encoding other than UTF-8", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a])); // "café" in Latin-1
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "café\n",
+      fallBackToDisk: true
+    });
+
+    expect(lines?.map((l) => [l.uncommitted, l.summary])).toEqual([[false, "add a"]]);
+  });
+
+  // A clean editor is blamed through its contents too: after a checkout the
+  // watcher can fire before VS Code reloads the document, and the lines must
+  // still be those of the version on screen, not of the new file on disk.
+  it("blames contents that lag behind the file on disk as the contents, not the disk", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), "one\ntwo\n");
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+    const first = head(r);
+    fs.writeFileSync(path.join(r, "a.txt"), "zero\none\nthree\n");
+    commit(r, "rework a", "Bea <bea@example.com>", 1700000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "one\ntwo\n",
+      fallBackToDisk: true
+    });
+
+    expect(lines?.map((l) => (l.uncommitted ? "uncommitted" : [l.sha, l.originalLine]))).toEqual([
+      [first, 1],
+      "uncommitted"
+    ]);
+  });
+
   it("blames a linked worktree's file against that worktree's own history", async () => {
     const r = newRepo();
     fs.writeFileSync(path.join(r, "a.txt"), "main line\n");

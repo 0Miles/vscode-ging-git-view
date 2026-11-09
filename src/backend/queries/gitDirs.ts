@@ -1,6 +1,9 @@
 import * as path from "node:path";
 
-import { BLAME_TIMEOUT_MS, type BlameGit, runWithin } from "./blameFile";
+import { type GitRunOptions, runWithin } from "@/backend/gitRun";
+
+/** How long finding the git dirs may take when the caller sets no deadline. */
+const FIND_TIMEOUT_MS = 5000;
 
 /** Where a repository's git metadata really lives. */
 export type GitDirs = {
@@ -20,11 +23,17 @@ export type GitDirs = {
  * `.git` at the top of a worktree or submodule is only a file pointing
  * elsewhere, so the directories can't be guessed from the repository path.
  */
-export async function findGitDirs(git: BlameGit): Promise<GitDirs | null> {
-  const deadline = git.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
-  const result = await runWithin(git, deadline, ["rev-parse", "--git-dir", "--git-common-dir"]);
+export async function findGitDirs(git: GitRunOptions): Promise<GitDirs | null> {
+  const deadline = git.deadline ?? Date.now() + FIND_TIMEOUT_MS;
+  // `--absolute-git-dir` as elsewhere (merge, operationState); the common dir
+  // has no absolute form before git 2.31's `--path-format`, so it can come
+  // back relative to `repoPath` (".git").
+  const result = await runWithin(git, deadline, [
+    "rev-parse",
+    "--absolute-git-dir",
+    "--git-common-dir"
+  ]);
   if (result?.kind !== "ok" || result.exitCode !== 0) return null;
-  // Each comes back relative to `repoPath` (".git") or absolute.
   const [gitDir, commonDir] = result.stdout
     .toString()
     .split(/\r?\n/)

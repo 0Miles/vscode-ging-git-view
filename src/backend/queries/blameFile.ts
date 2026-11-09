@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { type GitCommandHandler, type GitSpawnResult, spawnGit } from "@/backend/gitSpawn";
+import { type GitRunOptions, runWithin } from "@/backend/gitRun";
 
 /** What `git blame` says about one line of a file. */
 export type BlameLine = {
@@ -106,44 +106,18 @@ export const BLAME_MAX_BYTES = 1024 * 1024;
 /** How long one blame lookup may take, every git run in it together. */
 export const BLAME_TIMEOUT_MS = 5000;
 
-/** Where and how the git runs of one blame lookup happen. */
-export type BlameGit = {
-  gitPath: string;
-  repoPath: string;
-  /** Epoch ms by which every git run must be done; one budget shared by all
-   *  the runs of a lookup. Defaults to `BLAME_TIMEOUT_MS` from the call. */
-  deadline?: number;
-  onCommand?: GitCommandHandler;
-  gitEnv?: NodeJS.ProcessEnv;
-};
-
-/** Run git within `deadline`; null when it has already passed,
- *  without spawning anything. */
-export function runWithin(
-  git: BlameGit,
-  deadline: number,
-  args: string[],
-  stdin?: string
-): Promise<GitSpawnResult> | null {
-  const remaining = deadline - Date.now();
-  if (remaining <= 0) return null;
-  return spawnGit({
-    gitPath: git.gitPath,
-    cwd: git.repoPath,
-    args,
-    stdin,
-    timeoutMs: remaining,
-    onCommand: git.onCommand,
-    gitEnv: git.gitEnv
-  });
-}
-
-export type BlameFileOptions = BlameGit & {
+/** The git runs of one blame lookup share one deadline, which defaults to
+ *  `BLAME_TIMEOUT_MS` from the call. */
+export type BlameFileOptions = GitRunOptions & {
   /** The file, relative to `repoPath`, with "/" separators. */
   filePath: string;
-  /** Blame these contents (e.g. an editor's unsaved text) instead of the file
-   *  on disk; they are passed to git on stdin, as UTF-8. */
+  /** Blame these contents (an editor's text) instead of the file on disk;
+   *  they are passed to git on stdin, as UTF-8. */
   contents?: string;
+  /** When `contents` can't be turned back into the saved file's bytes (see
+   *  `asSavedText`), blame the file on disk rather than give no result. Right
+   *  for an editor without unsaved edits, whose text is what is saved. */
+  fallBackToDisk?: boolean;
 };
 
 const UTF8_BOM = "\uFEFF";
@@ -151,9 +125,11 @@ const UTF8_BOM = "\uFEFF";
 /**
  * An editor's text as the bytes git should compare with the committed file,
  * judged by the copy saved on disk (null when there is none): the UTF-8 BOM
- * VS Code strips from the text goes back in front, and null — nothing to
- * blame — when the saved file isn't UTF-8, since the text can't be turned back
- * into its bytes and every line with a non-ASCII character would look changed.
+ * VS Code strips from the text goes back in front, and null when the saved
+ * file isn't UTF-8, since the text can't be turned back into its bytes and
+ * every line with a non-ASCII character would look changed. VS Code 1.98,
+ * the oldest this extension supports, has no `workspace.encode` to do it with
+ * the document's own encoding.
  */
 function asSavedText(text: string, saved: Buffer | null): string | null {
   if (saved === null) return text;
@@ -176,20 +152,22 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
   const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
   const onDisk = path.join(options.repoPath, options.filePath);
   const diskSize = await fileSize(onDisk);
+  // The saved copy is read whole to judge the contents' encoding, so it is
+  // held to the same limit either way.
+  if (diskSize !== null && diskSize > BLAME_MAX_BYTES) return null;
   let contents: string | undefined;
-  if (options.contents === undefined) {
-    if (diskSize === null || diskSize > BLAME_MAX_BYTES) return null;
-  } else {
-    // The saved copy is read whole to judge its encoding, so it is held to the
-    // same limit as the contents.
-    if (diskSize !== null && diskSize > BLAME_MAX_BYTES) return null;
-    const saved = diskSize === null ? null : await readFile(onDisk);
+  if (options.contents !== undefined) {
+    const saved = diskSize === null ? null : await readFileOrNull(onDisk);
     const text = asSavedText(options.contents, saved);
-    if (text === null || Buffer.byteLength(text) > BLAME_MAX_BYTES) return null;
-    // git's own test for binary: a NUL in the first 8000 bytes (buffer_is_binary).
-    if (text.slice(0, 8000).includes("\0")) return null;
-    contents = text;
+    if (text === null && options.fallBackToDisk !== true) return null;
+    if (text !== null) {
+      if (Buffer.byteLength(text) > BLAME_MAX_BYTES) return null;
+      // git's own test for binary: a NUL in the first 8000 bytes (buffer_is_binary).
+      if (text.slice(0, 8000).includes("\0")) return null;
+      contents = text;
+    }
   }
+  if (contents === undefined && diskSize === null) return null;
 
   // One listing answers both questions: no output means git doesn't track the
   // file, and `i/-text` / `w/-text` is git's verdict that the index or working
@@ -218,13 +196,13 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
  * `spawnGit` rather than the simple-git client so it shares the blame lookup's
  * deadline.
  */
-export async function readUserEmail(git: BlameGit): Promise<string> {
+export async function readUserEmail(git: GitRunOptions): Promise<string> {
   const deadline = git.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
   const result = await runWithin(git, deadline, ["config", "--get", "user.email"]);
   return result?.kind === "ok" && result.exitCode === 0 ? result.stdout.toString().trim() : "";
 }
 
-function readFile(filePath: string): Promise<Buffer | null> {
+function readFileOrNull(filePath: string): Promise<Buffer | null> {
   return fs.promises.readFile(filePath).then(
     (bytes) => bytes,
     () => null
