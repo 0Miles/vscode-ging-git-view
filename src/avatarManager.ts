@@ -63,6 +63,29 @@ export class AvatarManager {
     }
   }
 
+  /**
+   * The avatar file cached for `email`, and when it was saved; null when none
+   * is. Only reads the cache: it never queues a fetch, nor refreshes a stale
+   * entry — that is `fetchAvatarImage`'s job.
+   */
+  public getCachedAvatar(email: string): { file: string; savedAt: number } | null {
+    const avatar = this.avatars[email];
+    return typeof avatar?.image === "string"
+      ? { file: avatar.image, savedAt: avatar.timestamp }
+      : null;
+  }
+
+  /** A file `getCachedAvatar` named, as a base64 data URI; null when it can't
+   *  be read. */
+  public async readCachedAvatar(file: string): Promise<string | null> {
+    try {
+      const data = await fs.promises.readFile(this.avatarStorageFolder + "/" + file);
+      return avatarDataUri(file, data);
+    } catch {
+      return null;
+    }
+  }
+
   public registerBridge(post: (msg: ResponseMessage) => void) {
     this.postToWebview = post;
   }
@@ -358,16 +381,17 @@ export class AvatarManager {
           this.postToWebview({
             command: "fetchAvatar",
             email: email,
-            image:
-              "data:image/" +
-              this.avatars[email].image!.split(".")[1] +
-              ";base64," +
-              data.toString("base64")
+            image: avatarDataUri(this.avatars[email].image, data)
           });
         }
       });
     }
   }
+}
+
+/** A cached avatar file's bytes as a data URI; the file is named `<hash>.<format>`. */
+function avatarDataUri(fileName: string, data: Buffer): string {
+  return "data:image/" + fileName.split(".")[1] + ";base64," + data.toString("base64");
 }
 
 // Queue implementation, ordering avatar requests by their checkAfter value

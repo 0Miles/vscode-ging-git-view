@@ -15,6 +15,23 @@ export function repoContainingPath(filePath: string, repoPaths: string[]): strin
   return best;
 }
 
+/**
+ * Where inline blame blames `filePath`: the known repository containing it
+ * (the deepest, so a submodule or worktree file gets its own repository) and
+ * the file's path inside it. Null outside every known repository, or for a
+ * repository root itself. Same "/" separator contract as `repoContainingPath`.
+ */
+export function blameLocation(
+  filePath: string,
+  knownRepoPaths: string[]
+): { repo: string; filePath: string } | null {
+  const repo = repoContainingPath(filePath, knownRepoPaths);
+  if (repo === null) return null;
+  const root = repo.replace(/\/$/, "");
+  if (filePath.length <= root.length + 1) return null;
+  return { repo, filePath: filePath.slice(root.length + 1) };
+}
+
 /** Resolve a path to its real path (symlinks followed), or null if it can't be
  *  resolved. Injectable for testing. */
 function defaultRealpath(p: string): string | null {

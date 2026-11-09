@@ -166,5 +166,10 @@
   "command.remotes.editUrl": "编辑 URL…",
   "command.remotes.rename": "重命名 remote…",
   "command.remotes.remove": "移除 remote…",
-  "command.remotes.copyUrl": "复制 remote URL"
+  "command.remotes.copyUrl": "复制 remote URL",
+  "command.blame.toggle": "切换 inline blame",
+  "command.blame.copyHash": "复制 commit hash",
+  "command.blame.openLineChange": "打开这一行在 commit 中的更改",
+  "config.blame.enabled": "显示 inline git blame：在光标所在行的行尾，显示最后修改这一行的 commit 的作者、时间与摘要。",
+  "color.blameAnnotationForeground": "光标所在行行尾 inline blame 注释的颜色。"
 }

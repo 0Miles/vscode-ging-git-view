@@ -146,6 +146,10 @@ export const config = {
   fetchAndPrune: (): boolean => getConfig("fetch.prune", true),
   fetchAndPruneTags: (): boolean => getConfig("fetch.pruneTags", false),
   fetchAvatars: (): boolean => getConfig("history.fetchAvatars", false),
+  /** The end-of-line blame annotation on the cursor line. Resource-scoped, so
+   *  pass the document's URI for a folder-level value to apply. */
+  blameEnabled: (scope?: vscode.Uri): boolean =>
+    vscode.workspace.getConfiguration("ging-git-view", scope).get("blame.enabled", true),
   // Optional GitLab personal access token (read_user scope) used to look up
   // committer avatars on GitLab. Empty by default; when unset, GitLab-hosted
   // repos fall back to Gravatar (the GitLab user search API requires auth).

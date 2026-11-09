@@ -60,7 +60,6 @@ import type {
   BatchResultOf,
   BranchSearchEntry
 } from "@/backend/types";
-import { GitFileChangeType } from "@/backend/types";
 import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 import { parseRemoteUrl, pullRequestCreateUrl } from "@/backend/utils/pullRequest";
 import { abbrevCommit } from "@/backend/utils/string";
@@ -77,50 +76,10 @@ import { type BranchCleanup } from "./branchCleanupService";
 import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
 import { type Logger } from "./logger";
+import { openCommitDiff } from "./openCommitDiff";
 import { RepoManager } from "./repoManager";
 import { WebviewBridge } from "./webviewBridge";
 import { createWebviewErrorSink } from "./webviewErrorSink";
-
-function viewDiff(
-  repo: string,
-  commitHash: string,
-  oldFilePath: string,
-  newFilePath: string,
-  type: GitFileChangeType,
-  viewColumn: vscode.ViewColumn,
-  // When comparing two commits, diff against `fromHash` instead of the
-  // commit's first parent; otherwise the left side is `commitHash^`.
-  fromHash?: string
-): Promise<boolean> {
-  const abbrevHash = abbrevCommit(commitHash);
-  const leftRev = fromHash !== undefined ? fromHash : commitHash + "^";
-  const pathComponents = newFilePath.split("/");
-  const title =
-    pathComponents[pathComponents.length - 1] +
-    " (" +
-    (type === "A"
-      ? l10n.t("diff.addedIn", abbrevHash)
-      : type === "D"
-        ? l10n.t("diff.deletedIn", abbrevHash)
-        : (fromHash !== undefined ? abbrevCommit(fromHash) : abbrevCommit(commitHash) + "^") +
-          " ↔ " +
-          abbrevCommit(commitHash)) +
-    ")";
-  return new Promise<boolean>((resolve) => {
-    vscode.commands
-      .executeCommand(
-        "vscode.diff",
-        encodeDiffDocUri(repo, oldFilePath, leftRev),
-        encodeDiffDocUri(repo, newFilePath, commitHash),
-        title,
-        { preview: true, viewColumn }
-      )
-      .then(
-        () => resolve(true),
-        () => resolve(false)
-      );
-  });
-}
 
 export function registerMessageHandlers(
   bridge: WebviewBridge,
@@ -930,18 +889,18 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "viewDiff",
     async (msg) => {
-      // EditorGroup values are vscode.ViewColumn enum keys (Active, Beside, One..Nine).
-      const viewColumn = vscode.ViewColumn[config.openNewTabEditorGroup()];
       bridge.post({
         command: "viewDiff",
-        success: await viewDiff(
-          msg.repo,
-          msg.commitHash,
-          msg.oldFilePath,
-          msg.newFilePath,
-          msg.type,
-          viewColumn,
-          msg.fromHash
+        success: await openCommitDiff(
+          {
+            repo: msg.repo,
+            commitHash: msg.commitHash,
+            oldFilePath: msg.oldFilePath,
+            newFilePath: msg.newFilePath,
+            type: msg.type,
+            fromHash: msg.fromHash
+          },
+          config.openNewTabEditorGroup()
         )
       });
     },

@@ -458,5 +458,13 @@
   "branchView.cleanup.none": "此仓库没有建议清理的 branch。",
   "branchView.cleanup.failed": "无法检查可清理的 branch",
   "error.webviewFailed": "GING 发生意外错误，有操作没有完成。详细内容记在 GING 输出通道。",
-  "error.showLog": "显示日志"
+  "error.showLog": "显示日志",
+  "blame.you": "你",
+  "blame.uncommitted": "尚未提交的更改",
+  "blame.hover.changes": "更改",
+  "blame.hover.copyHash": "复制 commit hash",
+  "blame.hover.openLineChange": "打开这一行在这个 commit 的更改",
+  "blame.copiedHash": "已复制 commit hash {0}",
+  "blame.workspaceKeepsOff": "已在用户设置中开启 inline blame，但这个工作区的设置仍然将它关闭。",
+  "blame.workspaceKeepsOn": "已在用户设置中关闭 inline blame，但这个工作区的设置仍然将它开启。"
 }
