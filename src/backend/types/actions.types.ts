@@ -12,6 +12,9 @@ type ActionPayloads = {
     force: boolean;
   };
   checkoutBranch: { branchName: string; remoteBranch: string | null; force: boolean };
+  /** Check out an existing local branch, then `git pull <remote> <branchOnRemote>`
+   *  into it — merging or rebasing as the user's `pull.rebase` decides. */
+  checkoutAndPullBranch: { branchName: string; remote: string; branchOnRemote: string };
   checkoutCommit: { commitHash: string };
   cherrypickCommit: {
     commitHash: string;
