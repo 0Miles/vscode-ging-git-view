@@ -58,7 +58,8 @@ import type {
   ActionResponseExtra,
   BatchActionRequest,
   BatchResultOf,
-  BranchSearchEntry
+  BranchSearchEntry,
+  CommitOrdering
 } from "@/backend/types";
 import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 import { parseRemoteUrl, pullRequestCreateUrl } from "@/backend/utils/pullRequest";
@@ -267,24 +268,33 @@ export function registerMessageHandlers(
 
   // --- Query handlers ---
 
+  /** The history the graph was loaded from, as a request names it and the
+   *  repo's settings scope it — what Find's branch index and a locate's depth
+   *  must walk, or they would answer about commits the graph cannot reach. */
+  function graphHistory(msg: {
+    branchNames: string[];
+    commitOrder?: CommitOrdering;
+    hiddenRemotes?: string[];
+  }) {
+    const scope = resolveRepoScope(currentRepo!);
+    return {
+      branchNames: msg.branchNames,
+      showRemoteBranches: resolveShowRemote(currentRepo!),
+      commitOrder: msg.commitOrder ?? config.commitOrder(),
+      onlyFollowFirstParent: scope.onlyFollowFirstParent,
+      showCommitsOnlyReferencedByTags: scope.showTagOnlyCommits,
+      includeCommitsMentionedByReflogs: scope.includeReflogCommits,
+      hiddenRemotes: msg.hiddenRemotes ?? []
+    };
+  }
+
   bridge.onMessage(
     "branchSearch",
     async (msg) => {
       let branches: BranchSearchEntry[] = [];
       let status: string | null = null;
       try {
-        // The index has to walk the same history the graph was loaded from,
-        // or Find would offer commits the graph cannot reach.
-        const scope = resolveRepoScope(currentRepo!);
-        ({ branches } = await loadBranchSearchIndex(gitClient.getInstance(), {
-          branchNames: msg.branchNames,
-          showRemoteBranches: resolveShowRemote(currentRepo!),
-          commitOrder: msg.commitOrder ?? config.commitOrder(),
-          onlyFollowFirstParent: scope.onlyFollowFirstParent,
-          showCommitsOnlyReferencedByTags: scope.showTagOnlyCommits,
-          includeCommitsMentionedByReflogs: scope.includeReflogCommits,
-          hiddenRemotes: msg.hiddenRemotes ?? []
-        }));
+        ({ branches } = await loadBranchSearchIndex(gitClient.getInstance(), graphHistory(msg)));
       } catch (error: unknown) {
         status = formatGitError(error);
       }
@@ -306,16 +316,9 @@ export function registerMessageHandlers(
       let logDepth: number | null = null;
       let status: string | null = null;
       try {
-        const scope = resolveRepoScope(currentRepo!);
         logDepth = await findCommitLogDepth(gitClient.getInstance(), {
-          hash: msg.hash,
-          branchNames: msg.branchNames,
-          showRemoteBranches: resolveShowRemote(currentRepo!),
-          commitOrder: msg.commitOrder ?? config.commitOrder(),
-          onlyFollowFirstParent: scope.onlyFollowFirstParent,
-          showCommitsOnlyReferencedByTags: scope.showTagOnlyCommits,
-          includeCommitsMentionedByReflogs: scope.includeReflogCommits,
-          hiddenRemotes: msg.hiddenRemotes ?? []
+          ...graphHistory(msg),
+          hash: msg.hash
         });
       } catch (error: unknown) {
         status = formatGitError(error);

@@ -21,14 +21,3 @@ export function commitLocationArgs(
   if (!isCommitHash(sha)) return null;
   return { repo, sha };
 }
-
-/**
- * Whether a repository's branch filter may keep a commit off the graph, so
- * locating it clears the filter through Show All first (#310). `stored` is the
- * filter recorded for the repository, undefined when none is yet: its first
- * load would then apply the configured default filter, which may well hide it.
- * An explicit empty filter shows every branch already.
- */
-export function filterMayHideCommit(stored: readonly string[] | undefined): boolean {
-  return stored === undefined || stored.length > 0;
-}

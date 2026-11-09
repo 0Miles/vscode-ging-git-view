@@ -210,4 +210,74 @@ describe("locating a blamed commit in the graph", () => {
     expect(focusedHash()).toBe("late777");
     expect(centred.at(-1)).toBe("late777");
   });
+
+  // The maintainer's ruling on #310: a branch filter is cleared — through Show
+  // All, the graph's filter chip's own request — only when it is what keeps the
+  // commit off the graph.
+  describe("under a branch filter", () => {
+    it("leaves a filter that shows the commit alone", () => {
+      receive({ command: "setBranchFilter", branches: ["main"] });
+      receive(commitsResponse([tip, base]));
+      mock.clearMessages();
+      centred.splice(0);
+
+      receive(locate("aaa111"));
+      expect(focusedHash()).toBe("aaa111");
+      expect(mock.sentOf("clearBranchFilter")).toHaveLength(0);
+    });
+
+    it("asks whether the commit is anywhere in the history before blaming the filter", () => {
+      mock.clearMessages();
+      receive(locate("nowhere888"));
+      expect(lastDepthRequest().branchNames).toEqual(["main"]);
+      answerDepth(null);
+      // Measured again across every branch, rather than clearing on a guess.
+      expect(lastDepthRequest().branchNames).toEqual([""]);
+      answerDepth(null);
+
+      expect(mock.sentOf("clearBranchFilter")).toHaveLength(0);
+      expect(mock.sentOf("locateCommitNotInGraph")).toEqual([
+        { command: "locateCommitNotInGraph", hash: "nowhere888" }
+      ]);
+    });
+
+    it("clears a filter that hides the commit through Show All, then locates it", () => {
+      mock.clearMessages();
+      centred.splice(0);
+      receive(locate("side999"));
+      answerDepth(null);
+      answerDepth(4);
+      expect(mock.sentOf("clearBranchFilter")).toHaveLength(1);
+      // Nothing loaded under the filter that hides it.
+      expect(mock.sentOf("loadCommits")).toHaveLength(0);
+
+      // The host's Show All arrives as the empty filter, and its reload lands.
+      receive({ command: "setBranchFilter", branches: [] });
+      receive(commitsResponse([tip, base]));
+      // Measured afresh, on the history now on screen.
+      answerDepth(4);
+      expect(mock.sentOf("loadCommits").at(-1)?.maxCommits).toBeGreaterThanOrEqual(5);
+      receive(commitsResponse([tip, base, commit("side999", null)]));
+      expect(focusedHash()).toBe("side999");
+      expect(centred.at(-1)).toBe("side999");
+    });
+
+    it("gives up waiting for Show All when another navigation gets there first", () => {
+      receive({ command: "setBranchFilter", branches: ["main"] });
+      receive(commitsResponse([tip, base]));
+      mock.clearMessages();
+      centred.splice(0);
+      receive(locate("side999"));
+      answerDepth(null);
+      answerDepth(4);
+      expect(mock.sentOf("clearBranchFilter")).toHaveLength(1);
+
+      // The user picks another filter before Show All lands, then Show All does.
+      receive({ command: "setBranchFilter", branches: ["main", "feature"] });
+      receive({ command: "setBranchFilter", branches: [] });
+      receive(commitsResponse([tip, base]));
+      expect(mock.sentOf("commitLogDepth")).toHaveLength(2);
+      expect(centred).not.toContain("side999");
+    });
+  });
 });

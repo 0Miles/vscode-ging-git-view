@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { commitLocationArgs, filterMayHideCommit } from "@/extension/blameLocate";
+import { commitLocationArgs } from "@/extension/blameLocate";
 
 const SHA = "a".repeat(40);
 const KNOWN = ["/repo", "/repo/sub"];
@@ -33,19 +33,5 @@ describe("commitLocationArgs", () => {
     expect(commitLocationArgs(SHA, KNOWN)).toBeNull();
     expect(commitLocationArgs([{ repo: "/repo", sha: SHA }], KNOWN)).toBeNull();
     expect(commitLocationArgs({ sha: SHA }, KNOWN)).toBeNull();
-  });
-});
-
-describe("filterMayHideCommit", () => {
-  it("is false for an explicit show-all filter", () => {
-    expect(filterMayHideCommit([])).toBe(false);
-  });
-
-  it("is true while branches are picked", () => {
-    expect(filterMayHideCommit(["main"])).toBe(true);
-  });
-
-  it("is true for a repository with no filter recorded yet, whose first load would apply the configured default", () => {
-    expect(filterMayHideCommit(undefined)).toBe(true);
   });
 });
