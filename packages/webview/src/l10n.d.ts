@@ -1,6 +1,7 @@
 /**
  * Type definitions for localized strings in webview.
- * This file is generated based on webviewL10n.ts
+ * The shape is spelled out in localizedStrings.ts; the host fills it in
+ * (getWebviewLocalizedStrings in apps/vscode).
  */
 
 import type { LocalizedStrings } from "@ging/webview/localizedStrings";

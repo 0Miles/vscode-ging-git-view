@@ -156,7 +156,7 @@ async function getUnsavedChanges(git: SimpleGit) {
     // was once declared and threaded down to here, where nothing ever read it,
     // so it offered a choice this line never honoured. The setting is gone
     // rather than made live: switching it on would change the number every user
-    // already reads on that row (see `tests/backend/queries/loadCommits`).
+    // already reads on that row (see `packages/core/tests/queries/loadCommits`).
     const changes = status.files.length - status.not_added.length;
     if (changes <= 0) return null;
     return { branch: status.current ?? "HEAD", changes };
@@ -177,7 +177,7 @@ async function getUnsavedChanges(git: SimpleGit) {
  * committer date (%ct) while the commits carry %at or %ct per `dateType`, topo
  * ordering isn't date-sorted at all, and clock skew happens. Any of those can
  * place a stash *below* its own base, pointing its only parent upward, which
- * the layout walk cannot terminate on (see `tests/webview/graphLayout.test.ts`).
+ * the layout walk cannot terminate on (see `apps/vscode/tests/webview/graphLayout.test.ts`).
  *
  * When neither exists, the stash is older than everything loaded, so its place
  * is past the last loaded commit. Appending it there — what this used to do —

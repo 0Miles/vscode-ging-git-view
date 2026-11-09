@@ -41,7 +41,7 @@ const SEARCH_ROOTS = ["docs", "src", "tests", "scripts", "packages", "apps"];
 const SKIPPED_DIRS = new Set(["node_modules", "out", ".vscode-test"]);
 /**
  * Extensions worth reading. `.txt` is deliberately absent, and
- * `tests/backend/scripts/checkAdr.fixtures.txt` relies on that: the samples
+ * `packages/core/tests/scripts/checkAdr.fixtures.txt` relies on that: the samples
  * proving these rules bite have to contain broken references, and a file the
  * checker never opens is a cheaper way to hold them than an exemption anyone
  * could later point at their own file.

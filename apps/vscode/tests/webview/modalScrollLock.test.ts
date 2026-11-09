@@ -9,7 +9,7 @@ import { clickId, createVscodeMock, dialogShown, makeViewState, receive, setupHt
 // scrollbar sits outside the backing's reach, and the wheel and PageDown/Space
 // chained to the document. `<html>` carrying `dialogOpen` is what locks it —
 // the declarations that do the locking are main.css's, held by
-// `tests/backend/utils/modalScrollLockStyle.test.ts`, since jsdom loads no
+// `packages/webview/tests/modalScrollLockStyle.test.ts`, since jsdom loads no
 // stylesheet. What is pinned here is that the class follows the dialog: on for
 // as long as one is up, through one dialog replacing another, and off by every
 // route that closes the last.

@@ -16,7 +16,7 @@ import { clickId, createVscodeMock, graphRow, makeViewState, receive, setupHtml 
 // Everything a `<button>` brings *visually* is the other half of that, and it
 // is not here: jsdom loads no stylesheet, so nothing in this file can tell the
 // reset in `media/main.css` from its absence. That guard is
-// `tests/backend/utils/roundedBtnStyleLock.test.ts`, and the reasoning for it
+// `packages/webview/tests/roundedBtnStyleLock.test.ts`, and the reasoning for it
 // — including the Chromium measurement it stands in for — is in its header.
 //
 // One webview is booted for the whole suite and the scenarios run in order

@@ -108,6 +108,10 @@ importers:
       '@ging/shared':
         specifier: workspace:*
         version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 20.19.39
 
 packages:
 

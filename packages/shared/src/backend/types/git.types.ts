@@ -41,7 +41,7 @@ export type BranchSearchEntry = {
    *  row: the graph splices stash rows in among the commits, so a row index
    *  runs ahead of this by the stash rows sitting above it, and
    *  `buildFindMatches` converts between the two (see
-   *  `tests/webview/find.test.ts`).
+   *  `apps/vscode/tests/webview/find.test.ts`).
    *
    *  "No stash rows spliced in" is about the splice, not about the commits:
    *  with `includeCommitsMentionedByReflogs` on, `--reflog` reaches

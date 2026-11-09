@@ -73,7 +73,7 @@ function placeholdersMatch(arr1, arr2) {
 /**
  * Keys whose half-width commas are data, not punctuation.
  *
- * `stats.weekdays` is split on `,` in `src/extension/statisticsPanel.ts`, so a
+ * `stats.weekdays` is split on `,` in `apps/vscode/src/extension/statisticsPanel.ts`, so a
  * full-width comma there would break the weekday header rather than fix it.
  */
 const PUNCTUATION_EXEMPT_KEYS = new Set(["stats.weekdays"]);

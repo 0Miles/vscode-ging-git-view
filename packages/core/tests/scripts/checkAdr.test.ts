@@ -16,8 +16,9 @@ import { rmrf } from "@ging/core/tests/helpers";
  * inner function. A rule that reported perfectly but exited 0 would still let a
  * bad reference through, and only running the CLI can catch that.
  *
- * They live under `tests/backend` because that is this repo's node-environment
- * vitest project (the other one is jsdom); nothing here touches `src/backend`.
+ * They live under `packages/core/tests` because that is in this repo's
+ * node-environment vitest project (the other one is jsdom); nothing here touches
+ * `packages/core/src`.
  *
  * The sample file bodies are in `checkAdr.fixtures.txt` rather than inline, so
  * that the deliberately-broken references in them stay out of a file the

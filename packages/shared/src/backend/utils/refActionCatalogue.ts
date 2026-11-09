@@ -10,7 +10,7 @@
  * that hide an action. The graph webview's ref menu reads its `visible:`
  * gates straight off it (`refActionVisibility`), and package.json's
  * hand-written `branches.*` when-clauses must agree with the declarations —
- * tests/backend/utils/branchMenuConsistency.test.ts reads the real
+ * apps/vscode/tests/backend/utils/branchMenuConsistency.test.ts reads the real
  * package.json and goes red on any divergence.
  */
 

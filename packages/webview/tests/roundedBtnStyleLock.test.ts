@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
  * neighbour `branchMenuConsistency.test.ts` uses on the manifest: read the
  * shipped file and assert the declarations that carry a decision are still in
  * it. Here rather than beside the behaviour it protects
- * (`tests/webview/footerControls.test.ts`) for the same reason that one is:
+ * (`apps/vscode/tests/webview/footerControls.test.ts`) for the same reason that one is:
  * this reads a file off disk and has no use for a DOM, and the webview project
  * runs under jsdom, where `import.meta.url` is not a file URL to resolve from.
  *
@@ -31,10 +31,7 @@ import { describe, expect, it } from "vitest";
  * only that nobody removed them without meeting this comment first.
  */
 
-const css = readFileSync(
-  new URL("../../../../../packages/webview/media/main.css", import.meta.url),
-  "utf8"
-);
+const css = readFileSync(new URL("../media/main.css", import.meta.url), "utf8");
 
 /** The `prop: value` pairs of a rule, by exact selector text, in source order —
  *  empty when there is no such rule, so a missing one fails as a named test

@@ -20,7 +20,12 @@ export default defineConfig({
         resolve: { alias: [appAlias] },
         test: {
           name: "backend",
-          include: ["packages/core/tests/**/*.test.ts", "apps/vscode/tests/backend/**/*.test.ts"],
+          include: [
+            "packages/core/tests/**/*.test.ts",
+            // the stylesheet locks: node, because jsdom gives `import.meta.url` no file to resolve
+            "packages/webview/tests/**/*.test.ts",
+            "apps/vscode/tests/backend/**/*.test.ts"
+          ],
           setupFiles: ["packages/core/tests/setup.ts"],
           // These suites drive real git child processes, many of them in
           // parallel. The 5s/10s defaults are comfortably exceeded on a loaded

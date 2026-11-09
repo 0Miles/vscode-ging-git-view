@@ -7,9 +7,12 @@
     "./media/*": "./media/*"
   },
   "scripts": {
-    "typecheck": "tsc -p . --noEmit"
+    "typecheck": "tsc -p . --noEmit && tsc -p tests --noEmit"
   },
   "dependencies": {
     "@ging/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
   }
 }
