@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./resources/icon.png" height="128"/>
+  <img src="./apps/vscode/resources/icon.png" height="128"/>
   <samp>
     <h1>GING</h1>
     <h3>A visual Git extension focused on Git sidebar integration and multi-repository workflows</h3>
