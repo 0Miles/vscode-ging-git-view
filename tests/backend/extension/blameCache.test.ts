@@ -29,4 +29,17 @@ describe("createBlameCache", () => {
     cache.delete("file:///a.ts");
     expect(cache.get("file:///a.ts", { version: 3, repo: "/work/app" })).toBeUndefined();
   });
+
+  // A commit or checkout in a repository changes the blame of every file in it,
+  // whatever their document versions.
+  it("forgets every document blamed in a repository, and only those", () => {
+    const cache = createBlameCache<string>();
+    cache.set("file:///app/a.ts", { version: 3, repo: "/app" }, "a");
+    cache.set("file:///app/b.ts", { version: 1, repo: "/app" }, "b");
+    cache.set("file:///lib/c.ts", { version: 2, repo: "/lib" }, "c");
+    cache.deleteRepo("/app");
+    expect(cache.get("file:///app/a.ts", { version: 3, repo: "/app" })).toBeUndefined();
+    expect(cache.get("file:///app/b.ts", { version: 1, repo: "/app" })).toBeUndefined();
+    expect(cache.get("file:///lib/c.ts", { version: 2, repo: "/lib" })).toBe("c");
+  });
 });

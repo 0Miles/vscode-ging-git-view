@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 
+import type { GitRunOptions } from "@/backend/gitRun";
 import type { GitCommandHandler } from "@/backend/gitSpawn";
 import {
   BLAME_TIMEOUT_MS,
@@ -7,20 +8,22 @@ import {
   blameFile,
   readUserEmail
 } from "@/backend/queries/blameFile";
+import { findGitDirs, gitDirWatchPaths } from "@/backend/queries/gitDirs";
 import { getPathFromUri } from "@/backend/utils/path";
 import { config } from "@/config";
 import * as l10n from "@/l10n";
 
 import { blameAnnotationText } from "./blameAnnotation";
 import { createBlameCache } from "./blameCache";
+import { createBlameRepoWatchers } from "./blameRepoWatchers";
+import { updateDelay } from "./blameSchedule";
 import { type BlameTarget, blameTarget, spansLines } from "./blameTarget";
 import { blameToggle } from "./blameToggle";
+import { openDocumentKeys, type TabContents } from "./openDocuments";
 
 const SECTION = "ging-git-view";
 const ENABLED_KEY = "blame.enabled";
 const COLOR_ID = "ging-git-view.blameAnnotationForeground";
-/** How long the cursor has to rest before the annotation follows it. */
-const CURSOR_SETTLE_MS = 150;
 
 type FileBlame = { lines: BlameLine[]; userEmail: string };
 
@@ -34,12 +37,57 @@ function targetOf(editor: vscode.TextEditor, knownRepos: string[]): BlameTarget 
   return blameTarget(
     {
       scheme: document.uri.scheme,
-      isDirty: document.isDirty,
       filePath: getPathFromUri(document.uri),
       selections: lineSpans(editor.selections),
       cursorLine: editor.selection.active.line
     },
     knownRepos
+  );
+}
+
+function tabContents({ input }: vscode.Tab): TabContents {
+  if (input instanceof vscode.TabInputText) return { kind: "text", uri: input.uri.toString() };
+  if (input instanceof vscode.TabInputTextDiff) {
+    return {
+      kind: "diff",
+      original: input.original.toString(),
+      modified: input.modified.toString()
+    };
+  }
+  return { kind: "other" };
+}
+
+/** Every document an editor tab (or a visible editor) still holds open. */
+function openDocuments(): Set<string> {
+  return openDocumentKeys(
+    vscode.window.tabGroups.all.flatMap((group) => group.tabs.map(tabContents)),
+    vscode.window.visibleTextEditors.map((editor) => cacheKey(editor.document))
+  );
+}
+
+/**
+ * Watch what moves a repository's blame — its HEAD and branches, where git
+ * really keeps them (see `gitDirWatchPaths`). Null when git can't say where
+ * that is.
+ */
+async function watchGitDir(
+  git: GitRunOptions,
+  onChange: () => void
+): Promise<vscode.Disposable | null> {
+  const dirs = await findGitDirs(git);
+  if (dirs === null) return null;
+  const watchers = gitDirWatchPaths(dirs).map(({ base, glob }) =>
+    vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(base), glob)
+    )
+  );
+  return vscode.Disposable.from(
+    ...watchers.flatMap((w) => [
+      w.onDidCreate(onChange),
+      w.onDidChange(onChange),
+      w.onDidDelete(onChange)
+    ]),
+    ...watchers
   );
 }
 
@@ -52,8 +100,11 @@ const sameTarget = (a: BlameTarget | null, b: BlameTarget) =>
  *
  * The file is blamed in the known repository that contains it, never in the
  * current repository the graph shows. Each file is blamed once per document
- * version and repository; moving the cursor only reads that result. Anything
- * that can't be blamed just shows nothing.
+ * version and repository; moving the cursor only reads that result. Unsaved
+ * edits are blamed as the editor shows them, and the repository's branches
+ * and HEAD are watched while a blamed file of it is open, so a commit or
+ * checkout shows up straight away. Anything that can't be blamed just shows
+ * nothing.
  */
 export function createBlameController(deps: {
   knownRepos: () => string[];
@@ -67,6 +118,22 @@ export function createBlameController(deps: {
     after: { color: new vscode.ThemeColor(COLOR_ID), margin: "0 0 0 3em" }
   });
   const cache = createBlameCache<Promise<FileBlame | null>>();
+  // A commit or checkout changes the blame of every file in the repository, and
+  // so does one that may have landed before its watcher was up (reported as a
+  // change too). The repository's blames are dropped as well whenever nothing
+  // watches it — let go, or it couldn't be watched: a closed tab can leave its
+  // document alive, at the same version, to be reopened after a commit nothing
+  // saw.
+  const repoWatchers = createBlameRepoWatchers({
+    watch: (repo, onChange) => watchGitDir(gitIn(repo), onChange),
+    onChange: (repo) => {
+      cache.deleteRepo(repo);
+      schedule();
+    },
+    onRelease: (repo) => cache.deleteRepo(repo)
+  });
+  /** When each document was last edited, to hold the annotation while typing. */
+  const editedAt = new WeakMap<vscode.TextDocument, number>();
   let decorated: vscode.TextEditor | undefined;
   let timer: NodeJS.Timeout | undefined;
   // Bumped by every change that makes an in-flight update stale: a result that
@@ -84,26 +151,50 @@ export function createBlameController(deps: {
     decorated = undefined;
   }
 
-  function schedule(delay = CURSOR_SETTLE_MS) {
+  /** Update after `delay` ms; by default once the cursor has settled and any
+   *  typing in the active document has stopped. */
+  function schedule(delay?: number) {
     cancelPending();
-    timer = setTimeout(() => void update(), delay);
+    const document = vscode.window.activeTextEditor?.document;
+    const wait =
+      delay ??
+      updateDelay({
+        now: Date.now(),
+        lastEditAt: document === undefined ? undefined : editedAt.get(document)
+      });
+    timer = setTimeout(() => void update(), wait);
   }
 
-  function blameFor(document: vscode.TextDocument, target: BlameTarget) {
-    const key = cacheKey(document);
-    const stamp = { version: document.version, repo: target.repo };
-    const cached = cache.get(key, stamp);
-    if (cached !== undefined) return cached;
-    // One deadline for every git run of the lookup, user.email included.
-    const git = {
+  /** Where and how a git run in `repo` happens; its deadline starts now. */
+  function gitIn(repo: string): GitRunOptions {
+    return {
       gitPath: deps.gitPath(),
-      repoPath: target.repo,
+      repoPath: repo,
       deadline: Date.now() + BLAME_TIMEOUT_MS,
       onCommand: deps.onCommand,
       gitEnv: deps.gitEnv()
     };
+  }
+
+  function blameFor(document: vscode.TextDocument, target: BlameTarget) {
+    const key = cacheKey(document);
+    repoWatchers.blaming(key, target.repo);
+    const stamp = { version: document.version, repo: target.repo };
+    const cached = cache.get(key, stamp);
+    if (cached !== undefined) return cached;
+    // One deadline for every git run of the lookup, user.email included.
+    const git = gitIn(target.repo);
+    // The lines must be those of the version on screen: unsaved edits, and a
+    // clean document that a checkout changed on disk before VS Code reloaded
+    // it, go to git on stdin; any other clean one is blamed from disk (see
+    // `blameSource`).
     const blame = Promise.all([
-      blameFile({ ...git, filePath: target.filePath }),
+      blameFile({
+        ...git,
+        filePath: target.filePath,
+        contents: document.getText(),
+        editorIsClean: !document.isDirty
+      }),
       readUserEmail(git)
     ]).then(
       ([lines, userEmail]): FileBlame | null => (lines === null ? null : { lines, userEmail }),
@@ -163,25 +254,38 @@ export function createBlameController(deps: {
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       if (e.contentChanges.length === 0) return;
+      // Typing leaves the document dirty; a reload from disk (a checkout, say)
+      // leaves it clean and can be blamed without waiting for typing to stop.
+      if (e.document.isDirty) editedAt.set(e.document, Date.now());
+      else editedAt.delete(e.document);
       const active = e.document === vscode.window.activeTextEditor?.document;
       if (!active && e.document !== decorated?.document) return;
       // New content: drop the annotation and any lookup still running for the
-      // old version. An edit leaves the document dirty and it shows again once
-      // saved; a reload from disk (a checkout, say) leaves it clean, so blame
-      // the new version straight away.
+      // old version, and blame the new one once typing stops.
       hide();
-      if (active && !e.document.isDirty) schedule();
+      if (active) schedule();
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       cache.delete(cacheKey(document));
       if (document === vscode.window.activeTextEditor?.document) schedule();
     }),
-    vscode.workspace.onDidCloseTextDocument((document) => cache.delete(cacheKey(document))),
+    vscode.workspace.onDidCloseTextDocument((document) => {
+      cache.delete(cacheKey(document));
+      repoWatchers.keepOnly(openDocuments());
+    }),
+    // Tabs and visible editors are updated separately, in no fixed order, so
+    // either can be the last to drop a closed editor.
+    vscode.window.tabGroups.onDidChangeTabs((e) => {
+      if (e.closed.length > 0) repoWatchers.keepOnly(openDocuments());
+    }),
+    vscode.window.onDidChangeVisibleTextEditors(() => repoWatchers.keepOnly(openDocuments())),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration(`${SECTION}.${ENABLED_KEY}`)) return;
-      // Clear everywhere, then let the active editor show again at once if the
-      // setting (as it applies to its file) is still on.
+      // Clear everywhere and let every watcher go, then let the active editor
+      // show (and watch) again at once if the setting, as it applies to its
+      // file, is still on.
       hide();
+      repoWatchers.keepOnly(new Set());
       for (const editor of vscode.window.visibleTextEditors) {
         editor.setDecorations(decoration, []);
       }
@@ -195,6 +299,7 @@ export function createBlameController(deps: {
     dispose() {
       cancelPending();
       for (const s of subscriptions) s.dispose();
+      repoWatchers.dispose();
       cache.clear();
     }
   };

@@ -115,6 +115,127 @@ describe("blameFile (real git)", () => {
     expect(lines?.map((l) => l.uncommitted)).toEqual([true, false, false]);
   });
 
+  it("lines unsaved edits up with the editor: edited lines uncommitted, the rest at their original lines", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), "one\ntwo\nthree\nfour\n");
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+    const first = head(r);
+    fs.writeFileSync(path.join(r, "a.txt"), "one\ntwo\nthree\nfour\nfive\n");
+    commit(r, "add five", "Bea <bea@example.com>", 1700000000);
+    const second = head(r);
+    // Saved on disk: untouched since the last commit. In the editor: a line
+    // inserted at the top and "three" rewritten.
+    const contents = "new top\none\ntwo\nTHREE\nfour\nfive\n";
+
+    const lines = await blameFile({ gitPath: "git", repoPath: r, filePath: "a.txt", contents });
+
+    expect(lines?.map((l) => (l.uncommitted ? "uncommitted" : [l.sha, l.originalLine]))).toEqual([
+      "uncommitted",
+      [first, 1],
+      [first, 2],
+      "uncommitted",
+      [first, 4],
+      [second, 5]
+    ]);
+  });
+
+  // VS Code hands over an editor's text without the file's UTF-8 BOM.
+  it("keeps the first line committed when the editor's text lacks the file's BOM", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), "﻿one\ntwo\n");
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "one\ntwo\nthree\n"
+    });
+
+    expect(lines?.map((l) => l.uncommitted)).toEqual([false, false, true]);
+  });
+
+  // The editor's text can't be turned back into the file's own bytes (Big5,
+  // Latin-1, ...), so every line with a non-ASCII character would look changed.
+  it("gives no result for unsaved edits to a file saved in an encoding other than UTF-8", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a])); // "café" in Latin-1
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "café\nmore\n"
+    });
+
+    expect(lines).toBeNull();
+  });
+
+  // An editor with no unsaved edits holds the saved text, so blaming the file
+  // on disk is the next best thing to blaming its contents.
+  it("blames the file on disk instead for a clean editor over a file in an encoding other than UTF-8", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a])); // "café" in Latin-1
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "café\n",
+      editorIsClean: true
+    });
+
+    expect(lines?.map((l) => [l.uncommitted, l.summary])).toEqual([[false, "add a"]]);
+  });
+
+  // VS Code opens `a\r\nb\nc\r\n` as `a\r\nb\r\nc\r\n`.
+  it("finds no uncommitted line in a clean editor over a file with mixed line endings", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), "a\r\nb\nc\r\n");
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "a\r\nb\r\nc\r\n",
+      editorIsClean: true
+    });
+
+    expect(lines?.map((l) => [l.uncommitted, l.summary])).toEqual([
+      [false, "add a"],
+      [false, "add a"],
+      [false, "add a"]
+    ]);
+  });
+
+  // After a checkout the watcher can fire before VS Code reloads the
+  // document, and the lines must still be those of the version on screen,
+  // not of the new file on disk.
+  it("blames a clean editor's contents that lag behind the file on disk as the contents", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), "one\ntwo\n");
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+    const first = head(r);
+    fs.writeFileSync(path.join(r, "a.txt"), "zero\none\nthree\n");
+    commit(r, "rework a", "Bea <bea@example.com>", 1700000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "one\ntwo\n",
+      editorIsClean: true
+    });
+
+    expect(lines?.map((l) => (l.uncommitted ? "uncommitted" : [l.sha, l.originalLine]))).toEqual([
+      [first, 1],
+      "uncommitted"
+    ]);
+  });
+
   it("blames a linked worktree's file against that worktree's own history", async () => {
     const r = newRepo();
     fs.writeFileSync(path.join(r, "a.txt"), "main line\n");

@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { type GitCommandHandler, type GitSpawnResult, spawnGit } from "@/backend/gitSpawn";
+import { type GitRunOptions, runWithin } from "@/backend/gitRun";
 
 /** What `git blame` says about one line of a file. */
 export type BlameLine = {
@@ -106,45 +106,72 @@ export const BLAME_MAX_BYTES = 1024 * 1024;
 /** How long one blame lookup may take, every git run in it together. */
 export const BLAME_TIMEOUT_MS = 5000;
 
-/** Where and how the git runs of one blame lookup happen. */
-export type BlameGit = {
-  gitPath: string;
-  repoPath: string;
-  /** Epoch ms by which every git run must be done; one budget shared by all
-   *  the runs of a lookup. Defaults to `BLAME_TIMEOUT_MS` from the call. */
-  deadline?: number;
-  onCommand?: GitCommandHandler;
-  gitEnv?: NodeJS.ProcessEnv;
-};
-
-/** Run git within `deadline`; null when it has already passed,
- *  without spawning anything. */
-function runWithin(
-  git: BlameGit,
-  deadline: number,
-  args: string[],
-  stdin?: string
-): Promise<GitSpawnResult> | null {
-  const remaining = deadline - Date.now();
-  if (remaining <= 0) return null;
-  return spawnGit({
-    gitPath: git.gitPath,
-    cwd: git.repoPath,
-    args,
-    stdin,
-    timeoutMs: remaining,
-    onCommand: git.onCommand,
-    gitEnv: git.gitEnv
-  });
-}
-
-export type BlameFileOptions = BlameGit & {
+/** The git runs of one blame lookup share one deadline, which defaults to
+ *  `BLAME_TIMEOUT_MS` from the call. */
+export type BlameFileOptions = GitRunOptions & {
   /** The file, relative to `repoPath`, with "/" separators. */
   filePath: string;
-  /** Blame these contents (e.g. an editor's unsaved text) instead of the file
-   *  on disk; they are passed to git on stdin. */
+  /** Blame these contents (an editor's text) instead of the file on disk;
+   *  they are passed to git on stdin, as UTF-8. */
   contents?: string;
+  /** `contents` come from an editor without unsaved edits; see `blameSource`
+   *  for what that changes. */
+  editorIsClean?: boolean;
 };
+
+const UTF8_BOM = "\uFEFF";
+
+/** Text with every line ending made "\n", as VS Code may have made them one kind. */
+const sameLineEndings = (text: string) => text.replace(/\r\n?/g, "\n");
+
+/** What to blame: the file on disk, the editor's text (as these UTF-8 bytes on
+ *  stdin), or nothing (null). */
+export type BlameSource = { from: "disk" } | { from: "contents"; text: string } | null;
+
+/**
+ * Whether to hand git an editor's text or let it read the file on disk, judged
+ * by the copy saved there (`saved`, null when there is none).
+ *
+ * - **Unsaved edits** are always handed over, so the lines match the editor's.
+ *   The UTF-8 BOM VS Code strips from the text goes back in front.
+ * - **No unsaved edits**: the file on disk, whenever it still holds the
+ *   editor's text. VS Code makes a file's mixed line endings one kind when it
+ *   opens it, so handing that text over would mark the lines of the other kind
+ *   uncommitted. Only when the two differ beyond line endings and the BOM — a
+ *   checkout changed the file, and VS Code hasn't reloaded it yet — is the
+ *   editor's text handed over, so the lines are those on screen.
+ * - **A saved file that isn't UTF-8**: the text can't be turned back into its
+ *   bytes, and every line with a non-ASCII character would look changed. So
+ *   nothing while there are unsaved edits, and the file on disk otherwise.
+ *   VS Code 1.98, the oldest this extension supports, has no `workspace.encode`
+ *   to do it in the document's own encoding.
+ *
+ * Known limits: a file VS Code reads in another encoding (`files.encoding`, or
+ * a wrong auto-guess) whose bytes happen to be valid UTF-8 passes as UTF-8, so
+ * while it has unsaved edits its non-ASCII lines can show as uncommitted; and
+ * so can, while edited, the lines of a mixed-line-ending file whose ending
+ * VS Code changed.
+ */
+export function blameSource(
+  text: string,
+  saved: Buffer | null,
+  editorIsClean: boolean
+): BlameSource {
+  if (saved === null) return { from: "contents", text };
+  let savedText: string;
+  try {
+    // Drops a leading BOM, as VS Code does.
+    savedText = new TextDecoder("utf-8", { fatal: true }).decode(saved);
+  } catch {
+    return editorIsClean ? { from: "disk" } : null;
+  }
+  const editorText = text.startsWith(UTF8_BOM) ? text.slice(1) : text;
+  if (editorIsClean && sameLineEndings(editorText) === sameLineEndings(savedText)) {
+    return { from: "disk" };
+  }
+  const hasBom = saved[0] === 0xef && saved[1] === 0xbb && saved[2] === 0xbf;
+  return { from: "contents", text: hasBom ? UTF8_BOM + editorText : editorText };
+}
 
 /**
  * Blame a whole file: one entry per line, in order. Resolves null — never
@@ -154,13 +181,24 @@ export type BlameFileOptions = BlameGit & {
  */
 export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] | null> {
   const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
-  const size =
-    options.contents === undefined
-      ? await fileSize(path.join(options.repoPath, options.filePath))
-      : Buffer.byteLength(options.contents);
-  if (size === null || size > BLAME_MAX_BYTES) return null;
-  // git's own test for binary: a NUL in the first 8000 bytes (buffer_is_binary).
-  if (options.contents?.slice(0, 8000).includes("\0") === true) return null;
+  const onDisk = path.join(options.repoPath, options.filePath);
+  const diskSize = await fileSize(onDisk);
+  // The saved copy is read whole to judge the contents' encoding, so it is
+  // held to the same limit either way.
+  if (diskSize !== null && diskSize > BLAME_MAX_BYTES) return null;
+  let contents: string | undefined;
+  if (options.contents !== undefined) {
+    const saved = diskSize === null ? null : await readFileOrNull(onDisk);
+    const source = blameSource(options.contents, saved, options.editorIsClean === true);
+    if (source === null) return null;
+    if (source.from === "contents") {
+      if (Buffer.byteLength(source.text) > BLAME_MAX_BYTES) return null;
+      // git's own test for binary: a NUL in the first 8000 bytes (buffer_is_binary).
+      if (source.text.slice(0, 8000).includes("\0")) return null;
+      contents = source.text;
+    }
+  }
+  if (contents === undefined && diskSize === null) return null;
 
   // One listing answers both questions: no output means git doesn't track the
   // file, and `i/-text` / `w/-text` is git's verdict that the index or working
@@ -172,12 +210,12 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
   const listing = listed.stdout.toString().split("\t")[0];
   if (listing.trim() === "" || /(?:^|\s)[iw]\/-text(?:\s|$)/.test(listing)) return null;
 
-  const contentsArgs = options.contents === undefined ? [] : ["--contents", "-"];
+  const contentsArgs = contents === undefined ? [] : ["--contents", "-"];
   const blamed = await runWithin(
     options,
     deadline,
     ["blame", "--porcelain", ...contentsArgs, "--", options.filePath],
-    options.contents
+    contents
   );
   if (blamed?.kind !== "ok" || blamed.exitCode !== 0) return null;
   return parseBlamePorcelain(blamed.stdout.toString());
@@ -189,10 +227,17 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
  * `spawnGit` rather than the simple-git client so it shares the blame lookup's
  * deadline.
  */
-export async function readUserEmail(git: BlameGit): Promise<string> {
+export async function readUserEmail(git: GitRunOptions): Promise<string> {
   const deadline = git.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
   const result = await runWithin(git, deadline, ["config", "--get", "user.email"]);
   return result?.kind === "ok" && result.exitCode === 0 ? result.stdout.toString().trim() : "";
+}
+
+function readFileOrNull(filePath: string): Promise<Buffer | null> {
+  return fs.promises.readFile(filePath).then(
+    (bytes) => bytes,
+    () => null
+  );
 }
 
 function fileSize(filePath: string): Promise<number | null> {

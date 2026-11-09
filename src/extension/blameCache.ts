@@ -28,6 +28,10 @@ export function createBlameCache<T>() {
     delete(key: string) {
       entries.delete(key);
     },
+    /** Forget every document blamed in `repo`: its HEAD or branches moved. */
+    deleteRepo(repo: string) {
+      for (const [key, entry] of entries) if (entry.stamp.repo === repo) entries.delete(key);
+    },
     clear() {
       entries.clear();
     }
