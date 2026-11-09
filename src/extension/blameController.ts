@@ -184,16 +184,16 @@ export function createBlameController(deps: {
     if (cached !== undefined) return cached;
     // One deadline for every git run of the lookup, user.email included.
     const git = gitIn(target.repo);
-    // The editor's text goes to git on stdin, so the lines are always those of
-    // the version on screen: unsaved edits, and a clean document that a
-    // checkout has changed on disk before VS Code reloaded it. A clean one
-    // whose text can't be handed over as its saved bytes is blamed from disk.
+    // The lines must be those of the version on screen: unsaved edits, and a
+    // clean document that a checkout changed on disk before VS Code reloaded
+    // it, go to git on stdin; any other clean one is blamed from disk (see
+    // `blameSource`).
     const blame = Promise.all([
       blameFile({
         ...git,
         filePath: target.filePath,
         contents: document.getText(),
-        fallBackToDisk: !document.isDirty
+        editorIsClean: !document.isDirty
       }),
       readUserEmail(git)
     ]).then(

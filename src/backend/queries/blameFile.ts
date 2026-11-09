@@ -114,32 +114,63 @@ export type BlameFileOptions = GitRunOptions & {
   /** Blame these contents (an editor's text) instead of the file on disk;
    *  they are passed to git on stdin, as UTF-8. */
   contents?: string;
-  /** When `contents` can't be turned back into the saved file's bytes (see
-   *  `asSavedText`), blame the file on disk rather than give no result. Right
-   *  for an editor without unsaved edits, whose text is what is saved. */
-  fallBackToDisk?: boolean;
+  /** `contents` come from an editor without unsaved edits; see `blameSource`
+   *  for what that changes. */
+  editorIsClean?: boolean;
 };
 
 const UTF8_BOM = "\uFEFF";
 
+/** Text with every line ending made "\n", as VS Code may have made them one kind. */
+const sameLineEndings = (text: string) => text.replace(/\r\n?/g, "\n");
+
+/** What to blame: the file on disk, the editor's text (as these UTF-8 bytes on
+ *  stdin), or nothing (null). */
+export type BlameSource = { from: "disk" } | { from: "contents"; text: string } | null;
+
 /**
- * An editor's text as the bytes git should compare with the committed file,
- * judged by the copy saved on disk (null when there is none): the UTF-8 BOM
- * VS Code strips from the text goes back in front, and null when the saved
- * file isn't UTF-8, since the text can't be turned back into its bytes and
- * every line with a non-ASCII character would look changed. VS Code 1.98,
- * the oldest this extension supports, has no `workspace.encode` to do it with
- * the document's own encoding.
+ * Whether to hand git an editor's text or let it read the file on disk, judged
+ * by the copy saved there (`saved`, null when there is none).
+ *
+ * - **Unsaved edits** are always handed over, so the lines match the editor's.
+ *   The UTF-8 BOM VS Code strips from the text goes back in front.
+ * - **No unsaved edits**: the file on disk, whenever it still holds the
+ *   editor's text. VS Code makes a file's mixed line endings one kind when it
+ *   opens it, so handing that text over would mark the lines of the other kind
+ *   uncommitted. Only when the two differ beyond line endings and the BOM — a
+ *   checkout changed the file, and VS Code hasn't reloaded it yet — is the
+ *   editor's text handed over, so the lines are those on screen.
+ * - **A saved file that isn't UTF-8**: the text can't be turned back into its
+ *   bytes, and every line with a non-ASCII character would look changed. So
+ *   nothing while there are unsaved edits, and the file on disk otherwise.
+ *   VS Code 1.98, the oldest this extension supports, has no `workspace.encode`
+ *   to do it in the document's own encoding.
+ *
+ * Known limits: a file VS Code reads in another encoding (`files.encoding`, or
+ * a wrong auto-guess) whose bytes happen to be valid UTF-8 passes as UTF-8, so
+ * while it has unsaved edits its non-ASCII lines can show as uncommitted; and
+ * so can, while edited, the lines of a mixed-line-ending file whose ending
+ * VS Code changed.
  */
-function asSavedText(text: string, saved: Buffer | null): string | null {
-  if (saved === null) return text;
+export function blameSource(
+  text: string,
+  saved: Buffer | null,
+  editorIsClean: boolean
+): BlameSource {
+  if (saved === null) return { from: "contents", text };
+  let savedText: string;
   try {
-    new TextDecoder("utf-8", { fatal: true }).decode(saved);
+    // Drops a leading BOM, as VS Code does.
+    savedText = new TextDecoder("utf-8", { fatal: true }).decode(saved);
   } catch {
-    return null;
+    return editorIsClean ? { from: "disk" } : null;
+  }
+  const editorText = text.startsWith(UTF8_BOM) ? text.slice(1) : text;
+  if (editorIsClean && sameLineEndings(editorText) === sameLineEndings(savedText)) {
+    return { from: "disk" };
   }
   const hasBom = saved[0] === 0xef && saved[1] === 0xbb && saved[2] === 0xbf;
-  return hasBom && !text.startsWith(UTF8_BOM) ? UTF8_BOM + text : text;
+  return { from: "contents", text: hasBom ? UTF8_BOM + editorText : editorText };
 }
 
 /**
@@ -158,13 +189,13 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
   let contents: string | undefined;
   if (options.contents !== undefined) {
     const saved = diskSize === null ? null : await readFileOrNull(onDisk);
-    const text = asSavedText(options.contents, saved);
-    if (text === null && options.fallBackToDisk !== true) return null;
-    if (text !== null) {
-      if (Buffer.byteLength(text) > BLAME_MAX_BYTES) return null;
+    const source = blameSource(options.contents, saved, options.editorIsClean === true);
+    if (source === null) return null;
+    if (source.from === "contents") {
+      if (Buffer.byteLength(source.text) > BLAME_MAX_BYTES) return null;
       // git's own test for binary: a NUL in the first 8000 bytes (buffer_is_binary).
-      if (text.slice(0, 8000).includes("\0")) return null;
-      contents = text;
+      if (source.text.slice(0, 8000).includes("\0")) return null;
+      contents = source.text;
     }
   }
   if (contents === undefined && diskSize === null) return null;

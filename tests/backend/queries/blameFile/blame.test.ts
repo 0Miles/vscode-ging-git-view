@@ -174,7 +174,7 @@ describe("blameFile (real git)", () => {
 
   // An editor with no unsaved edits holds the saved text, so blaming the file
   // on disk is the next best thing to blaming its contents.
-  it("blames the file on disk instead, when told to, for a saved file in an encoding other than UTF-8", async () => {
+  it("blames the file on disk instead for a clean editor over a file in an encoding other than UTF-8", async () => {
     const r = newRepo();
     fs.writeFileSync(path.join(r, "a.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a])); // "café" in Latin-1
     commit(r, "add a", "Al <al@example.com>", 1600000000);
@@ -184,16 +184,37 @@ describe("blameFile (real git)", () => {
       repoPath: r,
       filePath: "a.txt",
       contents: "café\n",
-      fallBackToDisk: true
+      editorIsClean: true
     });
 
     expect(lines?.map((l) => [l.uncommitted, l.summary])).toEqual([[false, "add a"]]);
   });
 
-  // A clean editor is blamed through its contents too: after a checkout the
-  // watcher can fire before VS Code reloads the document, and the lines must
-  // still be those of the version on screen, not of the new file on disk.
-  it("blames contents that lag behind the file on disk as the contents, not the disk", async () => {
+  // VS Code opens `a\r\nb\nc\r\n` as `a\r\nb\r\nc\r\n`.
+  it("finds no uncommitted line in a clean editor over a file with mixed line endings", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), "a\r\nb\nc\r\n");
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "a.txt",
+      contents: "a\r\nb\r\nc\r\n",
+      editorIsClean: true
+    });
+
+    expect(lines?.map((l) => [l.uncommitted, l.summary])).toEqual([
+      [false, "add a"],
+      [false, "add a"],
+      [false, "add a"]
+    ]);
+  });
+
+  // After a checkout the watcher can fire before VS Code reloads the
+  // document, and the lines must still be those of the version on screen,
+  // not of the new file on disk.
+  it("blames a clean editor's contents that lag behind the file on disk as the contents", async () => {
     const r = newRepo();
     fs.writeFileSync(path.join(r, "a.txt"), "one\ntwo\n");
     commit(r, "add a", "Al <al@example.com>", 1600000000);
@@ -206,7 +227,7 @@ describe("blameFile (real git)", () => {
       repoPath: r,
       filePath: "a.txt",
       contents: "one\ntwo\n",
-      fallBackToDisk: true
+      editorIsClean: true
     });
 
     expect(lines?.map((l) => (l.uncommitted ? "uncommitted" : [l.sha, l.originalLine]))).toEqual([
