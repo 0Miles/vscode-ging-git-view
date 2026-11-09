@@ -125,6 +125,13 @@ declare global {
     summary: string;
     inputs: DialogInput[];
   }
+  /** A form's live account of what submitting it now would do, as HTML: the
+   *  Push dialog's "feature → origin/feature" (#304). Given what `actioned`
+   *  would be given at this moment — the form's values, and the advanced
+   *  section's or null while it is collapsed — so a caller can derive both
+   *  from one reading and the two cannot disagree. Anything taken from the
+   *  user or the repo is the caller's to escape. */
+  type DialogFormSummary = (values: string[], advanced: string[] | null) => string;
   type DialogInputValue = string | boolean;
 
   interface ExpandedCommit {

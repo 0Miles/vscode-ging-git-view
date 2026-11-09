@@ -396,6 +396,8 @@
   "dialog.pushBranch.confirm": "确定要 push branch {0} 吗？",
   "dialog.pushBranch.advanced": "高级选项",
   "dialog.pushBranch.target": "目标 branch",
+  "dialog.pushBranch.summary": "将会 push：",
+  "dialog.pushBranch.summaryNone": "没有勾选任何 remote，因此不会 push 到任何地方。",
   "dialog.pushForce": "强制 push",
   "dialog.pushRemote": "Remote",
   "versionInfo.copy": "复制",
