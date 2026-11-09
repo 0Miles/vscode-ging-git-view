@@ -394,6 +394,8 @@
   "error.unableToLoadTagDetails": "无法加载 tag 详情（轻量 tag 没有详情）",
   "detail.tagObject": "Tag 对象：",
   "dialog.pushBranch.confirm": "确定要 push branch {0} 吗？",
+  "dialog.pushBranch.advanced": "高级选项",
+  "dialog.pushBranch.target": "目标 branch",
   "dialog.pushForce": "强制 push",
   "dialog.pushRemote": "Remote",
   "versionInfo.copy": "复制",

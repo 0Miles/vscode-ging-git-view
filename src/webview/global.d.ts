@@ -108,8 +108,23 @@ declare global {
     value: boolean;
     /** See DialogSelectInput.remember. */
     remember?: boolean;
+    /** Disabled while the form's advanced section is open, whose own inputs
+     *  then decide what this one would have: the Push dialog's remote ticks,
+     *  once its advanced section names one remote instead. Ignored on a form
+     *  without an advanced section, and on the advanced inputs themselves. */
+    supersededByAdvanced?: boolean;
   }
   type DialogInput = DialogTextInput | DialogTextRefInput | DialogSelectInput | DialogCheckboxInput;
+  /** Inputs `showFormDialog` folds under a disclosure, collapsed when the form
+   *  opens. Their values reach the form's answer apart from its own, and only
+   *  when the section was open; they are never remembered: "Remember my
+   *  choice" is about the choices every use of the dialog makes, and these are
+   *  the ones a single use makes. */
+  interface DialogAdvancedSection {
+    /** The disclosure's label. */
+    summary: string;
+    inputs: DialogInput[];
+  }
   type DialogInputValue = string | boolean;
 
   interface ExpandedCommit {
