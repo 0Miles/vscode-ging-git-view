@@ -3,12 +3,14 @@ import * as vscode from "vscode";
 
 import { getUserDetails } from "@/backend/actions/userDetails";
 import type { GitCommandHandler } from "@/backend/gitSpawn";
-import { type BlameLine, blameFile } from "@/backend/queries/blameFile";
+import { BLAME_TIMEOUT_MS, type BlameLine, blameFile } from "@/backend/queries/blameFile";
 import { getPathFromUri } from "@/backend/utils/path";
 import { blameLocation } from "@/backend/utils/repoMatch";
+import { config } from "@/config";
 import * as l10n from "@/l10n";
 
 import { blameAnnotationText } from "./blameAnnotation";
+import { blameToggle } from "./blameToggle";
 
 const SECTION = "ging-git-view";
 const ENABLED_KEY = "blame.enabled";
@@ -16,9 +18,11 @@ const COLOR_ID = "ging-git-view.blameAnnotationForeground";
 /** How long the cursor has to rest before the annotation follows it. */
 const CURSOR_SETTLE_MS = 150;
 
-type FileBlame = { lines: BlameLine[]; userEmail: string } | null;
+type FileBlame = { lines: BlameLine[]; userEmail: string };
 
-const blameEnabled = () => vscode.workspace.getConfiguration(SECTION).get(ENABLED_KEY, true);
+const cacheKey = (document: vscode.TextDocument) => document.uri.toString();
+const spansLines = (selections: readonly vscode.Selection[]) =>
+  selections.some((s) => !s.isSingleLine);
 
 /**
  * The end-of-line blame annotation on the active editor's cursor line.
@@ -42,7 +46,7 @@ export function createBlameController(deps: {
   const decoration = vscode.window.createTextEditorDecorationType({
     after: { color: new vscode.ThemeColor(COLOR_ID), margin: "0 0 0 3em" }
   });
-  const cache = new Map<string, { version: number; blame: Promise<FileBlame> }>();
+  const cache = new Map<string, { version: number; blame: Promise<FileBlame | null> }>();
   let decorated: vscode.TextEditor | undefined;
   let timer: NodeJS.Timeout | undefined;
   // Bumped by every change that makes an in-flight update stale.
@@ -61,10 +65,10 @@ export function createBlameController(deps: {
   }
 
   function blameFor(document: vscode.TextDocument, repo: string, filePath: string) {
-    const key = document.uri.toString();
+    const key = cacheKey(document);
     const cached = cache.get(key);
     if (cached?.version === document.version) return cached.blame;
-    const blame = Promise.all([
+    const blamed = Promise.all([
       blameFile({
         gitPath: deps.gitPath(),
         repoPath: repo,
@@ -74,9 +78,19 @@ export function createBlameController(deps: {
       }),
       getUserDetails(deps.gitClientFor(repo))
     ]).then(
-      ([lines, user]): FileBlame => (lines === null ? null : { lines, userEmail: user.email }),
-      (): FileBlame => null
+      ([lines, user]): FileBlame | null =>
+        lines === null ? null : { lines, userEmail: user.email },
+      () => null
     );
+    // The query bounds its own git runs; this bounds the whole lookup, the
+    // user.email read included, so a slow repository gives up in time too.
+    let budget: NodeJS.Timeout | undefined;
+    const blame = Promise.race([
+      blamed,
+      new Promise<null>((resolve) => {
+        budget = setTimeout(() => resolve(null), BLAME_TIMEOUT_MS);
+      })
+    ]).finally(() => clearTimeout(budget));
     cache.set(key, { version: document.version, blame });
     return blame;
   }
@@ -85,7 +99,7 @@ export function createBlameController(deps: {
     const token = ++generation;
     const editor = vscode.window.activeTextEditor;
     const target = editor === undefined ? null : annotationTarget(editor, deps.knownRepos());
-    if (editor === undefined || target === null || !blameEnabled()) {
+    if (editor === undefined || target === null || !config.blameEnabled()) {
       hide();
       return;
     }
@@ -118,7 +132,7 @@ export function createBlameController(deps: {
       if (e.textEditor !== vscode.window.activeTextEditor) return;
       // A selection across lines drops the annotation at once; a cursor move
       // waits until the cursor settles.
-      if (e.selections.some((s) => !s.isSingleLine)) hide();
+      if (spansLines(e.selections)) hide();
       else schedule();
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {
@@ -131,13 +145,13 @@ export function createBlameController(deps: {
       if (e.contentChanges.length > 0 && e.document === decorated?.document) hide();
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
-      cache.delete(document.uri.toString());
+      cache.delete(cacheKey(document));
       if (document === vscode.window.activeTextEditor?.document) schedule();
     }),
-    vscode.workspace.onDidCloseTextDocument((document) => cache.delete(document.uri.toString())),
+    vscode.workspace.onDidCloseTextDocument((document) => cache.delete(cacheKey(document))),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration(`${SECTION}.${ENABLED_KEY}`)) return;
-      if (blameEnabled()) {
+      if (config.blameEnabled()) {
         schedule(0);
       } else {
         hide();
@@ -168,23 +182,22 @@ function annotationTarget(
   const { document, selection } = editor;
   // Unsaved edits no longer line up with what git blames on disk.
   if (document.uri.scheme !== "file" || document.isDirty) return null;
-  if (editor.selections.some((s) => !s.isSingleLine)) return null;
+  if (spansLines(editor.selections)) return null;
   const location = blameLocation(getPathFromUri(document.uri), knownRepos);
   return location === null ? null : { line: selection.active.line, ...location };
 }
 
-/**
- * `ging-git-view.blame.toggle`: flip the user-level setting. A workspace value
- * still wins over it, so say so when the flip changes nothing on screen.
- */
+/** `ging-git-view.blame.toggle`: see `blameToggle` for what it decides. */
 export function registerBlameToggle(): vscode.Disposable {
   return vscode.commands.registerCommand("ging-git-view.blame.toggle", async () => {
-    const config = vscode.workspace.getConfiguration(SECTION);
-    const inspected = config.inspect<boolean>(ENABLED_KEY);
-    const next = !(inspected?.globalValue ?? inspected?.defaultValue ?? true);
-    await config.update(ENABLED_KEY, next, vscode.ConfigurationTarget.Global);
-    const workspaceValue = inspected?.workspaceFolderValue ?? inspected?.workspaceValue;
-    if (workspaceValue !== undefined && workspaceValue !== next) {
+    const settings = vscode.workspace.getConfiguration(SECTION);
+    const inspected = settings.inspect<boolean>(ENABLED_KEY);
+    const { next, overriddenByWorkspace } = blameToggle({
+      effective: config.blameEnabled(),
+      workspaceValue: inspected?.workspaceFolderValue ?? inspected?.workspaceValue
+    });
+    await settings.update(ENABLED_KEY, next, vscode.ConfigurationTarget.Global);
+    if (overriddenByWorkspace) {
       void vscode.window.showInformationMessage(
         l10n.t(next ? "blame.workspaceKeepsOff" : "blame.workspaceKeepsOn")
       );

@@ -126,13 +126,15 @@ export type BlameFileOptions = {
  * timeout, or git fails.
  */
 export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] | null> {
+  // One budget for every git run here, not one each.
+  const deadline = Date.now() + (options.timeoutMs ?? BLAME_TIMEOUT_MS);
   const run = (args: string[], stdin?: string): Promise<GitSpawnResult> =>
     spawnGit({
       gitPath: options.gitPath,
       cwd: options.repoPath,
       args,
       stdin,
-      timeoutMs: options.timeoutMs ?? BLAME_TIMEOUT_MS,
+      timeoutMs: Math.max(0, deadline - Date.now()),
       onCommand: options.onCommand,
       gitEnv: options.gitEnv
     });
@@ -150,8 +152,8 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
   // binary (or that an attribute says to treat it so).
   const listed = await run(["ls-files", "--eol", "--", options.filePath]);
   if (listed.kind !== "ok" || listed.exitCode !== 0) return null;
-  const eol = listed.stdout.toString().split("\t")[0];
-  if (eol.trim() === "" || /(?:^|\s)(?:i|w|attr)\/-text(?:\s|$)/.test(eol)) return null;
+  const listing = listed.stdout.toString().split("\t")[0];
+  if (listing.trim() === "" || /(?:^|\s)(?:i|w|attr)\/-text(?:\s|$)/.test(listing)) return null;
 
   const contentsArgs = options.contents === undefined ? [] : ["--contents", "-"];
   const blamed = await run(
