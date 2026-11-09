@@ -1,4 +1,6 @@
+import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -56,6 +58,26 @@ describe("spawnGit (real git)", () => {
     });
     expect(result.kind).toBe("timeout");
     expect(Date.now() - started).toBeLessThan(4000);
+  });
+
+  // Killing only the direct child is not enough: on Windows `git` on PATH is
+  // the `cmd\git.exe` wrapper, and the real git and the shell under it live on.
+  // If anything below the killed child survives, the marker gets written.
+  it("kills the whole process tree under the timed-out git", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-kill-"));
+    try {
+      const result = await spawnGit({
+        gitPath: "git",
+        cwd: dir,
+        args: ["-c", "alias.nggslow=!sleep 2 && echo done > survived", "nggslow"],
+        timeoutMs: 300
+      });
+      expect(result.kind).toBe("timeout");
+      await new Promise((r) => setTimeout(r, 3500));
+      expect(fs.existsSync(path.join(dir, "survived"))).toBe(false);
+    } finally {
+      rmrf(dir);
+    }
   });
 
   it("reports a git that cannot be started as an error rather than throwing", async () => {

@@ -1,8 +1,5 @@
 import type { BlameLine } from "@/backend/queries/blameFile";
 
-/** Shown in place of the author for the user's own lines. Not translated: the
- *  annotation reads `You • 尚未提交的變更` in every language. */
-const YOU = "You";
 /** Summaries longer than this are cut, the ellipsis included. */
 const SUMMARY_MAX = 50;
 
@@ -17,18 +14,20 @@ export type BlameAnnotationContext = {
   locale: string;
   /** The repository's effective `user.email`; "" when unset. */
   userEmail: string;
-  /** The localised "uncommitted changes" label. */
-  uncommittedText: string;
+  /** Localised labels: `you` stands in for the user's own name, `uncommitted`
+   *  describes a line not committed yet. */
+  labels: { you: string; uncommitted: string };
 };
 
 /**
  * The end-of-line text for one blamed line: `author, relative time • summary`,
- * with "You" for the user's own commits and `You • <uncommittedText>` for a
- * line not committed yet.
+ * with `labels.you` for the user's own commits and `<you> • <uncommitted>` for
+ * a line not committed yet.
  */
 export function blameAnnotationText(line: BlameLine, context: BlameAnnotationContext): string {
-  if (line.uncommitted) return `${YOU} • ${context.uncommittedText}`;
-  const author = isUser(line.authorEmail, context.userEmail) ? YOU : line.authorName;
+  const { you, uncommitted } = context.labels;
+  if (line.uncommitted) return `${you} • ${uncommitted}`;
+  const author = isUser(line.authorEmail, context.userEmail) ? you : line.authorName;
   const when = relativeTime(context.now / 1000 - line.authorTime, context.locale);
   return `${author}, ${when} • ${truncate(line.summary, SUMMARY_MAX)}`;
 }

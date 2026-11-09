@@ -4,7 +4,7 @@ import * as path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { blameFile } from "@/backend/queries/blameFile";
+import { blameFile, readUserEmail } from "@/backend/queries/blameFile";
 
 import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
@@ -129,6 +129,19 @@ describe("blameFile (real git)", () => {
     expect(lines?.map((l) => [l.sha, l.summary])).toEqual([[head(wt), "on side"]]);
   });
 
+  // `-text` in .gitattributes only switches off EOL conversion; it says nothing
+  // about the content being binary.
+  it("still blames a text file whose attributes say -text", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, ".gitattributes"), "*.bat -text\n");
+    fs.writeFileSync(path.join(r, "run.bat"), "@echo off\r\necho hi\r\n");
+    commit(r, "add bat", "Al <al@example.com>", 1600000000);
+
+    const lines = await blameFile({ gitPath: "git", repoPath: r, filePath: "run.bat" });
+
+    expect(lines?.map((l) => l.summary)).toEqual(["add bat", "add bat"]);
+  });
+
   describe("skips without running blame", () => {
     it("a binary file", async () => {
       const r = newRepo();
@@ -183,16 +196,47 @@ describe("blameFile (real git)", () => {
     });
   });
 
-  it("gives up with no result, rather than throwing, when git runs past the timeout", async () => {
+  it("gives up with no result, rather than throwing, when git runs past the deadline", async () => {
     const r = newRepo();
     // No git command completes within a millisecond of being spawned.
-    const lines = await blameFile({ gitPath: "git", repoPath: r, filePath: "f", timeoutMs: 1 });
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "f",
+      deadline: Date.now() + 1
+    });
     expect(lines).toBeNull();
+  });
+
+  it("spawns nothing once the deadline has passed", async () => {
+    const r = newRepo();
+    const log: string[][] = [];
+    const lines = await blameFile({
+      gitPath: "git",
+      repoPath: r,
+      filePath: "f",
+      deadline: Date.now() - 1,
+      onCommand: (_c, args) => log.push(args)
+    });
+    expect(lines).toBeNull();
+    expect(log).toEqual([]);
   });
 
   it("reports no result when git fails", async () => {
     const r = newRepo();
     const lines = await blameFile({ gitPath: "git", repoPath: r, filePath: "missing.txt" });
     expect(lines).toBeNull();
+  });
+});
+
+describe("readUserEmail (real git)", () => {
+  it("reads the repository's effective user.email", async () => {
+    const r = newRepo(); // makeRepo sets user.email = t@t.com in .git/config
+    expect(await readUserEmail({ gitPath: "git", repoPath: r })).toBe("t@t.com");
+  });
+
+  it("is empty, not an error, past the deadline", async () => {
+    const r = newRepo();
+    expect(await readUserEmail({ gitPath: "git", repoPath: r, deadline: Date.now() - 1 })).toBe("");
   });
 });

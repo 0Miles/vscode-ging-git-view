@@ -1688,6 +1688,7 @@
         "ging-git-view.blame.enabled": {
           "type": "boolean",
           "default": true,
+          "scope": "resource",
           "description": "%config.blame.enabled%"
         }
       }

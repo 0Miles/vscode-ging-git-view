@@ -22,12 +22,17 @@ function line(overrides: Partial<BlameLine> = {}): BlameLine {
   };
 }
 
-function text(l: BlameLine, opts: { locale?: string; userEmail?: string } = {}) {
+const EN_LABELS = { you: "You", uncommitted: "Uncommitted changes" };
+
+function text(
+  l: BlameLine,
+  opts: { locale?: string; userEmail?: string; labels?: typeof EN_LABELS } = {}
+) {
   return blameAnnotationText(l, {
     now: NOW,
     locale: opts.locale ?? "en",
     userEmail: opts.userEmail ?? "",
-    uncommittedText: "Uncommitted changes"
+    labels: opts.labels ?? EN_LABELS
   });
 }
 
@@ -60,6 +65,14 @@ describe("blameAnnotationText", () => {
     expect(text(line({ uncommitted: true, authorName: "Not Committed Yet" }))).toBe(
       "You • Uncommitted changes"
     );
+  });
+
+  it("uses the localised labels it is given", () => {
+    const labels = { you: "你", uncommitted: "尚未提交的變更" };
+    expect(text(line(), { locale: "zh-tw", userEmail: "bea@example.com", labels })).toBe(
+      "你, 2 週前 • Fix the thing"
+    );
+    expect(text(line({ uncommitted: true }), { labels })).toBe("你 • 尚未提交的變更");
   });
 
   describe("summary", () => {

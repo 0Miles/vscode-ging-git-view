@@ -320,7 +320,6 @@ export function activate(context: vscode.ExtensionContext) {
       gitPath: config.gitPath,
       gitEnv,
       onCommand: logger.logCmd,
-      gitClientFor: repoGitClients.gitClientFor,
       onDidChangeKnownRepos: scmRepoTracker.onDidChangeRepos
     }),
     registerBlameToggle()

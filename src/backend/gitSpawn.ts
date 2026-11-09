@@ -105,6 +105,25 @@ export type GitSpawnOptions = {
   gitEnv?: NodeJS.ProcessEnv;
 };
 
+/**
+ * Kill `child` and everything it started. On Windows `child.kill()` ends only
+ * the direct child — and the `git` found on PATH is usually Git for Windows'
+ * `cmd\git.exe` wrapper, so the real git (and any shell it runs) would carry on
+ * working. `taskkill /T` takes the whole tree. Elsewhere git cleans up the
+ * children it started when it is signalled.
+ */
+function killTree(child: cp.ChildProcess) {
+  if (process.platform === "win32" && child.pid !== undefined) {
+    const killer = cp.spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true
+    });
+    killer.on("error", () => child.kill());
+  } else {
+    child.kill();
+  }
+}
+
 export type GitSpawnResult =
   | { kind: "ok"; exitCode: number | null; stdout: Buffer; stderr: string }
   | { kind: "timeout" }
@@ -117,8 +136,8 @@ export type GitSpawnResult =
  * environment, the same `-c` overrides, the same command log.
  *
  * Never rejects: a git that can't start is an `error`, a non-zero exit is an
- * `ok` with its exit code, and a child past `timeoutMs` is killed and reported
- * as `timeout` without waiting for it to go.
+ * `ok` with its exit code, and a child past `timeoutMs` is killed — with every
+ * process under it — and reported as `timeout` without waiting for it to go.
  */
 export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
   const args = [...GIT_CONFIG_OVERRIDES.flatMap((c) => ["-c", c]), ...options.args];
@@ -133,7 +152,7 @@ export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
       options.timeoutMs === undefined
         ? undefined
         : setTimeout(() => {
-            child.kill();
+            killTree(child);
             settle({ kind: "timeout" });
           }, options.timeoutMs);
     let settled = false;

@@ -1,15 +1,19 @@
-import type { SimpleGit } from "simple-git";
 import * as vscode from "vscode";
 
-import { getUserDetails } from "@/backend/actions/userDetails";
 import type { GitCommandHandler } from "@/backend/gitSpawn";
-import { BLAME_TIMEOUT_MS, type BlameLine, blameFile } from "@/backend/queries/blameFile";
+import {
+  BLAME_TIMEOUT_MS,
+  type BlameLine,
+  blameFile,
+  readUserEmail
+} from "@/backend/queries/blameFile";
 import { getPathFromUri } from "@/backend/utils/path";
-import { blameLocation } from "@/backend/utils/repoMatch";
 import { config } from "@/config";
 import * as l10n from "@/l10n";
 
 import { blameAnnotationText } from "./blameAnnotation";
+import { createBlameCache } from "./blameCache";
+import { type BlameTarget, blameTarget, spansLines } from "./blameTarget";
 import { blameToggle } from "./blameToggle";
 
 const SECTION = "ging-git-view";
@@ -21,92 +25,107 @@ const CURSOR_SETTLE_MS = 150;
 type FileBlame = { lines: BlameLine[]; userEmail: string };
 
 const cacheKey = (document: vscode.TextDocument) => document.uri.toString();
-const spansLines = (selections: readonly vscode.Selection[]) =>
-  selections.some((s) => !s.isSingleLine);
+const lineSpans = (selections: readonly vscode.Selection[]) =>
+  selections.map((s) => ({ startLine: s.start.line, endLine: s.end.line }));
+
+/** Where `editor` is annotated now, or null for nowhere. */
+function targetOf(editor: vscode.TextEditor, knownRepos: string[]): BlameTarget | null {
+  const { document } = editor;
+  return blameTarget(
+    {
+      scheme: document.uri.scheme,
+      isDirty: document.isDirty,
+      filePath: getPathFromUri(document.uri),
+      selections: lineSpans(editor.selections),
+      cursorLine: editor.selection.active.line
+    },
+    knownRepos
+  );
+}
+
+const sameTarget = (a: BlameTarget | null, b: BlameTarget) =>
+  a !== null && a.line === b.line && a.repo === b.repo && a.filePath === b.filePath;
 
 /**
- * The end-of-line blame annotation on the active editor's cursor line.
+ * The end-of-line blame annotation on the active editor's cursor line — the
+ * VS Code wiring around `blameTarget`, `blameFile` and `blameAnnotationText`.
  *
- * The file is blamed in the known repository that contains it — the deepest
- * one, so a submodule or worktree file is blamed in its own repository — and
- * never in the current repository the graph shows. Each file is blamed once per
- * document version; moving the cursor only reads that result. Anything that
- * can't be blamed (outside every known repository, untracked, binary, too big,
- * too slow) just shows nothing.
+ * The file is blamed in the known repository that contains it, never in the
+ * current repository the graph shows. Each file is blamed once per document
+ * version and repository; moving the cursor only reads that result. Anything
+ * that can't be blamed just shows nothing.
  */
 export function createBlameController(deps: {
   knownRepos: () => string[];
   gitPath: () => string;
   gitEnv: () => NodeJS.ProcessEnv;
   onCommand: GitCommandHandler;
-  gitClientFor: (repo: string) => SimpleGit;
   /** Fires when the set of known repositories may have grown. */
   onDidChangeKnownRepos: vscode.Event<unknown>;
 }): vscode.Disposable {
   const decoration = vscode.window.createTextEditorDecorationType({
     after: { color: new vscode.ThemeColor(COLOR_ID), margin: "0 0 0 3em" }
   });
-  const cache = new Map<string, { version: number; blame: Promise<FileBlame | null> }>();
+  const cache = createBlameCache<Promise<FileBlame | null>>();
   let decorated: vscode.TextEditor | undefined;
   let timer: NodeJS.Timeout | undefined;
-  // Bumped by every change that makes an in-flight update stale.
+  // Bumped by every change that makes an in-flight update stale: a result that
+  // comes back after one is dropped rather than drawn.
   let generation = 0;
 
-  function hide() {
+  function cancelPending() {
     generation++;
     if (timer !== undefined) clearTimeout(timer);
+  }
+
+  function hide() {
+    cancelPending();
     decorated?.setDecorations(decoration, []);
     decorated = undefined;
   }
 
   function schedule(delay = CURSOR_SETTLE_MS) {
-    if (timer !== undefined) clearTimeout(timer);
+    cancelPending();
     timer = setTimeout(() => void update(), delay);
   }
 
-  function blameFor(document: vscode.TextDocument, repo: string, filePath: string) {
+  function blameFor(document: vscode.TextDocument, target: BlameTarget) {
     const key = cacheKey(document);
-    const cached = cache.get(key);
-    if (cached?.version === document.version) return cached.blame;
-    const blamed = Promise.all([
-      blameFile({
-        gitPath: deps.gitPath(),
-        repoPath: repo,
-        filePath,
-        onCommand: deps.onCommand,
-        gitEnv: deps.gitEnv()
-      }),
-      getUserDetails(deps.gitClientFor(repo))
+    const stamp = { version: document.version, repo: target.repo };
+    const cached = cache.get(key, stamp);
+    if (cached !== undefined) return cached;
+    // One deadline for every git run of the lookup, user.email included.
+    const git = {
+      gitPath: deps.gitPath(),
+      repoPath: target.repo,
+      deadline: Date.now() + BLAME_TIMEOUT_MS,
+      onCommand: deps.onCommand,
+      gitEnv: deps.gitEnv()
+    };
+    const blame = Promise.all([
+      blameFile({ ...git, filePath: target.filePath }),
+      readUserEmail(git)
     ]).then(
-      ([lines, user]): FileBlame | null =>
-        lines === null ? null : { lines, userEmail: user.email },
+      ([lines, userEmail]): FileBlame | null => (lines === null ? null : { lines, userEmail }),
       () => null
     );
-    // The query bounds its own git runs; this bounds the whole lookup, the
-    // user.email read included, so a slow repository gives up in time too.
-    let budget: NodeJS.Timeout | undefined;
-    const blame = Promise.race([
-      blamed,
-      new Promise<null>((resolve) => {
-        budget = setTimeout(() => resolve(null), BLAME_TIMEOUT_MS);
-      })
-    ]).finally(() => clearTimeout(budget));
-    cache.set(key, { version: document.version, blame });
+    cache.set(key, stamp, blame);
     return blame;
   }
 
   async function update() {
     const token = ++generation;
     const editor = vscode.window.activeTextEditor;
-    const target = editor === undefined ? null : annotationTarget(editor, deps.knownRepos());
-    if (editor === undefined || target === null || !config.blameEnabled()) {
+    const target = editor === undefined ? null : targetOf(editor, deps.knownRepos());
+    if (editor === undefined || target === null || !config.blameEnabled(editor.document.uri)) {
       hide();
       return;
     }
-    const { document } = editor;
-    const version = document.version;
-    const blame = await blameFor(document, target.repo, target.filePath);
-    if (token !== generation || document.version !== version) return;
+    const blame = await blameFor(editor.document, target);
+    // Anything may have moved while git ran: draw only if this is still the
+    // latest update and the editor still points at the same line.
+    if (token !== generation || editor !== vscode.window.activeTextEditor) return;
+    if (!sameTarget(targetOf(editor, deps.knownRepos()), target)) return;
     const line = blame?.lines[target.line];
     if (line === undefined) {
       hide();
@@ -116,10 +135,10 @@ export function createBlameController(deps: {
       now: Date.now(),
       locale: vscode.env.language,
       userEmail: blame?.userEmail ?? "",
-      uncommittedText: l10n.t("blame.uncommitted")
+      labels: { you: l10n.t("blame.you"), uncommitted: l10n.t("blame.uncommitted") }
     });
     if (decorated !== undefined && decorated !== editor) decorated.setDecorations(decoration, []);
-    const end = document.lineAt(target.line).range.end;
+    const end = editor.document.lineAt(target.line).range.end;
     editor.setDecorations(decoration, [
       { range: new vscode.Range(end, end), renderOptions: { after: { contentText: text } } }
     ]);
@@ -132,7 +151,7 @@ export function createBlameController(deps: {
       if (e.textEditor !== vscode.window.activeTextEditor) return;
       // A selection across lines drops the annotation at once; a cursor move
       // waits until the cursor settles.
-      if (spansLines(e.selections)) hide();
+      if (spansLines(lineSpans(e.selections))) hide();
       else schedule();
     }),
     vscode.window.onDidChangeActiveTextEditor(() => {
@@ -151,14 +170,13 @@ export function createBlameController(deps: {
     vscode.workspace.onDidCloseTextDocument((document) => cache.delete(cacheKey(document))),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!e.affectsConfiguration(`${SECTION}.${ENABLED_KEY}`)) return;
-      if (config.blameEnabled()) {
-        schedule(0);
-      } else {
-        hide();
-        for (const editor of vscode.window.visibleTextEditors) {
-          editor.setDecorations(decoration, []);
-        }
+      // Clear everywhere, then let the active editor show again at once if the
+      // setting (as it applies to its file) is still on.
+      hide();
+      for (const editor of vscode.window.visibleTextEditors) {
+        editor.setDecorations(decoration, []);
       }
+      schedule(0);
     }),
     deps.onDidChangeKnownRepos(() => schedule())
   ];
@@ -166,35 +184,25 @@ export function createBlameController(deps: {
 
   return {
     dispose() {
-      if (timer !== undefined) clearTimeout(timer);
+      cancelPending();
       for (const s of subscriptions) s.dispose();
       cache.clear();
     }
   };
 }
 
-/** The line to annotate and where to blame it, or null when the editor shows
- *  nothing to annotate. */
-function annotationTarget(
-  editor: vscode.TextEditor,
-  knownRepos: string[]
-): { line: number; repo: string; filePath: string } | null {
-  const { document, selection } = editor;
-  // Unsaved edits no longer line up with what git blames on disk.
-  if (document.uri.scheme !== "file" || document.isDirty) return null;
-  if (spansLines(editor.selections)) return null;
-  const location = blameLocation(getPathFromUri(document.uri), knownRepos);
-  return location === null ? null : { line: selection.active.line, ...location };
-}
-
 /** `ging-git-view.blame.toggle`: see `blameToggle` for what it decides. */
 export function registerBlameToggle(): vscode.Disposable {
   return vscode.commands.registerCommand("ging-git-view.blame.toggle", async () => {
-    const settings = vscode.workspace.getConfiguration(SECTION);
+    // Inspect for the active file, so a folder-level value is seen too; with no
+    // editor open only the user and workspace values can apply.
+    const scope = vscode.window.activeTextEditor?.document.uri;
+    const settings = vscode.workspace.getConfiguration(SECTION, scope);
     const inspected = settings.inspect<boolean>(ENABLED_KEY);
     const { next, overriddenByWorkspace } = blameToggle({
-      effective: config.blameEnabled(),
-      workspaceValue: inspected?.workspaceFolderValue ?? inspected?.workspaceValue
+      effective: config.blameEnabled(scope),
+      workspaceValue: inspected?.workspaceValue,
+      workspaceFolderValue: inspected?.workspaceFolderValue
     });
     await settings.update(ENABLED_KEY, next, vscode.ConfigurationTarget.Global);
     if (overriddenByWorkspace) {

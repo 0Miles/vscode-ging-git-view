@@ -103,42 +103,57 @@ function readDetail(details: CommitDetails, line: string) {
 
 /** Files bigger than this are never blamed. Fixed, not a setting. */
 export const BLAME_MAX_BYTES = 1024 * 1024;
-/** A blame (or the checks before it) that runs longer than this is given up on. */
+/** How long one blame lookup may take, every git run in it together. */
 export const BLAME_TIMEOUT_MS = 5000;
 
-export type BlameFileOptions = {
+/** Where and how the git runs of one blame lookup happen. */
+export type BlameGit = {
   gitPath: string;
   repoPath: string;
+  /** Epoch ms by which every git run must be done; one budget shared by all
+   *  the runs of a lookup. Defaults to `BLAME_TIMEOUT_MS` from the call. */
+  deadline?: number;
+  onCommand?: GitCommandHandler;
+  gitEnv?: NodeJS.ProcessEnv;
+};
+
+/** Run git within `deadline`; null when it has already passed,
+ *  without spawning anything. */
+function runWithin(
+  git: BlameGit,
+  deadline: number,
+  args: string[],
+  stdin?: string
+): Promise<GitSpawnResult> | null {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return null;
+  return spawnGit({
+    gitPath: git.gitPath,
+    cwd: git.repoPath,
+    args,
+    stdin,
+    timeoutMs: remaining,
+    onCommand: git.onCommand,
+    gitEnv: git.gitEnv
+  });
+}
+
+export type BlameFileOptions = BlameGit & {
   /** The file, relative to `repoPath`, with "/" separators. */
   filePath: string;
   /** Blame these contents (e.g. an editor's unsaved text) instead of the file
    *  on disk; they are passed to git on stdin. */
   contents?: string;
-  timeoutMs?: number;
-  onCommand?: GitCommandHandler;
-  gitEnv?: NodeJS.ProcessEnv;
 };
 
 /**
  * Blame a whole file: one entry per line, in order. Resolves null — never
  * rejects — when there is nothing to show: the file is over 1 MB, git counts it
- * as binary, git doesn't track it (ignored or not), a command runs past the
- * timeout, or git fails.
+ * as binary, git doesn't track it (ignored or not), the deadline passes, or git
+ * fails.
  */
 export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] | null> {
-  // One budget for every git run here, not one each.
-  const deadline = Date.now() + (options.timeoutMs ?? BLAME_TIMEOUT_MS);
-  const run = (args: string[], stdin?: string): Promise<GitSpawnResult> =>
-    spawnGit({
-      gitPath: options.gitPath,
-      cwd: options.repoPath,
-      args,
-      stdin,
-      timeoutMs: Math.max(0, deadline - Date.now()),
-      onCommand: options.onCommand,
-      gitEnv: options.gitEnv
-    });
-
+  const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
   const size =
     options.contents === undefined
       ? await fileSize(path.join(options.repoPath, options.filePath))
@@ -148,20 +163,36 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
   if (options.contents?.slice(0, 8000).includes("\0") === true) return null;
 
   // One listing answers both questions: no output means git doesn't track the
-  // file, and `-text` is git's verdict that the index or working tree copy is
-  // binary (or that an attribute says to treat it so).
-  const listed = await run(["ls-files", "--eol", "--", options.filePath]);
-  if (listed.kind !== "ok" || listed.exitCode !== 0) return null;
+  // file, and `i/-text` / `w/-text` is git's verdict that the index or working
+  // tree copy is binary. `attr/-text` is not: that attribute only switches off
+  // EOL conversion, and a binary file shows as `-text` in the content columns
+  // whatever its attributes say.
+  const listed = await runWithin(options, deadline, ["ls-files", "--eol", "--", options.filePath]);
+  if (listed?.kind !== "ok" || listed.exitCode !== 0) return null;
   const listing = listed.stdout.toString().split("\t")[0];
-  if (listing.trim() === "" || /(?:^|\s)(?:i|w|attr)\/-text(?:\s|$)/.test(listing)) return null;
+  if (listing.trim() === "" || /(?:^|\s)[iw]\/-text(?:\s|$)/.test(listing)) return null;
 
   const contentsArgs = options.contents === undefined ? [] : ["--contents", "-"];
-  const blamed = await run(
+  const blamed = await runWithin(
+    options,
+    deadline,
     ["blame", "--porcelain", ...contentsArgs, "--", options.filePath],
     options.contents
   );
-  if (blamed.kind !== "ok" || blamed.exitCode !== 0) return null;
+  if (blamed?.kind !== "ok" || blamed.exitCode !== 0) return null;
   return parseBlamePorcelain(blamed.stdout.toString());
+}
+
+/**
+ * The repository's effective `user.email`, for telling the user's own lines
+ * apart; "" when unset, when git fails, or past the deadline. Read through
+ * `spawnGit` rather than the simple-git client so it shares the blame lookup's
+ * deadline.
+ */
+export async function readUserEmail(git: BlameGit): Promise<string> {
+  const deadline = git.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
+  const result = await runWithin(git, deadline, ["config", "--get", "user.email"]);
+  return result?.kind === "ok" && result.exitCode === 0 ? result.stdout.toString().trim() : "";
 }
 
 function fileSize(filePath: string): Promise<number | null> {
