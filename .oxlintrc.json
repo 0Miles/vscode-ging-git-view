@@ -86,6 +86,26 @@
         "node": false,
         "browser": false
       }
+    },
+    {
+      // The packages are host-neutral; only apps/vscode lists @types/vscode. That
+      // alone fails the typecheck on a clean checkout, but not where a parent
+      // directory has its own node_modules with the types in it (a worktree
+      // inside a checkout), so the boundary is held here as well.
+      "files": ["packages/**"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "vscode",
+                "message": "packages/* must not depend on the VS Code API; take what you need as a parameter and let apps/vscode pass it."
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }
