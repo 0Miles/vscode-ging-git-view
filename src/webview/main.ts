@@ -1,4 +1,5 @@
 import type {
+  ActionPayload,
   ActionRequest,
   BatchActionPayload,
   BatchActionRequest,
@@ -111,10 +112,11 @@ const MENU_SOURCES =
 const ACTIVATABLE = GRAPH_FOCUSABLE + ", .gitFile";
 
 /** The controls inside a dialog whose own Enter means something — a button
- *  presses itself, a link follows, a textarea breaks the line — so the
- *  dialog's "Enter confirms" stays out of their way (#141). `a[href]`, not
- *  `a`: an anchor without one does nothing on Enter, and so confirms. */
-const OWNS_ENTER = "button, a[href], textarea";
+ *  presses itself, a link follows, a textarea breaks the line, a summary
+ *  opens or closes its details (#303) — so the dialog's "Enter confirms" stays
+ *  out of their way (#141). `a[href]`, not `a`: an anchor without one does
+ *  nothing on Enter, and so confirms. */
+const OWNS_ENTER = "button, a[href], textarea, summary";
 
 /** The graph footer's controls, by id. Peers rather than a roving group: Tab
  *  visits each of them, so neither needs a tabindex and there is no tab stop to
@@ -4895,7 +4897,6 @@ class GitGraphView {
         oneRemote: this.batchConfirmBody(l10n.dialogPushBatchConfirm, targets, skipped),
         manyRemotes: this.batchConfirmBody(l10n.dialogPushBatchSelectRemote, targets, skipped)
       },
-      undefined,
       (repo, remotes, forceMode) => {
         this.startBatchRun("pushBranches", repo, targets, {
           params: { remotes, forceMode }
@@ -5171,35 +5172,11 @@ class GitGraphView {
     }
     return this.remotes.includes("origin") ? "origin" : this.remotes[0];
   }
-  /**
-   * The push form: a force-mode select, preceded by one checkbox per remote when
-   * there is more than one (the push-default remote pre-checked). `bodies` picks
-   * the wording for each of those two shapes, since only the caller knows
-   * whether it is pushing one branch or several.
-   *
-   * `rememberKey` is undefined for the batch, where a force mode remembered from
-   * a single push must not silently apply to several branches at once.
-   *
-   * `push` is called only with what the form showed: the repo it opened on and
-   * the remote names it listed, checked at consent by {@link remotesStillThereOrRefuse}.
-   * Unticking every remote asks for nothing, so that answer calls nothing.
-   */
-  private showPushForm(
-    bodies: { oneRemote: string; manyRemotes: string },
-    rememberKey: string | undefined,
-    push: (
-      repo: string,
-      remotes: string[],
-      forceMode: "normal" | "force" | "forceWithLease"
-    ) => void
-  ) {
-    const remotes = [...this.remotes];
-    const send = this.forRepo((repo, chosen: string[], forceMode: string) => {
-      if (chosen.length === 0) return;
-      if (!this.remotesStillThereOrRefuse(repo, chosen)) return;
-      push(repo, chosen, toPushForceMode(forceMode));
-    });
-    const forceInput: DialogSelectInput = {
+  /** The push forms' force-mode select. `remember` is false for the batch,
+   *  where a force mode remembered from a single push must not silently apply
+   *  to several branches at once. */
+  private pushForceInput(remember: boolean): DialogSelectInput {
+    return {
       type: "select",
       name: l10n.dialogPushForce,
       default: "normal",
@@ -5208,54 +5185,143 @@ class GitGraphView {
         { name: l10n.dialogPushForceForce, value: "force" },
         { name: l10n.dialogPushForceLease, value: "forceWithLease" }
       ],
-      remember: rememberKey !== undefined
+      remember
     };
-    if (remotes.length === 1) {
-      showFormDialog(
-        bodies.oneRemote,
-        [forceInput],
-        l10n.pushBranch,
-        (values) => send(remotes, values[0]),
-        null,
-        rememberKey
-      );
-      return;
-    }
-    const remoteInputs: DialogInput[] = remotes.map((r) => ({
-      type: "checkbox",
-      name: r,
-      value: r === this.defaultPushRemote()
-    }));
-    showFormDialog(
-      bodies.manyRemotes,
-      [...remoteInputs, forceInput],
-      l10n.pushBranch,
-      (values) =>
-        send(
-          remotes.filter((_, i) => values[i] === "checked"),
-          values[remotes.length]
-        ),
-      null,
-      rememberKey
+  }
+  /**
+   * The push forms' remote ticks, one per remote, the push-default one alone
+   * pre-ticked and none remembered, and which remotes a form's tick values
+   * pick. A lone remote gets no tick: it is the only destination there is.
+   *
+   * The remote names are taken now, as the form opens, and the ticks read back
+   * against them rather than `this.remotes` as it stands at consent. A checkbox
+   * label is HTML to the form, and a remote's name is not ours to trust — git
+   * allows `<`, `&` and `"` in one — so it is escaped here, where it is known
+   * to be a name, rather than in the form, whose other labels are l10n strings
+   * that may carry markup on purpose.
+   */
+  private pushRemoteTicks(): {
+    inputs: DialogInput[];
+    ticked: (tickValues: string[]) => string[];
+  } {
+    const remotes = [...this.remotes];
+    if (remotes.length === 1) return { inputs: [], ticked: () => remotes };
+    return {
+      inputs: remotes.map((r) => ({
+        type: "checkbox",
+        name: escapeHtml(r),
+        value: r === this.defaultPushRemote()
+      })),
+      ticked: (tickValues) => remotes.filter((_, i) => tickValues[i] === "checked")
+    };
+  }
+  /**
+   * `push`, called only with what a push form showed: the repo it opened on
+   * and the remote names it listed, checked at consent by
+   * {@link remotesStillThereOrRefuse}. Unticking every remote asks for
+   * nothing, so that answer calls nothing.
+   */
+  private pushSender(
+    push: (
+      repo: string,
+      remotes: string[],
+      forceMode: ActionPayload<"pushBranch">["forceMode"],
+      targetBranch: ActionPayload<"pushBranch">["targetBranch"]
+    ) => void
+  ) {
+    return this.forRepo(
+      (
+        repo,
+        chosen: string[],
+        forceMode: string,
+        targetBranch: ActionPayload<"pushBranch">["targetBranch"]
+      ) => {
+        if (chosen.length === 0) return;
+        if (!this.remotesStillThereOrRefuse(repo, chosen)) return;
+        push(repo, chosen, toPushForceMode(forceMode), targetBranch);
+      }
     );
   }
+  /**
+   * The batch push form: the remote ticks when there is more than one remote,
+   * then the force-mode select, nothing remembered. `bodies` picks the
+   * wording for each of those two shapes. No advanced section: several
+   * branches cannot share one target name.
+   */
+  private showPushForm(
+    bodies: { oneRemote: string; manyRemotes: string },
+    push: (
+      repo: string,
+      remotes: string[],
+      forceMode: ActionPayload<"pushBranch">["forceMode"]
+    ) => void
+  ) {
+    const send = this.pushSender(push);
+    const ticks = this.pushRemoteTicks();
+    showFormDialog(
+      ticks.inputs.length === 0 ? bodies.oneRemote : bodies.manyRemotes,
+      [...ticks.inputs, this.pushForceInput(false)],
+      l10n.pushBranch,
+      (values) => send(ticks.ticked(values), values[ticks.inputs.length], undefined),
+      null
+    );
+  }
+  /**
+   * Push one local branch. The form asks only for the force mode — the one
+   * choice "Remember my choice" keeps — and folds the destination under
+   * "Advanced" (#17): the remote ticks, the push-default remote alone ticked,
+   * then the target branch, the source's own name to start with, and the
+   * preview of every `<source> → <remote>/<target>` the push would update
+   * (#304). Folding only hides them, and left as they start they push where
+   * the form always did, the same message and the same `git push` as before
+   * the section existed: a target still named like the source sends no
+   * `targetBranch` at all.
+   */
   private pushBranchAction(branchName: string) {
     const boldName = "<b><i>" + escapeHtml(branchName) + "</i></b>";
-    this.showPushForm(
-      {
-        oneRemote: fillTemplate(l10n.dialogPushBranchConfirm, boldName),
-        manyRemotes: fillTemplate(l10n.dialogPushBranchSelectRemote, boldName)
+    const send = this.pushSender((repo, remotes, forceMode, targetBranch) => {
+      sendMessage({
+        command: "pushBranch",
+        repo,
+        branchName,
+        remotes,
+        forceMode,
+        ...(targetBranch !== undefined ? { targetBranch } : {})
+      });
+      showActionRunningDialog(l10n.pushingBranch);
+    });
+    const ticks = this.pushRemoteTicks();
+    // Where an answer of the form pushes, read off the advanced section's
+    // values: the ticks, then the target. The push and its preview both read
+    // the form through this, so the preview cannot name a destination the push
+    // would not use, nor miss one it would.
+    const destinations = (advancedValues: string[]) => {
+      const target = advancedValues[ticks.inputs.length];
+      return {
+        remotes: ticks.ticked(advancedValues),
+        targetBranch: target === branchName ? undefined : target
+      };
+    };
+    showFormDialog(
+      fillTemplate(l10n.dialogPushBranchConfirm, boldName),
+      [this.pushForceInput(true)],
+      l10n.pushBranch,
+      (values, advancedValues) => {
+        const to = destinations(advancedValues);
+        send(to.remotes, values[0], to.targetBranch);
       },
+      null,
       "pushBranchForce",
-      (repo, remotes, forceMode) => {
-        sendMessage({
-          command: "pushBranch",
-          repo,
-          branchName,
-          remotes,
-          forceMode
-        });
-        showActionRunningDialog(l10n.pushingBranch);
+      {
+        summary: l10n.dialogPushBranchAdvanced,
+        inputs: [
+          ...ticks.inputs,
+          { type: "text-ref", name: l10n.dialogPushBranchTarget, default: branchName }
+        ]
+      },
+      (_, advancedValues) => {
+        const to = destinations(advancedValues);
+        return pushPreviewHtml(branchName, to.remotes, to.targetBranch ?? branchName);
       }
     );
   }
@@ -9473,7 +9539,33 @@ function getCommitDate(dateVal: number) {
 }
 
 /* Utils */
-function toPushForceMode(v: string): "normal" | "force" | "forceWithLease" {
+/** The Push dialog's preview (#304): a heading, then one line per remote ref
+ *  the push would update, `<source> → <remote>/<target>` — or, with no remote
+ *  to push to, a line saying plainly that nothing will be pushed. Every name
+ *  is escaped: git allows `<`, `&` and `"` in a remote's name, and the target
+ *  is whatever was typed. */
+function pushPreviewHtml(source: string, remotes: string[], target: string): string {
+  const lines =
+    remotes.length === 0
+      ? ['<div class="dialogFormPreviewNone">' + l10n.dialogPushBranchPreviewNone + "</div>"]
+      : remotes.map(
+          (remote) =>
+            "<div>" +
+            escapeHtml(source) +
+            " &rarr; " +
+            escapeHtml(remote) +
+            "/" +
+            escapeHtml(target) +
+            "</div>"
+        );
+  return (
+    '<div class="dialogFormPreviewHeading">' +
+    l10n.dialogPushBranchPreview +
+    "</div>" +
+    lines.join("")
+  );
+}
+function toPushForceMode(v: string): ActionPayload<"pushBranch">["forceMode"] {
   return v === "force" ? "force" : v === "forceWithLease" ? "forceWithLease" : "normal";
 }
 function abbrevCommit(commitHash: string) {
@@ -9777,26 +9869,29 @@ function saveOrForgetDialogMemory(
     sendMessage({ command: "saveDialogMemory", dialogKey: rememberKey, values: null });
   }
 }
-function showFormDialog(
-  message: string,
-  inputs: DialogInput[],
-  actionName: string,
-  actioned: (values: string[]) => void,
-  sourceElem: HTMLElement | null,
-  rememberKey?: string
-) {
-  // With a rememberKey, seed the remembered selects/checkboxes and offer a
-  // "Remember my choice" toggle below the form (free-text inputs are never
-  // remembered). hasMemory drives both the seeding and the toggle's checked
-  // state, and lets a later un-check forget the stored choice.
-  const hasMemory = rememberKey !== undefined && dialogMemory[rememberKey] !== undefined;
-  if (rememberKey !== undefined) inputs = applyDialogMemory(inputs, dialogMemory[rememberKey]);
-  let textRefInput = -1,
-    multiElementForm = inputs.length > 1;
-  let html =
-    message + '<br><table class="dialogForm ' + (multiElementForm ? "multi" : "single") + '">';
+/** A form dialog's input `i`, in `showFormDialog`'s one index space. */
+function dialogInputElem(i: number) {
+  return document.getElementById("dialogInput" + i);
+}
+/** What the user left in the form inputs `dialogInput<offset + i>`: a select's
+ *  value, "checked" or "unchecked" for a checkbox, a text box's text. */
+function dialogFormValues(inputs: DialogInput[], offset: number): string[] {
+  return inputs.map((input, i) => {
+    const elem = dialogInputElem(offset + i);
+    if (input.type === "select") return (<HTMLSelectElement>elem).value;
+    if (input.type === "checkbox")
+      return (<HTMLInputElement>elem).checked ? "checked" : "unchecked";
+    return (<HTMLInputElement>elem).value;
+  });
+}
+/** The rows of a form table: one per input, `dialogInput<offset + i>` each. A
+ *  multi-input table gives every row a label column; a single one shows only
+ *  its control. */
+function dialogFormRows(inputs: DialogInput[], offset: number, multiElementForm: boolean) {
+  let html = "";
   for (let i = 0; i < inputs.length; i++) {
-    let input = inputs[i];
+    const input = inputs[i],
+      id = offset + i;
     if (input.type === "checkbox") {
       // Checkboxes always sit to the left of their own label (the native
       // VS Code direction), spanning the label column in multi-input forms.
@@ -9804,7 +9899,7 @@ function showFormDialog(
         "<tr><td" +
         (multiElementForm ? ' colspan="2"' : "") +
         '><span class="dialogFormCheckbox"><label><input id="dialogInput' +
-        i +
+        id +
         '" type="checkbox"' +
         (input.value ? " checked" : "") +
         "/>" +
@@ -9814,11 +9909,14 @@ function showFormDialog(
     }
     html += "<tr>" + (multiElementForm ? "<td>" + input.name + "</td>" : "") + "<td>";
     if (input.type === "select") {
-      html += '<select id="dialogInput' + i + '">';
+      html += '<select id="dialogInput' + id + '">';
       for (let j = 0; j < input.options.length; j++) {
+        // The value is escaped as well as the name: a remote's name is an
+        // option value (the Push dialog's advanced remote), and git allows a
+        // `"` in one.
         html +=
           '<option value="' +
-          input.options[j].value +
+          escapeHtml(input.options[j].value) +
           '"' +
           (input.options[j].value === input.default ? " selected" : "") +
           ">" +
@@ -9829,7 +9927,7 @@ function showFormDialog(
     } else {
       html +=
         '<input id="dialogInput' +
-        i +
+        id +
         '" type="text" value="' +
         escapeHtml(input.default) +
         '"' +
@@ -9837,15 +9935,71 @@ function showFormDialog(
           ? ' placeholder="' + escapeHtml(input.placeholder) + '"'
           : "") +
         "/>";
-      if (input.type === "text-ref") textRefInput = i;
     }
     html += "</td></tr>";
   }
-  html += "</table>";
+  return html;
+}
+/**
+ * A dialog that asks for a few values at once, and answers `actioned` with
+ * them in input order.
+ *
+ * `advanced`, when given, folds a further set of inputs under a native
+ * `<details>/<summary>` disclosure at the foot of the form, below "Remember my
+ * choice", collapsed when it opens (#303): the disclosure is
+ * keyboard-reachable and toggles without any code of ours. Folding only hides:
+ * the section's values count whether it is open or not — a ref input in it
+ * blocks submitting while it is empty or invalid, and opening the section on
+ * that refused submit shows which — so callers give them defaults that do
+ * what the form did before the section existed. `actioned` gets the form's own
+ * values as ever, and the section's beside them in its own input order (empty
+ * without a section). Their `dialogInput<i>` ids continue where the form's
+ * stop, so the two never collide. Advanced inputs are never remembered — see
+ * `DialogAdvancedSection`.
+ *
+ * `preview`, when given, adds a quiet block that says what submitting would do
+ * (#304) — inside the advanced section when there is one, beneath the inputs
+ * otherwise — drawn when the form opens and again on every edit of any input.
+ * It is handed the form read exactly as submitting reads it, so it never
+ * describes values other than the ones `actioned` would get. Without it the
+ * form is what it always was.
+ */
+function showFormDialog(
+  message: string,
+  inputs: DialogInput[],
+  actionName: string,
+  actioned: (values: string[], advanced: string[]) => void,
+  sourceElem: HTMLElement | null,
+  rememberKey?: string,
+  advanced?: DialogAdvancedSection,
+  preview?: DialogFormPreview
+) {
+  // With a rememberKey, seed the remembered selects/checkboxes and offer a
+  // "Remember my choice" toggle below the form (free-text inputs are never
+  // remembered). hasMemory drives both the seeding and the toggle's checked
+  // state, and lets a later un-check forget the stored choice. Only the form's
+  // own inputs take part: the advanced ones are never handed to the memory.
+  const hasMemory = rememberKey !== undefined && dialogMemory[rememberKey] !== undefined;
+  if (rememberKey !== undefined) inputs = applyDialogMemory(inputs, dialogMemory[rememberKey]);
+  const advancedInputs = advanced?.inputs ?? [];
+  const allInputs = [...inputs, ...advancedInputs];
+  const multiElementForm = inputs.length > 1;
+  // A polite live region: a screen reader hears the new destination after an
+  // edit without being interrupted.
+  const previewHtml =
+    preview === undefined ? "" : '<div class="dialogFormPreview" aria-live="polite"></div>';
+  let html =
+    message +
+    '<br><table class="dialogForm ' +
+    (multiElementForm ? "multi" : "single") +
+    '">' +
+    dialogFormRows(inputs, 0, multiElementForm) +
+    "</table>";
   if (rememberKey !== undefined) {
-    // Its own single-row form table (a direct child of #dialog) so it inherits
-    // the themed checkbox styling without changing the layout of the inputs
-    // above. Read back by its fixed id on submit.
+    // Its own single-row form table so it inherits the themed checkbox styling
+    // without changing the layout of the inputs above. Read back by its fixed
+    // id on submit. Above the advanced section: it is about the inputs it
+    // sits beneath, and the folded ones are never remembered.
     html +=
       '<br><table class="dialogForm single"><tr><td>' +
       '<span class="dialogFormCheckbox"><label><input id="dialogRememberChoice" type="checkbox"' +
@@ -9854,6 +10008,49 @@ function showFormDialog(
       l10n.dialogRememberChoice +
       "</label></span></td></tr></table>";
   }
+  if (advanced !== undefined) {
+    // An explicit tabindex: `summary` is focusable by nature, but the dialog's
+    // own Tab cycling only visits what `dialogTabStops` selects. The preview
+    // folds with the inputs it describes.
+    html +=
+      '<details class="dialogAdvanced"><summary tabindex="0">' +
+      escapeHtml(advanced.summary) +
+      "</summary>" +
+      (advancedInputs.length > 0
+        ? '<table class="dialogForm multi">' +
+          dialogFormRows(advancedInputs, inputs.length, true) +
+          "</table>"
+        : "") +
+      previewHtml +
+      "</details>";
+  } else {
+    html += previewHtml;
+  }
+  // The form's answer as it stands: what submitting hands `actioned`, and what
+  // the preview is drawn from — one reading, so the two cannot drift apart.
+  const answer = (): [values: string[], advanced: string[]] => [
+    dialogFormValues(inputs, 0),
+    dialogFormValues(advancedInputs, inputs.length)
+  ];
+  // The ref inputs whose value must be a usable ref name before the form can
+  // be submitted, folded or not.
+  const refInputs = allInputs.flatMap((input, i) => (input.type === "text-ref" ? [i] : []));
+  const badRefInput = (i: number) => {
+    const value = (<HTMLInputElement>dialogInputElem(i)).value;
+    return value === "" || value.match(refInvalid) !== null;
+  };
+  const checkRefInputs = () => {
+    const elems = refInputs.map((i) => <HTMLInputElement>dialogInputElem(i));
+    const noInput = elems.some((elem) => elem.value === ""),
+      invalidInput = elems.some((elem) => elem.value.match(refInvalid) !== null);
+    const newClassName = "active" + (noInput ? " noInput" : invalidInput ? " inputInvalid" : "");
+    if (dialog.className !== newClassName) {
+      dialog.className = newClassName;
+      document.getElementById("dialogAction")!.title = invalidInput
+        ? l10n.invalidCharacters.replace("{0}", actionName)
+        : "";
+    }
+  };
   // A form lays its buttons out the native way, primary outermost: Cancel
   // first, in the markup as well as on screen.
   const dismissFirst = true;
@@ -9862,36 +10059,33 @@ function showFormDialog(
     actionName,
     l10n.dialogCancel,
     () => {
-      if (dialog.className === "active noInput" || dialog.className === "active inputInvalid")
-        return;
-      let values = [];
-      for (let i = 0; i < inputs.length; i++) {
-        let input = inputs[i],
-          elem = document.getElementById("dialogInput" + i);
-        if (input.type === "select") {
-          values.push((<HTMLSelectElement>elem).value);
-        } else if (input.type === "checkbox") {
-          values.push((<HTMLInputElement>elem).checked ? "checked" : "unchecked");
-        } else {
-          values.push((<HTMLInputElement>elem).value);
+      // Checked again rather than trusted: the classes are only as fresh as
+      // the last keyup, and what is submitted is what is there now.
+      if (refInputs.length > 0) checkRefInputs();
+      if (dialog.className === "active noInput" || dialog.className === "active inputInvalid") {
+        // A refusal for a value folded out of sight would explain nothing:
+        // unfold the section that holds it.
+        if (refInputs.some((i) => i >= inputs.length && badRefInput(i))) {
+          const section = dialog.querySelector<HTMLDetailsElement>("details.dialogAdvanced");
+          if (section !== null) section.open = true;
         }
+        return;
       }
+      const [values, advancedValues] = answer();
       if (rememberKey !== undefined)
         saveOrForgetDialogMemory(rememberKey, inputs, values, hasMemory);
       hideDialog();
-      actioned(values);
+      actioned(values, advancedValues);
     },
     sourceElem,
     undefined,
     dismissFirst
   );
   // A form starts on its first input (#141), not on the dialog it sits in.
-  document.getElementById("dialogInput0")?.focus();
+  dialogInputElem(0)?.focus();
 
-  if (textRefInput > -1) {
-    let dialogInput = <HTMLInputElement>document.getElementById("dialogInput" + textRefInput),
-      dialogAction = document.getElementById("dialogAction")!;
-    if (dialogInput.value === "") dialog.className = "active noInput";
+  for (const i of refInputs) {
+    const dialogInput = <HTMLInputElement>dialogInputElem(i);
     dialogInput.addEventListener("keyup", () => {
       const sub = viewState.referenceInputSpaceSubstitution;
       if (sub !== "None" && dialogInput.value.includes(" ")) {
@@ -9899,14 +10093,24 @@ function showFormDialog(
         dialogInput.value = substituteRefSpaces(dialogInput.value, sub);
         if (pos !== null) dialogInput.setSelectionRange(pos, pos);
       }
-      let noInput = dialogInput.value === "",
-        invalidInput = dialogInput.value.match(refInvalid) !== null;
-      let newClassName = "active" + (noInput ? " noInput" : invalidInput ? " inputInvalid" : "");
-      if (dialog.className !== newClassName) {
-        dialog.className = newClassName;
-        dialogAction.title = invalidInput ? l10n.invalidCharacters.replace("{0}", actionName) : "";
-      }
+      checkRefInputs();
     });
+  }
+  if (refInputs.length > 0) checkRefInputs();
+  const previewBox = dialog.querySelector<HTMLElement>(".dialogFormPreview");
+  const redrawPreview = () => {
+    if (preview !== undefined && previewBox !== null) previewBox.innerHTML = preview(...answer());
+  };
+  if (previewBox !== null) {
+    redrawPreview();
+    // `input` for typing, `change` for a select or a tick, and `keyup` as well
+    // because a ref input's own keyup listener (added above, so run first)
+    // may substitute its spaces after `input` has fired — the preview must
+    // show the name that will be sent, not the one typed.
+    for (let i = 0; i < allInputs.length; i++) {
+      const elem = dialogInputElem(i)!;
+      for (const type of ["input", "change", "keyup"]) elem.addEventListener(type, redrawPreview);
+    }
   }
 }
 function showTagDetailsDialog(details: GitTagDetails) {

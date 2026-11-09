@@ -110,6 +110,24 @@ declare global {
     remember?: boolean;
   }
   type DialogInput = DialogTextInput | DialogTextRefInput | DialogSelectInput | DialogCheckboxInput;
+  /** Inputs `showFormDialog` folds under a disclosure, collapsed when the form
+   *  opens. Folding only hides them: their values count whether the section is
+   *  open or not, and reach the form's answer apart from its own. They are
+   *  never remembered: "Remember my choice" sits above the section and is
+   *  about the choices every use of the dialog makes, and these are the ones a
+   *  single use makes. */
+  interface DialogAdvancedSection {
+    /** The disclosure's label. */
+    summary: string;
+    inputs: DialogInput[];
+  }
+  /** A form's live account of what submitting it now would do, as HTML: the
+   *  Push dialog's "feature → origin/feature" (#304). Given what `actioned`
+   *  would be given at this moment — the form's values and the advanced
+   *  section's — so a caller can derive both from one reading and the two
+   *  cannot disagree. Anything taken from the user or the repo is the caller's
+   *  to escape. */
+  type DialogFormPreview = (values: string[], advanced: string[]) => string;
   type DialogInputValue = string | boolean;
 
   interface ExpandedCommit {
