@@ -45,7 +45,7 @@ import { addTag, deleteTag, pushTag } from "@/backend/actions/tag";
 import { cleanUntrackedFiles, resetUncommittedChanges } from "@/backend/actions/workingTree";
 import { GitClient } from "@/backend/gitClient";
 import { checkBranchRedundancy } from "@/backend/queries/branchRedundancy";
-import { loadBranchSearchIndex } from "@/backend/queries/branchSearch";
+import { findCommitLogDepth, loadBranchSearchIndex } from "@/backend/queries/branchSearch";
 import { commitDetails } from "@/backend/queries/commitDetails";
 import { compareCommits } from "@/backend/queries/compareCommits";
 import { loadCommits } from "@/backend/queries/loadCommits";
@@ -58,11 +58,12 @@ import type {
   ActionResponseExtra,
   BatchActionRequest,
   BatchResultOf,
-  BranchSearchEntry
+  BranchSearchEntry,
+  CommitOrdering
 } from "@/backend/types";
 import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 import { parseRemoteUrl, pullRequestCreateUrl } from "@/backend/utils/pullRequest";
-import { abbrevCommit } from "@/backend/utils/string";
+import { abbrevCommit, isCommitHash } from "@/backend/utils/string";
 import { Config } from "@/config";
 import { encodeDiffDocUri } from "@/diffDocProvider";
 import { copyToClipboard } from "@/extension/utils/clipboard";
@@ -71,6 +72,7 @@ import * as l10n from "@/l10n";
 import { RepoFileWatcher } from "@/repoFileWatcher";
 import { RepoScopeSettings, RequestMessage, ResponseMessage } from "@/types";
 
+import { acknowledgeShowAll } from "./blameLocate";
 import { resolveCleanupCandidates } from "./branchCleanup";
 import { type BranchCleanup } from "./branchCleanupService";
 import { type BranchFacts } from "./branchFacts";
@@ -267,24 +269,33 @@ export function registerMessageHandlers(
 
   // --- Query handlers ---
 
+  /** The history the graph was loaded from, as a request names it and the
+   *  repo's settings scope it — what Find's branch index and a locate's depth
+   *  must walk, or they would answer about commits the graph cannot reach. */
+  function graphHistory(msg: {
+    branchNames: string[];
+    commitOrder?: CommitOrdering;
+    hiddenRemotes?: string[];
+  }) {
+    const scope = resolveRepoScope(currentRepo!);
+    return {
+      branchNames: msg.branchNames,
+      showRemoteBranches: resolveShowRemote(currentRepo!),
+      commitOrder: msg.commitOrder ?? config.commitOrder(),
+      onlyFollowFirstParent: scope.onlyFollowFirstParent,
+      showCommitsOnlyReferencedByTags: scope.showTagOnlyCommits,
+      includeCommitsMentionedByReflogs: scope.includeReflogCommits,
+      hiddenRemotes: msg.hiddenRemotes ?? []
+    };
+  }
+
   bridge.onMessage(
     "branchSearch",
     async (msg) => {
       let branches: BranchSearchEntry[] = [];
       let status: string | null = null;
       try {
-        // The index has to walk the same history the graph was loaded from,
-        // or Find would offer commits the graph cannot reach.
-        const scope = resolveRepoScope(currentRepo!);
-        ({ branches } = await loadBranchSearchIndex(gitClient.getInstance(), {
-          branchNames: msg.branchNames,
-          showRemoteBranches: resolveShowRemote(currentRepo!),
-          commitOrder: msg.commitOrder ?? config.commitOrder(),
-          onlyFollowFirstParent: scope.onlyFollowFirstParent,
-          showCommitsOnlyReferencedByTags: scope.showTagOnlyCommits,
-          includeCommitsMentionedByReflogs: scope.includeReflogCommits,
-          hiddenRemotes: msg.hiddenRemotes ?? []
-        }));
+        ({ branches } = await loadBranchSearchIndex(gitClient.getInstance(), graphHistory(msg)));
       } catch (error: unknown) {
         status = formatGitError(error);
       }
@@ -294,6 +305,49 @@ export function registerMessageHandlers(
         token: msg.token,
         status
       });
+    },
+    { mutatesRepo: false }
+  );
+
+  // Where a commit the blame hover asked to locate sits in the graph's history
+  // (#310). The same walk as the branch index above, for the same reason.
+  bridge.onMessage(
+    "commitLogDepth",
+    async (msg) => {
+      let logDepth: number | null = null;
+      let status: string | null = null;
+      try {
+        logDepth = await findCommitLogDepth(gitClient.getInstance(), {
+          ...graphHistory(msg),
+          hash: msg.hash
+        });
+      } catch (error: unknown) {
+        status = formatGitError(error);
+      }
+      bridge.post({
+        command: "commitLogDepth",
+        hash: msg.hash,
+        logDepth,
+        token: msg.token,
+        status
+      });
+    },
+    { mutatesRepo: false }
+  );
+
+  // A located commit the graph does not show (#310): said quietly, in a message
+  // the user can ignore. The history leaving it out is no fault; a branch
+  // filter Show All could not clear is something they can still act on.
+  bridge.onMessage(
+    "locateCommitNotInGraph",
+    (msg) => {
+      if (!isCommitHash(msg.hash)) return;
+      const sha = abbrevCommit(msg.hash);
+      if (msg.reason === "filterNotCleared") {
+        void vscode.window.showWarningMessage(l10n.t("blame.locate.filterNotCleared", sha));
+      } else {
+        void vscode.window.showInformationMessage(l10n.t("blame.locate.notInGraph", sha));
+      }
     },
     { mutatesRepo: false }
   );
@@ -787,11 +841,16 @@ export function registerMessageHandlers(
   // Branches side-view's title button runs. Writing `branchFilterStore` here
   // instead would only do half the job — the tree's visual selection would stay
   // highlighted while the graph showed everything.
+  // Acknowledged once Show All has run, or failed to (see `acknowledgeShowAll`):
+  // a locate waiting on it (#310) can then tell "Show All moved nothing" from
+  // "its filter is on the way".
   bridge.onMessage(
     "clearBranchFilter",
-    () => {
-      void vscode.commands.executeCommand("ging-git-view.branches.showAll");
-    },
+    () =>
+      acknowledgeShowAll(
+        () => vscode.commands.executeCommand("ging-git-view.branches.showAll"),
+        (msg) => bridge.post(msg)
+      ),
     { mutatesRepo: false }
   );
 

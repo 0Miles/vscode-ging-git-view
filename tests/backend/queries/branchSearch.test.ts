@@ -1,10 +1,11 @@
+import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { loadBranchSearchIndex } from "@/backend/queries/branchSearch";
+import { findCommitLogDepth, loadBranchSearchIndex } from "@/backend/queries/branchSearch";
 
 import { git, makeRepo, rmrf } from "@tests/backend/helpers";
 
@@ -202,5 +203,55 @@ describe("loadBranchSearchIndex", () => {
     } finally {
       rmrf(taggedRepo);
     }
+  });
+});
+
+describe("findCommitLogDepth", () => {
+  const ALL = {
+    branchNames: [""],
+    showRemoteBranches: false,
+    commitOrder: "topo" as const,
+    onlyFollowFirstParent: false,
+    hiddenRemotes: []
+  };
+  const revParse = (rev: string, cwd: string) =>
+    cp.execFileSync("git", ["rev-parse", rev], { cwd }).toString().trim();
+
+  it("returns the commit's zero-based `git log` position", async () => {
+    // `repo` holds init <- second <- third on main.
+    expect(
+      await findCommitLogDepth(simpleGit(repo), { ...ALL, hash: revParse("main~1", repo) })
+    ).toBe(1);
+    expect(
+      await findCommitLogDepth(simpleGit(repo), { ...ALL, hash: revParse("main~2", repo) })
+    ).toBe(2);
+  });
+
+  it("is null for a commit the graph's history leaves out", async () => {
+    const sideRepo = makeRepo();
+    try {
+      git(["checkout", "-b", "side"], sideRepo);
+      fs.writeFileSync(path.join(sideRepo, "s"), "side");
+      git(["add", "s"], sideRepo);
+      git(["commit", "-m", "side"], sideRepo);
+      const side = revParse("side", sideRepo);
+      git(["checkout", "main"], sideRepo);
+      git(["merge", "--no-ff", "-m", "merge side", "side"], sideRepo);
+      // Merged and gone: only the merge's second parent still reaches it.
+      git(["branch", "-d", "side"], sideRepo);
+
+      const client = simpleGit(sideRepo);
+      expect(await findCommitLogDepth(client, { ...ALL, hash: side })).not.toBeNull();
+      // A merge's second parent is not walked in first-parent mode.
+      expect(
+        await findCommitLogDepth(client, { ...ALL, onlyFollowFirstParent: true, hash: side })
+      ).toBeNull();
+    } finally {
+      rmrf(sideRepo);
+    }
+  });
+
+  it("is null for a hash the repository does not have", async () => {
+    expect(await findCommitLogDepth(simpleGit(repo), { ...ALL, hash: "f".repeat(40) })).toBeNull();
   });
 });

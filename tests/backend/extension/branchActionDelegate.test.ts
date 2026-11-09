@@ -125,4 +125,27 @@ describe("createBranchActionDelegate", () => {
     expect(deps.openGraphView).not.toHaveBeenCalled();
     expect(posted).toHaveLength(0);
   });
+
+  // The blame hover's "locate in the graph" (#310) waits for the graph the same
+  // way a delegated action does, and shares the counter so it can never be read
+  // as some action's retry.
+  it("opens the graph on the commit's repository and delivers the locate over both paths", async () => {
+    const { delegate, deps, posted } = makeDelegate();
+    await delegate.run(local("feature/a"), "merge");
+    await delegate.locateCommit("/other", "a".repeat(40));
+    expect(deps.openGraphView).toHaveBeenLastCalledWith("/other");
+    expect(posted.at(-1)).toEqual({
+      command: "locateCommit",
+      repo: "/other",
+      hash: "a".repeat(40),
+      seq: 2
+    });
+
+    // A panel that reloads for the repo gets it again from the flush.
+    delegate.flushPendingRefAction(REPO);
+    expect(posted).toHaveLength(2);
+    delegate.flushPendingRefAction("/other");
+    expect(posted).toHaveLength(3);
+    expect(posted.at(-1)).toMatchObject({ command: "locateCommit", seq: 2 });
+  });
 });

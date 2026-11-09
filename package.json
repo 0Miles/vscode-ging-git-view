@@ -367,6 +367,11 @@
         "category": "GING",
         "command": "ging-git-view.blame.openLineChange",
         "title": "%command.blame.openLineChange%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.blame.locateCommit",
+        "title": "%command.blame.locateCommit%"
       }
     ],
     "views": {
@@ -787,6 +792,10 @@
         },
         {
           "command": "ging-git-view.blame.openLineChange",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.blame.locateCommit",
           "when": "false"
         }
       ]

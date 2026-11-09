@@ -350,6 +350,13 @@ export type RequestClearBranchFilter = {
   command: "clearBranchFilter";
 };
 
+/** Show All has run for a `clearBranchFilter`. Any filter it changed reached
+ *  the graph as a `setBranchFilter` posted while it ran, so ahead of this:
+ *  arriving with no such filter means Show All moved nothing. A locate
+ *  waiting on Show All (#310) reads it that way and gives up rather than
+ *  waiting for a navigation that is not coming. */
+export type ResponseBranchFilterCleared = { command: "branchFilterCleared" };
+
 export type RequestViewFileAtRevision = {
   command: "viewFileAtRevision";
   repo: string;
@@ -537,6 +544,31 @@ export type ResponseShowBranchCleanup = {
   seq: number;
 };
 
+/** Select the commit `hash` and bring it into view, loading as far as the
+ *  graph has to for it to appear — the blame hover's "locate in the graph"
+ *  (#310). Delivered through the same wait-for-load path and `seq` counter as
+ *  the delegated ref actions: it is sent right after the graph is opened or
+ *  switched to `repo`, and a panel still loading would otherwise drop it. */
+export type ResponseLocateCommit = {
+  command: "locateCommit";
+  repo: string;
+  /** The full commit hash. */
+  hash: string;
+  seq: number;
+};
+
+/** Tell the user, quietly, that a commit asked to be located is not in the
+ *  graph at all — its settings leave it out (first parent only, a hidden
+ *  remote, …). Shown by the host because only it has a non-modal message. */
+export type RequestLocateCommitNotInGraph = {
+  command: "locateCommitNotInGraph";
+  hash: string;
+  /** Why, when the graph knows: `filterNotCleared` is a commit the branch
+   *  filter hides and Show All did not clear. Absent: the graph's history does
+   *  not show it, for whatever reason. */
+  reason?: "filterNotCleared";
+};
+
 /** Ask the host to judge every scannable branch's redundancy. Which branches
  *  those are is the host's call — it holds the facts that decide it. */
 export type RequestBranchCleanupScan = {
@@ -639,6 +671,7 @@ export type RequestMessage =
   | RequestBranchCleanupScan
   | RequestBranchCleanupScanCancel
   | RequestBranchCleanupOpen
+  | RequestLocateCommitNotInGraph
   | RequestReportError;
 
 export type ResponseMessage =
@@ -660,10 +693,12 @@ export type ResponseMessage =
   | ResponseSetScmMultiRepoSelection
   | ResponseSetRepoSettingDefaults
   | ResponseSetBranchFilter
+  | ResponseBranchFilterCleared
   | ResponseSetShowRemoteBranches
   | ResponseRunRefAction
   | ResponseRunRefBatchAction
   | ResponseShowBranchCleanup
+  | ResponseLocateCommit
   | ResponseBranchCleanupScanProgress
   | ResponseBranchCleanupScan
   | ResponseBranchCleanupOpen;
