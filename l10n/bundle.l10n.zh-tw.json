@@ -458,5 +458,9 @@
   "branchView.cleanup.none": "此存放庫沒有建議清理的 branch。",
   "branchView.cleanup.failed": "無法檢查可清理的 branch",
   "error.webviewFailed": "GING 發生未預期的錯誤，有動作沒有完成。詳細內容記在 GING 輸出頻道。",
-  "error.showLog": "顯示記錄"
+  "error.showLog": "顯示記錄",
+  "blame.you": "你",
+  "blame.uncommitted": "尚未提交的變更",
+  "blame.workspaceKeepsOff": "已在使用者設定開啟 inline blame，但這個工作區的設定仍然把它關閉。",
+  "blame.workspaceKeepsOn": "已在使用者設定關閉 inline blame，但這個工作區的設定仍然把它開啟。"
 }

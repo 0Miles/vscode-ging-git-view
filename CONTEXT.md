@@ -24,6 +24,7 @@ _Avoid_: graph repository, active repo, last active repo
 **Known repository**:
 GING 已探索並納入管理的存放庫。來源有二:工作區搜尋,以及內建 git 擴充功能已開啟的所有存放庫(含 submodule 與 worktree)。只有 known repository 能出現在存放庫選單中,但明確指名的路徑仍可繞過此集合直接開啟。
 這個集合同樣是跨工作階段保存的,所以它也可能列著已經不存在的目錄 —— 集合成員的身分不等於路徑仍然可用,兩者一樣由 `resolveCurrentRepo` 那組判準來分。圖形開機時要落在哪一個存放庫,由 host 端的 `pickBootRepo` 決定後送給 webview;webview 不從這個集合裡自己挑,它拿不到檔案系統。
+編輯器內的 inline blame 跟著編輯器走,不跟著 current repository 走:檔案一律在包含它的最深 known repository 裡 blame(submodule 與 worktree 裡的檔案因此用它自己的存放庫),不屬於任何 known repository 的檔案就不顯示;圖形在那期間顯示哪一個存放庫都不影響它。
 _Avoid_: discovered repo, tracked repo
 
 ### 分支的狀態

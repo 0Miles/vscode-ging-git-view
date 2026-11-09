@@ -166,5 +166,8 @@
   "command.remotes.editUrl": "Edit URL…",
   "command.remotes.rename": "Rename Remote…",
   "command.remotes.remove": "Remove Remote…",
-  "command.remotes.copyUrl": "Copy Remote URL"
+  "command.remotes.copyUrl": "Copy Remote URL",
+  "command.blame.toggle": "Toggle Inline Blame",
+  "config.blame.enabled": "Show inline git blame: the author, date and summary of the commit that last changed the cursor's line, at the end of that line.",
+  "color.blameAnnotationForeground": "Colour of the inline blame annotation at the end of the cursor's line."
 }

@@ -458,5 +458,9 @@
   "branchView.cleanup.none": "No branches are suggested for cleanup in this repository.",
   "branchView.cleanup.failed": "Unable to check for branches to clean up",
   "error.webviewFailed": "GING hit an unexpected error and something it was doing did not finish. The details are in the GING output channel.",
-  "error.showLog": "Show Log"
+  "error.showLog": "Show Log",
+  "blame.you": "You",
+  "blame.uncommitted": "Uncommitted changes",
+  "blame.workspaceKeepsOff": "Inline blame is now on in your user settings, but this workspace's settings still turn it off.",
+  "blame.workspaceKeepsOn": "Inline blame is now off in your user settings, but this workspace's settings still turn it on."
 }
