@@ -13,7 +13,7 @@ import { isGitRepository } from "@ging/core/backend/utils/git";
 import { evalPromises } from "@ging/core/backend/utils/promise";
 import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
 import { GitRepoSet, GitRepoState } from "@ging/shared/types";
-import { getPathFromUri } from "@ging/vscode/backend/utils/path";
+import { getPathFromUri } from "@ging/vscode/backend/utils/uri";
 import { Config } from "@ging/vscode/config";
 import { ExtensionState } from "@ging/vscode/extensionState";
 import { StatusBarItem } from "@ging/vscode/statusBarItem";

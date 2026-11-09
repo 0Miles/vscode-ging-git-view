@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import { doesPathExist, isDirectory } from "@ging/core/backend/utils/path";
-import { getPathFromUri } from "@ging/vscode/backend/utils/path";
+import { getPathFromUri } from "@ging/vscode/backend/utils/uri";
 import { Config } from "@ging/vscode/config";
 
 import { RepoManager } from "./repoManager";

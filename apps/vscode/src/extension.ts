@@ -37,7 +37,7 @@ import {
 } from "@ging/shared/backend/utils/refActionCatalogue";
 import type { BatchSkipped, RepoSettingField } from "@ging/shared/types";
 
-import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
+import { buildExtensionUri, getPathFromUri } from "./backend/utils/uri";
 import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";

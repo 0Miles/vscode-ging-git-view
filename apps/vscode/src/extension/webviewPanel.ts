@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 
 import { AvatarManager } from "@ging/core/avatarManager";
 import { GitRepoSet } from "@ging/shared/types";
-import { buildExtensionUri } from "@ging/vscode/backend/utils/path";
+import { buildExtensionUri } from "@ging/vscode/backend/utils/uri";
 import { Config } from "@ging/vscode/config";
 import { ExtensionState } from "@ging/vscode/extensionState";
 import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
