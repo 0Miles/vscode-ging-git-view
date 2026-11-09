@@ -45,7 +45,7 @@ import { addTag, deleteTag, pushTag } from "@/backend/actions/tag";
 import { cleanUntrackedFiles, resetUncommittedChanges } from "@/backend/actions/workingTree";
 import { GitClient } from "@/backend/gitClient";
 import { checkBranchRedundancy } from "@/backend/queries/branchRedundancy";
-import { loadBranchSearchIndex } from "@/backend/queries/branchSearch";
+import { findCommitLogDepth, loadBranchSearchIndex } from "@/backend/queries/branchSearch";
 import { commitDetails } from "@/backend/queries/commitDetails";
 import { compareCommits } from "@/backend/queries/compareCommits";
 import { loadCommits } from "@/backend/queries/loadCommits";
@@ -62,7 +62,7 @@ import type {
 } from "@/backend/types";
 import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
 import { parseRemoteUrl, pullRequestCreateUrl } from "@/backend/utils/pullRequest";
-import { abbrevCommit } from "@/backend/utils/string";
+import { abbrevCommit, isCommitHash } from "@/backend/utils/string";
 import { Config } from "@/config";
 import { encodeDiffDocUri } from "@/diffDocProvider";
 import { copyToClipboard } from "@/extension/utils/clipboard";
@@ -294,6 +294,52 @@ export function registerMessageHandlers(
         token: msg.token,
         status
       });
+    },
+    { mutatesRepo: false }
+  );
+
+  // Where a commit the blame hover asked to locate sits in the graph's history
+  // (#310). The same walk as the branch index above, for the same reason.
+  bridge.onMessage(
+    "commitLogDepth",
+    async (msg) => {
+      let logDepth: number | null = null;
+      let status: string | null = null;
+      try {
+        const scope = resolveRepoScope(currentRepo!);
+        logDepth = await findCommitLogDepth(gitClient.getInstance(), {
+          hash: msg.hash,
+          branchNames: msg.branchNames,
+          showRemoteBranches: resolveShowRemote(currentRepo!),
+          commitOrder: msg.commitOrder ?? config.commitOrder(),
+          onlyFollowFirstParent: scope.onlyFollowFirstParent,
+          showCommitsOnlyReferencedByTags: scope.showTagOnlyCommits,
+          includeCommitsMentionedByReflogs: scope.includeReflogCommits,
+          hiddenRemotes: msg.hiddenRemotes ?? []
+        });
+      } catch (error: unknown) {
+        status = formatGitError(error);
+      }
+      bridge.post({
+        command: "commitLogDepth",
+        hash: msg.hash,
+        logDepth,
+        token: msg.token,
+        status
+      });
+    },
+    { mutatesRepo: false }
+  );
+
+  // A located commit the graph's history leaves out: said quietly, in a
+  // message the user can ignore, since nothing went wrong (#310).
+  bridge.onMessage(
+    "locateCommitNotInGraph",
+    (msg) => {
+      if (!isCommitHash(msg.hash)) return;
+      void vscode.window.showInformationMessage(
+        l10n.t("blame.locate.notInGraph", abbrevCommit(msg.hash))
+      );
     },
     { mutatesRepo: false }
   );

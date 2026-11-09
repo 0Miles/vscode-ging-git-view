@@ -18,6 +18,7 @@ import type {
   BatchAction,
   BatchSkipped,
   BranchCleanupPayload,
+  ResponseLocateCommit,
   ResponseRunRefAction,
   ResponseRunRefBatchAction,
   ResponseShowBranchCleanup
@@ -33,12 +34,16 @@ import type { BranchActionTarget, BranchActionTargets } from "./branchesView";
  * delivery path: the wait-for-load race, the two delivery routes and the `seq`
  * dedupe are the same problem for all three, and a second copy of that logic is
  * how one of them ends up subtly different. Sharing the counter also means a
- * cleanup message can never be mistaken for a ref action's retry.
+ * cleanup message can never be mistaken for a ref action's retry. The blame
+ * hover's "locate in the graph" (#310) rides here for the same reasons: it too
+ * is sent straight after the graph is opened or switched, to a panel that may
+ * still be loading.
  */
 export type DelegatedMessage =
   | ResponseRunRefAction
   | ResponseRunRefBatchAction
-  | ResponseShowBranchCleanup;
+  | ResponseShowBranchCleanup
+  | ResponseLocateCommit;
 
 export type BranchActionDelegateDeps = {
   /** The branch a single-selection command argument points at, or null when it
@@ -160,5 +165,12 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     await deliver({ command: "showBranchCleanup", repo, payload, seq: ++seq });
   };
 
-  return { run, runBatch, openCleanup, flushPendingRefAction };
+  /** Open the graph on `repo` and have it select and bring `hash` into view.
+   *  Whether the commit is drawn, or how far to load for it, is the webview's
+   *  to find out — only it knows what it has loaded. */
+  const locateCommit = async (repo: string, hash: string): Promise<void> => {
+    await deliver({ command: "locateCommit", repo, hash, seq: ++seq });
+  };
+
+  return { run, runBatch, openCleanup, locateCommit, flushPendingRefAction };
 }

@@ -24,11 +24,13 @@ export type BlameHoverContext = BlameAnnotationContext & {
   /** The time zone to show the absolute time in; the system's by default. */
   timeZone?: string;
   /** The annotation's labels, plus `changes` before the SHAs, `copyHash`,
-   *  their tooltip, and `openLineChange`, the link to the line's change. */
+   *  their tooltip, `openLineChange`, the link to the line's change, and
+   *  `locateCommit`, the link to the commit's place in the graph. */
   labels: BlameAnnotationContext["labels"] & {
     changes: string;
     copyHash: string;
     openLineChange: string;
+    locateCommit: string;
   };
   /** The known repository the line is blamed in. */
   repo: string;
@@ -36,15 +38,22 @@ export type BlameHoverContext = BlameAnnotationContext & {
   copyShaCommand: string;
   /** The command the line's change link runs, given its `LineChange`. */
   openLineChangeCommand: string;
+  /** The command the graph link runs, given its `CommitLocation`. */
+  locateCommitCommand: string;
 };
+
+/** A blamed line's commit, as the hover's "locate in the graph" link hands it
+ *  to its command: the full SHA, in the repository the line is blamed in. */
+export type CommitLocation = { repo: string; sha: string };
 
 /**
  * The hover card of a blamed line, as Markdown with theme icons: the author's
  * avatar (or the account icon), the author or `labels.you`, relative and
  * absolute time, the full commit message, the commit's hunk holding the line,
  * `Changes <previous> ↔ <commit>` with each SHA a link that copies it — only
- * the commit for one without a previous — and a link that opens the line's
- * change in a diff editor (see `lineChangeDiff`). A line not committed yet says
+ * the commit for one without a previous — a link that opens the line's change
+ * in a diff editor (see `lineChangeDiff`), and one that locates the commit in
+ * the GING graph of that repository. A line not committed yet says
  * just that. Author and message are shown as text: nothing in them is read as
  * Markdown, HTML or an icon.
  */
@@ -83,6 +92,11 @@ export function blameHoverMarkdown(
   sections.push(
     `$(diff) [${escapeText(labels.openLineChange)}](command:${context.openLineChangeCommand}?` +
       `${commandArgs(lineChangeOf(context.repo, line))})`
+  );
+  const location: CommitLocation = { repo: context.repo, sha: line.sha };
+  sections.push(
+    `$(git-commit) [${escapeText(labels.locateCommit)}](command:${context.locateCommitCommand}?` +
+      `${commandArgs(location)})`
   );
   return sections.join("\n\n");
 }

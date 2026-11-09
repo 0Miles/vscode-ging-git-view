@@ -170,6 +170,7 @@
   "command.blame.toggle": "Toggle Inline Blame",
   "command.blame.copyHash": "Copy Commit Hash",
   "command.blame.openLineChange": "Open Line's Change in Commit",
+  "command.blame.locateCommit": "Locate Commit in GING Graph",
   "config.blame.enabled": "Show inline git blame: the author, date and summary of the commit that last changed the cursor's line, at the end of that line.",
   "color.blameAnnotationForeground": "Colour of the inline blame annotation at the end of the cursor's line."
 }

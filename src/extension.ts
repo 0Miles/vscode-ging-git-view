@@ -32,9 +32,11 @@ import { AskpassManager } from "./extension/askpass/askpassManager";
 import {
   createBlameController,
   registerBlameCopySha,
+  registerBlameLocateCommit,
   registerBlameOpenLineChange,
   registerBlameToggle
 } from "./extension/blameController";
+import { filterMayHideCommit } from "./extension/blameLocate";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
 import { createBranchCleanup } from "./extension/branchCleanupService";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
@@ -611,6 +613,27 @@ export function activate(context: vscode.ExtensionContext) {
         [l10n.t("branchView.batch.noTargets"), ...skippedNotes(skipped)].join(" ")
       )
   });
+
+  // The blame hover's "locate in the graph" (#310), for a commit in the blamed
+  // file's repository — which need not be the current repository. A branch
+  // filter that may keep the commit off the graph is cleared first, through
+  // the same Show All the side-view and the graph's filter chip run (the
+  // maintainer's ruling on #310), pointed at that repository. Then the graph is
+  // opened on it and handed the commit, over the delegate's two delivery paths
+  // so a panel still loading cannot drop it.
+  context.subscriptions.push(
+    registerBlameLocateCommit({
+      knownRepos,
+      locate: async ({ repo, sha }) => {
+        const stored = branchFilterStore.has(repo) ? branchFilterStore.get(repo) : undefined;
+        if (filterMayHideCommit(stored)) {
+          branchesView.setActiveRepo(repo);
+          await vscode.commands.executeCommand("ging-git-view.branches.showAll");
+        }
+        await branchActionDelegate.locateCommit(repo, sha);
+      }
+    })
+  );
 
   /**
    * Build the cleanup candidates and open the dialog on them.

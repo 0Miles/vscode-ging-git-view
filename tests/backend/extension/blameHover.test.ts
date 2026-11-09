@@ -33,7 +33,8 @@ const EN_LABELS = {
   uncommitted: "Uncommitted changes",
   changes: "Changes",
   copyHash: "Copy commit hash",
-  openLineChange: "Open this line's change"
+  openLineChange: "Open this line's change",
+  locateCommit: "Locate in the GING graph"
 };
 
 const NO_DETAILS: BlameHoverDetails = { message: null, hunk: null, avatar: null };
@@ -54,7 +55,8 @@ function hover(
       labels: opts.labels ?? EN_LABELS,
       repo: "/repo",
       copyShaCommand: "ext.copySha",
-      openLineChangeCommand: "ext.openLineChange"
+      openLineChangeCommand: "ext.openLineChange",
+      locateCommitCommand: "ext.locateCommit"
     }
   );
 }
@@ -62,6 +64,10 @@ function hover(
 /** The command link that opens the line's change, as the hover writes it. */
 const openLink = (change: object) =>
   `$(diff) [Open this line's change](command:ext.openLineChange?${encodeURIComponent(JSON.stringify([change]))})`;
+
+/** The command link that locates `sha` in the graph, as the hover writes it. */
+const locateLink = (sha: string) =>
+  `$(git-commit) [Locate in the GING graph](command:ext.locateCommit?${encodeURIComponent(JSON.stringify([{ repo: "/repo", sha }]))})`;
 
 /** What the link of `line()` hands its command. */
 const LINE_CHANGE = {
@@ -108,7 +114,9 @@ describe("blameHoverMarkdown", () => {
         "",
         `Changes ${copyLink(PARENT)} ↔ ${copyLink(SHA)}`,
         "",
-        openLink(LINE_CHANGE)
+        openLink(LINE_CHANGE),
+        "",
+        locateLink(SHA)
       ].join("\n")
     );
   });
@@ -124,7 +132,9 @@ describe("blameHoverMarkdown", () => {
         "",
         `Changes ${copyLink(PARENT)} ↔ ${copyLink(SHA)}`,
         "",
-        openLink(LINE_CHANGE)
+        openLink(LINE_CHANGE),
+        "",
+        locateLink(SHA)
       ].join("\n")
     );
   });
@@ -141,7 +151,7 @@ describe("blameHoverMarkdown", () => {
     expect(
       hover(line({ previous: null }))
         .split("\n")
-        .at(-1)
+        .find((l) => l.startsWith("$(diff) "))
     ).toBe(openLink({ ...LINE_CHANGE, previous: null }));
   });
 
@@ -151,8 +161,11 @@ describe("blameHoverMarkdown", () => {
       originalLine: 12,
       previous: { sha: PARENT, filename: "old).txt" }
     });
-    const last = hover(renamed).split("\n").at(-1) ?? "";
-    const target = /\]\(command:ext\.openLineChange\?(.*)\)$/.exec(last)?.[1] ?? "";
+    const link =
+      hover(renamed)
+        .split("\n")
+        .find((l) => l.startsWith("$(diff) ")) ?? "";
+    const target = /\]\(command:ext\.openLineChange\?(.*)\)$/.exec(link)?.[1] ?? "";
     // A parenthesis in a path would end the link early: it is escaped too.
     expect(target).not.toMatch(/[()]/);
     expect(JSON.parse(decodeURIComponent(target))).toEqual([
@@ -172,6 +185,23 @@ describe("blameHoverMarkdown", () => {
     });
     expect(markdown).toBe("Uncommitted changes");
     expect(markdown).not.toContain("ext.openLineChange");
+    expect(markdown).not.toContain("ext.locateCommit");
+  });
+
+  it("links a committed line's commit to its place in the graph, last", () => {
+    expect(hover(line()).split("\n").at(-1)).toBe(locateLink(SHA));
+    // A root commit has its place in the graph like any other.
+    expect(
+      hover(line({ previous: null }))
+        .split("\n")
+        .at(-1)
+    ).toBe(locateLink(SHA));
+  });
+
+  it("locates the commit in the repository the line is blamed in", () => {
+    const last = hover(line()).split("\n").at(-1) ?? "";
+    const target = /\]\(command:ext\.locateCommit\?(.*)\)$/.exec(last)?.[1] ?? "";
+    expect(JSON.parse(decodeURIComponent(target))).toEqual([{ repo: "/repo", sha: SHA }]);
   });
 
   describe("avatar", () => {
