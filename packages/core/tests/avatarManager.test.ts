@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as https from "node:https";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -11,17 +12,22 @@ import { rmrf } from "@ging/core/tests/helpers";
 
 /**
  * AvatarManager against fakes of its two seams, AvatarConfig and AvatarStore
- * (the host passes its Config and ExtensionState). Only the paths that stay on this
- * machine are driven here: anything that re-requests an avatar goes on to ask
- * git for the remote and then the network, which is not a unit test's business.
- * Whether it re-requested is still observable — the first thing a request does
- * is ask the config for the git path.
+ * (the host passes its Config and ExtensionState). Whether it requested an
+ * avatar rather than serving it from its cache is observable at the config: the
+ * first thing a request does is ask for the git path. A request then goes on to
+ * the network, so `https.get` is stubbed to one that never answers — nothing
+ * leaves the machine, and no suite here cares what a download would bring.
  */
+
+vi.mock("node:https", () => ({
+  get: vi.fn(() => ({ on: vi.fn() }))
+}));
 
 const folders: string[] = [];
 
 afterEach(() => {
   for (const folder of folders.splice(0)) rmrf(folder);
+  vi.useRealTimers();
 });
 
 /** An avatar folder holding one image file, named the way the manager names them. */
@@ -94,15 +100,26 @@ describe("AvatarManager", () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it("forgets an avatar in the store as well as in memory", () => {
+  it("forgets an avatar in the store as well as in memory", async () => {
+    // A request starts the queue's 10-second poll; keep it off the real clock.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const store = fakeStore(avatarFolder("abc.png", "PNGDATA"), {
       [EMAIL]: freshAvatar("abc.png")
     });
-    const manager = new AvatarManager(fakeConfig(), store);
+    const config = fakeConfig();
+    const manager = new AvatarManager(config, store);
+    const post = vi.fn();
+    manager.registerBridge(post);
 
     manager.removeAvatarFromCache(EMAIL);
+    manager.fetchAvatarImage(EMAIL, REPO, ["c1"]);
 
     expect(store.removeAvatarFromCache).toHaveBeenCalledWith(EMAIL);
+    // The same fresh avatar the first case serves from the cache is requested
+    // anew, and the old file is not posted in the meantime.
+    expect(config.gitPath).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(https.get).toHaveBeenCalled());
+    expect(post).not.toHaveBeenCalled();
   });
 
   it("clears the store's cache when its own is cleared", () => {
