@@ -115,6 +115,30 @@ describe("blameFile (real git)", () => {
     expect(lines?.map((l) => l.uncommitted)).toEqual([true, false, false]);
   });
 
+  it("lines unsaved edits up with the editor: edited lines uncommitted, the rest at their original lines", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "a.txt"), "one\ntwo\nthree\nfour\n");
+    commit(r, "add a", "Al <al@example.com>", 1600000000);
+    const first = head(r);
+    fs.writeFileSync(path.join(r, "a.txt"), "one\ntwo\nthree\nfour\nfive\n");
+    commit(r, "add five", "Bea <bea@example.com>", 1700000000);
+    const second = head(r);
+    // Saved on disk: untouched since the last commit. In the editor: a line
+    // inserted at the top and "three" rewritten.
+    const contents = "new top\none\ntwo\nTHREE\nfour\nfive\n";
+
+    const lines = await blameFile({ gitPath: "git", repoPath: r, filePath: "a.txt", contents });
+
+    expect(lines?.map((l) => (l.uncommitted ? "uncommitted" : [l.sha, l.originalLine]))).toEqual([
+      "uncommitted",
+      [first, 1],
+      [first, 2],
+      "uncommitted",
+      [first, 4],
+      [second, 5]
+    ]);
+  });
+
   it("blames a linked worktree's file against that worktree's own history", async () => {
     const r = newRepo();
     fs.writeFileSync(path.join(r, "a.txt"), "main line\n");

@@ -7,7 +7,6 @@ const REPOS = ["/work/app", "/work/app/sub"];
 function editor(overrides: Partial<BlameEditorState> = {}): BlameEditorState {
   return {
     scheme: "file",
-    isDirty: false,
     filePath: "/work/app/src/a.ts",
     selections: [{ startLine: 4, endLine: 4 }],
     cursorLine: 4,
@@ -53,10 +52,6 @@ describe("blameTarget", () => {
     expect(blameTarget(editor({ selections: [{ startLine: 4, endLine: 4 }] }), REPOS)?.line).toBe(
       4
     );
-  });
-
-  it("shows nothing for a document with unsaved edits", () => {
-    expect(blameTarget(editor({ isDirty: true }), REPOS)).toBeNull();
   });
 
   it("shows nothing for a document that is not a file on disk", () => {
