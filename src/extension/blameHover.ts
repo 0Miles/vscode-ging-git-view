@@ -3,6 +3,7 @@ import type { BlameLine } from "@/backend/queries/blameFile";
 import { abbrevCommit } from "@/backend/utils/string";
 
 import { type BlameAnnotationContext, isUser, relativeTime } from "./blameAnnotation";
+import { lineChangeOf } from "./blameLineChange";
 
 const AVATAR_SIZE = 16;
 
@@ -22,19 +23,28 @@ export type BlameHoverDetails = {
 export type BlameHoverContext = BlameAnnotationContext & {
   /** The time zone to show the absolute time in; the system's by default. */
   timeZone?: string;
-  /** The annotation's labels, plus `changes` before the SHAs and `copyHash`,
-   *  their tooltip. */
-  labels: BlameAnnotationContext["labels"] & { changes: string; copyHash: string };
+  /** The annotation's labels, plus `changes` before the SHAs, `copyHash`,
+   *  their tooltip, and `openLineChange`, the link to the line's change. */
+  labels: BlameAnnotationContext["labels"] & {
+    changes: string;
+    copyHash: string;
+    openLineChange: string;
+  };
+  /** The known repository the line is blamed in. */
+  repo: string;
   /** The command a SHA link runs, given the full SHA. */
   copyShaCommand: string;
+  /** The command the line's change link runs, given its `LineChange`. */
+  openLineChangeCommand: string;
 };
 
 /**
  * The hover card of a blamed line, as Markdown with theme icons: the author's
  * avatar (or the account icon), the author or `labels.you`, relative and
  * absolute time, the full commit message, the commit's hunk holding the line,
- * and `Changes <previous> ↔ <commit>` with each SHA a link that copies it —
- * only the commit for one without a previous. A line not committed yet says
+ * `Changes <previous> ↔ <commit>` with each SHA a link that copies it — only
+ * the commit for one without a previous — and a link that opens the line's
+ * change in a diff editor (see `lineChangeDiff`). A line not committed yet says
  * just that. Author and message are shown as text: nothing in them is read as
  * Markdown, HTML or an icon.
  */
@@ -64,13 +74,26 @@ export function blameHoverMarkdown(
 
   const shaLink = (sha: string) =>
     `[\`${abbrevCommit(sha)}\`](command:${context.copyShaCommand}?` +
-    `${encodeURIComponent(JSON.stringify([sha]))} "${labels.copyHash.replace(/"/g, "'")}")`;
+    `${commandArgs(sha)} "${labels.copyHash.replace(/"/g, "'")}")`;
   const shas =
     line.previous === null
       ? shaLink(line.sha)
       : `${shaLink(line.previous.sha)} ↔ ${shaLink(line.sha)}`;
   sections.push(`${escapeText(labels.changes)} ${shas}`);
+  sections.push(
+    `$(diff) [${escapeText(labels.openLineChange)}](command:${context.openLineChangeCommand}?` +
+      `${commandArgs(lineChangeOf(context.repo, line))})`
+  );
   return sections.join("\n\n");
+}
+
+/** A command link's argument, as the query of its URI. Parentheses are escaped
+ *  too, or one in a path would end the Markdown link early. */
+function commandArgs(arg: unknown): string {
+  return encodeURIComponent(JSON.stringify([arg])).replace(
+    /[()]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+  );
 }
 
 /** A fenced diff block, its fence longer than any run of backticks inside. */

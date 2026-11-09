@@ -463,6 +463,7 @@
   "blame.uncommitted": "尚未提交的變更",
   "blame.hover.changes": "變更",
   "blame.hover.copyHash": "複製 commit hash",
+  "blame.hover.openLineChange": "開啟這一行在這個 commit 的變更",
   "blame.copiedHash": "已複製 commit hash {0}",
   "blame.workspaceKeepsOff": "已在使用者設定開啟 inline blame，但這個工作區的設定仍然把它關閉。",
   "blame.workspaceKeepsOn": "已在使用者設定關閉 inline blame，但這個工作區的設定仍然把它開啟。"

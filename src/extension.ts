@@ -32,6 +32,7 @@ import { AskpassManager } from "./extension/askpass/askpassManager";
 import {
   createBlameController,
   registerBlameCopySha,
+  registerBlameOpenLineChange,
   registerBlameToggle
 } from "./extension/blameController";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
@@ -334,7 +335,8 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     registerBlameToggle(),
-    registerBlameCopySha()
+    registerBlameCopySha(),
+    registerBlameOpenLineChange({ knownRepos: () => Object.keys(repoManager.getRepos()) })
   );
 
   // Publish the SC-focused repos so the `scm/repository` row button can show itself on just those
