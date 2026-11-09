@@ -71,10 +71,7 @@ const STYLED_ATTRIBUTES = new Set(
   ["class", "style"].concat(
     Array.from(
       fs
-        .readFileSync(
-          path.resolve(__dirname, "../media/main.css"),
-          "utf8"
-        )
+        .readFileSync(path.resolve(__dirname, "../media/main.css"), "utf8")
         .matchAll(/\[\s*([A-Za-z][\w-]*)/g),
       (m) => m[1].toLowerCase()
     )

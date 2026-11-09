@@ -127,10 +127,7 @@ describe("resizing a column while another is hidden", () => {
     mock = createVscodeMock();
     setupHtml(viewState);
     const style = document.createElement("style");
-    style.textContent = fs.readFileSync(
-      path.resolve(__dirname, "../media/main.css"),
-      "utf8"
-    );
+    style.textContent = fs.readFileSync(path.resolve(__dirname, "../media/main.css"), "utf8");
     document.head.appendChild(style);
     await import("@ging/webview/main");
     receive({
