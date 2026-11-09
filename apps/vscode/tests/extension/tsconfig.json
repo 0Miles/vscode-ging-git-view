@@ -11,7 +11,7 @@
     // packages are compiled alongside the tests and tsc-alias rewrites these
     // to relative paths. Most specific pattern first.
     "paths": {
-      "@ging/core/tests/*": ["../../../../packages/core/tests/*"],
+      "@ging/core/tests/helpers": ["../../../../packages/core/tests/helpers"],
       "@ging/core/*": ["../../../../packages/core/src/*"],
       "@ging/shared/*": ["../../../../packages/shared/src/*"],
       "@ging/webview/*": ["../../../../packages/webview/src/*"],
