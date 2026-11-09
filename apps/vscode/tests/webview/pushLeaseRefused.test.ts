@@ -1,8 +1,13 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
-
-import { createVscodeMock, dialogText, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  dialogText,
+  englishStrings,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A Force with lease push is refused when the remote tip was fetched but never
 // integrated (ADR-0025). git's own line for that — "remote ref updated since
@@ -10,7 +15,7 @@ import { createVscodeMock, dialogText, makeViewState, receive, setupHtml } from 
 // the webview explains it: pull or rebase first, or choose the Force option to
 // overwrite anyway. No one-click force: overwriting is a separate choice.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const GIT_LINE = "[rejected]        main -> main (remote ref updated since checkout)";
 

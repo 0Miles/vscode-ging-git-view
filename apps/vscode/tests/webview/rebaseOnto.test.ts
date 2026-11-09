@@ -1,7 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -9,6 +8,7 @@ import {
   compareRows,
   createVscodeMock,
   DEFAULT_REPO,
+  englishStrings,
   graphRow,
   makeViewState,
   menuItemLabels,
@@ -22,7 +22,7 @@ import {
 // range instead of the current branch. The range it sends is resolved from
 // ancestry rather than from the order the two were clicked.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 const REBASE_ON = L.rebaseOnCommit + E;
 const REBASE_ONTO = L.rebaseRangeOnCommit + E;

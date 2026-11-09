@@ -2,13 +2,13 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
   dialogText,
+  englishStrings,
   makeViewState,
   receive,
   setupHtml
@@ -24,7 +24,7 @@ import {
 // stale answers by sequence number; what this pins is the crossing between
 // kinds, which only the dialog's owner can tell apart.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const commits: GitCommitNode[] = [
   {

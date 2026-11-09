@@ -2,11 +2,11 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
   createVscodeMock,
+  englishStrings,
   graphRow,
   makeViewState,
   NEAR_BOTTOM,
@@ -34,7 +34,7 @@ import {
 // owns the automatic path, cannot stand in for that: it parks itself at
 // NEAR_BOTTOM on purpose.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState();
 

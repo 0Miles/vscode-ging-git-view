@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  englishStrings,
   makeViewState,
   openMenuOn,
   receive,
@@ -34,7 +34,7 @@ import {
 // re-importing per scenario would leave the previous instance listening on
 // `window`.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState();
 

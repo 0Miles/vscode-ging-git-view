@@ -2,12 +2,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickItem,
   createVscodeMock,
   dialogText,
+  englishStrings,
   makeViewState,
   receive,
   rightClick,
@@ -22,7 +22,7 @@ import {
 // `{1}`. git allows both in a branch name, so each is put through a dialog
 // that names a branch and the branch checked out.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 
 const HEAD = "main$'";

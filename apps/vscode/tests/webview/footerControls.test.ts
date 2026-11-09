@@ -2,9 +2,16 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
-import { clickId, createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  createVscodeMock,
+  englishStrings,
+  graphRow,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The graph footer's two controls: Load More, and the way back from a widened
 // loaded commit window. ADR-0019 keeps automatic loading on the condition that
@@ -26,7 +33,7 @@ import { clickId, createVscodeMock, graphRow, makeViewState, receive, setupHtml 
 // fixture's initialLoadCommits (300) and each accepted press adds
 // loadMoreCount (100).
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState();
 

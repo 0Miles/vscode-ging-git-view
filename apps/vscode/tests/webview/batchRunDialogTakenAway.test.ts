@@ -1,13 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
   createVscodeMock,
   DEFAULT_REPO,
   dialogText,
+  englishStrings,
   makeViewState,
   receive,
   setupHtml
@@ -43,7 +43,7 @@ import {
 // `BatchRun` is one that asks (ADR-0009), so it raises its own question first,
 // and raising it is what takes the offer away.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState({ combineLocalAndRemoteBranchLabels: false });
 

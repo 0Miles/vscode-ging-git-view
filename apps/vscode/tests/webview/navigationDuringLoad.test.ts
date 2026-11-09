@@ -2,9 +2,15 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
-import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  createVscodeMock,
+  englishStrings,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // Navigating while a load is in flight (#84). A navigation changes *which*
 // commits belong on screen — the repository, whether remote branches count —
@@ -445,7 +451,7 @@ describe("a repo set the host found no live repository in", () => {
     // every action on them goes out naming a repository that is the empty
     // string, against a host that resolves actions from its own binding.
     expect(graphText()).not.toContain("commit in repo A");
-    expect(graphText()).toContain(getWebviewLocalizedStrings().noRepos);
+    expect(graphText()).toContain(englishStrings().noRepos);
   });
 
   it("asks the host to index nothing when Find is opened", () => {

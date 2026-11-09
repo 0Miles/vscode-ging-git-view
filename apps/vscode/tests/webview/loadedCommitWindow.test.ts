@@ -2,12 +2,12 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
   createVscodeMock,
   DEFAULT_REPO,
+  englishStrings,
   graphRow,
   makeViewState,
   receive,
@@ -27,7 +27,7 @@ import {
 // window therefore carries across scenarios: it opens at the fixture's
 // initialLoadCommits (300) and each accepted press adds loadMoreCount (100).
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState();
 

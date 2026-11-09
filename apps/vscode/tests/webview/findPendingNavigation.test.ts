@@ -2,12 +2,12 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { BranchSearchEntry, GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
   createVscodeMock,
   dialogText,
+  englishStrings,
   makeViewState,
   receive,
   search,
@@ -31,7 +31,7 @@ import {
 // `window` (#80). Every scenario starts by re-running the search, which puts
 // Find back on the first match.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState();
 

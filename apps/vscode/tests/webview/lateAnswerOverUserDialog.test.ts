@@ -2,7 +2,6 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -10,6 +9,7 @@ import {
   DEFAULT_REPO,
   dialogShown,
   dialogText,
+  englishStrings,
   makeViewState,
   receive,
   setupHtml
@@ -30,7 +30,7 @@ import {
 // user's, and the answer is owed until the slot frees, behind whatever else is
 // owed.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const OTHER_REPO = "/workspace/repo-b";
 
 const commits: GitCommitNode[] = [

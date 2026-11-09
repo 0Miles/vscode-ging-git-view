@@ -1,8 +1,9 @@
 import { expect } from "vitest";
 
 import type { GitCommitDetails } from "@ging/shared/backend/types";
+import englishBundle from "@ging/shared/l10n/bundle.l10n.json";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
+import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
 
 // The fixture itself lives in its own module so the webview harness can load
@@ -144,8 +145,15 @@ export function createVscodeMock(initialState: WebViewState | null = null) {
   };
 }
 
+/** The webview's strings as an English-speaking user gets them: each key looked
+ *  up in the base bundle, the key itself where the bundle has nothing. */
+export function englishStrings() {
+  const bundle: Record<string, string> = englishBundle;
+  return getWebviewLocalizedStrings((key) => bundle[key] || key);
+}
+
 export function setupHtml(viewState: GG.GitGraphViewState) {
-  const l10nStrings = getWebviewLocalizedStrings();
+  const l10nStrings = englishStrings();
 
   // The DOM under test is the extension's real markup — the same string
   // buildWebviewHtml embeds into the webview — so the tests' DOM and the

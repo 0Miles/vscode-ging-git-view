@@ -1,7 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 import { BRANCH_DRAG_THRESHOLD } from "@ging/webview/branchDrag";
 
 import {
@@ -10,6 +9,7 @@ import {
   createVscodeMock,
   DEFAULT_REPO,
   dialogText,
+  englishStrings,
   graphRow,
   makeViewState,
   receive,
@@ -19,7 +19,7 @@ import {
 // Dragging a local branch's label onto another commit row moves the branch
 // there (#208), behind a confirmation that names the branch and both commits.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const TIP = "11111111aaaa";
 const MID = "22222222bbbb";

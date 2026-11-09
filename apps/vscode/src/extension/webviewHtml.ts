@@ -6,10 +6,10 @@ import { buildExtensionUri } from "@ging/vscode/backend/utils/path";
 import { Config } from "@ging/vscode/config";
 import { ExtensionState } from "@ging/vscode/extensionState";
 import * as l10n from "@ging/vscode/l10n";
+import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
 
 import { RepoManager } from "./repoManager";
-import { getWebviewLocalizedStrings } from "./webviewL10n";
 
 /**
  * Safely escape JSON for embedding in HTML script tags.
@@ -31,7 +31,7 @@ export function buildWebviewHtml(opts: {
 }): { html: string; isGraphLoaded: boolean } {
   const { webview, config, extensionPath, extensionState, repoManager } = opts;
   const nonce = getNonce();
-  const l10nStrings = getWebviewLocalizedStrings();
+  const l10nStrings = getWebviewLocalizedStrings(l10n.t);
   const viewState: GitGraphViewState = {
     autoCenterCommitDetailsView: config.autoCenterCommitDetailsView(),
     commitDetailsViewLocation: config.commitDetailsViewLocation(),

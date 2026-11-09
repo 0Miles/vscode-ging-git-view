@@ -5,11 +5,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   createVscodeMock,
   DEFAULT_REPO,
+  englishStrings,
   makeViewState,
   receive,
   rightClick,
@@ -36,7 +36,7 @@ import {
 // One webview is booted for the whole file and the scenarios run in order, the
 // way a session unfolds (#80).
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 /** Each header's width as the browser would lay it out, padding included. */
 const NATURAL_WIDTH: Record<string, number> = {

@@ -2,13 +2,13 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  englishStrings,
   makeViewState,
   openMenuOn,
   receive,
@@ -33,7 +33,7 @@ import {
 // premise it always was. Dropping the wrong stash leaves no ref behind: it is
 // recoverable only by going hunting for a dangling commit.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 
 const viewState = makeViewState();

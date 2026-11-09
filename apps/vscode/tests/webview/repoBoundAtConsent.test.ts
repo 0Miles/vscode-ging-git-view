@@ -2,13 +2,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  englishStrings,
   makeViewState,
   openMenuOn,
   receive,
@@ -33,7 +33,7 @@ import {
 // (A -> B -> C -> A) so each assertion names a *different* repo, and a fix that
 // simply hard-coded the boot repo would fail the second one.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 
 const REPO_B = "/workspace/repo-b";

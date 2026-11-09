@@ -2,7 +2,6 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   bodyLink,
@@ -10,6 +9,7 @@ import {
   clickItem,
   createVscodeMock,
   dialogRow,
+  englishStrings,
   graphRow,
   hideMenu,
   makeViewState,
@@ -40,7 +40,7 @@ import {
 //
 // One webview per file (#80): the panel's location is read at boot.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState({ commitDetailsViewLocation: "Docked to Bottom" });
 

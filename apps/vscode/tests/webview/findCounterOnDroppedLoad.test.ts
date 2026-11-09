@@ -2,9 +2,16 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { BranchSearchEntry, GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
-import { clickId, createVscodeMock, makeViewState, receive, search, setupHtml } from "./setup";
+import {
+  clickId,
+  createVscodeMock,
+  englishStrings,
+  makeViewState,
+  receive,
+  search,
+  setupHtml
+} from "./setup";
 
 // The `3 of 7` counter and the highlighted row are two readings of one fact —
 // which match Find is on — so they may never disagree. A step onto a match past
@@ -30,7 +37,7 @@ import { clickId, createVscodeMock, makeViewState, receive, search, setupHtml } 
 // fixture's initialLoadCommits (300) and each accepted load adds loadMoreCount
 // (100).
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState();
 

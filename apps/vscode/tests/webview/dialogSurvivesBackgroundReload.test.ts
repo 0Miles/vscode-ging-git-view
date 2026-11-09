@@ -2,7 +2,6 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -10,6 +9,7 @@ import {
   createVscodeMock,
   DEFAULT_REPO,
   dialogText,
+  englishStrings,
   makeViewState,
   openMenuOn,
   receive,
@@ -43,7 +43,7 @@ import {
 // the answer still reopens the list; a reload asked for nothing back, so its
 // hook abandons the list the way the refetch's does.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 
 const viewState = makeViewState({ combineLocalAndRemoteBranchLabels: false });

@@ -2,9 +2,15 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
-import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  createVscodeMock,
+  DEFAULT_REPO,
+  englishStrings,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A Repository Setting's default changed in VS Code's settings (#211). The host
 // pushes the new defaults; a repo with no override of its own for a moved
@@ -13,7 +19,7 @@ import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } fro
 //
 // One webview for the whole suite, the scenarios in order, as a session runs.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState({
   // The repo overrides Show stashes and nothing else that steers the load.

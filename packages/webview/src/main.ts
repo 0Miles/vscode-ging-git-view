@@ -24,7 +24,7 @@ import {
   rebaseTodo
 } from "@ging/shared/backend/utils/rebasePlan";
 import { REF_ACTION_CATALOGUE } from "@ging/shared/backend/utils/refActionCatalogue";
-import type { LocalizedStrings } from "@ging/webview/localizedStrings";
+import type { LocalizedStrings } from "@ging/webview/webviewL10n";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
 import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "./branchCleanup";

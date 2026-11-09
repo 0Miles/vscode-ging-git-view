@@ -1,16 +1,22 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
-import { clickItem, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  englishStrings,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // `dialogFileListKeys.test.ts` with the repo set to the flat File List (#145).
 // A list has no folders, so it is Up/Down only: Left and Right have nothing to
 // fold or climb to, and leave focus where it is. Its own file because the
 // layout is read at boot, and one webview per file is the rule (#80).
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const commits: GitCommitNode[] = [
   {

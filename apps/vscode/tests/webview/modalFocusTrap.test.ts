@@ -2,9 +2,15 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
-import { clickItem, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  englishStrings,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // A modal dialog is modal to the keyboard too (#141), on the WAI-ARIA APG's
 // modal dialog pattern: everything behind it is `inert`, focus moves into it
@@ -16,7 +22,7 @@ import { clickItem, createVscodeMock, makeViewState, receive, setupHtml } from "
 // honours them — Tab really skipping the background, a click on it really
 // landing nowhere — was measured in Chromium, as ADR-0019 records.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 
 const commits: GitCommitNode[] = [

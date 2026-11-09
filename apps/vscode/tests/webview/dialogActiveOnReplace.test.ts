@@ -1,12 +1,12 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  englishStrings,
   graphRow,
   makeViewState,
   receive,
@@ -23,7 +23,7 @@ import {
 // summary arriving over the user's dialog now waits behind it instead (#243),
 // and the side view's request is the one that still takes the slot by design.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 
 const commits: GitCommitNode[] = [

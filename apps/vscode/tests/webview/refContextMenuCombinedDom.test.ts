@@ -1,11 +1,11 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickItem,
   createVscodeMock,
+  englishStrings,
   makeViewState,
   openMenuOn,
   receive,
@@ -19,7 +19,7 @@ import {
 // badge to the remote ref — not to the head chip wrapped around it.
 // refContextMenuDom.test.ts covers the separate-chip layout.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 const DIVIDER = "---";
 

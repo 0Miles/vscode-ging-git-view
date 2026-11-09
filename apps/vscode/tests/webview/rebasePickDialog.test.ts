@@ -1,7 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -10,6 +9,7 @@ import {
   createVscodeMock,
   DEFAULT_REPO,
   dialogText,
+  englishStrings,
   graphRow,
   makeViewState,
   openDetailsOn,
@@ -24,7 +24,7 @@ import {
 // untouched case, which has to be the command the dialog sent before the list
 // existed (#172).
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 const REBASE_ON = L.rebaseOnCommit + E;
 const REBASE_ONTO = L.rebaseRangeOnCommit + E;

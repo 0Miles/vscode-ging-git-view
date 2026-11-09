@@ -1,13 +1,13 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode, GitResetMode } from "@ging/shared/backend/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  englishStrings,
   graphRow,
   makeViewState,
   receive,
@@ -18,7 +18,7 @@ import {
 // The Reset dialog on a commit's context menu (#207): Keep sits beside Soft,
 // Mixed and Hard, and is what `dialogDefaults.resetMode: "keep"` preselects.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const RESET = L.reset + "…"; // the rendered form of the ELLIPSIS entity
 
 const commits: GitCommitNode[] = [

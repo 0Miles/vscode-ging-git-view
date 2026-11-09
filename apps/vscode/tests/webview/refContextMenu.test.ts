@@ -4,7 +4,6 @@ import {
   DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
   mergeContextMenuActionsVisibility
 } from "@ging/core/backend/utils/contextMenuVisibility";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 import {
   menuFor,
   type RefMenuActions,
@@ -12,12 +11,14 @@ import {
   type RefTarget
 } from "@ging/webview/refContextMenu";
 
+import { englishStrings } from "./setup";
+
 // The ref menu's content decisions, tested as data: for a typed target and a
 // view-state context, menuFor answers "which items, in what order, with which
 // icon and visibility gate" without any DOM. The DOM seam (chip classification,
 // action behaviour) is covered by refContextMenuDom.test.ts.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 // Titles carry the raw ELLIPSIS entity; showContextMenu renders them into
 // innerHTML unescaped, which is what turns it into "…".
 const E = "&#8230;";

@@ -2,13 +2,13 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickElem,
   clickId,
   createVscodeMock,
   DEFAULT_REPO,
+  englishStrings,
   makeViewState,
   receive,
   setupHtml
@@ -21,7 +21,7 @@ import {
 //
 // One webview for the whole suite, the scenarios in order, as a session runs.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState({
   // One override already in place, so "untouched" can be told apart from

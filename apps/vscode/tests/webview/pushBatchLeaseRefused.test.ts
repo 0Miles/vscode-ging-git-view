@@ -1,13 +1,13 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BatchPushResult, GitCommitNode } from "@ging/shared/backend/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
   createVscodeMock,
   DEFAULT_REPO,
   dialogText,
+  englishStrings,
   makeViewState,
   receive,
   setupHtml
@@ -20,7 +20,7 @@ import {
 // branch. No one-click force and no force round. A lease refused for stale
 // info (no current tracking ref) gets its own explanation the same way.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const LEASE_LINE = "[rejected]        feature-a -> feature-a (remote ref updated since checkout)";
 const EXPLANATION = "Pull or rebase first, then push again.";

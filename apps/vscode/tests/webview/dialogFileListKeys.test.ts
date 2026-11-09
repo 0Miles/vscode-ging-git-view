@@ -2,9 +2,15 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
-import { clickItem, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickItem,
+  createVscodeMock,
+  englishStrings,
+  makeViewState,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The branch-redundancy dialog's commit list and each expanded commit's file
 // list, driven from the keyboard (#145). #141 made the dialog modal to the
@@ -19,7 +25,7 @@ import { clickItem, createVscodeMock, makeViewState, receive, setupHtml } from "
 // One webview is booted for the whole file and the scenarios run in order, the
 // way a session unfolds (#80).
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const commits: GitCommitNode[] = [
   {

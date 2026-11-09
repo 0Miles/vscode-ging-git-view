@@ -2,12 +2,12 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
   clickItem,
   createVscodeMock,
+  englishStrings,
   makeViewState,
   openMenuOn,
   receive,
@@ -28,7 +28,7 @@ import {
 // the way a session actually unfolds; re-importing the module per scenario
 // would leave the previous instance still listening on `window`.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 
 const viewState = makeViewState();
 

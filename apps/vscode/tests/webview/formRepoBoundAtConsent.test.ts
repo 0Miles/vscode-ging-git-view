@@ -2,13 +2,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GitCommitNode } from "@ging/shared/backend/types";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
   dialogText,
+  englishStrings,
   makeViewState,
   receive,
   setupHtml
@@ -30,7 +30,7 @@ import {
 // instead; the ones reachable from `headBoundAtConsent`'s fixture are tested
 // there, and the two only a merge commit reaches are at the bottom of this one.
 
-const L = getWebviewLocalizedStrings();
+const L = englishStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
 
 const REPO_B = "/workspace/repo-b";
