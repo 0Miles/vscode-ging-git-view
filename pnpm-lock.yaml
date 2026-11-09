@@ -58,22 +58,6 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@20.19.39)(jsdom@29.0.2)(vite@8.0.8(@types/node@20.19.39)(esbuild@0.28.0))
 
-  apps/vscode:
-    dependencies:
-      '@ging/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@ging/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-      '@ging/webview':
-        specifier: workspace:*
-        version: link:../../packages/webview
-    devDependencies:
-      '@types/node':
-        specifier: ^20.19.39
-        version: 20.19.39
-
   packages/core:
     dependencies:
       '@ging/shared':
