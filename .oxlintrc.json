@@ -72,6 +72,14 @@
         "node": false,
         "browser": true
       }
+    },
+    {
+      // Runs in both the webview and the extension host, so neither set of globals
+      "files": ["packages/shared/**/*.ts"],
+      "env": {
+        "node": false,
+        "browser": false
+      }
     }
   ]
 }
