@@ -461,6 +461,9 @@
   "error.showLog": "Show Log",
   "blame.you": "You",
   "blame.uncommitted": "Uncommitted changes",
+  "blame.hover.changes": "Changes",
+  "blame.hover.copySha": "Copy commit SHA",
+  "blame.copiedSha": "Copied {0}",
   "blame.workspaceKeepsOff": "Inline blame is now on in your user settings, but this workspace's settings still turn it off.",
   "blame.workspaceKeepsOn": "Inline blame is now off in your user settings, but this workspace's settings still turn it on."
 }

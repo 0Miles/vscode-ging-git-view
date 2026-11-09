@@ -63,6 +63,22 @@ export class AvatarManager {
     }
   }
 
+  /**
+   * The avatar cached on disk for `email`, as a base64 data URI; null when none
+   * is cached or its file can't be read. Only reads the cache: it never queues
+   * a fetch, nor refreshes a stale entry — that is `fetchAvatarImage`'s job.
+   */
+  public async getCachedAvatar(email: string): Promise<string | null> {
+    const image = this.avatars[email]?.image;
+    if (typeof image !== "string") return null;
+    try {
+      const data = await fs.promises.readFile(this.avatarStorageFolder + "/" + image);
+      return "data:image/" + image.split(".")[1] + ";base64," + data.toString("base64");
+    } catch {
+      return null;
+    }
+  }
+
   public registerBridge(post: (msg: ResponseMessage) => void) {
     this.postToWebview = post;
   }

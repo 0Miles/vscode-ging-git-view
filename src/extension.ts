@@ -29,7 +29,11 @@ import { repoContainingPath, resolveToKnownRepo } from "./backend/utils/repoMatc
 import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
-import { createBlameController, registerBlameToggle } from "./extension/blameController";
+import {
+  createBlameController,
+  registerBlameCopySha,
+  registerBlameToggle
+} from "./extension/blameController";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
 import { createBranchCleanup } from "./extension/branchCleanupService";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
@@ -320,9 +324,16 @@ export function activate(context: vscode.ExtensionContext) {
       gitPath: config.gitPath,
       gitEnv,
       onCommand: logger.logCmd,
-      onDidChangeKnownRepos: scmRepoTracker.onDidChangeRepos
+      onDidChangeKnownRepos: scmRepoTracker.onDidChangeRepos,
+      // The same gate as the graph's avatars: off, nothing is fetched.
+      avatars: {
+        enabled: () => config.fetchAvatars() && extensionState.isAvatarStorageAvailable(),
+        cached: (email) => avatarManager.getCachedAvatar(email),
+        fetch: (email, repo, commits) => avatarManager.fetchAvatarImage(email, repo, commits)
+      }
     }),
-    registerBlameToggle()
+    registerBlameToggle(),
+    registerBlameCopySha()
   );
 
   // Publish the SC-focused repos so the `scm/repository` row button can show itself on just those

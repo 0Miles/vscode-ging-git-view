@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import type { GitRunOptions } from "@/backend/gitRun";
 import type { GitCommandHandler } from "@/backend/gitSpawn";
+import { blameCommitChange, type CommitChange, hunkAt } from "@/backend/queries/blameCommitChange";
 import {
   BLAME_TIMEOUT_MS,
   type BlameLine,
@@ -14,7 +15,9 @@ import { config } from "@/config";
 import * as l10n from "@/l10n";
 
 import { blameAnnotationText } from "./blameAnnotation";
+import { type BlameAvatarDeps, createBlameAvatars } from "./blameAvatars";
 import { createBlameCache } from "./blameCache";
+import { type BlameHoverDetails, blameHoverMarkdown } from "./blameHover";
 import { createBlameRepoWatchers } from "./blameRepoWatchers";
 import { updateDelay } from "./blameSchedule";
 import { type BlameTarget, blameTarget, spansLines } from "./blameTarget";
@@ -24,6 +27,15 @@ import { openDocumentKeys, type TabContents } from "./openDocuments";
 const SECTION = "ging-git-view";
 const ENABLED_KEY = "blame.enabled";
 const COLOR_ID = "ging-git-view.blameAnnotationForeground";
+/** The hidden command a hover's SHA links run. */
+const COPY_SHA_COMMAND = "ging-git-view.blame.copySha";
+/** How many commits' changes the hovers keep; a commit never changes, so they
+ *  are only ever dropped to make room. */
+const CHANGE_CACHE_SIZE = 100;
+/** How long the status bar says a SHA was copied. */
+const COPIED_MESSAGE_MS = 3000;
+
+const NO_DETAILS: BlameHoverDetails = { message: null, hunk: null, avatar: null };
 
 type FileBlame = { lines: BlameLine[]; userEmail: string };
 
@@ -113,11 +125,17 @@ export function createBlameController(deps: {
   onCommand: GitCommandHandler;
   /** Fires when the set of known repositories may have grown. */
   onDidChangeKnownRepos: vscode.Event<unknown>;
+  /** Where the hover's avatars come from; see `createBlameAvatars`. */
+  avatars: BlameAvatarDeps;
 }): vscode.Disposable {
   const decoration = vscode.window.createTextEditorDecorationType({
     after: { color: new vscode.ThemeColor(COLOR_ID), margin: "0 0 0 3em" }
   });
   const cache = createBlameCache<Promise<FileBlame | null>>();
+  /** Each commit's change to a file, for the hovers, by repository, commit,
+   *  file and previous. */
+  const changes = new Map<string, Promise<CommitChange | null>>();
+  const avatarOf = createBlameAvatars(deps.avatars);
   // A commit or checkout changes the blame of every file in the repository, and
   // so does one that may have landed before its watcher was up (reported as a
   // change too). The repository's blames are dropped as well whenever nothing
@@ -135,6 +153,10 @@ export function createBlameController(deps: {
   /** When each document was last edited, to hold the annotation while typing. */
   const editedAt = new WeakMap<vscode.TextDocument, number>();
   let decorated: vscode.TextEditor | undefined;
+  /** The details last drawn into a hover, and the blamed line they are of: a
+   *  redraw of that line (the cursor moved along it, say) starts from them
+   *  rather than from the bare blame. */
+  let lastDetails: { of: string; details: BlameHoverDetails } | undefined;
   let timer: NodeJS.Timeout | undefined;
   // Bumped by every change that makes an in-flight update stale: a result that
   // comes back after one is dropped rather than drawn.
@@ -204,6 +226,65 @@ export function createBlameController(deps: {
     return blame;
   }
 
+  function changeOf(line: BlameLine, repo: string): Promise<CommitChange | null> {
+    const key = [repo, line.sha, line.filename, line.previous?.sha, line.previous?.filename].join(
+      "\0"
+    );
+    const cached = changes.get(key);
+    if (cached !== undefined) return cached;
+    const change = blameCommitChange({
+      ...gitIn(repo),
+      sha: line.sha,
+      filename: line.filename,
+      previous: line.previous
+    })
+      .catch(() => null)
+      .then((result) => {
+        // A failure (a timeout, say) may not happen again: try again next time.
+        if (result === null) changes.delete(key);
+        return result;
+      });
+    changes.set(key, change);
+    if (changes.size > CHANGE_CACHE_SIZE) changes.delete(changes.keys().next().value!);
+    return change;
+  }
+
+  /** What the hover of a committed line shows beyond its blame. */
+  async function hoverDetails(line: BlameLine, repo: string): Promise<BlameHoverDetails> {
+    const [change, avatar] = await Promise.all([
+      changeOf(line, repo),
+      avatarOf(line, repo).catch(() => null)
+    ]);
+    return {
+      message: change?.message ?? null,
+      hunk: change === null ? null : hunkAt(change.hunks, line.originalLine),
+      avatar
+    };
+  }
+
+  function hoverMessage(
+    line: BlameLine,
+    details: BlameHoverDetails,
+    userEmail: string
+  ): vscode.MarkdownString {
+    const markdown = blameHoverMarkdown(line, details, {
+      now: Date.now(),
+      locale: vscode.env.language,
+      userEmail,
+      labels: {
+        you: l10n.t("blame.you"),
+        uncommitted: l10n.t("blame.uncommitted"),
+        changes: l10n.t("blame.hover.changes"),
+        copySha: l10n.t("blame.hover.copySha")
+      },
+      copyShaCommand: COPY_SHA_COMMAND
+    });
+    const hover = new vscode.MarkdownString(markdown, true);
+    // The SHA links, and nothing else, may run a command.
+    hover.isTrusted = { enabledCommands: [COPY_SHA_COMMAND] };
+    return hover;
+  }
+
   async function update() {
     const token = ++generation;
     const editor = vscode.window.activeTextEditor;
@@ -225,18 +306,38 @@ export function createBlameController(deps: {
       hide();
       return;
     }
+    const userEmail = blame?.userEmail ?? "";
     const text = blameAnnotationText(line, {
       now: Date.now(),
       locale: vscode.env.language,
-      userEmail: blame?.userEmail ?? "",
+      userEmail,
       labels: { you: l10n.t("blame.you"), uncommitted: l10n.t("blame.uncommitted") }
     });
     if (decorated !== undefined && decorated !== editor) decorated.setDecorations(decoration, []);
     const end = editor.document.lineAt(target.line).range.end;
-    editor.setDecorations(decoration, [
-      { range: new vscode.Range(end, end), renderOptions: { after: { contentText: text } } }
-    ]);
+    // The hover belongs to the annotation alone — a decoration's hover, not a
+    // hover provider over the line — so hovering the code shows only the
+    // language's own. A decoration's hover is fixed when it is drawn, so the
+    // annotation is drawn at once with what the blame says, and drawn again
+    // once the commit's message, hunk and avatar are in (see `hoverDetails`).
+    const draw = (details: BlameHoverDetails) =>
+      editor.setDecorations(decoration, [
+        {
+          range: new vscode.Range(end, end),
+          hoverMessage: hoverMessage(line, details, userEmail),
+          renderOptions: { after: { contentText: text } }
+        }
+      ]);
+    const blamed = [target.repo, line.sha, line.filename, line.originalLine].join("\0");
+    draw(lastDetails?.of === blamed ? lastDetails.details : NO_DETAILS);
     decorated = editor;
+    if (line.uncommitted) return;
+    const details = await hoverDetails(line, target.repo);
+    // Whatever moved the cursor, changed the document or hid the annotation
+    // meanwhile bumped the generation; the update it scheduled draws instead.
+    if (token !== generation || editor !== decorated) return;
+    lastDetails = { of: blamed, details };
+    draw(details);
   }
 
   const subscriptions: vscode.Disposable[] = [
@@ -301,8 +402,22 @@ export function createBlameController(deps: {
       for (const s of subscriptions) s.dispose();
       repoWatchers.dispose();
       cache.clear();
+      changes.clear();
     }
   };
+}
+
+/** `ging-git-view.blame.copySha`, the hover's SHA links: copy the full SHA and
+ *  say so in the status bar for a moment. Hidden from the Command Palette. */
+export function registerBlameCopySha(): vscode.Disposable {
+  return vscode.commands.registerCommand(COPY_SHA_COMMAND, async (sha: unknown) => {
+    if (typeof sha !== "string" || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha)) return;
+    await vscode.env.clipboard.writeText(sha);
+    vscode.window.setStatusBarMessage(
+      l10n.t("blame.copiedSha", sha.slice(0, 7)),
+      COPIED_MESSAGE_MS
+    );
+  });
 }
 
 /** `ging-git-view.blame.toggle`: see `blameToggle` for what it decides. */
