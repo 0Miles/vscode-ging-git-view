@@ -1,4 +1,5 @@
 import type { BlameLine } from "@/backend/queries/blameFile";
+import { isCommitHash } from "@/backend/utils/string";
 
 import type { CommitDiffRequest } from "./commitDiff";
 
@@ -13,7 +14,7 @@ export type LineChange = {
   line: number;
   /** The commit before `sha` that touched the file, and its path there; null
    *  when `sha` added the file — a root commit, say. */
-  previous: { sha: string; filename: string } | null;
+  previous: BlameLine["previous"];
 };
 
 /** The change of a committed blamed line in `repo`. */
@@ -58,10 +59,6 @@ export function lineChangeDiff(change: LineChange): CommitDiffRequest {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-
-/** A full SHA-1 or SHA-256 commit hash, as git writes them. */
-export const isCommitHash = (value: unknown): value is string =>
-  typeof value === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value);
 
 /** A path inside the repository, relative to its root, as git writes one. */
 const isRepoPath = (value: unknown): value is string =>

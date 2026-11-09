@@ -456,10 +456,14 @@ export function registerBlameOpenLineChange(deps: {
   knownRepos: () => string[];
 }): vscode.Disposable {
   return vscode.commands.registerCommand(OPEN_LINE_CHANGE_COMMAND, async (arg: unknown) => {
+    // Arguments that don't check out — the repository is no longer known since
+    // the hover was drawn, say — are reported like a diff that failed to open,
+    // rather than doing nothing.
     const change = lineChangeArgs(arg, deps.knownRepos());
-    if (change === null) return;
     // The same editor group as a diff opened from the graph.
-    const opened = await openCommitDiff(lineChangeDiff(change), config.openNewTabEditorGroup());
+    const opened =
+      change !== null &&
+      (await openCommitDiff(lineChangeDiff(change), config.openNewTabEditorGroup()));
     if (!opened) void vscode.window.showErrorMessage(l10n.t("error.unableToViewDiff"));
   });
 }

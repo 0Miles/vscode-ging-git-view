@@ -33,7 +33,7 @@ const EN_LABELS = {
   uncommitted: "Uncommitted changes",
   changes: "Changes",
   copyHash: "Copy commit hash",
-  openLineChange: "Open this line's change in this commit"
+  openLineChange: "Open this line's change"
 };
 
 const NO_DETAILS: BlameHoverDetails = { message: null, hunk: null, avatar: null };
@@ -61,7 +61,7 @@ function hover(
 
 /** The command link that opens the line's change, as the hover writes it. */
 const openLink = (change: object) =>
-  `$(diff) [Open this line's change in this commit](command:ext.openLineChange?${encodeURIComponent(JSON.stringify([change]))})`;
+  `$(diff) [Open this line's change](command:ext.openLineChange?${encodeURIComponent(JSON.stringify([change]))})`;
 
 /** What the link of `line()` hands its command. */
 const LINE_CHANGE = {

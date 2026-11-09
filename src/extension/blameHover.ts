@@ -1,9 +1,9 @@
 import { type HunkExcerpt, hunkWindow } from "@/backend/queries/blameCommitChange";
 import type { BlameLine } from "@/backend/queries/blameFile";
-import { abbrevCommit } from "@/backend/utils/string";
+import { abbrevCommit, isCommitHash } from "@/backend/utils/string";
 
 import { type BlameAnnotationContext, isUser, relativeTime } from "./blameAnnotation";
-import { isCommitHash, lineChangeOf } from "./blameLineChange";
+import { lineChangeOf } from "./blameLineChange";
 
 const AVATAR_SIZE = 16;
 
