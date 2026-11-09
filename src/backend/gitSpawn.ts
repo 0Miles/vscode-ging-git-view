@@ -113,6 +113,9 @@ export type GitSpawnOptions = {
  * children it started when it is signalled.
  */
 function killTree(child: cp.ChildProcess) {
+  // A child that has already exited may have had its PID handed to an
+  // unrelated process; `taskkill /T` on it would take that one's tree down.
+  if (child.exitCode !== null || child.signalCode !== null) return;
   if (process.platform === "win32" && child.pid !== undefined) {
     const killer = cp.spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
       stdio: "ignore",

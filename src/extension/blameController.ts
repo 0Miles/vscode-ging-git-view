@@ -121,10 +121,13 @@ export function createBlameController(deps: {
       hide();
       return;
     }
+    const version = editor.document.version;
     const blame = await blameFor(editor.document, target);
     // Anything may have moved while git ran: draw only if this is still the
-    // latest update and the editor still points at the same line.
+    // latest update, and the editor still shows the same version of the
+    // document with the cursor on the same line.
     if (token !== generation || editor !== vscode.window.activeTextEditor) return;
+    if (editor.document.version !== version) return;
     if (!sameTarget(targetOf(editor, deps.knownRepos()), target)) return;
     const line = blame?.lines[target.line];
     if (line === undefined) {
@@ -159,9 +162,15 @@ export function createBlameController(deps: {
       schedule();
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
-      // Edited text no longer matches the blamed lines; it is shown again once
-      // the document is saved.
-      if (e.contentChanges.length > 0 && e.document === decorated?.document) hide();
+      if (e.contentChanges.length === 0) return;
+      const active = e.document === vscode.window.activeTextEditor?.document;
+      if (!active && e.document !== decorated?.document) return;
+      // New content: drop the annotation and any lookup still running for the
+      // old version. An edit leaves the document dirty and it shows again once
+      // saved; a reload from disk (a checkout, say) leaves it clean, so blame
+      // the new version straight away.
+      hide();
+      if (active && !e.document.isDirty) schedule();
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       cache.delete(cacheKey(document));
