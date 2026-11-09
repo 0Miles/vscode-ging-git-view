@@ -3,6 +3,14 @@ import * as vscode from "vscode";
 import type { GitRunOptions } from "@/backend/gitRun";
 import type { GitCommandHandler } from "@/backend/gitSpawn";
 import {
+  type BlamedCommit,
+  blameCommitChange,
+  blameLineExcerpt,
+  type CommitChange,
+  type HunkExcerpt,
+  hunkAt
+} from "@/backend/queries/blameCommitChange";
+import {
   BLAME_TIMEOUT_MS,
   type BlameLine,
   blameFile,
@@ -10,22 +18,50 @@ import {
 } from "@/backend/queries/blameFile";
 import { findGitDirs, gitDirWatchPaths } from "@/backend/queries/gitDirs";
 import { getPathFromUri } from "@/backend/utils/path";
+import { abbrevCommit } from "@/backend/utils/string";
 import { config } from "@/config";
 import * as l10n from "@/l10n";
 
-import { blameAnnotationText } from "./blameAnnotation";
+import { type BlameAnnotationContext, blameAnnotationText } from "./blameAnnotation";
+import { type BlameAvatarDeps, createBlameAvatars } from "./blameAvatars";
 import { createBlameCache } from "./blameCache";
+import {
+  type BlameHoverDetails,
+  blameHoverMarkdown,
+  copyableSha,
+  createLastHoverDetails
+} from "./blameHover";
 import { createBlameRepoWatchers } from "./blameRepoWatchers";
 import { updateDelay } from "./blameSchedule";
 import { type BlameTarget, blameTarget, spansLines } from "./blameTarget";
 import { blameToggle } from "./blameToggle";
+import { createLatestLoads } from "./latestLoads";
 import { openDocumentKeys, type TabContents } from "./openDocuments";
 
 const SECTION = "ging-git-view";
 const ENABLED_KEY = "blame.enabled";
 const COLOR_ID = "ging-git-view.blameAnnotationForeground";
+/** The hidden command a hover's SHA links run. */
+const COPY_SHA_COMMAND = "ging-git-view.blame.copySha";
+/** How many commits' changes the hovers keep. */
+const CHANGE_CACHE_SIZE = 100;
+/** How many excerpts of hunks too big to keep whole the hovers keep. */
+const EXCERPT_CACHE_SIZE = 200;
+/** How long the status bar says a SHA was copied. */
+const COPIED_MESSAGE_MS = 3000;
 
 type FileBlame = { lines: BlameLine[]; userEmail: string };
+
+/** A hover lookup: a blamed line's commit, in a repository. */
+type HoverLookup = { commit: BlamedCommit; repo: string };
+const lookupKey = ({ commit, repo }: HoverLookup) =>
+  JSON.stringify([
+    repo,
+    commit.sha,
+    commit.filename,
+    commit.previous?.sha,
+    commit.previous?.filename
+  ]);
 
 const cacheKey = (document: vscode.TextDocument) => document.uri.toString();
 const lineSpans = (selections: readonly vscode.Selection[]) =>
@@ -113,11 +149,34 @@ export function createBlameController(deps: {
   onCommand: GitCommandHandler;
   /** Fires when the set of known repositories may have grown. */
   onDidChangeKnownRepos: vscode.Event<unknown>;
+  /** Where the hover's avatars come from; see `createBlameAvatars`. */
+  avatars: BlameAvatarDeps;
 }): vscode.Disposable {
   const decoration = vscode.window.createTextEditorDecorationType({
     after: { color: new vscode.ThemeColor(COLOR_ID), margin: "0 0 0 3em" }
   });
   const cache = createBlameCache<Promise<FileBlame | null>>();
+  // What the hovers look up, each kept bounded; only the latest request of each
+  // runs git, the one before it aborted (see `createLatestLoads`).
+  /** Each commit's change to a file. */
+  const changes = createLatestLoads<HoverLookup, CommitChange>({
+    key: lookupKey,
+    load: ({ commit: { sha, filename, previous }, repo }, signal) =>
+      blameCommitChange({ ...gitIn(repo), signal, sha, filename, previous }),
+    size: CHANGE_CACHE_SIZE
+  });
+  /** The excerpt for one line of a hunk too big for its change to keep. */
+  const excerpts = createLatestLoads<HoverLookup & { line: number }, HunkExcerpt>({
+    key: (lookup) => `${lookupKey(lookup)}:${lookup.line}`,
+    load: ({ commit: { sha, filename, previous }, repo, line }, signal) =>
+      blameLineExcerpt({ ...gitIn(repo), signal, sha, filename, previous, line }),
+    size: EXCERPT_CACHE_SIZE
+  });
+  const cancelLookups = () => {
+    changes.cancel();
+    excerpts.cancel();
+  };
+  const avatarOf = createBlameAvatars(deps.avatars);
   // A commit or checkout changes the blame of every file in the repository, and
   // so does one that may have landed before its watcher was up (reported as a
   // change too). The repository's blames are dropped as well whenever nothing
@@ -135,6 +194,7 @@ export function createBlameController(deps: {
   /** When each document was last edited, to hold the annotation while typing. */
   const editedAt = new WeakMap<vscode.TextDocument, number>();
   let decorated: vscode.TextEditor | undefined;
+  const lastDetails = createLastHoverDetails();
   let timer: NodeJS.Timeout | undefined;
   // Bumped by every change that makes an in-flight update stale: a result that
   // comes back after one is dropped rather than drawn.
@@ -147,6 +207,8 @@ export function createBlameController(deps: {
 
   function hide() {
     cancelPending();
+    // No annotation, no hover to look anything up for.
+    cancelLookups();
     decorated?.setDecorations(decoration, []);
     decorated = undefined;
   }
@@ -204,6 +266,40 @@ export function createBlameController(deps: {
     return blame;
   }
 
+  /** What the hover of a committed line shows beyond its blame. */
+  async function hoverDetails(line: BlameLine, repo: string): Promise<BlameHoverDetails> {
+    const lookup = { commit: line, repo };
+    const [change, avatar] = await Promise.all([
+      changes.get(lookup),
+      avatarOf(line, repo).catch(() => null)
+    ]);
+    const found = change === null ? null : hunkAt(change, line.originalLine);
+    // A hunk too big for the change to keep is looked up again, for this line.
+    const hunk =
+      found === "left out" ? await excerpts.get({ ...lookup, line: line.originalLine }) : found;
+    return { message: change?.message ?? null, hunk, avatar };
+  }
+
+  function hoverMessage(
+    line: BlameLine,
+    details: BlameHoverDetails,
+    context: BlameAnnotationContext
+  ): vscode.MarkdownString {
+    const markdown = blameHoverMarkdown(line, details, {
+      ...context,
+      labels: {
+        ...context.labels,
+        changes: l10n.t("blame.hover.changes"),
+        copyHash: l10n.t("blame.hover.copyHash")
+      },
+      copyShaCommand: COPY_SHA_COMMAND
+    });
+    const hover = new vscode.MarkdownString(markdown, true);
+    // The SHA links, and nothing else, may run a command.
+    hover.isTrusted = { enabledCommands: [COPY_SHA_COMMAND] };
+    return hover;
+  }
+
   async function update() {
     const token = ++generation;
     const editor = vscode.window.activeTextEditor;
@@ -225,18 +321,41 @@ export function createBlameController(deps: {
       hide();
       return;
     }
-    const text = blameAnnotationText(line, {
+    const context: BlameAnnotationContext = {
       now: Date.now(),
       locale: vscode.env.language,
       userEmail: blame?.userEmail ?? "",
       labels: { you: l10n.t("blame.you"), uncommitted: l10n.t("blame.uncommitted") }
-    });
+    };
+    const text = blameAnnotationText(line, context);
     if (decorated !== undefined && decorated !== editor) decorated.setDecorations(decoration, []);
     const end = editor.document.lineAt(target.line).range.end;
-    editor.setDecorations(decoration, [
-      { range: new vscode.Range(end, end), renderOptions: { after: { contentText: text } } }
-    ]);
+    // The hover belongs to the annotation alone — a decoration's hover, not a
+    // hover provider over the line — so hovering the code shows only the
+    // language's own. A decoration's hover is fixed when it is drawn, so the
+    // annotation is drawn at once with what the blame says, and drawn again
+    // once the commit's message, hunk and avatar are in (see `hoverDetails`).
+    const draw = (details: BlameHoverDetails) =>
+      editor.setDecorations(decoration, [
+        {
+          range: new vscode.Range(end, end),
+          hoverMessage: hoverMessage(line, details, context),
+          renderOptions: { after: { contentText: text } }
+        }
+      ]);
+    draw(lastDetails.for(target.repo, line));
     decorated = editor;
+    if (line.uncommitted) {
+      // Nothing to look up — and whatever the line before wanted is stale.
+      cancelLookups();
+      return;
+    }
+    const details = await hoverDetails(line, target.repo);
+    // Whatever moved the cursor, changed the document or hid the annotation
+    // meanwhile bumped the generation; the update it scheduled draws instead.
+    if (token !== generation || editor !== decorated) return;
+    lastDetails.remember(target.repo, line, details);
+    draw(details);
   }
 
   const subscriptions: vscode.Disposable[] = [
@@ -300,9 +419,25 @@ export function createBlameController(deps: {
       cancelPending();
       for (const s of subscriptions) s.dispose();
       repoWatchers.dispose();
+      cancelLookups();
       cache.clear();
     }
   };
+}
+
+/** `ging-git-view.blame.copySha`, the hover's SHA links: copy the full commit
+ *  hash and say so in the status bar for a moment. Hidden from the Command
+ *  Palette. */
+export function registerBlameCopySha(): vscode.Disposable {
+  return vscode.commands.registerCommand(COPY_SHA_COMMAND, async (arg: unknown) => {
+    const sha = copyableSha(arg);
+    if (sha === null) return;
+    await vscode.env.clipboard.writeText(sha);
+    vscode.window.setStatusBarMessage(
+      l10n.t("blame.copiedHash", abbrevCommit(sha)),
+      COPIED_MESSAGE_MS
+    );
+  });
 }
 
 /** `ging-git-view.blame.toggle`: see `blameToggle` for what it decides. */

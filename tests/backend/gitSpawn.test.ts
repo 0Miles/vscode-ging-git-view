@@ -80,6 +80,45 @@ describe("spawnGit (real git)", () => {
     }
   });
 
+  // Aborting must take the processes down too, not just drop the result: a
+  // lookup nobody wants any more would otherwise run on to its deadline.
+  it("kills the whole process tree when aborted, and reports the abort", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-abort-"));
+    try {
+      const abort = new AbortController();
+      const started = Date.now();
+      const running = spawnGit({
+        gitPath: "git",
+        cwd: dir,
+        args: ["-c", "alias.nggslow=!sleep 2 && echo done > survived", "nggslow"],
+        timeoutMs: 10_000,
+        signal: abort.signal
+      });
+      setTimeout(() => abort.abort(), 300);
+      expect((await running).kind).toBe("aborted");
+      expect(Date.now() - started).toBeLessThan(2000);
+      await new Promise((r) => setTimeout(r, 3500));
+      expect(fs.existsSync(path.join(dir, "survived"))).toBe(false);
+    } finally {
+      rmrf(dir);
+    }
+  });
+
+  it("spawns nothing once already aborted", async () => {
+    const logged: string[][] = [];
+    const abort = new AbortController();
+    abort.abort();
+    const result = await spawnGit({
+      gitPath: "git",
+      cwd: repo,
+      args: ["rev-parse", "HEAD"],
+      signal: abort.signal,
+      onCommand: (_command, args) => logged.push(args)
+    });
+    expect(result.kind).toBe("aborted");
+    expect(logged).toEqual([]);
+  });
+
   it("reports a git that cannot be started as an error rather than throwing", async () => {
     const result = await spawnGit({
       gitPath: "ngg-no-such-git-binary",

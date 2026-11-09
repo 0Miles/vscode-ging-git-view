@@ -9,6 +9,8 @@ export type GitRunOptions = {
   deadline?: number;
   onCommand?: GitCommandHandler;
   gitEnv?: NodeJS.ProcessEnv;
+  /** Ends every run of the lookup at once, its processes killed. */
+  signal?: AbortSignal;
 };
 
 /** Run git in `git.repoPath` within `deadline`; null when it has already
@@ -28,6 +30,7 @@ export function runWithin(
     stdin,
     timeoutMs: remaining,
     onCommand: git.onCommand,
-    gitEnv: git.gitEnv
+    gitEnv: git.gitEnv,
+    signal: git.signal
   });
 }

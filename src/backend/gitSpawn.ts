@@ -101,6 +101,9 @@ export type GitSpawnOptions = {
   stdin?: string;
   /** Kill the child and resolve `timeout` once it has run this long. */
   timeoutMs?: number;
+  /** Kill the child and resolve `aborted` once this aborts; nothing is
+   *  spawned (or logged) if it already has. */
+  signal?: AbortSignal;
   onCommand?: GitCommandHandler;
   gitEnv?: NodeJS.ProcessEnv;
 };
@@ -130,6 +133,7 @@ function killTree(child: cp.ChildProcess) {
 export type GitSpawnResult =
   | { kind: "ok"; exitCode: number | null; stdout: Buffer; stderr: string }
   | { kind: "timeout" }
+  | { kind: "aborted" }
   | { kind: "error"; error: Error };
 
 /**
@@ -140,9 +144,12 @@ export type GitSpawnResult =
  *
  * Never rejects: a git that can't start is an `error`, a non-zero exit is an
  * `ok` with its exit code, and a child past `timeoutMs` is killed — with every
- * process under it — and reported as `timeout` without waiting for it to go.
+ * process under it — and reported as `timeout` without waiting for it to go;
+ * one whose `signal` aborts, likewise, as `aborted`.
  */
 export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
+  const { signal } = options;
+  if (signal?.aborted === true) return Promise.resolve({ kind: "aborted" });
   const args = [...GIT_CONFIG_OVERRIDES.flatMap((c) => ["-c", c]), ...options.args];
   options.onCommand?.(options.gitPath, args);
   return new Promise((resolve) => {
@@ -158,11 +165,17 @@ export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
             killTree(child);
             settle({ kind: "timeout" });
           }, options.timeoutMs);
+    const onAbort = () => {
+      killTree(child);
+      settle({ kind: "aborted" });
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     let settled = false;
     function settle(result: GitSpawnResult) {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       resolve(result);
     }
     const stdout: Buffer[] = [];

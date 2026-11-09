@@ -357,6 +357,11 @@
         "category": "GING",
         "command": "ging-git-view.blame.toggle",
         "title": "%command.blame.toggle%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.blame.copySha",
+        "title": "%command.blame.copyHash%"
       }
     ],
     "views": {
@@ -769,6 +774,10 @@
         },
         {
           "command": "ging-git-view.branches.collapseAll",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.blame.copySha",
           "when": "false"
         }
       ]

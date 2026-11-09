@@ -34,12 +34,14 @@ export function blameAnnotationText(line: BlameLine, context: BlameAnnotationCon
 
 /** Without a configured email nobody is the user — an author with no email
  *  must not match an unset one. */
-function isUser(authorEmail: string, userEmail: string): boolean {
+export function isUser(authorEmail: string, userEmail: string): boolean {
   const user = userEmail.trim().toLowerCase();
   return user !== "" && authorEmail.trim().toLowerCase() === user;
 }
 
-function relativeTime(ageSeconds: number, locale: string): string {
+/** How long ago something `ageSeconds` old was, in `locale` (English when
+ *  Intl doesn't know it), e.g. "2 weeks ago". */
+export function relativeTime(ageSeconds: number, locale: string): string {
   const age = Math.max(0, ageSeconds);
   const [value, unit]: [number, Intl.RelativeTimeFormatUnit] =
     age < MINUTE

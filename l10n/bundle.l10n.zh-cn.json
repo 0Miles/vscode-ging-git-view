@@ -461,6 +461,9 @@
   "error.showLog": "显示日志",
   "blame.you": "你",
   "blame.uncommitted": "尚未提交的更改",
+  "blame.hover.changes": "更改",
+  "blame.hover.copyHash": "复制 commit hash",
+  "blame.copiedHash": "已复制 commit hash {0}",
   "blame.workspaceKeepsOff": "已在用户设置中开启 inline blame，但这个工作区的设置仍然将它关闭。",
   "blame.workspaceKeepsOn": "已在用户设置中关闭 inline blame，但这个工作区的设置仍然将它开启。"
 }
