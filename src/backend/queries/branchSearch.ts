@@ -75,3 +75,20 @@ export async function loadBranchSearchIndex(
   branches.sort((a, b) => a.logDepth - b.logDepth || a.name.localeCompare(b.name));
   return { branches };
 }
+
+/**
+ * Where `hash` sits in the history the graph loads: its zero-based position in
+ * that `git log` — the ruler `--max-count` is measured on, and the one
+ * {@link BranchSearchEntry.logDepth} uses — or null when that history leaves it
+ * out altogether (first parent only, a filter, a hidden remote, or a commit the
+ * repository does not have). Walks the same log as the branch index, so the
+ * graph can load exactly as far as it takes to draw the commit (#310).
+ */
+export async function findCommitLogDepth(
+  git: SimpleGit,
+  input: BranchSearchInput & { hash: string }
+): Promise<number | null> {
+  const logOutput = await git.raw(logArgs(input));
+  const depth = logOutput.trimEnd().split(/\r?\n/).indexOf(input.hash);
+  return depth === -1 ? null : depth;
+}

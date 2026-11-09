@@ -104,6 +104,22 @@ type QueryPayloads = {
     };
     response: { branches: BranchSearchEntry[]; token: number; status: string | null };
   };
+  /** Where a commit asked to be located (#310) sits in the history the graph
+   *  loads — the same walk as `branchSearch`, so its answer is on the ruler
+   *  `maxCommits` is measured on. `logDepth` is null when that history leaves
+   *  the commit out. `token` correlates the answer with the request (the
+   *  messaging is command-keyed, not request-id'd). */
+  commitLogDepth: {
+    request: {
+      repo: string;
+      hash: string;
+      branchNames: string[];
+      commitOrder?: CommitOrdering;
+      hiddenRemotes?: string[];
+      token: number;
+    };
+    response: { hash: string; logDepth: number | null; token: number; status: string | null };
+  };
   tagDetails: {
     request: { repo: string; tagName: string };
     response: { details: GitTagDetails | null };
