@@ -1,0 +1,297 @@
+import { displayRef } from "@ging/shared/backend/utils/branchRef";
+
+import { fillTemplate } from "./html";
+
+export const refInvalid = /^[-/].*|[\\" ><~^:?*[]|\.\.|\/\/|\/\.|@{|[./]$|\.lock$|^@$/g;
+export const ELLIPSIS = "&#8230;";
+
+/** Split a DISPLAY-form remote ref ("origin/main", the spelling the graph's
+ *  ref chips carry) on its first slash. Null for the symbolic "<remote>/HEAD"
+ *  ref and for names without a slash — the callers offer no remote-branch
+ *  operations on those.
+ *
+ *  Not the same contract as branchRef.ts's `splitRemoteRef`: that one takes
+ *  the branch-list format ("remotes/origin/main"), returns `{remote, name}`,
+ *  and lets HEAD through. Feeding a branch-list ref here fails silently —
+ *  it would split out `remote: "remotes"`. */
+export function splitDisplayRemoteRef(
+  refName: string
+): { remote: string; branchOnRemote: string } | null {
+  const slashIndex = refName.indexOf("/");
+  if (slashIndex === -1) return null;
+  const branchOnRemote = refName.substring(slashIndex + 1);
+  if (branchOnRemote === "HEAD") return null;
+  return { remote: refName.substring(0, slashIndex), branchOnRemote };
+}
+
+/**
+ * Text for the toolbar's branch-filter chip, or null when there is nothing to
+ * show. Null means the filter is empty — the domain's "show all" — so the
+ * caller hides the chip rather than rendering an empty one.
+ *
+ * `refs` arrives in the branch-list format the host sends; the chip spells
+ * branches the way the graph's ref chips do, so `remotes/` is stripped. Only
+ * the first branch fits the toolbar, hence `+N` for the rest; the tooltip
+ * (`tooltipTemplate`, with `{0}` replaced) carries the full list.
+ */
+export function branchFilterLabel(
+  refs: readonly string[],
+  tooltipTemplate: string
+): { text: string; tooltip: string } | null {
+  if (refs.length === 0) return null;
+  const names = refs.map(displayRef);
+  const text = names.length === 1 ? names[0] : names[0] + " +" + (names.length - 1);
+  return { text, tooltip: fillTemplate(tooltipTemplate, names.join("\n")) };
+}
+
+/** Case-insensitive match of a Find-widget query against a commit's searchable
+ *  fields: message, author name/email, hash, and ref (branch/tag) names. */
+export function commitMatchesQuery(
+  commit: {
+    message: string;
+    author: string;
+    email: string;
+    hash: string;
+    refs: { name: string }[];
+  },
+  query: string
+): boolean {
+  const q = query.toLowerCase();
+  if (q === "") return false;
+  if (
+    commit.message.toLowerCase().includes(q) ||
+    commit.author.toLowerCase().includes(q) ||
+    commit.email.toLowerCase().includes(q) ||
+    commit.hash.toLowerCase().includes(q)
+  ) {
+    return true;
+  }
+  return commit.refs.some((ref) => ref.name.toLowerCase().includes(q));
+}
+
+/**
+ * Build the plain-text hover tooltip for a commit node, listing whether it is
+ * the checked-out commit (HEAD) and the branches/tags that reference it. Returns
+ * an empty string when there is nothing noteworthy to show. `labels` carries the
+ * localized line templates ("{0}" is replaced with the comma-separated names).
+ */
+export function commitNodeTooltip(
+  refs: { name: string; type: string }[],
+  isHead: boolean,
+  labels: { head: string; branches: string; tags: string }
+): string {
+  const lines: string[] = [];
+  if (isHead) lines.push(labels.head);
+  const branches = refs.filter((r) => r.type === "head" || r.type === "remote").map((r) => r.name);
+  const tags = refs.filter((r) => r.type === "tag").map((r) => r.name);
+  if (branches.length > 0) lines.push(fillTemplate(labels.branches, branches.join(", ")));
+  if (tags.length > 0) lines.push(fillTemplate(labels.tags, tags.join(", ")));
+  return lines.join("\n");
+}
+
+/**
+ * Name of the most recent tag among the loaded commits (commits are in graph
+ * order, newest first), or null if none are tagged. Used to hint the previous
+ * tag when adding a new one.
+ */
+export function latestTagName(
+  commits: { refs: { name: string; type: string }[] }[]
+): string | null {
+  for (const commit of commits) {
+    for (const ref of commit.refs) {
+      if (ref.type === "tag") return ref.name;
+    }
+  }
+  return null;
+}
+
+/**
+ * Substitute spaces in a reference (branch/tag) name as the user types, since
+ * git refs cannot contain spaces. "None" leaves the value untouched.
+ */
+export function substituteRefSpaces(value: string, mode: "None" | "Hyphen" | "Underscore"): string {
+  if (mode === "Hyphen") return value.replace(/ /g, "-");
+  if (mode === "Underscore") return value.replace(/ /g, "_");
+  return value;
+}
+
+/**
+ * Set of commit hashes reachable from any of `startHashes` by following parent
+ * links (the starts themselves are included). `parentsOf` returns a commit's
+ * parent hashes, or undefined when the commit isn't loaded.
+ */
+export function commitsReachableFrom(
+  startHashes: string[],
+  parentsOf: (hash: string) => string[] | undefined
+): Set<string> {
+  const reachable = new Set<string>();
+  const stack = [...startHashes];
+  while (stack.length > 0) {
+    const hash = stack.pop()!;
+    if (reachable.has(hash)) continue;
+    reachable.add(hash);
+    const parents = parentsOf(hash);
+    if (parents !== undefined) for (const p of parents) stack.push(p);
+  }
+  return reachable;
+}
+
+/**
+ * Map git's `%G?` signature status to a display category, or null when the
+ * commit is unsigned / the status wasn't requested. G = good; U (unknown
+ * validity) and E (cannot check) = unverified; B/X/Y/R = bad/expired/revoked.
+ */
+export function signatureCategory(
+  status: string | undefined
+): "good" | "unverified" | "bad" | null {
+  switch (status) {
+    case "G":
+      return "good";
+    case "U":
+    case "E":
+      return "unverified";
+    case "B":
+    case "X":
+    case "Y":
+    case "R":
+      return "bad";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Topological check for whether a commit can be dropped. Dropping runs
+ * `git rebase --onto <hash>~1 <hash>`, replaying the commits after it onto its
+ * parent — so it's only safe when the commit has a parent and lies on a linear,
+ * non-merge chain of descendants that reaches HEAD (no merge or fork in between
+ * that the rebase would disturb). Children/HEAD are restricted to loaded commits.
+ */
+export function dropCommitPossible(
+  startHash: string,
+  commits: { hash: string; parentHashes: string[] }[],
+  commitLookup: { [hash: string]: number },
+  commitHead: string | null
+): boolean {
+  if (commitHead === null) return false;
+  const startIdx = commitLookup[startHash];
+  // Only a non-merge commit that has exactly one parent can be rebased away.
+  if (startIdx === undefined || commits[startIdx].parentHashes.length !== 1) return false;
+
+  // Map each loaded commit to the loaded commits that name it as a parent.
+  const childrenOf: { [hash: string]: string[] } = {};
+  for (const commit of commits) {
+    for (const parent of commit.parentHashes) {
+      if (commitLookup[parent] !== undefined) (childrenOf[parent] ||= []).push(commit.hash);
+    }
+  }
+
+  // Walk forward (towards newer commits) from startHash. The path is droppable
+  // only if every step has a single child that is itself non-merge, until we
+  // land exactly on HEAD. A fork, a merge, a dead end, or a cycle disqualifies it.
+  let cursor = startHash;
+  const walked = new Set<string>();
+  while (cursor !== commitHead) {
+    if (walked.has(cursor)) return false;
+    walked.add(cursor);
+    const kids = childrenOf[cursor];
+    if (kids === undefined || kids.length !== 1) return false;
+    const next = kids[0];
+    const nextIdx = commitLookup[next];
+    if (nextIdx === undefined || commits[nextIdx].parentHashes.length > 1) return false;
+    cursor = next;
+  }
+  return true;
+}
+
+/**
+ * Pick the commit to navigate to from the Commit Details View. "parent"
+ * (Down) follows a parent of `current`; "child" (Up) follows a commit that has
+ * `current` as a parent. `alternative` selects the second branch at a fork/merge
+ * (e.g. CTRL/CMD+SHIFT) instead of the first — returning undefined when there
+ * is no such alternative. Children are taken in loaded-commit order.
+ */
+export function graphNavigationTarget(
+  current: { hash: string; parentHashes: string[] },
+  commits: { hash: string; parentHashes: string[] }[],
+  direction: "parent" | "child",
+  alternative: boolean
+): string | undefined {
+  if (direction === "parent") {
+    return current.parentHashes[alternative ? 1 : 0];
+  }
+  const children = commits.filter((c) => c.parentHashes.includes(current.hash));
+  return children[alternative ? 1 : 0]?.hash;
+}
+
+export function arraysEqual<T>(a: T[], b: T[], equalElements: (a: T, b: T) => boolean) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!equalElements(a[i], b[i])) return false;
+  }
+  return true;
+}
+
+/** The `<upstream> <branch>` pair `git rebase --onto` takes, resolved from the
+ *  two commits the user CTRL-selected, plus the local branches that can stand
+ *  in for the tip. */
+export interface RebaseOntoRange {
+  /** Exclusive lower bound of the replayed range — git's `<upstream>`. This is
+   *  the *parent* of the older selected commit, not that commit itself, so that
+   *  both commits the user compared are replayed: `<upstream>` is excluded by
+   *  git, and excluding the older selection would leave one end of what they
+   *  compared behind. */
+  upstream: string;
+  /** The older of the two commits the user compared. It *is* replayed — it is
+   *  named only so the dialog can say which pair this range came from, since
+   *  `upstream` is its parent and a commit the user never picked. */
+  from: string;
+  /** The commit whose history is replayed — git's `<branch>`. Always the
+   *  descendant. */
+  tip: string;
+  /** Local branches whose tip is exactly `tip`, in graph order. Empty means the
+   *  rebase can only be spelled with a hash, and git will leave HEAD detached. */
+  tipBranches: string[];
+}
+
+/**
+ * Resolve two CTRL-selected commits into the range `git rebase --onto` replays.
+ *
+ * The order matters and the user's click order does not: `upstream` is excluded
+ * from the range, so it has to be the ancestor. Ancestry is read off the loaded
+ * commits by walking parents; when neither commit reaches the other (divergent
+ * branches, or an ancestry that runs past the loaded commits) the graph's own
+ * order decides — further down the list is older.
+ */
+export function rebaseOntoRange(
+  hashA: string,
+  hashB: string,
+  commits: { hash: string; parentHashes: string[]; refs: { name: string; type: string }[] }[],
+  commitLookup: { [hash: string]: number }
+): RebaseOntoRange | null {
+  const parentsOf = (hash: string) => {
+    const index = commitLookup[hash];
+    return index === undefined ? undefined : commits[index].parentHashes;
+  };
+  const withTip = (older: string, tip: string): RebaseOntoRange | null => {
+    // git excludes `<upstream>`, so the bound is the older selection's parent.
+    // First parent on a merge: that is the line the range was read along.
+    // A root commit has none, and a range with no lower bound is not something
+    // `--onto` can spell — the caller falls back to the plain rebase.
+    const upstream = parentsOf(older)?.[0];
+    if (upstream === undefined) return null;
+    const index = commitLookup[tip];
+    const refs = index === undefined ? [] : commits[index].refs;
+    return {
+      upstream,
+      from: older,
+      tip,
+      tipBranches: refs.filter((r) => r.type === "head").map((r) => r.name)
+    };
+  };
+  if (commitsReachableFrom([hashA], parentsOf).has(hashB)) return withTip(hashB, hashA);
+  if (commitsReachableFrom([hashB], parentsOf).has(hashA)) return withTip(hashA, hashB);
+  const indexA = commitLookup[hashA] ?? 0;
+  const indexB = commitLookup[hashB] ?? 0;
+  return indexA > indexB ? withTip(hashA, hashB) : withTip(hashB, hashA);
+}

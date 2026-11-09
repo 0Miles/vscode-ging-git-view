@@ -8,7 +8,7 @@ VS Code 的 extension host 在 `$setSelectedSourceControl` 對**連續相同**�
 
 ## 為什麼未來的讀者會困惑
 
-程式碼裡有一整套 context key 同步機制([extension.ts](../../src/extension.ts) 的 `syncFocusedRepoContext`),外加 [scmRepoTracker.ts](../../src/extension/scmRepoTracker.ts) 多吐一份 uri 字串,只為了讓一顆按鈕出現在一列上。第一直覺會是「把 `recomputeSelection` 的去重拿掉不就好了」。**那沒有用** —— 我們自己的去重只是第二道閘門,事件在跨進 extension host 那一刻就已經被吃掉了。
+程式碼裡有一整套 context key 同步機制([extension.ts](../../apps/vscode/src/extension.ts) 的 `syncFocusedRepoContext`),外加 [scmRepoTracker.ts](../../apps/vscode/src/extension/scmRepoTracker.ts) 多吐一份 uri 字串,只為了讓一顆按鈕出現在一列上。第一直覺會是「把 `recomputeSelection` 的去重拿掉不就好了」。**那沒有用** —— 我們自己的去重只是第二道閘門,事件在跨進 extension host 那一刻就已經被吃掉了。
 
 證據(以 VS Code 1.10x 的 bundle 為準,未來版本請重新確認):
 

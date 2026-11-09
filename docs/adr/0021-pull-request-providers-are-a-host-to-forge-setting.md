@@ -4,9 +4,9 @@ status: accepted
 
 # Pull request 的 provider 是「host → forge 型別」的設定,不是程式裡的 host switch
 
-`ging-git-view.pullRequests.providers` 是一個陣列,每筆只有兩個必要欄位:`host`(remote 的主機名稱)與 `type`(那台主機上跑的是哪一種 forge:`github` / `gitlab` / `bitbucket` / `gitea` / `custom`)。URL 長什麼樣由 `type` 決定,寫在 [pullRequest.ts](../../src/backend/utils/pullRequest.ts) 的 `BUILT_IN_TEMPLATES` 裡;使用者只在 `type: "custom"` 時才需要自己寫 `urlTemplate`。五個公開 host(github.com、gitlab.com、bitbucket.org、gitea.com、codeberg.org)以同樣的資料形狀內建,不必設定就能用,而同名 host 的設定會**整筆取代**內建那筆。
+`ging-git-view.pullRequests.providers` 是一個陣列,每筆只有兩個必要欄位:`host`(remote 的主機名稱)與 `type`(那台主機上跑的是哪一種 forge:`github` / `gitlab` / `bitbucket` / `gitea` / `custom`)。URL 長什麼樣由 `type` 決定,寫在 [pullRequest.ts](../../packages/core/src/backend/utils/pullRequest.ts) 的 `BUILT_IN_TEMPLATES` 裡;使用者只在 `type: "custom"` 時才需要自己寫 `urlTemplate`。五個公開 host(github.com、gitlab.com、bitbucket.org、gitea.com、codeberg.org)以同樣的資料形狀內建,不必設定就能用,而同名 host 的設定會**整筆取代**內建那筆。
 
-改這份清單的 UI 是 `ging-git-view.managePullRequestProviders` 指令([pullRequestProviders.ts](../../src/extension/pullRequestProviders.ts))—— 它是設定的**檢視**,不是第二個儲存處:每次寫入都落在一個具名的 settings scope,而且把寫到哪裡直接講給使用者聽。它掛在 **Remotes 側檢視的標題溢位選單**上,不是 Branches。
+改這份清單的 UI 是 `ging-git-view.managePullRequestProviders` 指令([pullRequestProviders.ts](../../apps/vscode/src/extension/pullRequestProviders.ts))—— 它是設定的**檢視**,不是第二個儲存處:每次寫入都落在一個具名的 settings scope,而且把寫到哪裡直接講給使用者聽。它掛在 **Remotes 側檢視的標題溢位選單**上,不是 Branches。
 
 ## 為什麼未來的讀者會困惑
 
@@ -26,7 +26,7 @@ status: accepted
 
 **給 Gitea 內建一個 host。** 沒有這種東西 —— Gitea 的本質就是自架。內建的 `gitea.com` 與 `codeberg.org` 是兩個真實存在的公開實例,不是「Gitea 的預設 host」。
 
-**做一個 webview 設定頁。** 圖形內沒有任何設定 UI,而 `manageRemotes` 已經立下「這類管理工作用 QuickPick 指令」的先例([extension.ts](../../src/extension.ts))。多開一種設定介面,只會多一個使用者要找的地方。
+**做一個 webview 設定頁。** 圖形內沒有任何設定 UI,而 `manageRemotes` 已經立下「這類管理工作用 QuickPick 指令」的先例([extension.ts](../../apps/vscode/src/extension.ts))。多開一種設定介面,只會多一個使用者要找的地方。
 
 ## 後果
 

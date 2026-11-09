@@ -3,15 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "exports": {
-    ".": "./src/index.ts"
+    "./*": "./src/*.ts",
+    "./tests/helpers": "./tests/helpers.ts"
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit"
   },
   "dependencies": {
-    "@ging/shared": "workspace:*"
+    "@ging/shared": "workspace:*",
+    "iconv-lite": "^0.7.2",
+    "simple-git": "^3.36.0"
   },
   "devDependencies": {
-    "@types/node": "^20.19.39"
+    "@types/node": "catalog:"
   }
 }

@@ -4,9 +4,17 @@
   "packages": {
     ".": {
       "release-type": "node",
+      "component": "ging-git-view",
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false,
-      "include-component-in-tag": false
+      "include-component-in-tag": false,
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "apps/vscode/package.json",
+          "jsonpath": "$.version"
+        }
+      ]
     }
   }
 }

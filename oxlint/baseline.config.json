@@ -3,13 +3,13 @@
   "rules": {},
   "overrides": [
     {
-      "files": ["src/webview/**/*.ts"],
+      "files": ["packages/webview/src/**/*.ts"],
       "rules": {
         "eslint/no-undef": "off"
       }
     },
     {
-      "files": ["tests/**/*.ts"],
+      "files": ["**/tests/**/*.ts"],
       "rules": {
         "eslint/no-undef": "off"
       }
@@ -18,10 +18,10 @@
     // needs refactor
     {
       "files": [
-        "src/extension/workspaceSearch.ts",
-        "src/backend/queries/loadCommits.ts",
-        "src/backend/utils/repoSearch.ts",
-        "src/extension/workspaceWatcher.ts"
+        "apps/vscode/src/extension/workspaceSearch.ts",
+        "packages/core/src/backend/queries/loadCommits.ts",
+        "packages/core/src/backend/utils/repoSearch.ts",
+        "apps/vscode/src/extension/workspaceWatcher.ts"
       ],
       "rules": {
         // perf

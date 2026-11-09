@@ -4,7 +4,7 @@ status: accepted
 
 # 圖形的右鍵選單自己畫,而且圖示用 Octicons 而不是 Codicons
 
-圖形裡的六個右鍵選單(欄位表頭、commit、未提交變更、參照、commit 訊息連結、CDV 檔案)全部由 [main.ts](../../src/webview/main.ts) 的 `showContextMenu` 在 webview 內自行渲染,樣式在 [main.css](../../media/main.css) 逐條對齊 VS Code 的 `.monaco-menu`。選單項目的圖示是內嵌 SVG,取自 **Octicons v19**(MIT),不是 VS Code 自己的 Codicons。
+圖形裡的六個右鍵選單(欄位表頭、commit、未提交變更、參照、commit 訊息連結、CDV 檔案)全部由 [main.ts](../../packages/webview/src/main.ts) 的 `showContextMenu` 在 webview 內自行渲染,樣式在 [main.css](../../packages/webview/media/main.css) 逐條對齊 VS Code 的 `.monaco-menu`。選單項目的圖示是內嵌 SVG,取自 **Octicons v19**(MIT),不是 VS Code 自己的 Codicons。
 
 ## 為什麼未來的讀者會困惑
 
@@ -12,7 +12,7 @@ status: accepted
 
 **一、VS Code 有 `webview/context` 貢獻點。** 它是穩定 API,`data-vscode-context` 加 `when` clause 就能讓 webview 彈出**真正的**原生選單,樣式永遠跟著 VS Code 走,一行 CSS 都不用維護。第一直覺一定是「把 `showContextMenu` 整個刪掉換成它」。
 
-**二、這是 VS Code 擴充功能,圖示的自然選擇是 Codicons。** 側檢視就在用(`new vscode.ThemeIcon("git-branch")`,見 [branchesView.ts](../../src/extension/branchesView.ts)),用 GitHub 的圖示集看起來像是搞錯了對象。
+**二、這是 VS Code 擴充功能,圖示的自然選擇是 Codicons。** 側檢視就在用(`new vscode.ThemeIcon("git-branch")`,見 [branchesView.ts](../../apps/vscode/src/extension/branchesView.ts)),用 GitHub 的圖示集看起來像是搞錯了對象。
 
 兩個都不是疏忽。
 

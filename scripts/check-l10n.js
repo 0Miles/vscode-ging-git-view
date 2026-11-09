@@ -8,11 +8,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 /**
- * The tree to check. Defaults to this repo, which is what CI runs; the argument
+ * The tree to check. Defaults to this repo's extension (apps/vscode, where its
+ * manifest, package.nls.* and l10n/ live), which is what CI runs; the argument
  * lets the rules be driven against throwaway layouts in a test, the same way
  * `scripts/check-adr.js` is.
  */
-const ROOT_DIR = path.resolve(process.argv[2] ?? path.join(__dirname, ".."));
+const ROOT_DIR = path.resolve(process.argv[2] ?? path.join(__dirname, "..", "apps", "vscode"));
 const L10N_DIR = path.join(ROOT_DIR, "l10n");
 const BASE_FILE = "bundle.l10n.json";
 const PACKAGE_NLS_BASE = "package.nls.json";
@@ -72,7 +73,7 @@ function placeholdersMatch(arr1, arr2) {
 /**
  * Keys whose half-width commas are data, not punctuation.
  *
- * `stats.weekdays` is split on `,` in `src/extension/statisticsPanel.ts`, so a
+ * `stats.weekdays` is split on `,` in `apps/vscode/src/extension/statisticsPanel.ts`, so a
  * full-width comma there would break the weekday header rather than fix it.
  */
 const PUNCTUATION_EXEMPT_KEYS = new Set(["stats.weekdays"]);

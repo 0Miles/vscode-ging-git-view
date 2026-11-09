@@ -4,9 +4,45 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@types/node':
+      specifier: ^20.19.39
+      version: 20.19.39
+    esbuild:
+      specifier: ^0.28.0
+      version: 0.28.0
+
 importers:
 
   .:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 20.19.39
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.0
+      eslint-plugin-import:
+        specifier: ^2.32.0
+        version: 2.32.0(eslint@9.39.4)
+      jsdom:
+        specifier: ^29.0.2
+        version: 29.0.2
+      oxfmt:
+        specifier: ^0.44.0
+        version: 0.44.0
+      oxlint:
+        specifier: ^1.59.0
+        version: 1.59.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@types/node@20.19.39)(jsdom@29.0.2)(vite@8.0.8(@types/node@20.19.39)(esbuild@0.28.0))
+
+  apps/vscode:
     dependencies:
       iconv-lite:
         specifier: ^0.7.2
@@ -15,11 +51,20 @@ importers:
         specifier: ^3.36.0
         version: 3.36.0
     devDependencies:
+      '@ging/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@ging/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@ging/webview':
+        specifier: workspace:*
+        version: link:../../packages/webview
       '@types/mocha':
         specifier: ^10.0.10
         version: 10.0.10
       '@types/node':
-        specifier: ^20.19.39
+        specifier: 'catalog:'
         version: 20.19.39
       '@types/vscode':
         specifier: ~1.98.0
@@ -34,54 +79,26 @@ importers:
         specifier: ^2.5.2
         version: 2.5.2
       esbuild:
-        specifier: ^0.28.0
+        specifier: 'catalog:'
         version: 0.28.0
-      eslint-plugin-import:
-        specifier: ^2.32.0
-        version: 2.32.0(eslint@9.39.4)
-      jsdom:
-        specifier: ^29.0.2
-        version: 29.0.2
-      oxfmt:
-        specifier: ^0.44.0
-        version: 0.44.0
-      oxlint:
-        specifier: ^1.59.0
-        version: 1.59.0
       tsc-alias:
         specifier: ^1.8.16
         version: 1.8.16
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.4(@types/node@20.19.39)(jsdom@29.0.2)(vite@8.0.8(@types/node@20.19.39)(esbuild@0.28.0))
-
-  apps/vscode:
-    dependencies:
-      '@ging/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@ging/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-      '@ging/webview':
-        specifier: workspace:*
-        version: link:../../packages/webview
-    devDependencies:
-      '@types/node':
-        specifier: ^20.19.39
-        version: 20.19.39
 
   packages/core:
     dependencies:
       '@ging/shared':
         specifier: workspace:*
         version: link:../shared
+      iconv-lite:
+        specifier: ^0.7.2
+        version: 0.7.2
+      simple-git:
+        specifier: ^3.36.0
+        version: 3.36.0
     devDependencies:
       '@types/node':
-        specifier: ^20.19.39
+        specifier: 'catalog:'
         version: 20.19.39
 
   packages/shared: {}
@@ -91,6 +108,10 @@ importers:
       '@ging/shared':
         specifier: workspace:*
         version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 20.19.39
 
 packages:
 
