@@ -478,11 +478,12 @@ class GitGraphView {
   private findSettledOn: string | null = null;
   // When on, navigating find matches also opens each one's details view.
   private findOpenCommitDetails = false;
-  /** The match Find left the centring of to the CDV opening it asked for
-   *  (#256), until that opening scrolls — or until the details cannot be
-   *  loaded, when there is no opening and the centring falls back to Find
-   *  ({@link failCommitDetails}). Null once anything else becomes of it. */
-  private findCentreOwed: string | null = null;
+  /** The commit whose centring Find, or a locate (#310), left to the CDV
+   *  opening it caused (#256), until that opening scrolls — or until the
+   *  details cannot be loaded, when there is no opening and the row is centred
+   *  here instead ({@link failCommitDetails}). Null once anything else becomes
+   *  of it. */
+  private centreOwedToDetails: string | null = null;
   private branchSearchToken = 0;
   private branchSearchIndex: BranchSearchEntry[] = [];
   private findDirection: -1 | 1 = 1;
@@ -4729,14 +4730,22 @@ class GitGraphView {
     }
   }
 
-  /** The host has run Show All. Had it changed the filter, the empty filter
-   *  would have arrived ahead of this and bound the locate; still unbound, Show
-   *  All moved nothing — the filter was already empty where the host keeps it —
-   *  and no navigation is coming to resume on, so the locate is let go rather
-   *  than left for some later, unrelated Show All to revive. */
+  /** The host has run Show All, or tried to. Had it changed the filter, the
+   *  empty filter would have arrived ahead of this and bound the locate; still
+   *  unbound, Show All moved nothing — it failed, or the filter was already
+   *  empty where the host keeps it — and no navigation is coming to resume on.
+   *  The locate is let go rather than left for some later, unrelated Show All
+   *  to revive, and the user is told: they asked from the editor, and would
+   *  otherwise see nothing happen. */
   public branchFilterCleared() {
     const waiting = this.locateAfterShowAll;
-    if (waiting !== null && waiting.navigation === null) this.locateAfterShowAll = null;
+    if (waiting === null || waiting.navigation !== null) return;
+    this.locateAfterShowAll = null;
+    sendMessage({
+      command: "locateCommitNotInGraph",
+      hash: waiting.hash,
+      reason: "filterNotCleared"
+    });
   }
 
   /** Start the locate waiting on Show All over, once the reload of the
@@ -4813,8 +4822,13 @@ class GitGraphView {
    *  "Locate HEAD" does. Focus is the graph's selection and an open Commit
    *  Details View follows it (ADR-0014), so one already open moves onto the
    *  commit; a closed one stays closed (#310) — this answers "where is it",
-   *  not "show me what it changed". When the view that moves centres its own
-   *  opening, the centring is left to it, as Find leaves it (#256). */
+   *  not "show me what it changed".
+   *
+   *  The page moves once. When the view that moves centres its own opening,
+   *  the whole move is left to it, as Find leaves it (#256): focus goes over
+   *  without the focus path's own nearest-edge scroll, which would otherwise
+   *  run first and have the opening move the page a second time — and if the
+   *  details never arrive, {@link failCommitDetails} centres the row instead. */
   private revealLocatedCommit(hash: string) {
     const row = this.graphRowByHash(hash);
     if (row === null) {
@@ -4822,10 +4836,14 @@ class GitGraphView {
       return;
     }
     const opensDetails = this.expandedCommit !== null && this.expandedCommit.hash !== hash;
-    this.focusGraphRow(row);
-    const openingCentres = opensDetails && this.config.autoCenterCommitDetailsView;
-    if (!openingCentres && typeof row.scrollIntoView === "function") {
-      row.scrollIntoView({ block: "center" });
+    if (opensDetails && this.config.autoCenterCommitDetailsView) {
+      // `focusGraphRow` without its scroll.
+      this.graphTabStop.focusInPlace(row);
+      this.loadCommitDetails(row);
+      this.centreOwedToDetails = hash;
+    } else {
+      this.focusGraphRow(row);
+      if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "center" });
     }
     blinkRow(row);
   }
@@ -6181,11 +6199,11 @@ class GitGraphView {
     return this.expandedCommit.hash + "|" + (this.expandedCommit.compareWithHash ?? "");
   }
   /** The host could not load the expanded commit's details: close the view.
-   *  If Find was leaving the centring of its match to this view's opening
-   *  (#256), there will be no opening, so Find's centring happens here
-   *  instead — otherwise the match it moved to never comes into view. */
+   *  If Find, or a locate, was leaving the centring of its row to this view's
+   *  opening (#256), there will be no opening, so the centring happens here
+   *  instead — otherwise the row it moved to never comes into view. */
   public failCommitDetails() {
-    const owed = this.findCentreOwed;
+    const owed = this.centreOwedToDetails;
     this.hideCommitDetails();
     const row = owed === null ? null : this.graphRowByHash(owed);
     if (row !== null && typeof row.scrollIntoView === "function") {
@@ -6219,7 +6237,7 @@ class GitGraphView {
     // The next CDV is an opening, however it compares to this one.
     this.cdvBroughtIntoView = null;
     this.cdvFileTabStopMemory = null;
-    this.findCentreOwed = null;
+    this.centreOwedToDetails = null;
     if (this.expandedCommit !== null) {
       if (this.expandedCommit.srcElem !== null)
         this.expandedCommit.srcElem.classList.remove("commitDetailsOpen");
@@ -6819,7 +6837,7 @@ class GitGraphView {
         }
         if (opensDetails) {
           this.loadCommitDetails(currentRow);
-          if (openingCentres) this.findCentreOwed = this.findMatches[this.findCurrent].hash;
+          if (openingCentres) this.centreOwedToDetails = this.findMatches[this.findCurrent].hash;
         }
       }
     }
@@ -7637,7 +7655,7 @@ class GitGraphView {
     // once per CDV, and again only when the CDV becomes a different one.
     if (cdv !== this.cdvBroughtIntoView) {
       this.cdvBroughtIntoView = cdv;
-      this.findCentreOwed = null;
+      this.centreOwedToDetails = null;
       const commitRow = this.expandedCommit.srcElem;
       const centre = this.config.autoCenterCommitDetailsView;
       if (docked && !centre) {

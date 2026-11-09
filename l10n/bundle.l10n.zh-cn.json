@@ -472,5 +472,6 @@
   "blame.workspaceKeepsOn": "已在用户设置中关闭 inline blame，但这个工作区的设置仍然将它开启。",
   "blame.hover.locateCommit": "在 GING 图形中定位",
   "blame.locate.notInGraph": "commit {0} 没有显示在 GING 图形中。只跟随第一个父 commit、隐藏某个 remote 这类设置，可能让 commit 不被显示。",
-  "blame.locate.failed": "无法在 GING 图形中定位这个 commit"
+  "blame.locate.failed": "无法在 GING 图形中定位这个 commit",
+  "blame.locate.filterNotCleared": "commit {0} 被 branch filter 过滤掉了，而筛选没能清除。请先显示所有分支，再试一次。"
 }

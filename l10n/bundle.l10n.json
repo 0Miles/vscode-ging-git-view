@@ -472,5 +472,6 @@
   "blame.workspaceKeepsOn": "Inline blame is now off in your user settings, but this workspace's settings still turn it on.",
   "blame.hover.locateCommit": "Locate in the GING graph",
   "blame.locate.notInGraph": "Commit {0} isn't shown in the GING graph. Settings such as following only the first parent or hiding a remote can leave commits out.",
-  "blame.locate.failed": "Unable to locate the commit in the GING graph"
+  "blame.locate.failed": "Unable to locate the commit in the GING graph",
+  "blame.locate.filterNotCleared": "Commit {0} is hidden by the branch filter, which couldn't be cleared. Show all branches, then try again."
 }

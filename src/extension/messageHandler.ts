@@ -72,6 +72,7 @@ import * as l10n from "@/l10n";
 import { RepoFileWatcher } from "@/repoFileWatcher";
 import { RepoScopeSettings, RequestMessage, ResponseMessage } from "@/types";
 
+import { acknowledgeShowAll } from "./blameLocate";
 import { resolveCleanupCandidates } from "./branchCleanup";
 import { type BranchCleanup } from "./branchCleanupService";
 import { type BranchFacts } from "./branchFacts";
@@ -334,15 +335,19 @@ export function registerMessageHandlers(
     { mutatesRepo: false }
   );
 
-  // A located commit the graph's history leaves out: said quietly, in a
-  // message the user can ignore, since nothing went wrong (#310).
+  // A located commit the graph does not show (#310): said quietly, in a message
+  // the user can ignore. The history leaving it out is no fault; a branch
+  // filter Show All could not clear is something they can still act on.
   bridge.onMessage(
     "locateCommitNotInGraph",
     (msg) => {
       if (!isCommitHash(msg.hash)) return;
-      void vscode.window.showInformationMessage(
-        l10n.t("blame.locate.notInGraph", abbrevCommit(msg.hash))
-      );
+      const sha = abbrevCommit(msg.hash);
+      if (msg.reason === "filterNotCleared") {
+        void vscode.window.showWarningMessage(l10n.t("blame.locate.filterNotCleared", sha));
+      } else {
+        void vscode.window.showInformationMessage(l10n.t("blame.locate.notInGraph", sha));
+      }
     },
     { mutatesRepo: false }
   );
@@ -836,15 +841,16 @@ export function registerMessageHandlers(
   // Branches side-view's title button runs. Writing `branchFilterStore` here
   // instead would only do half the job — the tree's visual selection would stay
   // highlighted while the graph showed everything.
-  // Acknowledged once Show All has run. Any filter it changed has been posted
-  // by then — the store fires while Show All runs — so a locate waiting on it
-  // (#310) can tell "Show All moved nothing" from "its filter is on the way".
+  // Acknowledged once Show All has run, or failed to (see `acknowledgeShowAll`):
+  // a locate waiting on it (#310) can then tell "Show All moved nothing" from
+  // "its filter is on the way".
   bridge.onMessage(
     "clearBranchFilter",
-    async () => {
-      await vscode.commands.executeCommand("ging-git-view.branches.showAll");
-      bridge.post({ command: "branchFilterCleared" });
-    },
+    () =>
+      acknowledgeShowAll(
+        () => vscode.commands.executeCommand("ging-git-view.branches.showAll"),
+        (msg) => bridge.post(msg)
+      ),
     { mutatesRepo: false }
   );
 

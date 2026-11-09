@@ -77,10 +77,13 @@ let mock: ReturnType<typeof createVscodeMock>;
 /** Which rows were centred, by commit hash. jsdom has no scrolling; the stub
  *  records the receiver, as every redraw replaces the row objects. */
 const centred: (string | undefined)[] = [];
+/** Every row scroll, with how it was asked for. */
+const scrolls: { hash: string | undefined; block: ScrollLogicalPosition | undefined }[] = [];
 const scrollIntoView = vi.fn(function (this: Element, arg?: boolean | ScrollIntoViewOptions) {
-  if (typeof arg === "object" && arg.block === "center") {
-    centred.push((this as HTMLElement).dataset.hash);
-  }
+  const hash = (this as HTMLElement).dataset.hash;
+  const block = typeof arg === "object" ? arg.block : undefined;
+  scrolls.push({ hash, block });
+  if (block === "center") centred.push(hash);
 });
 
 const focusedHash = () => (document.activeElement as HTMLElement | null)?.dataset?.hash;
@@ -306,8 +309,12 @@ describe("locating a blamed commit in the graph", () => {
       expect(mock.sentOf("clearBranchFilter")).toHaveLength(1);
 
       // The host's filter was already empty: Show All posted no filter, only
-      // its acknowledgement.
+      // its acknowledgement. The user asked from the editor, so they are told
+      // why nothing moved.
       receive({ command: "branchFilterCleared" });
+      expect(mock.sentOf("locateCommitNotInGraph")).toEqual([
+        { command: "locateCommitNotInGraph", hash: "side999", reason: "filterNotCleared" }
+      ]);
 
       // Much later, the user shows all branches themselves.
       receive({ command: "setBranchFilter", branches: [] });
@@ -363,6 +370,28 @@ describe("locating a blamed commit in the graph", () => {
       receive(locate("bbb222"));
       expect(focusedHash()).toBe("bbb222");
       expect(mock.sentOf("commitDetails").map((m) => m.commitHash)).toEqual(["bbb222"]);
+    });
+
+    // With centring on, the view's opening centres the row, so the locate
+    // must not move the page first — the two-stage motion #256 removed.
+    it("leaves the one move to a view that centres its opening", () => {
+      openDetailsOn("aaa111");
+      receive({ command: "commitDetails", commitDetails: commitDetails("aaa111") });
+      scrolls.splice(0);
+
+      receive(locate("bbb222"));
+      expect(focusedHash()).toBe("bbb222");
+      expect(scrolls.filter((s) => s.hash === "bbb222")).toEqual([]);
+    });
+
+    it("centres the row itself when that view's details cannot be loaded", () => {
+      openDetailsOn("aaa111");
+      receive({ command: "commitDetails", commitDetails: commitDetails("aaa111") });
+      receive(locate("bbb222"));
+      scrolls.splice(0);
+      receive({ command: "commitDetails", commitDetails: null });
+      clickId("dialogDismiss");
+      expect(scrolls).toContainEqual({ hash: "bbb222", block: "center" });
     });
   });
 });

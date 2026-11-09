@@ -563,6 +563,10 @@ export type ResponseLocateCommit = {
 export type RequestLocateCommitNotInGraph = {
   command: "locateCommitNotInGraph";
   hash: string;
+  /** Why, when the graph knows: `filterNotCleared` is a commit the branch
+   *  filter hides and Show All did not clear. Absent: the graph's history does
+   *  not show it, for whatever reason. */
+  reason?: "filterNotCleared";
 };
 
 /** Ask the host to judge every scannable branch's redundancy. Which branches
