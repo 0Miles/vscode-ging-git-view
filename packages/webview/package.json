@@ -1,0 +1,15 @@
+{
+  "name": "@ging/webview",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "@ging/shared": "workspace:*"
+  }
+}

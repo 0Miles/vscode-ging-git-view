@@ -7,7 +7,7 @@
     "oxlint/style.config.json"
   ],
   "jsPlugins": [{ "name": "import-js", "specifier": "eslint-plugin-import" }],
-  "ignorePatterns": [".pnpm-store/**", ".idea/**", "out/**", "node_modules/**", "*.config.js"],
+  "ignorePatterns": [".pnpm-store/**", ".idea/**", "out/**", "**/node_modules/**", "*.config.js"],
   "env": {
     "node": true
   },
@@ -67,7 +67,7 @@
       }
     },
     {
-      "files": ["src/webview/**/*.ts"],
+      "files": ["src/webview/**/*.ts", "packages/webview/**/*.ts"],
       "env": {
         "node": false,
         "browser": true
