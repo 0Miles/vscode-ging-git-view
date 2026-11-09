@@ -19,7 +19,12 @@ import { type BlameAnnotationContext, blameAnnotationText } from "./blameAnnotat
 import { type BlameAvatarDeps, createBlameAvatars } from "./blameAvatars";
 import { createBlameCache } from "./blameCache";
 import { createBlameChanges } from "./blameChanges";
-import { type BlameHoverDetails, blameHoverMarkdown } from "./blameHover";
+import {
+  type BlameHoverDetails,
+  blameHoverMarkdown,
+  copyableSha,
+  createLastHoverDetails
+} from "./blameHover";
 import { createBlameRepoWatchers } from "./blameRepoWatchers";
 import { updateDelay } from "./blameSchedule";
 import { type BlameTarget, blameTarget, spansLines } from "./blameTarget";
@@ -35,8 +40,6 @@ const COPY_SHA_COMMAND = "ging-git-view.blame.copySha";
 const CHANGE_CACHE_SIZE = 100;
 /** How long the status bar says a SHA was copied. */
 const COPIED_MESSAGE_MS = 3000;
-
-const NO_DETAILS: BlameHoverDetails = { message: null, hunk: null, avatar: null };
 
 type FileBlame = { lines: BlameLine[]; userEmail: string };
 
@@ -133,10 +136,11 @@ export function createBlameController(deps: {
     after: { color: new vscode.ThemeColor(COLOR_ID), margin: "0 0 0 3em" }
   });
   const cache = createBlameCache<Promise<FileBlame | null>>();
-  /** Each commit's change to a file, for the hovers. */
-  const changeOf = createBlameChanges({
-    load: ({ sha, filename, previous }, repo) =>
-      blameCommitChange({ ...gitIn(repo), sha, filename, previous }),
+  /** Each commit's change to a file, for the hovers; only the latest request's
+   *  git runs, the one before it aborted (see `createBlameChanges`). */
+  const changes = createBlameChanges({
+    load: ({ sha, filename, previous }, repo, signal) =>
+      blameCommitChange({ ...gitIn(repo), signal, sha, filename, previous }),
     size: CHANGE_CACHE_SIZE
   });
   const avatarOf = createBlameAvatars(deps.avatars);
@@ -157,10 +161,7 @@ export function createBlameController(deps: {
   /** When each document was last edited, to hold the annotation while typing. */
   const editedAt = new WeakMap<vscode.TextDocument, number>();
   let decorated: vscode.TextEditor | undefined;
-  /** The details last drawn into a hover, and the blamed line they are of: a
-   *  redraw of that line (the cursor moved along it, say) starts from them
-   *  rather than from the bare blame. */
-  let lastDetails: { of: string; details: BlameHoverDetails } | undefined;
+  const lastDetails = createLastHoverDetails();
   let timer: NodeJS.Timeout | undefined;
   // Bumped by every change that makes an in-flight update stale: a result that
   // comes back after one is dropped rather than drawn.
@@ -173,6 +174,8 @@ export function createBlameController(deps: {
 
   function hide() {
     cancelPending();
+    // No annotation, no hover to look anything up for.
+    changes.cancel();
     decorated?.setDecorations(decoration, []);
     decorated = undefined;
   }
@@ -233,7 +236,7 @@ export function createBlameController(deps: {
   /** What the hover of a committed line shows beyond its blame. */
   async function hoverDetails(line: BlameLine, repo: string): Promise<BlameHoverDetails> {
     const [change, avatar] = await Promise.all([
-      changeOf(line, repo),
+      changes.changeOf(line, repo),
       avatarOf(line, repo).catch(() => null)
     ]);
     return {
@@ -253,7 +256,7 @@ export function createBlameController(deps: {
       labels: {
         ...context.labels,
         changes: l10n.t("blame.hover.changes"),
-        copySha: l10n.t("blame.hover.copySha")
+        copyHash: l10n.t("blame.hover.copyHash")
       },
       copyShaCommand: COPY_SHA_COMMAND
     });
@@ -306,15 +309,18 @@ export function createBlameController(deps: {
           renderOptions: { after: { contentText: text } }
         }
       ]);
-    const blamed = [target.repo, line.sha, line.filename, line.originalLine].join("\0");
-    draw(lastDetails?.of === blamed ? lastDetails.details : NO_DETAILS);
+    draw(lastDetails.for(target.repo, line));
     decorated = editor;
-    if (line.uncommitted) return;
+    if (line.uncommitted) {
+      // Nothing to look up — and whatever the line before wanted is stale.
+      changes.cancel();
+      return;
+    }
     const details = await hoverDetails(line, target.repo);
     // Whatever moved the cursor, changed the document or hid the annotation
     // meanwhile bumped the generation; the update it scheduled draws instead.
     if (token !== generation || editor !== decorated) return;
-    lastDetails = { of: blamed, details };
+    lastDetails.remember(target.repo, line, details);
     draw(details);
   }
 
@@ -379,19 +385,22 @@ export function createBlameController(deps: {
       cancelPending();
       for (const s of subscriptions) s.dispose();
       repoWatchers.dispose();
+      changes.cancel();
       cache.clear();
     }
   };
 }
 
-/** `ging-git-view.blame.copySha`, the hover's SHA links: copy the full SHA and
- *  say so in the status bar for a moment. Hidden from the Command Palette. */
+/** `ging-git-view.blame.copySha`, the hover's SHA links: copy the full commit
+ *  hash and say so in the status bar for a moment. Hidden from the Command
+ *  Palette. */
 export function registerBlameCopySha(): vscode.Disposable {
-  return vscode.commands.registerCommand(COPY_SHA_COMMAND, async (sha: unknown) => {
-    if (typeof sha !== "string" || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha)) return;
+  return vscode.commands.registerCommand(COPY_SHA_COMMAND, async (arg: unknown) => {
+    const sha = copyableSha(arg);
+    if (sha === null) return;
     await vscode.env.clipboard.writeText(sha);
     vscode.window.setStatusBarMessage(
-      l10n.t("blame.copiedSha", abbrevCommit(sha)),
+      l10n.t("blame.copiedHash", abbrevCommit(sha)),
       COPIED_MESSAGE_MS
     );
   });

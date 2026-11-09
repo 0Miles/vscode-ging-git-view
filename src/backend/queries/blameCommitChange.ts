@@ -1,6 +1,7 @@
 import { type GitRunOptions, runWithin } from "@/backend/gitRun";
 
 import { BLAME_TIMEOUT_MS, type BlameLine } from "./blameFile";
+import { unquoteGitPath } from "./diffFileChanges";
 
 /** One `@@` hunk of a unified diff, as the new side numbers its lines. */
 export type DiffHunk = {
@@ -8,7 +9,8 @@ export type DiffHunk = {
   newStart: number;
   /** How many lines of the new side the hunk spans. */
   newCount: number;
-  /** The hunk's lines, each with its ` `, `+` or `-` prefix and no line ending. */
+  /** The hunk's lines, each with its ` `, `+` or `-` prefix and no line ending,
+   *  cut to `HUNK_LINE_MAX` characters. */
   lines: string[];
 };
 
@@ -19,19 +21,30 @@ export type HunkExcerpt = { lines: string[]; index: number };
  *  change to the line's file. */
 export type CommitChange = { message: string; hunks: DiffHunk[] };
 
-export type BlameCommitChangeOptions = GitRunOptions &
-  Pick<BlameLine, "sha" | "filename" | "previous">;
+/** Which change of which commit: a blamed line's commit, the file's path
+ *  there, and what the commit is compared with. */
+export type BlamedCommit = Pick<BlameLine, "sha" | "filename" | "previous">;
+
+export type BlameCommitChangeOptions = GitRunOptions & BlamedCommit;
+
+/** A diff line longer than this — a minified or generated file's, say — is cut,
+ *  the "…" marking the cut included, so no more than this is ever kept. */
+export const HUNK_LINE_MAX = 200;
 
 const HUNK_HEADER = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+/** The prefix the patch is asked to give the new side's paths. */
+const NEW_PREFIX = "b/";
 
 /**
- * The hunks of a unified diff. Each hunk's header says how many lines it
- * spans on either side, so its end is counted rather than guessed; git's
- * `\ No newline at end of file` marker is left out, as it is no line of the
- * file.
+ * The hunks of a unified diff that change `filename` — the file whose new-side
+ * path (`+++ b/<filename>`) it is; any other file's in the same patch are
+ * skipped. Each hunk's header says how many lines it spans on either side, so
+ * its end is counted rather than guessed; git's `\ No newline at end of file`
+ * marker is left out, as it is no line of the file.
  */
-export function parseHunks(patch: string): DiffHunk[] {
+export function parseHunks(patch: string, filename: string): DiffHunk[] {
   const hunks: DiffHunk[] = [];
+  let inFile = false;
   // The hunk being read, and how many lines of either side it has still to go.
   let open: { hunk: DiffHunk; oldLeft: number; newLeft: number } | undefined;
   for (const raw of patch.split("\n")) {
@@ -46,9 +59,12 @@ export function parseHunks(patch: string): DiffHunk[] {
         open.oldLeft--;
         open.newLeft--;
       }
-      open.hunk.lines.push(line === "" ? " " : line);
+      open.hunk.lines.push(cutLine(line === "" ? " " : line));
       continue;
     }
+    if (line.startsWith("diff ")) inFile = false;
+    else if (line.startsWith("+++ ")) inFile = patchPath(line.slice(4)) === NEW_PREFIX + filename;
+    if (!inFile) continue;
     const header = HUNK_HEADER.exec(line);
     if (header === null) continue;
     const newCount = header[3] === undefined ? 1 : Number(header[3]);
@@ -57,6 +73,22 @@ export function parseHunks(patch: string): DiffHunk[] {
     open = { hunk, oldLeft: header[1] === undefined ? 1 : Number(header[1]), newLeft: newCount };
   }
   return hunks;
+}
+
+/** `line` cut to `HUNK_LINE_MAX` characters, "…" last, if longer; never in
+ *  the middle of a surrogate pair. */
+function cutLine(line: string): string {
+  if (line.length <= HUNK_LINE_MAX) return line;
+  let end = HUNK_LINE_MAX - 1;
+  const last = line.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end--;
+  return line.slice(0, end) + "…";
+}
+
+/** A path as a patch header writes it, maybe quoted (see `unquoteGitPath`),
+ *  and maybe followed by a tab (git adds one after a path with a space). */
+function patchPath(text: string): string {
+  return unquoteGitPath(text.split("\t")[0]);
 }
 
 /**
@@ -80,20 +112,47 @@ export function hunkAt(hunks: DiffHunk[], line: number): HunkExcerpt | null {
  * What the blamed line's commit did: its full message (the blame gives only
  * the summary), and its change to the file — against the line's `previous`,
  * under the file's name there, so a rename shows as the edit it was; or, with
- * no `previous`, the file as the commit added it. Resolves null — never
- * rejects — when git fails or the deadline (by default `BLAME_TIMEOUT_MS` from
- * the call) passes.
+ * no `previous`, the file as the commit added it (against its first parent, for
+ * a merge). Only the parsed, cut hunks are kept, never the patch. Resolves
+ * null — never rejects — when git fails, the deadline (by default
+ * `BLAME_TIMEOUT_MS` from the call) passes, or `signal` aborts.
  */
 export async function blameCommitChange(
   options: BlameCommitChangeOptions
 ): Promise<CommitChange | null> {
   const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
   const { sha, filename, previous } = options;
-  const patchOptions = ["--no-color", "--no-ext-diff", "--no-textconv", "-M", "-U3"];
+  const patchOptions = [
+    "--no-color",
+    "--no-ext-diff",
+    "--no-textconv",
+    "-M",
+    "-U3",
+    // Whatever `diff.noprefix` or `diff.mnemonicPrefix` say, as `parseHunks`
+    // finds the file by its `b/` path.
+    "--src-prefix=a/",
+    `--dst-prefix=${NEW_PREFIX}`
+  ];
+  // Non-ASCII paths in the patch headers as UTF-8, not octal escapes.
+  const quoting = ["-c", "core.quotePath=false"];
   const patchArgs =
     previous === null
-      ? ["show", "--format=", "--root", ...patchOptions, sha, "--", filename]
+      ? // A merge's own diff would be combined (`@@@`): take it against its
+        // first parent instead, as an ordinary patch.
+        [
+          ...quoting,
+          "show",
+          "--format=",
+          "--root",
+          "-m",
+          "--first-parent",
+          ...patchOptions,
+          sha,
+          "--",
+          filename
+        ]
       : [
+          ...quoting,
           "diff",
           ...patchOptions,
           previous.sha,
@@ -109,6 +168,6 @@ export async function blameCommitChange(
   if (patched?.kind !== "ok" || patched.exitCode !== 0) return null;
   return {
     message: shown.stdout.toString().replace(/\s+$/, ""),
-    hunks: parseHunks(patched.stdout.toString())
+    hunks: parseHunks(patched.stdout.toString(), filename)
   };
 }

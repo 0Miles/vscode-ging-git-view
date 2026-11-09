@@ -4,7 +4,12 @@ import * as path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { blameCommitChange, hunkAt } from "@/backend/queries/blameCommitChange";
+import {
+  blameCommitChange,
+  HUNK_LINE_MAX,
+  hunkAt,
+  parseHunks
+} from "@/backend/queries/blameCommitChange";
 import { blameFile } from "@/backend/queries/blameFile";
 
 import { git, makeRepo, rmrf } from "@tests/backend/helpers";
@@ -137,5 +142,101 @@ describe("blameCommitChange (real git)", () => {
       previous: null
     });
     expect(change).toBeNull();
+  });
+});
+
+describe("blameCommitChange (real git, beyond a plain commit)", () => {
+  it("finds the hunk of a file a merge commit added", async () => {
+    const r = newRepo();
+    git(["checkout", "-q", "-b", "side"], r);
+    fs.writeFileSync(path.join(r, "side.txt"), "side\n");
+    commit(r, "side work");
+    git(["checkout", "-q", "main"], r);
+    fs.writeFileSync(path.join(r, "main.txt"), "main\n");
+    commit(r, "main work");
+    git(["merge", "--no-ff", "--no-commit", "side"], r);
+    fs.writeFileSync(path.join(r, "merged.txt"), "added by the merge\n");
+    commit(r, "merge side, adding a file");
+
+    const { target, change, hunk } = await changeOf(r, "merged.txt", 0);
+
+    expect(target.sha).toBe(head(r));
+    expect(target.previous).toBeNull();
+    expect(change?.message).toBe("merge side, adding a file");
+    expect(hunk).toEqual({ lines: ["+added by the merge"], index: 0 });
+  });
+
+  it("finds the hunk of a file whose name git quotes", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "naïve file.txt"), "one\n");
+    commit(r, "add a quoted name");
+
+    const { hunk } = await changeOf(r, "naïve file.txt", 0);
+
+    expect(hunk).toEqual({ lines: ["+one"], index: 0 });
+  });
+
+  it("keeps only the start of a very long line", async () => {
+    const r = newRepo();
+    fs.writeFileSync(path.join(r, "min.js"), "x".repeat(1_000_000) + "\n");
+    commit(r, "add minified");
+
+    const { hunk } = await changeOf(r, "min.js", 0);
+
+    // 200 characters in all: the "+", the start of the line, and the "…".
+    expect(hunk?.lines).toEqual(["+" + "x".repeat(HUNK_LINE_MAX - 2) + "…"]);
+  });
+});
+
+describe("parseHunks", () => {
+  const twoFiles = [
+    "diff --git a/other.txt b/other.txt",
+    "--- a/other.txt",
+    "+++ b/other.txt",
+    "@@ -1,2 +1,2 @@",
+    " keep",
+    "-old other",
+    "+new other",
+    "diff --git a/a.txt b/a.txt",
+    "--- a/a.txt",
+    "+++ b/a.txt",
+    "@@ -9,1 +9,1 @@",
+    "-old a",
+    "+new a",
+    ""
+  ].join("\n");
+
+  it("reads the hunks of the blamed file alone, never another file's in the same patch", () => {
+    const hunks = parseHunks(twoFiles, "a.txt");
+
+    expect(hunks).toEqual([{ newStart: 9, newCount: 1, lines: ["-old a", "+new a"] }]);
+    // other.txt's hunk spans line 2 too; it must not answer for a.txt.
+    expect(hunkAt(hunks, 2)).toBeNull();
+  });
+
+  it("reads a renamed file's hunks under its new name", () => {
+    const renamed = [
+      "diff --git a/old.txt b/new.txt",
+      "similarity index 90%",
+      "rename from old.txt",
+      "rename to new.txt",
+      "--- a/old.txt",
+      "+++ b/new.txt",
+      "@@ -1 +1 @@",
+      "-a",
+      "+b",
+      ""
+    ].join("\n");
+    expect(parseHunks(renamed, "new.txt")).toEqual([
+      { newStart: 1, newCount: 1, lines: ["-a", "+b"] }
+    ]);
+  });
+
+  it("cuts a line longer than the limit, marking the cut with …", () => {
+    const long = "+" + "y".repeat(500);
+    const patch = ["+++ b/a.txt", "@@ -0,0 +1 @@", long, ""].join("\n");
+    const [hunk] = parseHunks(patch, "a.txt");
+    expect(hunk.lines).toEqual([long.slice(0, HUNK_LINE_MAX - 1) + "…"]);
+    expect(hunk.lines[0]).toHaveLength(HUNK_LINE_MAX);
   });
 });

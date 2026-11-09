@@ -86,4 +86,24 @@ describe("parseBlamePorcelain", () => {
   it("returns nothing for empty output", () => {
     expect(parseBlamePorcelain("")).toEqual([]);
   });
+
+  // git quotes a path holding a double quote, a backslash or a control
+  // character (and, under core.quotePath, any non-ASCII one) in `filename` and
+  // `previous` both; the lookups that follow need the real path.
+  it("unquotes the paths git quotes", () => {
+    const quoted = [
+      `${B} 1 1 1`,
+      "author Bea",
+      "author-mail <bea@example.com>",
+      "author-time 1700000000",
+      "summary s",
+      `previous ${A} "old\\"name.txt"`,
+      'filename "tab\\there.txt"',
+      "\tline"
+    ].join("\n");
+    expect(parseBlamePorcelain(quoted)[0]).toMatchObject({
+      filename: "tab\there.txt",
+      previous: { sha: A, filename: 'old"name.txt' }
+    });
+  });
 });

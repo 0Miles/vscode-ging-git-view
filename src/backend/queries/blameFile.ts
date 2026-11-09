@@ -3,6 +3,8 @@ import * as path from "node:path";
 
 import { type GitRunOptions, runWithin } from "@/backend/gitRun";
 
+import { unquoteGitPath } from "./diffFileChanges";
+
 /** What `git blame` says about one line of a file. */
 export type BlameLine = {
   sha: string;
@@ -88,12 +90,16 @@ function readDetail(details: CommitDetails, line: string) {
     case "summary":
       details.summary = value;
       break;
+    // Paths git had to quote (see `unquoteGitPath`) come back as they are.
     case "filename":
-      details.filename = value;
+      details.filename = unquoteGitPath(value);
       break;
     case "previous": {
       const gap = value.indexOf(" ");
-      details.previous = { sha: value.slice(0, gap), filename: value.slice(gap + 1) };
+      details.previous = {
+        sha: value.slice(0, gap),
+        filename: unquoteGitPath(value.slice(gap + 1))
+      };
       break;
     }
     default:
@@ -214,7 +220,8 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
   const blamed = await runWithin(
     options,
     deadline,
-    ["blame", "--porcelain", ...contentsArgs, "--", options.filePath],
+    // Non-ASCII paths in `filename` and `previous` as UTF-8, not octal escapes.
+    ["-c", "core.quotePath=false", "blame", "--porcelain", ...contentsArgs, "--", options.filePath],
     contents
   );
   if (blamed?.kind !== "ok" || blamed.exitCode !== 0) return null;

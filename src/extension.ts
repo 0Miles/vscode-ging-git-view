@@ -329,6 +329,7 @@ export function activate(context: vscode.ExtensionContext) {
       avatars: {
         enabled: () => config.fetchAvatars() && extensionState.isAvatarStorageAvailable(),
         cached: (email) => avatarManager.getCachedAvatar(email),
+        read: (file) => avatarManager.readCachedAvatar(file),
         fetch: (email, repo, commits) => avatarManager.fetchAvatarImage(email, repo, commits)
       }
     }),

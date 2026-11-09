@@ -4,7 +4,8 @@ import { abbrevCommit } from "@/backend/utils/string";
 
 import { type BlameAnnotationContext, isUser, relativeTime } from "./blameAnnotation";
 
-/** Hunks longer than this are cut to a window around the blamed line. */
+/** Hunks longer than this are cut to a window around the blamed line; the "…"
+ *  marking a cut counts as one of the lines. */
 const HUNK_MAX_LINES = 10;
 /** How many of the window's lines come before the blamed line, room allowing. */
 const HUNK_LINES_BEFORE = 4;
@@ -25,9 +26,9 @@ export type BlameHoverDetails = {
 export type BlameHoverContext = BlameAnnotationContext & {
   /** The time zone to show the absolute time in; the system's by default. */
   timeZone?: string;
-  /** The annotation's labels, plus `changes` before the SHAs and `copySha`,
+  /** The annotation's labels, plus `changes` before the SHAs and `copyHash`,
    *  their tooltip. */
-  labels: BlameAnnotationContext["labels"] & { changes: string; copySha: string };
+  labels: BlameAnnotationContext["labels"] & { changes: string; copyHash: string };
   /** The command a SHA link runs, given the full SHA. */
   copyShaCommand: string;
 };
@@ -67,27 +68,25 @@ export function blameHoverMarkdown(
 
   const shaLink = (sha: string) =>
     `[\`${abbrevCommit(sha)}\`](command:${context.copyShaCommand}?` +
-    `${encodeURIComponent(JSON.stringify([sha]))} "${labels.copySha.replace(/"/g, "'")}")`;
+    `${encodeURIComponent(JSON.stringify([sha]))} "${labels.copyHash.replace(/"/g, "'")}")`;
   const shas =
     line.previous === null
       ? shaLink(line.sha)
       : `${shaLink(line.previous.sha)} ↔ ${shaLink(line.sha)}`;
-  // A link to open this line's change in a diff editor goes on this line too.
   sections.push(`${escapeText(labels.changes)} ${shas}`);
   return sections.join("\n\n");
 }
 
-/** At most `HUNK_MAX_LINES` of the hunk, the blamed line among them, with "…"
- *  where lines were cut. */
+/** At most `HUNK_MAX_LINES` lines of the hunk, the blamed line among them,
+ *  with a "…" — one of those lines — at each end that was cut. */
 function hunkWindow({ lines, index }: HunkExcerpt): string[] {
   if (lines.length <= HUNK_MAX_LINES) return lines;
-  const start = Math.max(0, Math.min(index - HUNK_LINES_BEFORE, lines.length - HUNK_MAX_LINES));
-  const end = start + HUNK_MAX_LINES;
-  return [
-    ...(start > 0 ? ["…"] : []),
-    ...lines.slice(start, end),
-    ...(end < lines.length ? ["…"] : [])
-  ];
+  const start = index - HUNK_LINES_BEFORE;
+  // Room for one "…": the window reaches the top, or the bottom.
+  const oneCut = HUNK_MAX_LINES - 1;
+  if (start <= 0) return [...lines.slice(0, oneCut), "…"];
+  if (start + oneCut >= lines.length) return ["…", ...lines.slice(lines.length - oneCut)];
+  return ["…", ...lines.slice(start, start + HUNK_MAX_LINES - 2), "…"];
 }
 
 /** A fenced diff block, its fence longer than any run of backticks inside. */
@@ -102,20 +101,54 @@ function diffBlock(lines: string[]): string {
 
 /**
  * `text` as Markdown that shows exactly it: every character Markdown, HTML or
- * a theme icon (`$(name)`) could read is escaped, leading whitespace is kept
- * (rather than turning the line into a code block), and each line break stays
- * one.
+ * a theme icon (`$(name)`) could read is escaped — block syntax at a line's
+ * start too (headings, setext `===` / `---` underlines, quotes, lists, tables)
+ * — leading whitespace is kept (rather than turning the line into a code
+ * block), and each line break stays one.
  */
 function escapeText(text: string): string {
   return text
     .split(/\r?\n/)
     .map((l) =>
       l
-        .replace(/[\\`*_{}[\]()#+\-.!|<>~$&]/g, "\\$&")
+        .replace(/[\\`*_{}[\]()#+\-.!|<>~$&=]/g, "\\$&")
         .replace(/^[ \t]+/, (indent) => "&nbsp;".repeat(indent.length))
     )
     .join("  \n");
 }
+
+/**
+ * The SHA a hover's copy link handed its command — a full SHA-1 or SHA-256
+ * commit hash, as the hover writes them; null for anything else a command
+ * link could be handed.
+ */
+export function copyableSha(arg: unknown): string | null {
+  return typeof arg === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(arg) ? arg : null;
+}
+
+const NO_DETAILS: BlameHoverDetails = { message: null, hunk: null, avatar: null };
+
+/**
+ * The details last drawn into a hover, for the blamed line they are of: a
+ * redraw of that line (the cursor moved along it, say) starts from them rather
+ * than from the bare blame, while they are looked up again. Any other line
+ * starts from nothing.
+ */
+export function createLastHoverDetails() {
+  let last: { of: string; details: BlameHoverDetails } | undefined;
+  return {
+    for(repo: string, line: BlameLine): BlameHoverDetails {
+      return last?.of === blamedLineKey(repo, line) ? last.details : NO_DETAILS;
+    },
+    remember(repo: string, line: BlameLine, details: BlameHoverDetails) {
+      last = { of: blamedLineKey(repo, line), details };
+    }
+  };
+}
+
+/** Which blamed line: the line of the file in the commit, in the repository. */
+const blamedLineKey = (repo: string, line: BlameLine) =>
+  JSON.stringify([repo, line.sha, line.filename, line.originalLine]);
 
 function dateTimeFormat(locale: string, timeZone: string | undefined): Intl.DateTimeFormat {
   const options: Intl.DateTimeFormatOptions = { dateStyle: "long", timeStyle: "short", timeZone };

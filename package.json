@@ -361,7 +361,7 @@
       {
         "category": "GING",
         "command": "ging-git-view.blame.copySha",
-        "title": "%command.blame.copySha%"
+        "title": "%command.blame.copyHash%"
       }
     ],
     "views": {

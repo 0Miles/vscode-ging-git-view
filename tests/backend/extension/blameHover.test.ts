@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { BlameLine } from "@/backend/queries/blameFile";
-import { type BlameHoverDetails, blameHoverMarkdown } from "@/extension/blameHover";
+import {
+  type BlameHoverDetails,
+  blameHoverMarkdown,
+  copyableSha,
+  createLastHoverDetails
+} from "@/extension/blameHover";
 
 const NOW = Date.UTC(2026, 10, 9, 9, 30, 0);
 const DAY = 86_400;
@@ -27,7 +32,7 @@ const EN_LABELS = {
   you: "You",
   uncommitted: "Uncommitted changes",
   changes: "Changes",
-  copySha: "Copy commit ID"
+  copyHash: "Copy commit hash"
 };
 
 const NO_DETAILS: BlameHoverDetails = { message: null, hunk: null, avatar: null };
@@ -53,7 +58,7 @@ function hover(
 
 /** The command link that copies `sha`, as the hover writes it. */
 const copyLink = (sha: string) =>
-  `[\`${sha.slice(0, 8)}\`](command:ext.copySha?${encodeURIComponent(JSON.stringify([sha]))} "Copy commit ID")`;
+  `[\`${sha.slice(0, 8)}\`](command:ext.copySha?${encodeURIComponent(JSON.stringify([sha]))} "Copy commit hash")`;
 
 /** The lines inside the hover's diff block. */
 function diffBody(markdown: string) {
@@ -139,9 +144,9 @@ describe("blameHoverMarkdown", () => {
       expect(diffBody(hover(line(), { hunk: { lines: ten, index: 9 } }))).toEqual(ten);
     });
 
-    it("cuts a longer hunk to 10 lines, marking the cut with …", () => {
+    it("cuts a longer hunk to 10 lines, the … marking the cut among them", () => {
       expect(diffBody(hover(line(), { hunk: { lines: fifteen, index: 1 } }))).toEqual([
-        ...fifteen.slice(0, 10),
+        ...fifteen.slice(0, 9),
         "…"
       ]);
     });
@@ -149,13 +154,21 @@ describe("blameHoverMarkdown", () => {
     it("keeps the blamed line among the 10 shown", () => {
       expect(diffBody(hover(line(), { hunk: { lines: fifteen, index: 13 } }))).toEqual([
         "…",
-        ...fifteen.slice(5, 15)
+        ...fifteen.slice(6, 15)
       ]);
       expect(diffBody(hover(line(), { hunk: { lines: fifteen, index: 8 } }))).toEqual([
         "…",
-        ...fifteen.slice(4, 14),
+        ...fifteen.slice(4, 12),
         "…"
       ]);
+    });
+
+    it("never shows more than 10 lines, wherever the blamed line is", () => {
+      for (let index = 0; index < fifteen.length; index++) {
+        const shown = diffBody(hover(line(), { hunk: { lines: fifteen, index } }));
+        expect(shown.length).toBeLessThanOrEqual(10);
+        expect(shown).toContain(fifteen[index]);
+      }
     });
 
     it("fences a hunk that itself holds backticks", () => {
@@ -195,6 +208,39 @@ describe("blameHoverMarkdown", () => {
     );
   });
 
+  it("shows block syntax at the start of a message line as text", () => {
+    const markdown = hover(line(), {
+      message: [
+        "Title",
+        "===",
+        "# h",
+        "> q",
+        "* a",
+        "+ b",
+        "- c",
+        "1. d",
+        "2) e",
+        "| a | b |",
+        "---"
+      ].join("\n")
+    });
+    expect(markdown.split("\n\n")[1]).toBe(
+      [
+        "Title",
+        "\\=\\=\\=",
+        "\\# h",
+        "\\> q",
+        "\\* a",
+        "\\+ b",
+        "\\- c",
+        "1\\. d",
+        "2\\) e",
+        "\\| a \\| b \\|",
+        "\\-\\-\\-"
+      ].join("  \n")
+    );
+  });
+
   it("shows the author and message as text, never as markdown or icons", () => {
     const markdown = hover(line({ authorName: "*Bo* $(zap)" }), {
       message: "[link](command:evil) <b>x</b>\n    indented"
@@ -203,5 +249,44 @@ describe("blameHoverMarkdown", () => {
     expect(markdown).toContain(
       "\\[link\\]\\(command:evil\\) \\<b\\>x\\</b\\>  \n&nbsp;&nbsp;&nbsp;&nbsp;indented"
     );
+  });
+});
+
+describe("createLastHoverDetails", () => {
+  const DETAILS: BlameHoverDetails = { message: "full", hunk: null, avatar: "data:x" };
+
+  it("hands back what was last drawn for the same blamed line", () => {
+    const last = createLastHoverDetails();
+    last.remember("/repo", line(), DETAILS);
+    expect(last.for("/repo", line())).toBe(DETAILS);
+  });
+
+  it("starts from nothing for any other line, commit, file or repository", () => {
+    const last = createLastHoverDetails();
+    last.remember("/repo", line(), DETAILS);
+    expect(last.for("/repo", line({ originalLine: 4 }))).toEqual(NO_DETAILS);
+    expect(last.for("/repo", line({ sha: PARENT }))).toEqual(NO_DETAILS);
+    expect(last.for("/repo", line({ filename: "b.txt" }))).toEqual(NO_DETAILS);
+    expect(last.for("/other", line())).toEqual(NO_DETAILS);
+  });
+
+  it("starts from nothing before anything was drawn", () => {
+    expect(createLastHoverDetails().for("/repo", line())).toEqual(NO_DETAILS);
+  });
+});
+
+describe("copyableSha", () => {
+  it("accepts a full SHA-1 or SHA-256 commit hash", () => {
+    expect(copyableSha(SHA)).toBe(SHA);
+    expect(copyableSha("c".repeat(64))).toBe("c".repeat(64));
+  });
+
+  it("refuses anything else a command link could be handed", () => {
+    expect(copyableSha(undefined)).toBeNull();
+    expect(copyableSha(42)).toBeNull();
+    expect(copyableSha([SHA])).toBeNull();
+    expect(copyableSha(SHA.slice(0, 8))).toBeNull();
+    expect(copyableSha(SHA.toUpperCase())).toBeNull();
+    expect(copyableSha(SHA + "\nrm -rf")).toBeNull();
   });
 });

@@ -168,7 +168,7 @@
   "command.remotes.remove": "移除 remote…",
   "command.remotes.copyUrl": "複製 remote URL",
   "command.blame.toggle": "切換 inline blame",
-  "command.blame.copySha": "複製 commit SHA",
+  "command.blame.copyHash": "複製 commit hash",
   "config.blame.enabled": "顯示 inline git blame：在游標所在行的行尾，顯示最後修改這一行的 commit 的作者、時間與摘要。",
   "color.blameAnnotationForeground": "游標所在行行尾 inline blame 註記的顏色。"
 }

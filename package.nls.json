@@ -168,7 +168,7 @@
   "command.remotes.remove": "Remove Remote…",
   "command.remotes.copyUrl": "Copy Remote URL",
   "command.blame.toggle": "Toggle Inline Blame",
-  "command.blame.copySha": "Copy Commit SHA",
+  "command.blame.copyHash": "Copy Commit Hash",
   "config.blame.enabled": "Show inline git blame: the author, date and summary of the commit that last changed the cursor's line, at the end of that line.",
   "color.blameAnnotationForeground": "Colour of the inline blame annotation at the end of the cursor's line."
 }

@@ -64,16 +64,23 @@ export class AvatarManager {
   }
 
   /**
-   * The avatar cached on disk for `email`, as a base64 data URI; null when none
-   * is cached or its file can't be read. Only reads the cache: it never queues
-   * a fetch, nor refreshes a stale entry — that is `fetchAvatarImage`'s job.
+   * The avatar file cached for `email`, and when it was saved; null when none
+   * is. Only reads the cache: it never queues a fetch, nor refreshes a stale
+   * entry — that is `fetchAvatarImage`'s job.
    */
-  public async getCachedAvatar(email: string): Promise<string | null> {
-    const image = this.avatars[email]?.image;
-    if (typeof image !== "string") return null;
+  public getCachedAvatar(email: string): { file: string; savedAt: number } | null {
+    const avatar = this.avatars[email];
+    return typeof avatar?.image === "string"
+      ? { file: avatar.image, savedAt: avatar.timestamp }
+      : null;
+  }
+
+  /** A file `getCachedAvatar` named, as a base64 data URI; null when it can't
+   *  be read. */
+  public async readCachedAvatar(file: string): Promise<string | null> {
     try {
-      const data = await fs.promises.readFile(this.avatarStorageFolder + "/" + image);
-      return avatarDataUri(image, data);
+      const data = await fs.promises.readFile(this.avatarStorageFolder + "/" + file);
+      return avatarDataUri(file, data);
     } catch {
       return null;
     }
