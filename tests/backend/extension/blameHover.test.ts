@@ -32,7 +32,8 @@ const EN_LABELS = {
   you: "You",
   uncommitted: "Uncommitted changes",
   changes: "Changes",
-  copyHash: "Copy commit hash"
+  copyHash: "Copy commit hash",
+  openLineChange: "Open this line's change"
 };
 
 const NO_DETAILS: BlameHoverDetails = { message: null, hunk: null, avatar: null };
@@ -51,10 +52,25 @@ function hover(
       timeZone: "UTC",
       userEmail: opts.userEmail ?? "",
       labels: opts.labels ?? EN_LABELS,
-      copyShaCommand: "ext.copySha"
+      repo: "/repo",
+      copyShaCommand: "ext.copySha",
+      openLineChangeCommand: "ext.openLineChange"
     }
   );
 }
+
+/** The command link that opens the line's change, as the hover writes it. */
+const openLink = (change: object) =>
+  `$(diff) [Open this line's change](command:ext.openLineChange?${encodeURIComponent(JSON.stringify([change]))})`;
+
+/** What the link of `line()` hands its command. */
+const LINE_CHANGE = {
+  repo: "/repo",
+  sha: SHA,
+  filename: "a.txt",
+  line: 3,
+  previous: { sha: PARENT, filename: "a.txt" }
+};
 
 /** The command link that copies `sha`, as the hover writes it. */
 const copyLink = (sha: string) =>
@@ -90,7 +106,9 @@ describe("blameHoverMarkdown", () => {
         "",
         "---",
         "",
-        `Changes ${copyLink(PARENT)} ↔ ${copyLink(SHA)}`
+        `Changes ${copyLink(PARENT)} ↔ ${copyLink(SHA)}`,
+        "",
+        openLink(LINE_CHANGE)
       ].join("\n")
     );
   });
@@ -104,15 +122,48 @@ describe("blameHoverMarkdown", () => {
         "",
         "---",
         "",
-        `Changes ${copyLink(PARENT)} ↔ ${copyLink(SHA)}`
+        `Changes ${copyLink(PARENT)} ↔ ${copyLink(SHA)}`,
+        "",
+        openLink(LINE_CHANGE)
       ].join("\n")
     );
   });
 
   it("lists only the commit itself when it has no parent", () => {
     const markdown = hover(line({ previous: null }));
-    expect(markdown.split("\n").at(-1)).toBe(`Changes ${copyLink(SHA)}`);
+    expect(markdown.split("\n").find((l) => l.startsWith("Changes "))).toBe(
+      `Changes ${copyLink(SHA)}`
+    );
     expect(markdown).not.toContain("↔");
+  });
+
+  it("still links a root commit's line to its change, against nothing", () => {
+    expect(
+      hover(line({ previous: null }))
+        .split("\n")
+        .at(-1)
+    ).toBe(openLink({ ...LINE_CHANGE, previous: null }));
+  });
+
+  it("links the line by its file and number in the commit, and the file's previous name", () => {
+    const renamed = line({
+      filename: "new name (1).txt",
+      originalLine: 12,
+      previous: { sha: PARENT, filename: "old).txt" }
+    });
+    const last = hover(renamed).split("\n").at(-1) ?? "";
+    const target = /\]\(command:ext\.openLineChange\?(.*)\)$/.exec(last)?.[1] ?? "";
+    // A parenthesis in a path would end the link early: it is escaped too.
+    expect(target).not.toMatch(/[()]/);
+    expect(JSON.parse(decodeURIComponent(target))).toEqual([
+      {
+        repo: "/repo",
+        sha: SHA,
+        filename: "new name (1).txt",
+        line: 12,
+        previous: { sha: PARENT, filename: "old).txt" }
+      }
+    ]);
   });
 
   it("says only that an uncommitted line isn't committed", () => {
@@ -120,6 +171,7 @@ describe("blameHoverMarkdown", () => {
       avatar: "data:image/png;base64,AAAA"
     });
     expect(markdown).toBe("Uncommitted changes");
+    expect(markdown).not.toContain("ext.openLineChange");
   });
 
   describe("avatar", () => {

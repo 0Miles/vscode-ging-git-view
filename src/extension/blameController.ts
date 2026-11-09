@@ -31,11 +31,13 @@ import {
   copyableSha,
   createLastHoverDetails
 } from "./blameHover";
+import { lineChangeArgs, lineChangeDiff } from "./blameLineChange";
 import { createBlameRepoWatchers } from "./blameRepoWatchers";
 import { updateDelay } from "./blameSchedule";
 import { type BlameTarget, blameTarget, spansLines } from "./blameTarget";
 import { blameToggle } from "./blameToggle";
 import { createLatestLoads } from "./latestLoads";
+import { openCommitDiff } from "./openCommitDiff";
 import { openDocumentKeys, type TabContents } from "./openDocuments";
 
 const SECTION = "ging-git-view";
@@ -43,6 +45,8 @@ const ENABLED_KEY = "blame.enabled";
 const COLOR_ID = "ging-git-view.blameAnnotationForeground";
 /** The hidden command a hover's SHA links run. */
 const COPY_SHA_COMMAND = "ging-git-view.blame.copySha";
+/** The hidden command a hover's link to the line's change runs. */
+const OPEN_LINE_CHANGE_COMMAND = "ging-git-view.blame.openLineChange";
 /** How many commits' changes the hovers keep. */
 const CHANGE_CACHE_SIZE = 100;
 /** How many excerpts of hunks too big to keep whole the hovers keep. */
@@ -282,6 +286,7 @@ export function createBlameController(deps: {
 
   function hoverMessage(
     line: BlameLine,
+    repo: string,
     details: BlameHoverDetails,
     context: BlameAnnotationContext
   ): vscode.MarkdownString {
@@ -290,13 +295,17 @@ export function createBlameController(deps: {
       labels: {
         ...context.labels,
         changes: l10n.t("blame.hover.changes"),
-        copyHash: l10n.t("blame.hover.copyHash")
+        copyHash: l10n.t("blame.hover.copyHash"),
+        openLineChange: l10n.t("blame.hover.openLineChange")
       },
-      copyShaCommand: COPY_SHA_COMMAND
+      repo,
+      copyShaCommand: COPY_SHA_COMMAND,
+      openLineChangeCommand: OPEN_LINE_CHANGE_COMMAND
     });
     const hover = new vscode.MarkdownString(markdown, true);
-    // The SHA links, and nothing else, may run a command.
-    hover.isTrusted = { enabledCommands: [COPY_SHA_COMMAND] };
+    // The SHA links and the line's change link, and nothing else, may run a
+    // command.
+    hover.isTrusted = { enabledCommands: [COPY_SHA_COMMAND, OPEN_LINE_CHANGE_COMMAND] };
     return hover;
   }
 
@@ -339,7 +348,7 @@ export function createBlameController(deps: {
       editor.setDecorations(decoration, [
         {
           range: new vscode.Range(end, end),
-          hoverMessage: hoverMessage(line, details, context),
+          hoverMessage: hoverMessage(line, target.repo, details, context),
           renderOptions: { after: { contentText: text } }
         }
       ]);
@@ -437,6 +446,25 @@ export function registerBlameCopySha(): vscode.Disposable {
       l10n.t("blame.copiedHash", abbrevCommit(sha)),
       COPIED_MESSAGE_MS
     );
+  });
+}
+
+/** `ging-git-view.blame.openLineChange`, the hover's link to the line's change:
+ *  open the commit's change to the file in a diff editor, at the line (see
+ *  `lineChangeDiff`). Hidden from the Command Palette. */
+export function registerBlameOpenLineChange(deps: {
+  knownRepos: () => string[];
+}): vscode.Disposable {
+  return vscode.commands.registerCommand(OPEN_LINE_CHANGE_COMMAND, async (arg: unknown) => {
+    // Arguments that don't check out — the repository is no longer known since
+    // the hover was drawn, say — are reported like a diff that failed to open,
+    // rather than doing nothing.
+    const change = lineChangeArgs(arg, deps.knownRepos());
+    // The same editor group as a diff opened from the graph.
+    const opened =
+      change !== null &&
+      (await openCommitDiff(lineChangeDiff(change), config.openNewTabEditorGroup()));
+    if (!opened) void vscode.window.showErrorMessage(l10n.t("error.unableToViewDiff"));
   });
 }
 

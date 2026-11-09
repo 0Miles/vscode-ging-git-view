@@ -463,6 +463,7 @@
   "blame.uncommitted": "Uncommitted changes",
   "blame.hover.changes": "Changes",
   "blame.hover.copyHash": "Copy commit hash",
+  "blame.hover.openLineChange": "Open this line's change",
   "blame.copiedHash": "Copied commit hash {0}",
   "blame.workspaceKeepsOff": "Inline blame is now on in your user settings, but this workspace's settings still turn it off.",
   "blame.workspaceKeepsOn": "Inline blame is now off in your user settings, but this workspace's settings still turn it on."
