@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   blameCommitChange,
+  blameLineExcerpt,
+  CHANGE_MAX_LINES,
   HUNK_LINE_MAX,
   hunkAt,
   parseHunks
@@ -45,12 +47,13 @@ async function changeOf(repo: string, file: string, line: number) {
     filename: target.filename,
     previous: target.previous
   });
-  return {
-    target,
-    change,
-    hunk: change === null ? null : hunkAt(change.hunks, target.originalLine)
-  };
+  const hunk = change === null ? null : hunkAt(change, target.originalLine);
+  return { target, change, hunk, excerpt: hunk === "left out" ? null : hunk };
 }
+
+/** How much a change keeps: its hunks' lines, and one for each hunk. */
+const keptLines = (change: { hunks: { lines: string[] | null }[] }) =>
+  change.hunks.reduce((n, hunk) => n + 1 + (hunk.lines?.length ?? 0), 0);
 
 describe("blameCommitChange (real git)", () => {
   it("returns the commit's full message and the hunk that holds the blamed line", async () => {
@@ -93,12 +96,12 @@ describe("blameCommitChange (real git)", () => {
     fs.writeFileSync(path.join(r, "new.txt"), edited.join("\n") + "\n");
     commit(r, "rename and edit");
 
-    const { target, hunk } = await changeOf(r, "new.txt", 4);
+    const { target, excerpt } = await changeOf(r, "new.txt", 4);
 
     expect(target.previous?.filename).toBe("old.txt");
     // Only the edited line, not the whole file as if it were new.
-    expect(hunk?.lines.filter((l) => l.startsWith("+"))).toEqual(["+line 5 changed"]);
-    expect(hunk?.lines[hunk.index]).toBe("+line 5 changed");
+    expect(excerpt?.lines.filter((l) => l.startsWith("+"))).toEqual(["+line 5 changed"]);
+    expect(excerpt?.lines[excerpt.index]).toBe("+line 5 changed");
   });
 
   it("returns the whole added file for a root commit", async () => {
@@ -129,7 +132,7 @@ describe("blameCommitChange (real git)", () => {
     });
 
     expect(change).not.toBeNull();
-    expect(hunkAt(change!.hunks, 20)).toBeNull();
+    expect(hunkAt(change!, 20)).toBeNull();
   });
 
   it("resolves null when git fails", async () => {
@@ -181,10 +184,10 @@ describe("blameCommitChange (real git, beyond a plain commit)", () => {
     fs.writeFileSync(path.join(r, "min.js"), "x".repeat(1_000_000) + "\n");
     commit(r, "add minified");
 
-    const { hunk } = await changeOf(r, "min.js", 0);
+    const { excerpt } = await changeOf(r, "min.js", 0);
 
     // 200 characters in all: the "+", the start of the line, and the "…".
-    expect(hunk?.lines).toEqual(["+" + "x".repeat(HUNK_LINE_MAX - 2) + "…"]);
+    expect(excerpt?.lines).toEqual(["+" + "x".repeat(HUNK_LINE_MAX - 2) + "…"]);
   });
 });
 
@@ -209,7 +212,7 @@ describe("parseHunks", () => {
   it("reads the hunks of the blamed file alone, never another file's in the same patch", () => {
     const hunks = parseHunks(twoFiles, "a.txt");
 
-    expect(hunks).toEqual([{ newStart: 9, newCount: 1, lines: ["-old a", "+new a"] }]);
+    expect(hunks.hunks).toEqual([{ newStart: 9, newCount: 1, lines: ["-old a", "+new a"] }]);
     // other.txt's hunk spans line 2 too; it must not answer for a.txt.
     expect(hunkAt(hunks, 2)).toBeNull();
   });
@@ -227,7 +230,7 @@ describe("parseHunks", () => {
       "+b",
       ""
     ].join("\n");
-    expect(parseHunks(renamed, "new.txt")).toEqual([
+    expect(parseHunks(renamed, "new.txt").hunks).toEqual([
       { newStart: 1, newCount: 1, lines: ["-a", "+b"] }
     ]);
   });
@@ -235,8 +238,90 @@ describe("parseHunks", () => {
   it("cuts a line longer than the limit, marking the cut with …", () => {
     const long = "+" + "y".repeat(500);
     const patch = ["+++ b/a.txt", "@@ -0,0 +1 @@", long, ""].join("\n");
-    const [hunk] = parseHunks(patch, "a.txt");
+    const [hunk] = parseHunks(patch, "a.txt").hunks;
     expect(hunk.lines).toEqual([long.slice(0, HUNK_LINE_MAX - 1) + "…"]);
-    expect(hunk.lines[0]).toHaveLength(HUNK_LINE_MAX);
+    expect(hunk.lines?.[0]).toHaveLength(HUNK_LINE_MAX);
+  });
+});
+
+/** A patch adding `count` lines `+line 1`… to a.txt, as one hunk. */
+function addedPatch(count: number, from = 1): string[] {
+  return [`@@ -0,0 +${from},${count} @@`, ...numbered(from, from + count - 1).map((l) => "+" + l)];
+}
+
+describe("parseHunks within a budget", () => {
+  it("keeps a hunk's lines while they fit, and only its place when they don't", () => {
+    const patch = [
+      "+++ b/a.txt",
+      ...addedPatch(3),
+      ...addedPatch(50, 10),
+      ...addedPatch(2, 100),
+      ""
+    ];
+    const parsed = parseHunks(patch.join("\n"), "a.txt", 20);
+
+    expect(parsed.complete).toBe(true);
+    expect(parsed.hunks.map((h) => [h.newStart, h.newCount, h.lines?.length ?? null])).toEqual([
+      [1, 3, 3],
+      [10, 50, null],
+      [100, 2, 2]
+    ]);
+    expect(keptLines(parsed)).toBeLessThanOrEqual(20);
+    expect(hunkAt(parsed, 2)).toEqual({ lines: ["+line 1", "+line 2", "+line 3"], index: 1 });
+    expect(hunkAt(parsed, 30)).toBe("left out");
+    expect(hunkAt(parsed, 5)).toBeNull();
+  });
+
+  it("stops recording hunks once even their places don't fit, and says so", () => {
+    const patch = ["+++ b/a.txt"];
+    for (let i = 0; i < 10; i++) patch.push(...addedPatch(1, 1 + i * 10));
+    const parsed = parseHunks(patch.join("\n") + "\n", "a.txt", 6);
+
+    expect(parsed.complete).toBe(false);
+    expect(keptLines(parsed)).toBeLessThanOrEqual(6);
+    // A line past the hunks kept may be in one that wasn't: look it up again.
+    expect(hunkAt(parsed, 91)).toBe("left out");
+    expect(hunkAt(parsed, 1)).toEqual({ lines: ["+line 1"], index: 0 });
+  });
+});
+
+describe("a change too big to keep (real git)", () => {
+  it("keeps its lines within the budget, and still gives any blamed line its excerpt", async () => {
+    const r = newRepo();
+    const count = CHANGE_MAX_LINES * 2;
+    fs.writeFileSync(path.join(r, "lock.txt"), numbered(1, count).join("\n") + "\n");
+    commit(r, "add a lockfile");
+
+    const { target, change, hunk } = await changeOf(r, "lock.txt", 2499);
+
+    expect(keptLines(change!)).toBeLessThanOrEqual(CHANGE_MAX_LINES);
+    expect(hunk).toBe("left out");
+
+    const excerpt = await blameLineExcerpt({
+      gitPath: "git",
+      repoPath: r,
+      sha: target.sha,
+      filename: target.filename,
+      previous: target.previous,
+      line: target.originalLine
+    });
+    // Line 2500 of 4000, all added: the 10 lines around it, cut at both ends.
+    expect(excerpt).toEqual({
+      lines: ["…", ...numbered(2496, 2503).map((l) => "+" + l), "…"],
+      index: 5
+    });
+  });
+
+  it("gives an excerpt of nothing for a line the commit didn't touch", async () => {
+    const r = newRepo();
+    const excerpt = await blameLineExcerpt({
+      gitPath: "git",
+      repoPath: r,
+      sha: head(r),
+      filename: "f",
+      previous: null,
+      line: 5
+    });
+    expect(excerpt).toBeNull();
   });
 });

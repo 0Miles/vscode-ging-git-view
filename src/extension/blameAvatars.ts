@@ -15,11 +15,16 @@ export type BlameAvatarDeps = {
   fetch: (email: string, repo: string, commits: string[]) => void;
 };
 
+/** How many authors' avatars are kept read, the least recently shown dropped
+ *  first. */
+const AVATARS_KEPT = 200;
+
 /**
  * The avatar a blame hover shows for a line's author: the cached one, or null.
  * While avatars are off nothing is read or fetched, so nothing leaves the
  * machine. A cached file is read once, and again only when the cache holds
- * another file for the author or saved it anew. An avatar not cached yet — or
+ * another file for the author or saved it anew — or the author was dropped to
+ * keep `AVATARS_KEPT`. An avatar not cached yet — or
  * whose file can't be read — is fetched in the background, once per author
  * for as long as this lives, and shows on a later hover.
  */
@@ -33,10 +38,17 @@ export function createBlameAvatars(
     const cached = deps.cached(authorEmail);
     const known = read.get(authorEmail);
     if (cached !== null && known?.file === cached.file && known.savedAt === cached.savedAt) {
+      // Most recently used goes last, so the first is the one to drop.
+      read.delete(authorEmail);
+      read.set(authorEmail, known);
       return known.uri;
     }
     const uri = cached === null ? null : await deps.read(cached.file);
-    if (cached !== null && uri !== null) read.set(authorEmail, { ...cached, uri });
+    read.delete(authorEmail);
+    if (cached !== null && uri !== null) {
+      read.set(authorEmail, { ...cached, uri });
+      if (read.size > AVATARS_KEPT) read.delete(read.keys().next().value!);
+    }
     if (uri === null && !requested.has(authorEmail)) {
       requested.add(authorEmail);
       deps.fetch(authorEmail, repo, [sha]);

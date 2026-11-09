@@ -2,7 +2,14 @@ import * as vscode from "vscode";
 
 import type { GitRunOptions } from "@/backend/gitRun";
 import type { GitCommandHandler } from "@/backend/gitSpawn";
-import { blameCommitChange, hunkAt } from "@/backend/queries/blameCommitChange";
+import {
+  type BlamedCommit,
+  blameCommitChange,
+  blameLineExcerpt,
+  type CommitChange,
+  type HunkExcerpt,
+  hunkAt
+} from "@/backend/queries/blameCommitChange";
 import {
   BLAME_TIMEOUT_MS,
   type BlameLine,
@@ -18,7 +25,6 @@ import * as l10n from "@/l10n";
 import { type BlameAnnotationContext, blameAnnotationText } from "./blameAnnotation";
 import { type BlameAvatarDeps, createBlameAvatars } from "./blameAvatars";
 import { createBlameCache } from "./blameCache";
-import { createBlameChanges } from "./blameChanges";
 import {
   type BlameHoverDetails,
   blameHoverMarkdown,
@@ -29,6 +35,7 @@ import { createBlameRepoWatchers } from "./blameRepoWatchers";
 import { updateDelay } from "./blameSchedule";
 import { type BlameTarget, blameTarget, spansLines } from "./blameTarget";
 import { blameToggle } from "./blameToggle";
+import { createLatestLoads } from "./latestLoads";
 import { openDocumentKeys, type TabContents } from "./openDocuments";
 
 const SECTION = "ging-git-view";
@@ -38,10 +45,23 @@ const COLOR_ID = "ging-git-view.blameAnnotationForeground";
 const COPY_SHA_COMMAND = "ging-git-view.blame.copySha";
 /** How many commits' changes the hovers keep. */
 const CHANGE_CACHE_SIZE = 100;
+/** How many excerpts of hunks too big to keep whole the hovers keep. */
+const EXCERPT_CACHE_SIZE = 200;
 /** How long the status bar says a SHA was copied. */
 const COPIED_MESSAGE_MS = 3000;
 
 type FileBlame = { lines: BlameLine[]; userEmail: string };
+
+/** A hover lookup: a blamed line's commit, in a repository. */
+type HoverLookup = { commit: BlamedCommit; repo: string };
+const lookupKey = ({ commit, repo }: HoverLookup) =>
+  JSON.stringify([
+    repo,
+    commit.sha,
+    commit.filename,
+    commit.previous?.sha,
+    commit.previous?.filename
+  ]);
 
 const cacheKey = (document: vscode.TextDocument) => document.uri.toString();
 const lineSpans = (selections: readonly vscode.Selection[]) =>
@@ -136,13 +156,26 @@ export function createBlameController(deps: {
     after: { color: new vscode.ThemeColor(COLOR_ID), margin: "0 0 0 3em" }
   });
   const cache = createBlameCache<Promise<FileBlame | null>>();
-  /** Each commit's change to a file, for the hovers; only the latest request's
-   *  git runs, the one before it aborted (see `createBlameChanges`). */
-  const changes = createBlameChanges({
-    load: ({ sha, filename, previous }, repo, signal) =>
+  // What the hovers look up, each kept bounded; only the latest request of each
+  // runs git, the one before it aborted (see `createLatestLoads`).
+  /** Each commit's change to a file. */
+  const changes = createLatestLoads<HoverLookup, CommitChange>({
+    key: lookupKey,
+    load: ({ commit: { sha, filename, previous }, repo }, signal) =>
       blameCommitChange({ ...gitIn(repo), signal, sha, filename, previous }),
     size: CHANGE_CACHE_SIZE
   });
+  /** The excerpt for one line of a hunk too big for its change to keep. */
+  const excerpts = createLatestLoads<HoverLookup & { line: number }, HunkExcerpt>({
+    key: (lookup) => `${lookupKey(lookup)}:${lookup.line}`,
+    load: ({ commit: { sha, filename, previous }, repo, line }, signal) =>
+      blameLineExcerpt({ ...gitIn(repo), signal, sha, filename, previous, line }),
+    size: EXCERPT_CACHE_SIZE
+  });
+  const cancelLookups = () => {
+    changes.cancel();
+    excerpts.cancel();
+  };
   const avatarOf = createBlameAvatars(deps.avatars);
   // A commit or checkout changes the blame of every file in the repository, and
   // so does one that may have landed before its watcher was up (reported as a
@@ -175,7 +208,7 @@ export function createBlameController(deps: {
   function hide() {
     cancelPending();
     // No annotation, no hover to look anything up for.
-    changes.cancel();
+    cancelLookups();
     decorated?.setDecorations(decoration, []);
     decorated = undefined;
   }
@@ -235,15 +268,16 @@ export function createBlameController(deps: {
 
   /** What the hover of a committed line shows beyond its blame. */
   async function hoverDetails(line: BlameLine, repo: string): Promise<BlameHoverDetails> {
+    const lookup = { commit: line, repo };
     const [change, avatar] = await Promise.all([
-      changes.changeOf(line, repo),
+      changes.get(lookup),
       avatarOf(line, repo).catch(() => null)
     ]);
-    return {
-      message: change?.message ?? null,
-      hunk: change === null ? null : hunkAt(change.hunks, line.originalLine),
-      avatar
-    };
+    const found = change === null ? null : hunkAt(change, line.originalLine);
+    // A hunk too big for the change to keep is looked up again, for this line.
+    const hunk =
+      found === "left out" ? await excerpts.get({ ...lookup, line: line.originalLine }) : found;
+    return { message: change?.message ?? null, hunk, avatar };
   }
 
   function hoverMessage(
@@ -313,7 +347,7 @@ export function createBlameController(deps: {
     decorated = editor;
     if (line.uncommitted) {
       // Nothing to look up — and whatever the line before wanted is stale.
-      changes.cancel();
+      cancelLookups();
       return;
     }
     const details = await hoverDetails(line, target.repo);
@@ -385,7 +419,7 @@ export function createBlameController(deps: {
       cancelPending();
       for (const s of subscriptions) s.dispose();
       repoWatchers.dispose();
-      changes.cancel();
+      cancelLookups();
       cache.clear();
     }
   };

@@ -1,14 +1,9 @@
-import type { HunkExcerpt } from "@/backend/queries/blameCommitChange";
+import { type HunkExcerpt, hunkWindow } from "@/backend/queries/blameCommitChange";
 import type { BlameLine } from "@/backend/queries/blameFile";
 import { abbrevCommit } from "@/backend/utils/string";
 
 import { type BlameAnnotationContext, isUser, relativeTime } from "./blameAnnotation";
 
-/** Hunks longer than this are cut to a window around the blamed line; the "…"
- *  marking a cut counts as one of the lines. */
-const HUNK_MAX_LINES = 10;
-/** How many of the window's lines come before the blamed line, room allowing. */
-const HUNK_LINES_BEFORE = 4;
 const AVATAR_SIZE = 16;
 
 /** What the hover knows beyond the blame itself, each part null until (or
@@ -16,7 +11,8 @@ const AVATAR_SIZE = 16;
 export type BlameHoverDetails = {
   /** The commit's full message; the blame's summary stands in until then. */
   message: string | null;
-  /** The commit's hunk holding the line. */
+  /** The commit's hunk holding the line, shown cut to its excerpt (see
+   *  `hunkWindow`). */
   hunk: HunkExcerpt | null;
   /** An image URI of the author's avatar; the account icon stands in without. */
   avatar: string | null;
@@ -63,7 +59,7 @@ export function blameHoverMarkdown(
     `${avatar} **${escapeText(author)}**, ${escapeText(relative)} (${escapeText(absolute)})`,
     escapeText(details.message ?? line.summary)
   ];
-  if (details.hunk !== null) sections.push(diffBlock(hunkWindow(details.hunk)));
+  if (details.hunk !== null) sections.push(diffBlock(hunkWindow(details.hunk).lines));
   sections.push("---");
 
   const shaLink = (sha: string) =>
@@ -75,18 +71,6 @@ export function blameHoverMarkdown(
       : `${shaLink(line.previous.sha)} ↔ ${shaLink(line.sha)}`;
   sections.push(`${escapeText(labels.changes)} ${shas}`);
   return sections.join("\n\n");
-}
-
-/** At most `HUNK_MAX_LINES` lines of the hunk, the blamed line among them,
- *  with a "…" — one of those lines — at each end that was cut. */
-function hunkWindow({ lines, index }: HunkExcerpt): string[] {
-  if (lines.length <= HUNK_MAX_LINES) return lines;
-  const start = index - HUNK_LINES_BEFORE;
-  // Room for one "…": the window reaches the top, or the bottom.
-  const oneCut = HUNK_MAX_LINES - 1;
-  if (start <= 0) return [...lines.slice(0, oneCut), "…"];
-  if (start + oneCut >= lines.length) return ["…", ...lines.slice(lines.length - oneCut)];
-  return ["…", ...lines.slice(start, start + HUNK_MAX_LINES - 2), "…"];
 }
 
 /** A fenced diff block, its fence longer than any run of backticks inside. */

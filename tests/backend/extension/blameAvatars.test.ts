@@ -66,6 +66,24 @@ describe("createBlameAvatars", () => {
     expect(deps.read).toHaveBeenCalledTimes(3);
   });
 
+  it("remembers the avatars read for the 200 authors seen last", async () => {
+    const cache: Record<string, Entry> = {};
+    const author = (i: number) => ({ authorEmail: `a${i}@example.com`, sha: SHA });
+    for (let i = 0; i <= 200; i++) cache[`a${i}@example.com`] = { file: `${i}.png`, savedAt: 1 };
+    const { deps, avatarOf } = setup({ enabled: true, cache });
+
+    for (let i = 0; i < 200; i++) await avatarOf(author(i), "/repo"); // eslint-disable-line no-await-in-loop -- in order: the order is what is tested
+    await avatarOf(author(0), "/repo"); // a0 is now the most recent
+    await avatarOf(author(200), "/repo"); // so a1 makes room
+    deps.read.mockClear();
+
+    await avatarOf(author(0), "/repo");
+    await avatarOf(author(200), "/repo");
+    expect(deps.read).not.toHaveBeenCalled();
+    await avatarOf(author(1), "/repo");
+    expect(deps.read).toHaveBeenCalledWith("1.png");
+  });
+
   it("fetches an avatar not cached yet in the background, once, for the next hover", async () => {
     const { deps, avatarOf } = setup({ enabled: true });
     const bo = { authorEmail: "bo@example.com", sha: SHA };

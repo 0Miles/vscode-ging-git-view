@@ -163,6 +163,15 @@ describe("blameHoverMarkdown", () => {
       ]);
     });
 
+    it("shows a line rather than a … standing for it alone", () => {
+      const eleven = fifteen.slice(0, 11);
+      // Line 0 is the only one before the window: shown, not cut.
+      expect(diffBody(hover(line(), { hunk: { lines: eleven, index: 5 } }))).toEqual([
+        ...eleven.slice(0, 9),
+        "…"
+      ]);
+    });
+
     it("never shows more than 10 lines, wherever the blamed line is", () => {
       for (let index = 0; index < fifteen.length; index++) {
         const shown = diffBody(hover(line(), { hunk: { lines: fifteen, index } }));

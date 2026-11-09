@@ -10,16 +10,21 @@ export type DiffHunk = {
   /** How many lines of the new side the hunk spans. */
   newCount: number;
   /** The hunk's lines, each with its ` `, `+` or `-` prefix and no line ending,
-   *  cut to `HUNK_LINE_MAX` characters. */
-  lines: string[];
+   *  cut to `HUNK_LINE_MAX` characters; null when there were too many to keep
+   *  (see `parseHunks`). */
+  lines: string[] | null;
 };
+
+/** The hunks of a change to one file; `complete` is false when there were too
+ *  many to record them all, and the ones past the last of `hunks` are missing. */
+export type FileHunks = { hunks: DiffHunk[]; complete: boolean };
 
 /** A hunk's lines, and the index among them of the one line it is shown for. */
 export type HunkExcerpt = { lines: string[]; index: number };
 
-/** What a blamed line's commit did: its full message, and the hunks of its
- *  change to the line's file. */
-export type CommitChange = { message: string; hunks: DiffHunk[] };
+/** What a blamed line's commit did: its message, and the hunks of its change
+ *  to the line's file. */
+export type CommitChange = { message: string } & FileHunks;
 
 /** Which change of which commit: a blamed line's commit, the file's path
  *  there, and what the commit is compared with. */
@@ -30,6 +35,18 @@ export type BlameCommitChangeOptions = GitRunOptions & BlamedCommit;
 /** A diff line longer than this — a minified or generated file's, say — is cut,
  *  the "…" marking the cut included, so no more than this is ever kept. */
 export const HUNK_LINE_MAX = 200;
+/**
+ * How much of a change is kept: its hunks' lines, plus one for each hunk
+ * recorded. With `HUNK_LINE_MAX` and `MESSAGE_MAX` it bounds what one change
+ * holds — some 400,000 characters — however big the commit (a lockfile's, say).
+ */
+export const CHANGE_MAX_LINES = 2000;
+/** A longer commit message is cut, the "…" marking the cut included. */
+export const MESSAGE_MAX = 10_000;
+/** The lines of a hunk shown for one of its lines, any "…" among them. */
+export const EXCERPT_MAX_LINES = 10;
+/** How many of an excerpt's lines come before the blamed line, room allowing. */
+const EXCERPT_LINES_BEFORE = 4;
 
 const HUNK_HEADER = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 /** The prefix the patch is asked to give the new side's paths. */
@@ -41,9 +58,19 @@ const NEW_PREFIX = "b/";
  * skipped. Each hunk's header says how many lines it spans on either side, so
  * its end is counted rather than guessed; git's `\ No newline at end of file`
  * marker is left out, as it is no line of the file.
+ *
+ * At most `maxLines` are kept, each hunk recorded counting as one: a hunk
+ * whose lines don't fit keeps only its place (`lines` null), and once not even
+ * a hunk's place fits, no more are recorded (`complete` false).
  */
-export function parseHunks(patch: string, filename: string): DiffHunk[] {
+export function parseHunks(
+  patch: string,
+  filename: string,
+  maxLines: number = CHANGE_MAX_LINES
+): FileHunks {
   const hunks: DiffHunk[] = [];
+  // How much is kept so far: lines, and one for each hunk.
+  const kept = { lines: 0 };
   let inFile = false;
   // The hunk being read, and how many lines of either side it has still to go.
   let open: { hunk: DiffHunk; oldLeft: number; newLeft: number } | undefined;
@@ -59,7 +86,16 @@ export function parseHunks(patch: string, filename: string): DiffHunk[] {
         open.oldLeft--;
         open.newLeft--;
       }
-      open.hunk.lines.push(cutLine(line === "" ? " " : line));
+      const { hunk } = open;
+      if (hunk.lines === null) continue;
+      if (kept.lines < maxLines) {
+        hunk.lines.push(cutLine(line === "" ? " " : line));
+        kept.lines++;
+      } else {
+        // Too many: the hunk keeps its place alone.
+        kept.lines -= hunk.lines.length;
+        hunk.lines = null;
+      }
       continue;
     }
     if (line.startsWith("diff ")) inFile = false;
@@ -67,12 +103,14 @@ export function parseHunks(patch: string, filename: string): DiffHunk[] {
     if (!inFile) continue;
     const header = HUNK_HEADER.exec(line);
     if (header === null) continue;
+    if (kept.lines >= maxLines) return { hunks, complete: false };
     const newCount = header[3] === undefined ? 1 : Number(header[3]);
-    const hunk = { newStart: Number(header[2]), newCount, lines: [] };
+    const hunk: DiffHunk = { newStart: Number(header[2]), newCount, lines: [] };
     hunks.push(hunk);
+    kept.lines++;
     open = { hunk, oldLeft: header[1] === undefined ? 1 : Number(header[1]), newLeft: newCount };
   }
-  return hunks;
+  return { hunks, complete: true };
 }
 
 /** `line` cut to `HUNK_LINE_MAX` characters, "…" last, if longer; never in
@@ -93,12 +131,20 @@ function patchPath(text: string): string {
 
 /**
  * The hunk that holds the new side's 1-based line `line`, with the index in
- * its `lines` of that line; null when no hunk does — the change didn't touch
- * it.
+ * its `lines` of that line; "left out" when that hunk's lines (or the hunk
+ * itself) were too many to keep — `blameLineExcerpt` looks it up alone — and
+ * null when no hunk does: the change didn't touch the line.
  */
-export function hunkAt(hunks: DiffHunk[], line: number): HunkExcerpt | null {
-  const hunk = hunks.find((h) => h.newStart <= line && line < h.newStart + h.newCount);
-  if (hunk === undefined) return null;
+export function hunkAt(change: FileHunks, line: number): HunkExcerpt | "left out" | null {
+  const hunk = change.hunks.find((h) => h.newStart <= line && line < h.newStart + h.newCount);
+  if (hunk === undefined) {
+    // Hunks come in order: only a line past the last one recorded can be in
+    // one that wasn't.
+    const last = change.hunks.at(-1);
+    const pastRecorded = last === undefined || line >= last.newStart + last.newCount;
+    return !change.complete && pastRecorded ? "left out" : null;
+  }
+  if (hunk.lines === null) return "left out";
   let at = hunk.newStart;
   for (const [index, text] of hunk.lines.entries()) {
     if (text.startsWith("-")) continue;
@@ -109,19 +155,84 @@ export function hunkAt(hunks: DiffHunk[], line: number): HunkExcerpt | null {
 }
 
 /**
+ * At most `EXCERPT_MAX_LINES` lines of a hunk, the blamed line among them,
+ * with a "…" — one of those lines — at each end where lines were left out. A
+ * "…" never stands for a single line: that line is shown in its place.
+ */
+export function hunkWindow({ lines, index }: HunkExcerpt): HunkExcerpt {
+  if (lines.length <= EXCERPT_MAX_LINES) return { lines, index };
+  const oneCut = EXCERPT_MAX_LINES - 1;
+  let start: number;
+  let end: number;
+  if (index - EXCERPT_LINES_BEFORE <= 0) {
+    // The window reaches the top: the "…" goes at the bottom only.
+    [start, end] = [0, oneCut];
+  } else if (index - EXCERPT_LINES_BEFORE + oneCut >= lines.length) {
+    [start, end] = [lines.length - oneCut, lines.length];
+  } else {
+    start = index - EXCERPT_LINES_BEFORE;
+    end = start + EXCERPT_MAX_LINES - 2;
+    // A "…" for one line would hide it for nothing: show the line.
+    if (start === 1) start = 0;
+  }
+  return {
+    lines: [
+      ...(start > 0 ? ["…"] : []),
+      ...lines.slice(start, end),
+      ...(end < lines.length ? ["…"] : [])
+    ],
+    index: index - start + (start > 0 ? 1 : 0)
+  };
+}
+
+/**
  * What the blamed line's commit did: its full message (the blame gives only
- * the summary), and its change to the file — against the line's `previous`,
- * under the file's name there, so a rename shows as the edit it was; or, with
- * no `previous`, the file as the commit added it (against its first parent, for
- * a merge). Only the parsed, cut hunks are kept, never the patch. Resolves
- * null — never rejects — when git fails, the deadline (by default
- * `BLAME_TIMEOUT_MS` from the call) passes, or `signal` aborts.
+ * the summary; one past `MESSAGE_MAX` is cut), and its change to the file —
+ * against the line's `previous`, under the file's name there, so a rename
+ * shows as the edit it was; or, with no `previous`, the file as the commit
+ * added it (against its first parent, for a merge). Only the parsed hunks are
+ * kept, within `CHANGE_MAX_LINES`, never the patch. Resolves null — never
+ * rejects — when git fails, the deadline (by default `BLAME_TIMEOUT_MS` from
+ * the call) passes, or `signal` aborts.
  */
 export async function blameCommitChange(
   options: BlameCommitChangeOptions
 ): Promise<CommitChange | null> {
   const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
-  const { sha, filename, previous } = options;
+  const [shown, patched] = await Promise.all([
+    runWithin(options, deadline, ["show", "-s", "--no-show-signature", "--format=%B", options.sha]),
+    runWithin(options, deadline, patchArgs(options))
+  ]);
+  if (shown?.kind !== "ok" || shown.exitCode !== 0) return null;
+  if (patched?.kind !== "ok" || patched.exitCode !== 0) return null;
+  const message = shown.stdout.toString().replace(/\s+$/, "");
+  return {
+    message: message.length > MESSAGE_MAX ? message.slice(0, MESSAGE_MAX - 1) + "…" : message,
+    ...parseHunks(patched.stdout.toString(), options.filename)
+  };
+}
+
+/**
+ * The excerpt (see `hunkWindow`) of the blamed line's hunk, for one line that
+ * `hunkAt` found "left out": the hunk is read whole for the moment, but only
+ * the excerpt is kept. Null when the change didn't touch the line; and — never
+ * rejecting — when git fails, the deadline passes, or `signal` aborts.
+ */
+export async function blameLineExcerpt(
+  options: BlameCommitChangeOptions & { line: number }
+): Promise<HunkExcerpt | null> {
+  const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
+  const patched = await runWithin(options, deadline, patchArgs(options));
+  if (patched?.kind !== "ok" || patched.exitCode !== 0) return null;
+  const all = parseHunks(patched.stdout.toString(), options.filename, Infinity);
+  const excerpt = hunkAt(all, options.line);
+  return excerpt === null || excerpt === "left out" ? null : hunkWindow(excerpt);
+}
+
+/** The git args for the patch of a blamed line's commit to its file: against
+ *  the line's `previous`; with none, against nothing — or, for a merge, its
+ *  first parent. */
+function patchArgs({ sha, filename, previous }: BlamedCommit): string[] {
   const patchOptions = [
     "--no-color",
     "--no-ext-diff",
@@ -135,39 +246,22 @@ export async function blameCommitChange(
   ];
   // Non-ASCII paths in the patch headers as UTF-8, not octal escapes.
   const quoting = ["-c", "core.quotePath=false"];
-  const patchArgs =
-    previous === null
-      ? // A merge's own diff would be combined (`@@@`): take it against its
-        // first parent instead, as an ordinary patch.
-        [
-          ...quoting,
-          "show",
-          "--format=",
-          "--root",
-          "-m",
-          "--first-parent",
-          ...patchOptions,
-          sha,
-          "--",
-          filename
-        ]
-      : [
-          ...quoting,
-          "diff",
-          ...patchOptions,
-          previous.sha,
-          sha,
-          "--",
-          ...new Set([previous.filename, filename])
-        ];
-  const [shown, patched] = await Promise.all([
-    runWithin(options, deadline, ["show", "-s", "--no-show-signature", "--format=%B", sha]),
-    runWithin(options, deadline, patchArgs)
-  ]);
-  if (shown?.kind !== "ok" || shown.exitCode !== 0) return null;
-  if (patched?.kind !== "ok" || patched.exitCode !== 0) return null;
-  return {
-    message: shown.stdout.toString().replace(/\s+$/, ""),
-    hunks: parseHunks(patched.stdout.toString(), filename)
-  };
+  if (previous === null) {
+    // A merge's own diff would be combined (`@@@`): take it against its first
+    // parent instead, as an ordinary patch.
+    return [
+      ...quoting,
+      "show",
+      "--format=",
+      "--root",
+      "-m",
+      "--first-parent",
+      ...patchOptions,
+      sha,
+      "--",
+      filename
+    ];
+  }
+  const paths = [...new Set([previous.filename, filename])];
+  return [...quoting, "diff", ...patchOptions, previous.sha, sha, "--", ...paths];
 }
