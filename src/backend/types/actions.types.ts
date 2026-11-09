@@ -160,10 +160,11 @@ type ActionResponseExtras = {
      *  has new commits — see `isRemoteUpdatedSinceCheckoutError`. */
     remoteUpdatedSinceCheckout: boolean;
     /** That refusal was for a named target: a remote branch other than the
-     *  pushed branch's own name (#303). git's integration check then reads the reflog of a local branch
-     *  named like the target, usually absent, so no pull or rebase can clear
-     *  it: only Force overwrites (#311). Implies `remoteUpdatedSinceCheckout`
-     *  — see `leaseRefusedForNamedTarget`. */
+     *  pushed branch's own name (#303). git's integration check then reads
+     *  the reflog of a local branch named like the target, usually absent, so
+     *  no pull or rebase of the pushed branch can clear it: Force overwrites
+     *  (#311). Implies `remoteUpdatedSinceCheckout` — see
+     *  `leaseRefusedForNamedTarget`. */
     leaseRefusedForNamedTarget: boolean;
     /** The tracking refs (`<remote>/<branch>`) git refused a force-with-lease
      *  push for with "(stale info)": missing locally, or out of date. One per

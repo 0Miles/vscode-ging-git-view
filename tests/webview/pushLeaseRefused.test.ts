@@ -63,9 +63,9 @@ describe("a refused push", () => {
 
     const text = dialogText();
     expect(text).toContain(L.unableToPushBranch);
-    expect(text).toContain("named differently from the branch you're pushing");
-    expect(text).toContain("pulling or rebasing won't help");
-    expect(text).toContain(`To overwrite it, choose ${L.dialogPushForceForce}.`);
+    expect(text).toContain("can't confirm through the branch you're pushing");
+    expect(text).toContain("pulling or rebasing the branch you're pushing won't help");
+    expect(text).toContain(`To overwrite the target, choose ${L.dialogPushForceForce}.`);
     expect(text).not.toContain("Pull or rebase first");
     expect(text).not.toMatch(/\{\d\}/);
     expect(text, "git's own line is kept alongside the explanation").toContain(line);
@@ -87,7 +87,7 @@ describe("a refused push", () => {
     });
 
     const text = dialogText();
-    expect(text).toContain("named differently from the branch you're pushing");
+    expect(text).toContain("can't confirm through the branch you're pushing");
     expect(text).toContain("Git has no up-to-date state of backup/review");
     expect(text).not.toContain("Pull or rebase first");
   });

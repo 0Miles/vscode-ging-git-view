@@ -4676,12 +4676,10 @@ class GitGraphView {
         errorTitle: l10n.unableToPushBranch,
         // Each kind of lease refusal is explained once for the whole batch, like
         // a single push explains it (ADR-0025). Each ref keeps git's own line;
-        // no force round is offered. Every branch goes under its own name, so
-        // none is refused for a target of another name (#311).
+        // no force round is offered.
         failureNote: (failed) => {
           return leaseRefusalNote({
             remoteUpdatedSinceCheckout: failed.some((r) => r.remoteUpdatedSinceCheckout),
-            leaseRefusedForNamedTarget: false,
             staleInfoRefs: failed.flatMap((r) => r.staleInfoRefs)
           });
         }
@@ -9433,7 +9431,7 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
  *  it: overwriting someone's work stays a separate, deliberate choice. Pushed
  *  to several remotes, each may have refused for its own reason (#264), so
  *  every reason that applies is explained. */
-function handlePushBranchResponse(status: GitCommandStatus, refusal: PushRefusal) {
+function handlePushBranchResponse(status: GitCommandStatus, refusal: PushRefusalFacts) {
   const explanation = leaseRefusalNote(refusal);
   refreshGraphOrDisplayError(
     status,
@@ -9441,15 +9439,19 @@ function handlePushBranchResponse(status: GitCommandStatus, refusal: PushRefusal
   );
 }
 
-/** What the host reports about a refused push beside its status. */
-type PushRefusal = ActionResponseExtra<"pushBranch">;
+/** What the host reports about a refused push beside its status. A batch push
+ *  never reports `leaseRefusedForNamedTarget` — it pushes every branch under
+ *  its own name — so the field is optional here, as `BatchPushResult` omits
+ *  it. */
+type PushRefusalFacts = Omit<ActionResponseExtra<"pushBranch">, "leaseRefusedForNamedTarget"> &
+  Partial<Pick<ActionResponseExtra<"pushBranch">, "leaseRefusedForNamedTarget">>;
 
 /** Each kind of lease refusal explained once, or null when there was none.
  *  Shared by the single push and the batch push summary. */
-function leaseRefusalNote(refusal: PushRefusal) {
+function leaseRefusalNote(refusal: PushRefusalFacts) {
   const notes = [
     refusal.remoteUpdatedSinceCheckout
-      ? leaseRefusedExplanation(refusal.leaseRefusedForNamedTarget)
+      ? leaseRefusedExplanation(refusal.leaseRefusedForNamedTarget === true)
       : null,
     refusal.staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(refusal.staleInfoRefs) : null
   ].filter((note) => note !== null);
@@ -9460,8 +9462,9 @@ function leaseRefusalNote(refusal: PushRefusal) {
  *  to do about it, naming the Force option in the UI's own words. Shared by the
  *  single push and the batch push summary so the two never drift apart.
  *
- *  For a named target (#303) no pull or rebase satisfies the check (#311), so
- *  that refusal skips "pull or rebase first" and points at Force alone. */
+ *  For a named target (#303) no pull or rebase of the pushed branch satisfies
+ *  the check (#311), so that refusal skips "pull or rebase first" and points
+ *  at Force alone. */
 function leaseRefusedExplanation(forNamedTarget: boolean): string {
   const template = forNamedTarget
     ? l10n.dialogPushForceLeaseRefusedNamedTarget

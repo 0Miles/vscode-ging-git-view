@@ -261,7 +261,7 @@ export function staleLeaseInfoRefs(error: unknown): string[] {
 /** Whether a force-with-lease push to a named target (#303) was refused as
  *  unintegrated, by any remote. git reads that check off the reflog of the
  *  *local* branch named like the target, which is usually not there, so no
- *  pull or rebase of the pushed branch can satisfy it: only Force gets past
+ *  pull or rebase of the pushed branch can satisfy it: Force gets past
  *  (#311). See `isRemoteUpdatedSinceCheckoutError`. */
 function leaseRefusedForNamedTarget(error: unknown): boolean {
   return pushFailures(error).some(
