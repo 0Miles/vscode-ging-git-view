@@ -45,11 +45,15 @@ jobs:
         with:
           node-version: 22
       # dependencies are bundled by esbuild and pnpm's node_modules layout
-      # cannot be scanned by vsce, so --no-dependencies is required
+      # cannot be scanned by vsce, so --no-dependencies is required. The
+      # extension is the apps/vscode workspace package; vsce runs there.
       - run: npx @vscode/vsce@4.1.0 package --no-dependencies
+        working-directory: apps/vscode
       - name: Publish to VS Code Marketplace
         run: npx @vscode/vsce@4.1.0 publish --oidc --no-dependencies --packagePath ./*.vsix
+        working-directory: apps/vscode
       - name: Upload .vsix to the GitHub Release
         run: gh release upload "${{ needs.release-please.outputs.tag_name }}" ./*.vsix
+        working-directory: apps/vscode
         env:
           GH_TOKEN: ${{ github.token }}
