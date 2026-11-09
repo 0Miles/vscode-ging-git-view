@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
-import { doesPathExist, getPathFromUri, isDirectory } from "@/backend/utils/path";
-import { Config } from "@/config";
+import { doesPathExist, getPathFromUri, isDirectory } from "@ging/vscode/backend/utils/path";
+import { Config } from "@ging/vscode/config";
 
 import { RepoManager } from "./repoManager";
 import { RepoSearch } from "./workspaceSearch";

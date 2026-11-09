@@ -1,4 +1,4 @@
-import { displayRef } from "@/backend/utils/branchRef";
+import { displayRef } from "@ging/shared/backend/utils/branchRef";
 
 import { fillTemplate } from "./html";
 

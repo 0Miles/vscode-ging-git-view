@@ -1,12 +1,12 @@
 import * as assert from "node:assert";
 
-import { Config } from "@/config";
-import { createRepoManager } from "@/extension/repoManager";
-import { ExtensionState } from "@/extensionState";
-import { StatusBarItem } from "@/statusBarItem";
-import { GitRepoSet } from "@/types";
+import { GitRepoSet } from "@ging/shared/types";
+import { Config } from "@ging/vscode/config";
+import { createRepoManager } from "@ging/vscode/extension/repoManager";
+import { ExtensionState } from "@ging/vscode/extensionState";
+import { StatusBarItem } from "@ging/vscode/statusBarItem";
 
-import { rmrf } from "@tests/backend/helpers";
+import { rmrf } from "@ging/core/tests/helpers";
 
 import { useSeededRepo } from "./helpers";
 

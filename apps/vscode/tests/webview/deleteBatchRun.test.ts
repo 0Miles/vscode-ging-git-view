@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import {
   clickId,
@@ -94,7 +94,7 @@ describe("batch delete delegated from the Branches side-view", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

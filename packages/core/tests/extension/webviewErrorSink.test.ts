@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { createWebviewErrorSink } from "@/extension/webviewErrorSink";
-import type { WebviewErrorReport } from "@/types";
+import { createWebviewErrorSink } from "@ging/core/extension/webviewErrorSink";
+import type { WebviewErrorReport } from "@ging/shared/types";
 
 const report = (over: Partial<WebviewErrorReport> = {}): WebviewErrorReport => ({
   origin: "message",

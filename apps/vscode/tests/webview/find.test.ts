@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { buildFindMatches, planFindLoad, resolveFindCurrent } from "@/webview/find";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import { buildFindMatches, planFindLoad, resolveFindCurrent } from "@ging/webview/find";
 
 const commit = (
   hash: string,

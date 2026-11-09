@@ -12,8 +12,8 @@ import {
   refActionVisibility,
   type BranchCmvCategory,
   type CatalogueRefAction
-} from "@/backend/utils/refActionCatalogue";
-import type { ContextMenuActionsVisibility } from "@/types";
+} from "@ging/shared/backend/utils/refActionCatalogue";
+import type { ContextMenuActionsVisibility } from "@ging/shared/types";
 
 import { ELLIPSIS, splitDisplayRemoteRef } from "./utils/git";
 

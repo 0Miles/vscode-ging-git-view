@@ -5,7 +5,7 @@ import {
   generateExternalConfig,
   parseExternalConfig,
   serializeExternalConfig
-} from "@/backend/utils/externalConfig";
+} from "@ging/core/backend/utils/externalConfig";
 
 describe("generateExternalConfig", () => {
   it("includes only the shareable fields that are set", () => {

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { mergeContextMenuActionsVisibility } from "@/backend/utils/contextMenuVisibility";
+import { mergeContextMenuActionsVisibility } from "@ging/core/backend/utils/contextMenuVisibility";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import {
   createVscodeMock,
@@ -72,7 +72,7 @@ describe("context menu gutter, activation and keyboard navigation", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

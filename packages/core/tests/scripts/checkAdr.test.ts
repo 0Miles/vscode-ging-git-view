@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { rmrf } from "@tests/backend/helpers";
+import { rmrf } from "@ging/core/tests/helpers";
 
 /**
  * `scripts/check-adr.js` is what CI actually runs (`pnpm run adr:check`), and
@@ -26,7 +26,7 @@ import { rmrf } from "@tests/backend/helpers";
  * same reason.
  */
 
-const SCRIPT = fileURLToPath(new URL("../../../scripts/check-adr.js", import.meta.url));
+const SCRIPT = fileURLToPath(new URL("../../../../scripts/check-adr.js", import.meta.url));
 
 const FIXTURES = new Map(
   fs

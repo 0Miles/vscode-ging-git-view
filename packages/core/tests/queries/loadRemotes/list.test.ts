@@ -6,9 +6,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { loadRemotes } from "@/backend/queries/loadRemotes";
+import { loadRemotes } from "@ging/core/backend/queries/loadRemotes";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 let bare: string;

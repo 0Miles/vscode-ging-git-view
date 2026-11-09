@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 
 import * as vscode from "vscode";
 
-import { isGraphWebviewTab } from "@/extension/graphPanelWindow";
+import { isGraphWebviewTab } from "@ging/vscode/extension/graphPanelWindow";
 
 /** Poll until `predicate` holds, or give up — the caller asserts either way. */
 async function waitUntil(predicate: () => boolean, timeoutMs = 2000) {

@@ -2,12 +2,12 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-import { Config } from "@/config";
-import { RepoManager } from "@/extension/repoManager";
-import { RepoSearch } from "@/extension/workspaceSearch";
-import { createRepoWatcher } from "@/extension/workspaceWatcher";
+import { Config } from "@ging/vscode/config";
+import { RepoManager } from "@ging/vscode/extension/repoManager";
+import { RepoSearch } from "@ging/vscode/extension/workspaceSearch";
+import { createRepoWatcher } from "@ging/vscode/extension/workspaceWatcher";
 
-import { rmrf, toRepoPath } from "@tests/backend/helpers";
+import { rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 /** `mkdtempSync` takes a prefix, not an `XXXXXX` template, and "/tmp" only
  *  exists on POSIX — go through `os.tmpdir()` so this works on Windows too. */

@@ -2,8 +2,7 @@ import * as fs from "node:fs";
 
 import * as vscode from "vscode";
 
-import { AvatarManager } from "@/avatarManager";
-import { createArchive } from "@/backend/actions/archive";
+import { createArchive } from "@ging/core/backend/actions/archive";
 import {
   checkoutBranch,
   createBranch,
@@ -19,7 +18,7 @@ import {
   pushBranches,
   pushRefusalFacts,
   renameBranch
-} from "@/backend/actions/branch";
+} from "@ging/core/backend/actions/branch";
 import {
   checkoutCommit,
   cherrypickCommit,
@@ -27,58 +26,66 @@ import {
   resetFileToRevision,
   resetToCommit,
   revertCommit
-} from "@/backend/actions/commit";
-import { fetchFromRemotes } from "@/backend/actions/fetch";
-import { mergeBranch, mergeCommit } from "@/backend/actions/merge";
-import { abortOperation, continueOperation, markResolved } from "@/backend/actions/operation";
-import { exportPatch } from "@/backend/actions/patch";
+} from "@ging/core/backend/actions/commit";
+import { fetchFromRemotes } from "@ging/core/backend/actions/fetch";
+import { mergeBranch, mergeCommit } from "@ging/core/backend/actions/merge";
+import {
+  abortOperation,
+  continueOperation,
+  markResolved
+} from "@ging/core/backend/actions/operation";
+import { exportPatch } from "@ging/core/backend/actions/patch";
 import {
   rebaseInteractive,
   rebaseOn,
   rebaseOnto,
   type RebaseTodoStager
-} from "@/backend/actions/rebase";
-import { getRemoteUrl } from "@/backend/actions/remote";
-import { applyStash, dropStash, popStash, renameStash } from "@/backend/actions/stash";
-import { addTag, deleteTag, pushTag } from "@/backend/actions/tag";
-import { cleanUntrackedFiles, resetUncommittedChanges } from "@/backend/actions/workingTree";
-import { GitClient } from "@/backend/gitClient";
-import { checkBranchRedundancy } from "@/backend/queries/branchRedundancy";
-import { loadBranchSearchIndex } from "@/backend/queries/branchSearch";
-import { commitDetails } from "@/backend/queries/commitDetails";
-import { compareCommits } from "@/backend/queries/compareCommits";
-import { loadCommits } from "@/backend/queries/loadCommits";
-import { loadRemotes } from "@/backend/queries/loadRemotes";
-import { operationState } from "@/backend/queries/operationState";
-import { predictConflicts } from "@/backend/queries/predictConflicts";
-import { getNewPathOfRenamedFile } from "@/backend/queries/renamedFilePath";
-import { tagDetails } from "@/backend/queries/tagDetails";
+} from "@ging/core/backend/actions/rebase";
+import { getRemoteUrl } from "@ging/core/backend/actions/remote";
+import { applyStash, dropStash, popStash, renameStash } from "@ging/core/backend/actions/stash";
+import { addTag, deleteTag, pushTag } from "@ging/core/backend/actions/tag";
+import {
+  cleanUntrackedFiles,
+  resetUncommittedChanges
+} from "@ging/core/backend/actions/workingTree";
+import { GitClient } from "@ging/core/backend/gitClient";
+import { checkBranchRedundancy } from "@ging/core/backend/queries/branchRedundancy";
+import { loadBranchSearchIndex } from "@ging/core/backend/queries/branchSearch";
+import { commitDetails } from "@ging/core/backend/queries/commitDetails";
+import { compareCommits } from "@ging/core/backend/queries/compareCommits";
+import { loadCommits } from "@ging/core/backend/queries/loadCommits";
+import { loadRemotes } from "@ging/core/backend/queries/loadRemotes";
+import { operationState } from "@ging/core/backend/queries/operationState";
+import { predictConflicts } from "@ging/core/backend/queries/predictConflicts";
+import { getNewPathOfRenamedFile } from "@ging/core/backend/queries/renamedFilePath";
+import { tagDetails } from "@ging/core/backend/queries/tagDetails";
+import { formatGitError, isNotFullyMergedError } from "@ging/core/backend/utils/gitError";
+import { parseRemoteUrl, pullRequestCreateUrl } from "@ging/core/backend/utils/pullRequest";
+import { abbrevCommit } from "@ging/core/backend/utils/string";
+import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
+import { type BranchCleanup } from "@ging/core/extension/branchCleanupService";
+import { type BranchFacts } from "@ging/core/extension/branchFacts";
+import { createWebviewErrorSink } from "@ging/core/extension/webviewErrorSink";
 import type {
   ActionResponseExtra,
   BatchActionRequest,
   BatchResultOf,
   BranchSearchEntry
-} from "@/backend/types";
-import { GitFileChangeType } from "@/backend/types";
-import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
-import { parseRemoteUrl, pullRequestCreateUrl } from "@/backend/utils/pullRequest";
-import { abbrevCommit } from "@/backend/utils/string";
-import { Config } from "@/config";
-import { encodeDiffDocUri } from "@/diffDocProvider";
-import { copyToClipboard } from "@/extension/utils/clipboard";
-import { ExtensionState } from "@/extensionState";
-import * as l10n from "@/l10n";
-import { RepoFileWatcher } from "@/repoFileWatcher";
-import { RepoScopeSettings, RequestMessage, ResponseMessage } from "@/types";
+} from "@ging/shared/backend/types";
+import { GitFileChangeType } from "@ging/shared/backend/types";
+import { RepoScopeSettings, RequestMessage, ResponseMessage } from "@ging/shared/types";
+import { AvatarManager } from "@ging/vscode/avatarManager";
+import { Config } from "@ging/vscode/config";
+import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
+import { copyToClipboard } from "@ging/vscode/extension/utils/clipboard";
+import { ExtensionState } from "@ging/vscode/extensionState";
+import * as l10n from "@ging/vscode/l10n";
+import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
 
-import { resolveCleanupCandidates } from "./branchCleanup";
-import { type BranchCleanup } from "./branchCleanupService";
-import { type BranchFacts } from "./branchFacts";
 import { BranchFilterStore } from "./branchFilterStore";
 import { type Logger } from "./logger";
 import { RepoManager } from "./repoManager";
 import { WebviewBridge } from "./webviewBridge";
-import { createWebviewErrorSink } from "./webviewErrorSink";
 
 function viewDiff(
   repo: string,

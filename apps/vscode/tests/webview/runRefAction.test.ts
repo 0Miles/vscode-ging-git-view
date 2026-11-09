@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import {
   clickId,
@@ -51,7 +51,7 @@ describe("runRefAction delegated from the Branches side-view", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

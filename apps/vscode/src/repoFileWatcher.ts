@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 
+import { isWatchedRepoPath } from "@ging/core/backend/utils/repoWatchPaths";
+
 import { getPathFromUri } from "./backend/utils/path";
-import { isWatchedRepoPath } from "./backend/utils/repoWatchPaths";
 
 export class RepoFileWatcher {
   private repo: string | null = null;

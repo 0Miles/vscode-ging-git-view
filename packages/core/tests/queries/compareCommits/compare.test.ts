@@ -5,9 +5,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { compareCommits } from "@/backend/queries/compareCommits";
+import { compareCommits } from "@ging/core/backend/queries/compareCommits";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 const repos: string[] = [];
 

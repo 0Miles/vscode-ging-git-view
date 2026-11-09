@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { getRemoteUrl } from "@/backend/utils/git";
+import { getRemoteUrl } from "@ging/core/backend/utils/git";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repoWithRemote: string;
 let repoWithoutRemote: string;

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import {
   clickElem,
@@ -44,7 +44,7 @@ describe("moving a docked Commit Details View to another commit", () => {
     setupHtml(viewState);
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = vi.fn();
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

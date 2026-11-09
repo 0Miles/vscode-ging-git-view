@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveRepoScope, sideViewStateChanged } from "@/extension/repoSettings";
-import type { RepoScopeSettings } from "@/types";
+import { resolveRepoScope, sideViewStateChanged } from "@ging/core/extension/repoSettings";
+import type { RepoScopeSettings } from "@ging/shared/types";
 
 const DEFAULTS: RepoScopeSettings = {
   onlyFollowFirstParent: false,

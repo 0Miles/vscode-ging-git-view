@@ -1,4 +1,4 @@
-import type { ContextMenuActionsVisibility } from "@/types";
+import type { ContextMenuActionsVisibility } from "@ging/shared/types";
 
 /** Every context-menu action is visible by default. */
 export const DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY: ContextMenuActionsVisibility = {

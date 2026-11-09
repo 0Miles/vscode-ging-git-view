@@ -5,10 +5,10 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { resetToCommit } from "@/backend/actions/commit";
-import { formatGitError } from "@/backend/utils/gitError";
+import { resetToCommit } from "@ging/core/backend/actions/commit";
+import { formatGitError } from "@ging/core/backend/utils/gitError";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 let firstHash: string;

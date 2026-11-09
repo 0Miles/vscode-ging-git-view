@@ -5,7 +5,7 @@ import {
   GRAPH_VIEW_TYPE,
   isGraphWebviewTab,
   mayOpenGraphUnprompted
-} from "@/extension/graphPanelWindow";
+} from "@ging/vscode/extension/graphPanelWindow";
 
 /** A tab holding a webview of `viewType`, in the shape `vscode.Tab` reports. */
 const webviewTab = (viewType: string) => ({ input: { viewType } });

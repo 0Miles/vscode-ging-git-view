@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { Graph } from "@/webview/graph";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import { Graph } from "@ging/webview/graph";
 
 // The graph layout assumes a commit's parents always appear *below* it (a higher
 // index in the list). When that invariant is violated — e.g. a stash placed by

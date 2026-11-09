@@ -5,10 +5,10 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { abortOperation, continueOperation } from "@/backend/actions/operation";
-import { detectOperation } from "@/backend/queries/operationState";
+import { abortOperation, continueOperation } from "@ging/core/backend/actions/operation";
+import { detectOperation } from "@ging/core/backend/queries/operationState";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 const repos: string[] = [];
 afterEach(() => {

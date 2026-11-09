@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode, GitResetMode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
+import type { GitCommitNode, GitResetMode } from "@ging/shared/backend/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -46,7 +46,7 @@ async function boot(dialogResetMode: GitResetMode) {
   vi.resetModules();
   const mock = createVscodeMock();
   setupHtml(makeViewState({ dialogResetMode }));
-  await import("@/webview/main");
+  await import("@ging/webview/main");
   receive({
     command: "loadBranches",
     token: 0,

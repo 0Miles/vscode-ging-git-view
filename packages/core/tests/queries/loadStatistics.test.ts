@@ -1,9 +1,9 @@
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { loadStatistics, parseStatistics } from "@/backend/queries/loadStatistics";
+import { loadStatistics, parseStatistics } from "@ging/core/backend/queries/loadStatistics";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 describe("parseStatistics", () => {
   it("counts commits per author and bins by the author's local time", () => {

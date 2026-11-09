@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type * as GG from "@/types";
+import type * as GG from "@ging/shared/types";
 
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
@@ -43,7 +43,7 @@ describe("toolbar repo dropdown in multi-select mode", () => {
     setupHtml(
       makeViewState({ repos: TWO_REPOS, lastActiveRepo: REPO_A, scmMultiRepoSelection: true })
     );
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("dresses the title block as a select-style trigger", () => {
@@ -182,7 +182,7 @@ describe("toolbar repo dropdown in single-select mode", () => {
     setupHtml(
       makeViewState({ repos: THREE_REPOS, lastActiveRepo: REPO_A, scmMultiRepoSelection: false })
     );
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("stays a plain label however many repos the workspace has", () => {
@@ -255,7 +255,7 @@ describe("toolbar repo dropdown with custom repo names", () => {
         scmMultiRepoSelection: true
       })
     );
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("shows the custom name in the list, HTML-escaped as text", () => {
@@ -279,7 +279,7 @@ describe("toolbar repo title with a single repo", () => {
         scmMultiRepoSelection: true
       })
     );
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("stays a plain label: no dropdown affordances, and a click opens nothing", () => {

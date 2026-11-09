@@ -1,4 +1,4 @@
-import type { BranchSearchEntry, GitCommitNode } from "@/backend/types";
+import type { BranchSearchEntry, GitCommitNode } from "@ging/shared/backend/types";
 
 import { commitMatchesQuery } from "./utils/git";
 

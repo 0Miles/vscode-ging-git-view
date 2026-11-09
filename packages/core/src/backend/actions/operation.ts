@@ -1,7 +1,7 @@
 import type { SimpleGit } from "simple-git";
 
-import { detectOperation, operationState } from "@/backend/queries/operationState";
-import type { ActionPayload, GitOperation } from "@/backend/types";
+import { detectOperation, operationState } from "@ging/core/backend/queries/operationState";
+import type { ActionPayload, GitOperation } from "@ging/shared/backend/types";
 
 /** The git subcommand that owns `--continue` / `--abort` for each operation. */
 function operationCommand(operation: GitOperation): string {

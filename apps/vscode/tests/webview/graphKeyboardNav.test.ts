@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@/backend/types";
+import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@ging/shared/backend/types";
 
 import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 
@@ -103,7 +103,7 @@ describe("commit table keyboard navigation", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     loadGraph();
   });
 

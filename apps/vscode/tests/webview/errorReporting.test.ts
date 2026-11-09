@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type * as GG from "@/types";
+import type * as GG from "@ging/shared/types";
 
 import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
 
@@ -42,7 +42,7 @@ describe("failures the webview cannot handle (issue #39)", () => {
     mock = createVscodeMock();
     setupHtml(viewState);
     consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("reports the message it could not apply, with the stack", () => {

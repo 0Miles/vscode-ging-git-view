@@ -5,7 +5,7 @@ import {
   createDirectFilterWriter,
   type FilterWrite,
   SELECTION_WRITE_DEBOUNCE_MS
-} from "@/extension/branchSelectionReconciler";
+} from "@ging/core/extension/branchSelectionReconciler";
 
 describe("selection writes the filter", () => {
   it("a branch selection schedules a debounced write of exactly those refs", () => {

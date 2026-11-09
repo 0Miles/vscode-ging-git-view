@@ -2,11 +2,11 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as os from "node:os";
 
-import { Config } from "@/config";
-import { RepoManager } from "@/extension/repoManager";
-import { createRepoSearch } from "@/extension/workspaceSearch";
+import { Config } from "@ging/vscode/config";
+import { RepoManager } from "@ging/vscode/extension/repoManager";
+import { createRepoSearch } from "@ging/vscode/extension/workspaceSearch";
 
-import { rmrf } from "@tests/backend/helpers";
+import { rmrf } from "@ging/core/tests/helpers";
 
 import { useSeededRepo } from "./helpers";
 

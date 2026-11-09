@@ -11,7 +11,7 @@ import * as path from "node:path";
 
 import * as vscode from "vscode";
 
-import { getNonce } from "@/backend/utils/nonce";
+import { getNonce } from "@ging/core/backend/utils/nonce";
 
 export interface AskpassEnvironment {
   // Index signature so this is a valid env dict (assignable to NodeJS.ProcessEnv

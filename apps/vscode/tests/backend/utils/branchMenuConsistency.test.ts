@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
+import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@ging/core/backend/utils/contextMenuVisibility";
 import {
   branchMenuContextKeys,
   CATALOGUE_REF_ACTIONS,
@@ -10,7 +10,7 @@ import {
   refActionVisibility,
   type CatalogueRefAction,
   type CmvKey
-} from "@/backend/utils/refActionCatalogue";
+} from "@ging/shared/backend/utils/refActionCatalogue";
 
 /**
  * Consistency lock between the action catalogue's availability declarations

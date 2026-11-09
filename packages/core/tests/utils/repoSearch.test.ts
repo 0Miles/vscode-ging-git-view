@@ -4,9 +4,9 @@ import * as path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { searchDirectoryForRepos } from "@/backend/utils/repoSearch";
+import { searchDirectoryForRepos } from "@ging/core/backend/utils/repoSearch";
 
-import { git, rmrf, toRepoPath } from "@tests/backend/helpers";
+import { git, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 // `searchDirectoryForRepos` is only ever handed forward-slash paths in production
 // (its callers go through `getPathFromUri`) and builds child paths the same way,

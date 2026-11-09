@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
@@ -70,7 +70,7 @@ async function boot(initialState: WebViewState | null = null) {
   vi.resetModules();
   createVscodeMock(initialState);
   setupHtml(makeViewState({ lastActiveRepo: REPO }));
-  await import("@/webview/main");
+  await import("@ging/webview/main");
 }
 
 function loadBranches() {

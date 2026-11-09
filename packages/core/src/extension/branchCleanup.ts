@@ -18,8 +18,8 @@
  * like the classifiers it consumes.
  */
 
-import { REMOTE_PREFIX, splitRemoteRef } from "@/backend/utils/branchRef";
-import type { CleanupCandidate, CleanupCandidateFacts } from "@/types";
+import { REMOTE_PREFIX, splitRemoteRef } from "@ging/shared/backend/utils/branchRef";
+import type { CleanupCandidate, CleanupCandidateFacts } from "@ging/shared/types";
 
 import { type BranchClassification, defaultBranchAliases, isAlwaysShown } from "./branchExempt";
 import { type BranchTreeNode, buildGroupedBranchRoots } from "./branchTree";

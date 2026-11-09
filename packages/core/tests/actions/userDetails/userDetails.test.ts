@@ -3,9 +3,9 @@ import * as cp from "node:child_process";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getUserDetails, setUserDetails } from "@/backend/actions/userDetails";
+import { getUserDetails, setUserDetails } from "@ging/core/backend/actions/userDetails";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

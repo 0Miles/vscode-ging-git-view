@@ -6,6 +6,9 @@ const esbuild = require("esbuild");
 const production = process.argv.includes("--production");
 const watch = process.argv.includes("--watch");
 
+/** The workspace root, which the editor's problem matcher reads paths against. */
+const REPO_ROOT = path.resolve(__dirname, "../..");
+
 const esbuildProblemMatcherPlugin = {
   name: "esbuild-problem-matcher",
   setup(build) {
@@ -14,23 +17,36 @@ const esbuildProblemMatcherPlugin = {
     });
     build.onEnd((result) => {
       result.errors.forEach(({ text, location }) => {
+        // esbuild reports `location.file` against the working directory (this app);
+        // the editor opens the workspace root, so name the file from there.
+        const file = path.relative(REPO_ROOT, path.resolve(location.file));
         console.error(`✘ [ERROR] ${text}`);
-        console.error(`    ${location.file}:${location.line}:${location.column}:`);
+        console.error(`    ${file}:${location.line}:${location.column}:`);
       });
       console.log("[watch] build finished");
     });
   }
 };
 
-const aliasPlugin = {
-  name: "alias",
+// The extension's own modules import each other as `@ging/vscode/...` (see
+// tsconfig.json); everything else resolves through the packages' `exports`.
+const appAliasPlugin = {
+  name: "app-alias",
   setup(build) {
-    build.onResolve({ filter: /^@\// }, async (args) => {
-      const resolved = path.resolve(__dirname, "src", args.path.slice(2));
+    build.onResolve({ filter: /^@ging\/vscode\// }, async (args) => {
+      const resolved = path.resolve(__dirname, "src", args.path.slice("@ging/vscode/".length));
       return build.resolve(resolved, { kind: args.kind, resolveDir: path.dirname(resolved) });
     });
   }
 };
+
+// Entry points that live in workspace packages, found through each package's
+// `exports` the same way the bundles' own imports are.
+const webviewMain = require.resolve("@ging/webview/main");
+const askpassMain = require.resolve("@ging/core/extension/askpass/askpassMain");
+const sequenceEditorMain =
+  require.resolve("@ging/core/extension/sequenceEditor/sequenceEditorMain");
+const webviewCss = require.resolve("@ging/webview/media/main.css");
 
 async function main() {
   const extension = await esbuild.context({
@@ -45,11 +61,11 @@ async function main() {
     outfile: "out/extension.js",
     external: ["vscode"],
     logLevel: "silent",
-    plugins: [aliasPlugin, esbuildProblemMatcherPlugin]
+    plugins: [appAliasPlugin, esbuildProblemMatcherPlugin]
   });
 
   const webview = await esbuild.context({
-    entryPoints: ["src/webview/main.ts"],
+    entryPoints: [webviewMain],
     bundle: true,
     format: "iife",
     minify: production,
@@ -58,12 +74,12 @@ async function main() {
     target: "es6",
     outfile: "out/web.min.js",
     logLevel: "silent",
-    plugins: [aliasPlugin, esbuildProblemMatcherPlugin]
+    plugins: [appAliasPlugin, esbuildProblemMatcherPlugin]
   });
 
   // Standalone helper git runs via GIT_ASKPASS (#114); a separate node bundle.
   const askpass = await esbuild.context({
-    entryPoints: ["src/extension/askpass/askpassMain.ts"],
+    entryPoints: [askpassMain],
     bundle: true,
     format: "cjs",
     minify: production,
@@ -73,12 +89,12 @@ async function main() {
     target: "es6",
     outfile: "out/askpassMain.js",
     logLevel: "silent",
-    plugins: [aliasPlugin, esbuildProblemMatcherPlugin]
+    plugins: [appAliasPlugin, esbuildProblemMatcherPlugin]
   });
 
   // Standalone helper git runs as GIT_SEQUENCE_EDITOR; another node bundle.
   const sequenceEditor = await esbuild.context({
-    entryPoints: ["src/extension/sequenceEditor/sequenceEditorMain.ts"],
+    entryPoints: [sequenceEditorMain],
     bundle: true,
     format: "cjs",
     minify: production,
@@ -88,23 +104,32 @@ async function main() {
     target: "es6",
     outfile: "out/sequenceEditorMain.js",
     logLevel: "silent",
-    plugins: [aliasPlugin, esbuildProblemMatcherPlugin]
+    plugins: [appAliasPlugin, esbuildProblemMatcherPlugin]
   });
 
   // The shell scripts git loads at runtime from out/.
   const copyAskpassScripts = () => {
     fs.mkdirSync("out", { recursive: true });
     for (const f of ["askpass.sh", "askpass-empty.sh"]) {
-      fs.copyFileSync(path.join("src/extension/askpass", f), path.join("out", f));
+      fs.copyFileSync(path.join(path.dirname(askpassMain), f), path.join("out", f));
     }
     fs.copyFileSync(
-      path.join("src/extension/sequenceEditor", "sequenceEditor.sh"),
+      path.join(path.dirname(sequenceEditorMain), "sequenceEditor.sh"),
       path.join("out", "sequenceEditor.sh")
     );
   };
 
+  // The webview's stylesheet lives with the webview package; the extension
+  // serves it from its own media/.
+  const copyWebviewCss = () => {
+    fs.mkdirSync("media", { recursive: true });
+    fs.copyFileSync(webviewCss, path.join("media", "main.css"));
+  };
+
   if (watch) {
     copyAskpassScripts();
+    copyWebviewCss();
+    fs.watch(webviewCss, copyWebviewCss);
     await Promise.all([
       extension.watch(),
       webview.watch(),
@@ -121,6 +146,7 @@ async function main() {
     await sequenceEditor.rebuild();
     await sequenceEditor.dispose();
     copyAskpassScripts();
+    copyWebviewCss();
   }
 }
 

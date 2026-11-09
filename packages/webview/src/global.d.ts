@@ -1,5 +1,10 @@
-import type { GitCommitDetails, GitCommitNode, GitFileChange, GitResetMode } from "@/backend/types";
-import * as GG from "@/types";
+import type {
+  GitCommitDetails,
+  GitCommitNode,
+  GitFileChange,
+  GitResetMode
+} from "@ging/shared/backend/types";
+import * as GG from "@ging/shared/types";
 
 import type { SvgIconName } from "./utils/icons";
 

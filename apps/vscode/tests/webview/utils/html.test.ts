@@ -9,7 +9,7 @@ import {
   preserveLeadingWhitespace,
   renderInlineMarkdown,
   unescapeHtml
-} from "@/webview/utils/html";
+} from "@ging/webview/utils/html";
 
 describe("escapeHtml", () => {
   // 1. Passthrough — safe content is not mangled

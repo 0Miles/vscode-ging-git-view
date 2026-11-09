@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { BatchPushResult, GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
+import type { BatchPushResult, GitCommitNode } from "@ging/shared/backend/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -108,7 +108,7 @@ describe("a batch push summary", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(makeViewState());
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     loadView();
   });
@@ -223,7 +223,7 @@ describe("a batch delete summary", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(makeViewState());
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     loadView();
   });
 

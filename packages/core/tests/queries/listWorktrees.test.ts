@@ -5,9 +5,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { listWorktrees, parseWorktreeList } from "@/backend/queries/listWorktrees";
+import { listWorktrees, parseWorktreeList } from "@ging/core/backend/queries/listWorktrees";
 
-import { git, makeRepo, rmrf, toRepoPath } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 // Resolve symlinks up front: on macOS `os.tmpdir()` lives under /var -> /private/var, and
 // `git worktree list` reports the realpath. Comparing realpath-to-realpath avoids false misses.

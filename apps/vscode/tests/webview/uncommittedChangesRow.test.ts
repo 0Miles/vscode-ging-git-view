@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
@@ -77,7 +77,7 @@ describe("the uncommitted-changes row, rewritten in place by a soft reload", () 
       document.getElementById("dialog")!,
       document.getElementById("content")!
     );
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

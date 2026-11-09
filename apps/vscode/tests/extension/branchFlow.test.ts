@@ -4,14 +4,14 @@ import * as path from "node:path";
 
 import * as vscode from "vscode";
 
-import { gitClientFactory } from "@/backend/gitClient";
-import { config } from "@/config";
-import { createBranchCleanup } from "@/extension/branchCleanupService";
-import { createBranchFacts, createGitSnapshotReader } from "@/extension/branchFacts";
-import { registerMessageHandlers } from "@/extension/messageHandler";
-import { resolveRepoScope } from "@/extension/repoSettings";
-import type { WebviewBridge } from "@/extension/webviewBridge";
-import type { RepoScopeSettings, RequestMessage, ResponseMessage } from "@/types";
+import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
+import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
+import { resolveRepoScope } from "@ging/core/extension/repoSettings";
+import type { RepoScopeSettings, RequestMessage, ResponseMessage } from "@ging/shared/types";
+import { config } from "@ging/vscode/config";
+import { registerMessageHandlers } from "@ging/vscode/extension/messageHandler";
+import type { WebviewBridge } from "@ging/vscode/extension/webviewBridge";
 
 // End-to-end exercise of the extension-side branch flow against the real repo
 // (the test workspace is this repo). Drives the real registerMessageHandlers

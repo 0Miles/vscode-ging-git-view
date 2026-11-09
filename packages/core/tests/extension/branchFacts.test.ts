@@ -4,7 +4,7 @@ import {
   type BranchFactsDeps,
   type BranchSnapshot,
   createBranchFacts
-} from "@/extension/branchFacts";
+} from "@ging/core/extension/branchFacts";
 
 const DAY = 86_400;
 

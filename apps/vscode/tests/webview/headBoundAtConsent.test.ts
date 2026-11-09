@@ -1,8 +1,8 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -112,7 +112,7 @@ describe("the branch a confirmation dialog named", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive(commitsResponse);

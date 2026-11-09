@@ -6,9 +6,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { deleteBranches, planBranchDeletion } from "@/backend/actions/branch";
+import { deleteBranches, planBranchDeletion } from "@ging/core/backend/actions/branch";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

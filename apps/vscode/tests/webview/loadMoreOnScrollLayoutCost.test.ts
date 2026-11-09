@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import {
   createVscodeMock,
@@ -130,7 +130,7 @@ describe("what the near-the-bottom threshold costs while it is live", () => {
     // should not have to be read elsewhere to know that. The viewport's height
     // is the shared one, imported above.
     parkViewportAt(0);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse(commits));
 

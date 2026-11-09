@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import { createVscodeMock, makeViewState, setupHtml } from "./setup";
 
@@ -63,7 +63,7 @@ describe("rebooting after the extension retargeted the view to another repo", ()
     vi.resetModules();
     mock = createVscodeMock(savedState);
     setupHtml(buildViewState(REPO_B));
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("boots on lastActiveRepo, not the repo in the saved state", () => {
@@ -84,7 +84,7 @@ describe("rebooting normally (saved state matches lastActiveRepo)", () => {
     vi.resetModules();
     mock = createVscodeMock(savedState);
     setupHtml(buildViewState(REPO_A));
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("stays on the saved repo", () => {
@@ -107,7 +107,7 @@ describe("booting fresh with no saved state (getState() is undefined)", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(buildViewState(REPO_B));
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("boots on lastActiveRepo and requests its data", () => {

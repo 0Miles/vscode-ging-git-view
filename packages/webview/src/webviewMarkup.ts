@@ -1,4 +1,4 @@
-import type { LocalizedStrings } from "./webviewL10n";
+import type { LocalizedStrings } from "./localizedStrings";
 
 /**
  * The static markup of the loaded graph view: everything inside <body> except

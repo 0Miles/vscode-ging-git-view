@@ -8,15 +8,15 @@ import {
   generateExternalConfig,
   parseExternalConfig,
   serializeExternalConfig
-} from "@/backend/utils/externalConfig";
-import { isGitRepository } from "@/backend/utils/git";
-import { getPathFromUri } from "@/backend/utils/path";
-import { evalPromises } from "@/backend/utils/promise";
-import { pickBootRepo } from "@/backend/utils/repoPath";
-import { Config } from "@/config";
-import { ExtensionState } from "@/extensionState";
-import { StatusBarItem } from "@/statusBarItem";
-import { GitRepoSet, GitRepoState } from "@/types";
+} from "@ging/core/backend/utils/externalConfig";
+import { isGitRepository } from "@ging/core/backend/utils/git";
+import { evalPromises } from "@ging/core/backend/utils/promise";
+import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
+import { GitRepoSet, GitRepoState } from "@ging/shared/types";
+import { getPathFromUri } from "@ging/vscode/backend/utils/path";
+import { Config } from "@ging/vscode/config";
+import { ExtensionState } from "@ging/vscode/extensionState";
+import { StatusBarItem } from "@ging/vscode/statusBarItem";
 
 export type RepoChangeCallback = (repos: GitRepoSet, numRepos: number) => void;
 /** Told of every repo-state write: the state it replaced (undefined for a repo

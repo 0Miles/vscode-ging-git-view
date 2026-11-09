@@ -5,9 +5,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { loadDanglingCommits, loadReflog } from "@/backend/queries/loadReflog";
+import { loadDanglingCommits, loadReflog } from "@ging/core/backend/queries/loadReflog";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 let danglingHash: string;

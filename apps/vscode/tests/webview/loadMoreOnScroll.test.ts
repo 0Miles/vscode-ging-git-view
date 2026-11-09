@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import type * as GG from "@/types";
+import type { GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -150,7 +150,7 @@ describe("automatic loading on scroll", () => {
     // jsdom implements neither, so record what the webview asks for instead.
     window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = scrollIntoView;
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse(commits));
   });

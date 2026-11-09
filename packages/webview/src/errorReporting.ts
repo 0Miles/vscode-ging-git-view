@@ -1,4 +1,4 @@
-import type { ResponseMessage, WebviewErrorReport } from "@/types";
+import type { ResponseMessage, WebviewErrorReport } from "@ging/shared/types";
 
 /** A thrown value in the shape the log needs. Only an `Error` carries a stack;
  *  everything else (a thrown string, a promise rejected with a plain object)

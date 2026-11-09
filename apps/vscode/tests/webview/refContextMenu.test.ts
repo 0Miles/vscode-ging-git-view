@@ -3,14 +3,14 @@ import { beforeAll, describe, expect, it, type Mock, vi } from "vitest";
 import {
   DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
   mergeContextMenuActionsVisibility
-} from "@/backend/utils/contextMenuVisibility";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
+} from "@ging/core/backend/utils/contextMenuVisibility";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 import {
   menuFor,
   type RefMenuActions,
   type RefMenuContext,
   type RefTarget
-} from "@/webview/refContextMenu";
+} from "@ging/webview/refContextMenu";
 
 // The ref menu's content decisions, tested as data: for a typed target and a
 // view-state context, menuFor answers "which items, in what order, with which

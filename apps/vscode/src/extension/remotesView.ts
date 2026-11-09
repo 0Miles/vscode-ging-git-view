@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import type { RepoGitClients } from "./repoGitClients";
+import type { RepoGitClients } from "@ging/core/extension/repoGitClients";
 
 /** One configured remote of the active repo. */
 type RemoteInfo = {

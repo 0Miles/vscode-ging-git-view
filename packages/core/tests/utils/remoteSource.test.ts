@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { remoteSourceFromUrl } from "@/backend/utils/remoteSource";
+import { remoteSourceFromUrl } from "@ging/core/backend/utils/remoteSource";
 
 describe("remoteSourceFromUrl", () => {
   it("recognises GitHub HTTPS remotes", () => {

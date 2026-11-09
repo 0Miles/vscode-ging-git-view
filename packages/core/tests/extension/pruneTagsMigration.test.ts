@@ -5,7 +5,7 @@ import {
   PruneTagsMigrationDeps,
   pruneTagsScopesToClear,
   runPruneTagsMigration
-} from "@/extension/pruneTagsMigration";
+} from "@ging/core/extension/pruneTagsMigration";
 
 describe("pruneTagsScopesToClear", () => {
   it("clears every scope holding an explicit true when prune was never chosen", () => {

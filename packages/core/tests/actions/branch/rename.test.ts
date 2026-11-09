@@ -3,9 +3,9 @@ import * as cp from "node:child_process";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { renameBranch } from "@/backend/actions/branch";
+import { renameBranch } from "@ging/core/backend/actions/branch";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import { clickId, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
@@ -50,7 +50,7 @@ describe("webview rendering", () => {
     vi.resetModules();
     vscodeMock = createVscodeMock();
     setupHtml(defaultViewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

@@ -11,11 +11,14 @@ import {
   pushBranches,
   pushRefusalFacts,
   staleLeaseInfoRefs
-} from "@/backend/actions/branch";
-import type { ActionPayload } from "@/backend/types";
-import { formatGitError, isRemoteUpdatedSinceCheckoutError } from "@/backend/utils/gitError";
+} from "@ging/core/backend/actions/branch";
+import {
+  formatGitError,
+  isRemoteUpdatedSinceCheckoutError
+} from "@ging/core/backend/utils/gitError";
+import type { ActionPayload } from "@ging/shared/backend/types";
 
-import { bareGit, git, makeRepo, rejection, rmrf } from "@tests/backend/helpers";
+import { bareGit, git, makeRepo, rejection, rmrf } from "@ging/core/tests/helpers";
 
 // "Force with lease" means the remote tip has been *integrated* into the local
 // branch, not merely fetched (ADR-0025). Each scenario builds its own repo,

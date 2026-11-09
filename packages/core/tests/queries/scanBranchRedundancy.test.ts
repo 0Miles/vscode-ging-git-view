@@ -4,9 +4,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { scanBranchRedundancy } from "@/backend/queries/scanBranchRedundancy";
+import { scanBranchRedundancy } from "@ging/core/backend/queries/scanBranchRedundancy";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

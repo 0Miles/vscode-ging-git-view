@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RepoFileWatcher } from "@/repoFileWatcher";
+import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
 
 const fsWatcher = vi.hoisted(() => ({
   handlers: {} as Record<string, (uri: { fsPath: string }) => void>,

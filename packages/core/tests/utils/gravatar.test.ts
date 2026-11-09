@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { gravatarHash } from "@/backend/utils/gravatar";
+import { gravatarHash } from "@ging/core/backend/utils/gravatar";
 
 describe("gravatarHash", () => {
   it("matches the canonical Gravatar example (trimmed + lower-cased)", () => {

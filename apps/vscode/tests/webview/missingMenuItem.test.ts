@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import {
   clickItem,
@@ -64,7 +64,7 @@ describe("activating a context-menu item the menu does not carry", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(makeViewState());
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

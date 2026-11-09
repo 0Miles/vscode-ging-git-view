@@ -14,7 +14,7 @@
  * package.json and goes red on any divergence.
  */
 
-import type { ContextMenuActionsVisibility } from "@/types";
+import type { ContextMenuActionsVisibility } from "@ging/shared/types";
 
 export type RefKinds = "local" | "remote" | "both";
 

@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import { type GitCommandHandler, gitClientFactory } from "@/backend/gitClient";
+import { type GitCommandHandler, gitClientFactory } from "@ging/core/backend/gitClient";
 
 /**
  * Configured git instances for arbitrary repos, decoupled from the Graph

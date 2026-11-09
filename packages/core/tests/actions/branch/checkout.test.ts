@@ -4,9 +4,9 @@ import * as fs from "node:fs";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { checkoutBranch } from "@/backend/actions/branch";
+import { checkoutBranch } from "@ging/core/backend/actions/branch";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

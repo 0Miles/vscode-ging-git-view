@@ -5,9 +5,9 @@ import * as path from "node:path";
 import { encode } from "iconv-lite";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getCommitFileContent } from "@/backend/queries/commitFileContent";
+import { getCommitFileContent } from "@ging/core/backend/queries/commitFileContent";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 const repos: string[] = [];
 function newRepo(): string {

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@/backend/types";
-import { generateGitFileTree, serializeGitFileTree } from "@/webview/utils/fileTree";
+import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@ging/shared/backend/types";
+import { generateGitFileTree, serializeGitFileTree } from "@ging/webview/utils/fileTree";
 
 import { DEFAULT_REPO, createVscodeMock, makeViewState, setupHtml } from "./setup";
 
@@ -102,7 +102,7 @@ describe("restoring an expanded Commit Details View from saved state", () => {
       })
     );
     setupHtml(defaultViewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("renders the graph", () => {
@@ -134,7 +134,7 @@ describe("restoring from a legacy saved state (file tree Maps lost to JSON)", ()
       })
     );
     setupHtml(defaultViewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("still renders the graph instead of crashing", () => {

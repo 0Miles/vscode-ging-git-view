@@ -1,4 +1,4 @@
-import type { CommitOrdering } from "@/backend/types";
+import type { CommitOrdering } from "@ging/shared/backend/types";
 
 const commitOrderFlag: Record<CommitOrdering, string> = {
   date: "--date-order",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyDialogMemory, extractDialogMemory } from "@/webview/dialogMemory";
+import { applyDialogMemory, extractDialogMemory } from "@ging/webview/dialogMemory";
 
 describe("applyDialogMemory", () => {
   it("returns the inputs unchanged when there is no memory", () => {

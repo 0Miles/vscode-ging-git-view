@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { shellCommandPath } from "@/backend/utils/shellPath";
+import { shellCommandPath } from "@ging/core/backend/utils/shellPath";
 
 describe("shellCommandPath", () => {
   it("turns a Windows path into something a POSIX shell can run", () => {

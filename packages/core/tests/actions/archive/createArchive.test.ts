@@ -5,9 +5,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { createArchive } from "@/backend/actions/archive";
+import { createArchive } from "@ging/core/backend/actions/archive";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 let outDir: string;

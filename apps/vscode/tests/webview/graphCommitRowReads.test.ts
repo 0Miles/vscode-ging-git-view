@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import type * as GG from "@/types";
+import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickElem,
@@ -288,7 +288,7 @@ describe("the graph's commit-row reads, with a dialog's rows ahead of them", () 
     // is being asked about.
     moveDialogAheadOfTheGraph();
     Element.prototype.scrollIntoView = scrollIntoView;
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse);
     standInDialogRows();

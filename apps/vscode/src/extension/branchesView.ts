@@ -1,24 +1,24 @@
 import * as vscode from "vscode";
 
-import { displayRef, REMOTE_PREFIX } from "@/backend/utils/branchRef";
-import * as l10n from "@/l10n";
-import type { BatchAction, BatchSkipped } from "@/types";
-
-import { resolveActionTargets } from "./branchActionTargets";
-import { relativeAge } from "./branchActivity";
-import { resolveCleanupCandidates } from "./branchCleanup";
-import { type BranchFacts } from "./branchFacts";
-import { BranchFilterStore } from "./branchFilterStore";
+import { resolveActionTargets } from "@ging/core/extension/branchActionTargets";
+import { relativeAge } from "@ging/core/extension/branchActivity";
+import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
+import { type BranchFacts } from "@ging/core/extension/branchFacts";
 import {
   createBranchSelectionReconciler,
   createDirectFilterWriter
-} from "./branchSelectionReconciler";
+} from "@ging/core/extension/branchSelectionReconciler";
 import {
   branchSelectionOf,
   type BranchTreeLeaf,
   type BranchTreeNode,
   buildGroupedBranchRoots
-} from "./branchTree";
+} from "@ging/core/extension/branchTree";
+import { displayRef, REMOTE_PREFIX } from "@ging/shared/backend/utils/branchRef";
+import type { BatchAction, BatchSkipped } from "@ging/shared/types";
+import * as l10n from "@ging/vscode/l10n";
+
+import { BranchFilterStore } from "./branchFilterStore";
 
 /** Scheme of the opaque per-branch URIs carrying a leaf's decoration flags, so
  *  the FileDecorationProvider below can dim it and/or badge it. */

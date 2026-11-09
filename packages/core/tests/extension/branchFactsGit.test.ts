@@ -8,9 +8,9 @@ import {
   type BranchFactsDeps,
   createBranchFacts,
   createGitSnapshotReader
-} from "@/extension/branchFacts";
+} from "@ging/core/extension/branchFacts";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 /** Commit a file so the branch tip moves, giving `--merged` something to
  *  compare that isn't the initial commit. */

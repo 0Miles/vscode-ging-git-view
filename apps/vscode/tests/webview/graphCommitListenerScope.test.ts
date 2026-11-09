@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import type * as GG from "@/types";
+import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   bodyLink,
@@ -193,7 +193,7 @@ describe("the graph's commit actions, with a dialog showing commit rows of its o
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse);
 

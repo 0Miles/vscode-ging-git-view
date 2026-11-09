@@ -1,15 +1,15 @@
 import * as vscode from "vscode";
 
-import { getNonce } from "@/backend/utils/nonce";
-import { buildExtensionUri } from "@/backend/utils/path";
-import { Config } from "@/config";
-import { ExtensionState } from "@/extensionState";
-import * as l10n from "@/l10n";
-import { GitGraphViewState } from "@/types";
+import { getNonce } from "@ging/core/backend/utils/nonce";
+import { GitGraphViewState } from "@ging/shared/types";
+import { buildExtensionUri } from "@ging/vscode/backend/utils/path";
+import { Config } from "@ging/vscode/config";
+import { ExtensionState } from "@ging/vscode/extensionState";
+import * as l10n from "@ging/vscode/l10n";
+import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
 
 import { RepoManager } from "./repoManager";
 import { getWebviewLocalizedStrings } from "./webviewL10n";
-import { buildWebviewMarkup } from "./webviewMarkup";
 
 /**
  * Safely escape JSON for embedding in HTML script tags.

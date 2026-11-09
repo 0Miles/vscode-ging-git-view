@@ -1,4 +1,4 @@
-import type { GitFileChange } from "@/backend/types";
+import type { GitFileChange } from "@ging/shared/backend/types";
 
 import { escapeHtml } from "./html";
 import { svgIcons } from "./icons";

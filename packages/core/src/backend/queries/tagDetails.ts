@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { QueryResult } from "@/backend/types";
+import type { QueryResult } from "@ging/shared/backend/types";
 
 const sep = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-TagDt";
 

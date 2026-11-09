@@ -5,12 +5,12 @@ import * as path from "node:path";
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { rebaseInteractive, type RebaseTodoStager } from "@/backend/actions/rebase";
-import { gitClientFactory } from "@/backend/gitClient";
-import { rebaseTodo } from "@/backend/utils/rebasePlan";
-import { shellCommandPath } from "@/backend/utils/shellPath";
+import { rebaseInteractive, type RebaseTodoStager } from "@ging/core/backend/actions/rebase";
+import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { shellCommandPath } from "@ging/core/backend/utils/shellPath";
+import { rebaseTodo } from "@ging/shared/backend/utils/rebasePlan";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 // Drives the real helper git runs as GIT_SEQUENCE_EDITOR — the shell script and
 // the node bundle, not a stand-in. The mechanism is the part of this feature

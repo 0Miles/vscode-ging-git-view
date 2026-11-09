@@ -4,8 +4,8 @@ import * as path from "node:path";
 
 import * as vscode from "vscode";
 
-import { getNonce } from "@/backend/utils/nonce";
-import { shellCommandPath } from "@/backend/utils/shellPath";
+import { getNonce } from "@ging/core/backend/utils/nonce";
+import { shellCommandPath } from "@ging/core/backend/utils/shellPath";
 
 /**
  * Lets the extension hand `git rebase -i` a todo of its own making.

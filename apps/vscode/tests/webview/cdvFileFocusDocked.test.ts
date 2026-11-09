@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import {
   createVscodeMock,
@@ -120,7 +120,7 @@ describe("file-list focus with the Commit Details View docked to the bottom", ()
     setupHtml(viewState);
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = vi.fn();
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

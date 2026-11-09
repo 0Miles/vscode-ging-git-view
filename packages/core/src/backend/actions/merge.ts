@@ -3,7 +3,7 @@ import * as path from "node:path";
 
 import type { SimpleGit } from "simple-git";
 
-import type { ActionPayload } from "@/backend/types";
+import type { ActionPayload } from "@ging/shared/backend/types";
 
 /** Message format for the commit created after a `--squash` merge.
  *  "Default" = GING's generated `Merge branch 'X'`; "Git SQUASH_MSG" = the

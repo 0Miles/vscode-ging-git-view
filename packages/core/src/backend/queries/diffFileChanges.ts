@@ -1,4 +1,4 @@
-import type { GitFileChange, GitFileChangeType } from "@/backend/types";
+import type { GitFileChange, GitFileChangeType } from "@ging/shared/backend/types";
 
 /** Normalise a git-reported path to forward slashes. */
 export function toPath(str: string) {

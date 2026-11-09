@@ -7,7 +7,7 @@ import {
   type BranchTreeFolder,
   type BranchTreeGroup,
   type BranchTreeLeaf
-} from "@/extension/branchTree";
+} from "@ging/core/extension/branchTree";
 
 const leaves = (nodes: ReturnType<typeof buildBranchTree>): BranchTreeLeaf[] =>
   nodes.filter((n): n is BranchTreeLeaf => n.type === "leaf");

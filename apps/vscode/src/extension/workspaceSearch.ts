@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
 
-import { getPathFromUri } from "@/backend/utils/path";
-import { searchDirectoryForRepos as searchDirectoryForReposUtil } from "@/backend/utils/repoSearch";
-import { Config } from "@/config";
+import { searchDirectoryForRepos as searchDirectoryForReposUtil } from "@ging/core/backend/utils/repoSearch";
+import { getPathFromUri } from "@ging/vscode/backend/utils/path";
+import { Config } from "@ging/vscode/config";
 
 import { RepoManager } from "./repoManager";
 

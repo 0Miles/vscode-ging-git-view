@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import {
   createVscodeMock,
@@ -135,7 +135,7 @@ describe("the Commit Details View file list's tab stop across a redraw", () => {
     setupHtml(viewState);
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = vi.fn();
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

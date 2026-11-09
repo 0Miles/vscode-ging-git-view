@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { rmrf } from "@tests/backend/helpers";
+import { rmrf } from "@ging/core/tests/helpers";
 
 /**
  * `scripts/check-l10n.js` is what CI runs (`pnpm run l10n:check`), so, as with
@@ -19,7 +19,7 @@ import { rmrf } from "@tests/backend/helpers";
  * held to a CJK punctuation rule.
  */
 
-const SCRIPT = fileURLToPath(new URL("../../../scripts/check-l10n.js", import.meta.url));
+const SCRIPT = fileURLToPath(new URL("../../../../scripts/check-l10n.js", import.meta.url));
 
 type Strings = Record<string, string>;
 

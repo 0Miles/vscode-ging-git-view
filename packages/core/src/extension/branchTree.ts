@@ -10,7 +10,7 @@
  * test project; the TreeItem rendering lives in `branchesView.ts`.
  */
 
-import { displayRef, PRIMARY_BRANCHES, REMOTE_PREFIX } from "@/backend/utils/branchRef";
+import { displayRef, PRIMARY_BRANCHES, REMOTE_PREFIX } from "@ging/shared/backend/utils/branchRef";
 
 export type BranchTreeLeaf = {
   type: "leaf";

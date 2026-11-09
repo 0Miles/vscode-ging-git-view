@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { ActionPayload } from "@/backend/types";
+import type { ActionPayload } from "@ging/shared/backend/types";
 
 /** Rebase the currently checked-out branch onto `obj` (a branch name or commit
  *  hash). On conflict git stops mid-rebase and the error is surfaced. */

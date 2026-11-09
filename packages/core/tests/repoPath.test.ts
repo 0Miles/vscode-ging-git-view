@@ -2,9 +2,13 @@ import * as path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { isUsableRepoPath, pickBootRepo, resolveCurrentRepo } from "@/backend/utils/repoPath";
+import {
+  isUsableRepoPath,
+  pickBootRepo,
+  resolveCurrentRepo
+} from "@ging/core/backend/utils/repoPath";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 // Real directories, no stubs: what has to hold is that this predicate answers
 // the same question simple-git's constructor asks, and only the file system can

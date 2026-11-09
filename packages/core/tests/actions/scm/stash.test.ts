@@ -5,9 +5,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { stashApply, stashDrop, stashPop, stashPush } from "@/backend/actions/scm";
+import { stashApply, stashDrop, stashPop, stashPush } from "@ging/core/backend/actions/scm";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

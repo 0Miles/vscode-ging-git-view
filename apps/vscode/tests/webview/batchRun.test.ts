@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { BatchRefResult } from "@/backend/types";
-import { BatchRun } from "@/webview/batchRun";
+import type { BatchRefResult } from "@ging/shared/backend/types";
+import { BatchRun } from "@ging/webview/batchRun";
 
 describe("BatchRun", () => {
   // Most of these are about the run's states, not about any one action.

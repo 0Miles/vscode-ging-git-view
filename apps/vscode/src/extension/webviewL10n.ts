@@ -1,11 +1,12 @@
-import * as l10n from "@/l10n";
+import * as l10n from "@ging/vscode/l10n";
+import type { LocalizedStrings } from "@ging/webview/localizedStrings";
 
 /**
  * Get all localized strings for the webview.
  * Since webview cannot access vscode.l10n directly, we need to pass the strings
  * from the extension context.
  */
-export function getWebviewLocalizedStrings() {
+export function getWebviewLocalizedStrings(): LocalizedStrings {
   return {
     // UI labels
     branch: l10n.t("ui.branch"),
@@ -399,5 +400,3 @@ export function getWebviewLocalizedStrings() {
     tooltipDeletions: l10n.t("tooltip.deletions")
   };
 }
-
-export type LocalizedStrings = ReturnType<typeof getWebviewLocalizedStrings>;

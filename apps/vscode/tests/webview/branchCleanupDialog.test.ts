@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type * as GG from "@/types";
+import type * as GG from "@ging/shared/types";
 
 import {
   DEFAULT_REPO,
@@ -58,7 +58,7 @@ describe("the branch cleanup dialog delivered by the host", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

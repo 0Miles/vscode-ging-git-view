@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { repoContainingPath, resolveToKnownRepo } from "@/backend/utils/repoMatch";
+import { repoContainingPath, resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
 
 describe("repoContainingPath", () => {
   it("returns the repo whose root contains the file", () => {

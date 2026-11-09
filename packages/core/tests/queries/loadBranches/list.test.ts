@@ -4,10 +4,10 @@ import * as os from "node:os";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { gitClientFactory } from "@/backend/gitClient";
-import { loadBranches } from "@/backend/queries/loadBranches";
+import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { loadBranches } from "@ging/core/backend/queries/loadBranches";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let simpleRepo: string;
 let detachedRepo: string;

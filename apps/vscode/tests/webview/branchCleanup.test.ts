@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { CleanupCandidate } from "@/types";
-import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "@/webview/branchCleanup";
+import type { CleanupCandidate } from "@ging/shared/types";
+import {
+  defaultCheckedRefs,
+  groupToggleState,
+  mergeCheckedRefs
+} from "@ging/webview/branchCleanup";
 
 /** A candidate row carrying exactly the facts named. */
 function row(ref: string, facts: Partial<CleanupCandidate["facts"]>): CleanupCandidate {

@@ -32,7 +32,13 @@ const ROOT = path.resolve(process.argv[2] ?? path.join(__dirname, ".."));
 /** Named once: it is also how a file is recognised as an ADR further down. */
 const ADR_DIR_NAME = "docs/adr";
 const ADR_DIR = path.join(ROOT, ADR_DIR_NAME);
-const SEARCH_ROOTS = ["docs", "src", "tests", "scripts"];
+const SEARCH_ROOTS = ["docs", "src", "tests", "scripts", "packages", "apps"];
+/**
+ * Directories never walked: installed dependencies (every workspace package has
+ * its own node_modules), build output, and the VS Code that the extension tests
+ * download into apps/vscode.
+ */
+const SKIPPED_DIRS = new Set(["node_modules", "out", ".vscode-test"]);
 /**
  * Extensions worth reading. `.txt` is deliberately absent, and
  * `tests/backend/scripts/checkAdr.fixtures.txt` relies on that: the samples
@@ -115,8 +121,9 @@ function searchableFiles() {
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else add(full);
+      if (entry.isDirectory()) {
+        if (!SKIPPED_DIRS.has(entry.name)) walk(full);
+      } else add(full);
     }
   };
   for (const root of SEARCH_ROOTS) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyMerged } from "@/extension/branchMerged";
+import { classifyMerged } from "@ging/core/extension/branchMerged";
 
 const noExemptions = { head: null, selected: [] as string[], patterns: [] as string[] };
 

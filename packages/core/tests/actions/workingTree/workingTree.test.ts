@@ -4,9 +4,12 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { cleanUntrackedFiles, resetUncommittedChanges } from "@/backend/actions/workingTree";
+import {
+  cleanUntrackedFiles,
+  resetUncommittedChanges
+} from "@ging/core/backend/actions/workingTree";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

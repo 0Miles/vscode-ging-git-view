@@ -1,4 +1,4 @@
-import type { WebviewErrorReport } from "@/types";
+import type { WebviewErrorReport } from "@ging/shared/types";
 
 /** Where a webview failure happened, in the log's own words. */
 function location(report: WebviewErrorReport): string {

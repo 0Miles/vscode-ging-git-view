@@ -4,7 +4,19 @@
     "noEmit": false,
     "module": "commonjs",
     "moduleResolution": "node",
-    "outDir": "../out/extension"
+    "rootDir": "../../../..",
+    "outDir": "../out/extension",
+    // `node` resolution does not read package `exports`, and the emitted
+    // CommonJS cannot load the packages' .ts sources anyway, so the workspace
+    // packages are compiled alongside the tests and tsc-alias rewrites these
+    // to relative paths. Most specific pattern first.
+    "paths": {
+      "@ging/core/tests/*": ["../../../../packages/core/tests/*"],
+      "@ging/core/*": ["../../../../packages/core/src/*"],
+      "@ging/shared/*": ["../../../../packages/shared/src/*"],
+      "@ging/webview/*": ["../../../../packages/webview/src/*"],
+      "@ging/vscode/*": ["../../../../apps/vscode/src/*"]
+    }
   },
   "include": ["./**/*.ts"]
 }

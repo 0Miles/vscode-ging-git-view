@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { replaceEmojiShortcodes } from "@/webview/utils/emoji";
+import { replaceEmojiShortcodes } from "@ging/webview/utils/emoji";
 
 describe("replaceEmojiShortcodes", () => {
   it("replaces a known built-in shortcode", () => {

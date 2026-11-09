@@ -1,7 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    // The extension is not importable under its own name (its manifest is the
+    // published one), so its modules reach each other through this alias, the
+    // way they reached each other through `@/` before. esbuild.js and
+    // vitest.config.ts resolve it the same way.
+    "paths": {
+      "@ging/vscode/*": ["./src/*"]
+    }
   },
   "include": ["src"]
 }

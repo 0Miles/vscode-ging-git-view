@@ -5,7 +5,7 @@ import {
   PRIMARY_BRANCHES,
   REMOTE_PREFIX,
   splitRemoteRef
-} from "@/backend/utils/branchRef";
+} from "@ging/shared/backend/utils/branchRef";
 
 /** The remote names appearing in a ref list, `origin` first when present. */
 function remotesIn(refs: readonly string[]): string[] {

@@ -4,10 +4,10 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { renameStash } from "@/backend/actions/stash";
-import { loadStashes } from "@/backend/queries/loadStashes";
+import { renameStash } from "@ging/core/backend/actions/stash";
+import { loadStashes } from "@ging/core/backend/queries/loadStashes";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 const repos: string[] = [];
 afterEach(() => {

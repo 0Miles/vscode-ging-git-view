@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type * as GG from "@/types";
+import type * as GG from "@ging/shared/types";
 
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
@@ -12,7 +12,7 @@ describe("showRemoteBranches default", () => {
     vi.resetModules();
     sentMessages = createVscodeMock().sentMessages;
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     // Complete the startup handshake: until the initial load lands, the webview
     // holds off any further branch request, and the toggle would look inert for
     // reasons that have nothing to do with what is under test.

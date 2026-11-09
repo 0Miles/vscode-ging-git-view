@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import {
   commitDetails,
@@ -81,7 +81,7 @@ describe("bringing an opening docked Commit Details View's commit into view", ()
     Element.prototype.scrollIntoView = function (this: Element, arg?: unknown) {
       scrolledIntoView.push([this, arg]);
     };
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

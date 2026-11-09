@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
@@ -32,7 +32,7 @@ describe("Commit Details View file tree/list toggle", () => {
     const mock = createVscodeMock();
     sentMessages = mock.sentMessages;
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

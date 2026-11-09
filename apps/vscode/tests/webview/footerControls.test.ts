@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import { clickId, createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 
@@ -157,7 +157,7 @@ describe("the graph footer's controls", () => {
     Element.prototype.scrollIntoView = function (this: Element) {
       scrolledIntoView.push(this);
     };
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse());
     // Widen the window once, so both controls are on screen at the same time.

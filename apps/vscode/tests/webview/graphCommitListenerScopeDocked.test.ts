@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import type * as GG from "@/types";
+import type { BranchRedundancy, GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   bodyLink,
@@ -138,7 +138,7 @@ describe("the docked Commit Details View's body links, with a dialog standing", 
     setupHtml(viewState);
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = vi.fn();
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

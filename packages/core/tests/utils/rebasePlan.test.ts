@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { planRebase, rebaseTodo, type RebaseCommit } from "@/backend/utils/rebasePlan";
+import { planRebase, rebaseTodo, type RebaseCommit } from "@ging/shared/backend/utils/rebasePlan";
 
 /** Build a replay list oldest-first from a keep/drop mask: "kkd" = oldest and
  *  middle kept, newest dropped. Each commit is the child of the one before it,

@@ -2,7 +2,7 @@ import * as assert from "node:assert";
 
 import * as vscode from "vscode";
 
-import { config } from "@/config";
+import { config } from "@ging/vscode/config";
 
 // Guards the settings regroup/rename: every renamed accessor must still return
 // its default (never undefined), and each accessor must be wired to the grouped

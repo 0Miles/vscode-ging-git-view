@@ -3,9 +3,9 @@ import * as cp from "node:child_process";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { checkoutCommit } from "@/backend/actions/commit";
+import { checkoutCommit } from "@ging/core/backend/actions/commit";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 let commitHash: string;

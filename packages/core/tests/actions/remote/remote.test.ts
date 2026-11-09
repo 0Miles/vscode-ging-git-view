@@ -9,9 +9,9 @@ import {
   removeRemote,
   renameRemote,
   setRemoteUrl
-} from "@/backend/actions/remote";
+} from "@ging/core/backend/actions/remote";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

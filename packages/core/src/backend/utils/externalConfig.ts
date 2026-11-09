@@ -1,5 +1,5 @@
-import type { CommitOrdering } from "@/backend/types";
-import type { GitRepoState } from "@/types";
+import type { CommitOrdering } from "@ging/shared/backend/types";
+import type { GitRepoState } from "@ging/shared/types";
 
 /** Path (relative to the repo root) of the shareable GING config file. */
 export const EXTERNAL_CONFIG_RELATIVE_PATH = ".vscode/ging-git-view.json";

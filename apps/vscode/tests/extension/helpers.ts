@@ -1,4 +1,4 @@
-import { copyRepo, makeRepo, rmrf, SEED_TIMEOUT_MS } from "@tests/backend/helpers";
+import { copyRepo, makeRepo, rmrf, SEED_TIMEOUT_MS } from "@ging/core/tests/helpers";
 
 /** Give each test of the calling suite a fresh repo, handed to `use` before the
  *  test runs. The three spawns of `makeRepo` are paid once, in a hook given room

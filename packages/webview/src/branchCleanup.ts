@@ -6,7 +6,7 @@
  * here is the part with a decision behind it.
  */
 
-import type { CleanupCandidate } from "@/types";
+import type { CleanupCandidate } from "@ging/shared/types";
 
 /**
  * Which rows open pre-checked: the ones whose content is already on the

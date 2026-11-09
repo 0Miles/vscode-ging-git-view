@@ -3,9 +3,9 @@ import * as os from "node:os";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { isGitRepository } from "@/backend/utils/git";
+import { isGitRepository } from "@ging/core/backend/utils/git";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 let nonGitDir: string;

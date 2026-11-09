@@ -1,38 +1,47 @@
 import type { SimpleGit } from "simple-git";
 import * as vscode from "vscode";
 
-import { AvatarManager } from "./avatarManager";
-import { createBranch } from "./backend/actions/branch";
-import { resetToCommit } from "./backend/actions/commit";
-import { fetchFromRemotes, fetchRemote, listRemoteNames } from "./backend/actions/fetch";
+import { createBranch } from "@ging/core/backend/actions/branch";
+import { resetToCommit } from "@ging/core/backend/actions/commit";
+import { fetchFromRemotes, fetchRemote, listRemoteNames } from "@ging/core/backend/actions/fetch";
 import {
   addRemote,
   getRemoteUrl,
   removeRemote,
   renameRemote,
   setRemoteUrl
-} from "./backend/actions/remote";
-import { getUserDetails, setUserDetails } from "./backend/actions/userDetails";
-import { gitClientFactory } from "./backend/gitClient";
-import { getCommitFileContent } from "./backend/queries/commitFileContent";
-import { loadDanglingCommits, loadReflog } from "./backend/queries/loadReflog";
-import { loadStatistics } from "./backend/queries/loadStatistics";
-import { displayRef } from "./backend/utils/branchRef";
-import { formatGitError } from "./backend/utils/gitError";
-import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
+} from "@ging/core/backend/actions/remote";
+import { getUserDetails, setUserDetails } from "@ging/core/backend/actions/userDetails";
+import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { getCommitFileContent } from "@ging/core/backend/queries/commitFileContent";
+import { loadDanglingCommits, loadReflog } from "@ging/core/backend/queries/loadReflog";
+import { loadStatistics } from "@ging/core/backend/queries/loadStatistics";
+import { formatGitError } from "@ging/core/backend/utils/gitError";
+import { repoContainingPath, resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
+import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
+import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
+import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
+import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
+import {
+  resolveRepoScope,
+  type SideViewField,
+  sideViewStateChanged
+} from "@ging/core/extension/repoSettings";
+import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
   branchMenuContextKeys,
   CATALOGUE_REF_ACTIONS,
   isBatchAction
-} from "./backend/utils/refActionCatalogue";
-import { repoContainingPath, resolveToKnownRepo } from "./backend/utils/repoMatch";
+} from "@ging/shared/backend/utils/refActionCatalogue";
+import type { BatchSkipped, RepoSettingField } from "@ging/shared/types";
+
+import { AvatarManager } from "./avatarManager";
+import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
 import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
-import { createBranchCleanup } from "./extension/branchCleanupService";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
-import { createBranchFacts, createGitSnapshotReader } from "./extension/branchFacts";
 import { createBranchFilterStore } from "./extension/branchFilterStore";
 import {
   findGraphTabs,
@@ -41,20 +50,13 @@ import {
 } from "./extension/graphPanelWindow";
 import { createLogger } from "./extension/logger";
 import { registerMessageHandlers } from "./extension/messageHandler";
-import { type ConfigScope, runPruneTagsMigration } from "./extension/pruneTagsMigration";
 import { managePullRequestProviders } from "./extension/pullRequestProviders";
 import {
   createRemotesView,
   remoteActionTarget,
   type RemoteActionTarget
 } from "./extension/remotesView";
-import { createRepoGitClients } from "./extension/repoGitClients";
 import { createRepoManager } from "./extension/repoManager";
-import {
-  resolveRepoScope,
-  type SideViewField,
-  sideViewStateChanged
-} from "./extension/repoSettings";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
 import { SequenceEditorManager } from "./extension/sequenceEditor/sequenceEditorManager";
 import { showStatistics } from "./extension/statisticsPanel";
@@ -67,7 +69,6 @@ import * as l10n from "./l10n";
 import { initL10n } from "./l10n";
 import { RepoFileWatcher } from "./repoFileWatcher";
 import { StatusBarItem } from "./statusBarItem";
-import type { BatchSkipped, RepoSettingField } from "./types";
 
 export function activate(context: vscode.ExtensionContext) {
   initL10n(context.extensionPath);

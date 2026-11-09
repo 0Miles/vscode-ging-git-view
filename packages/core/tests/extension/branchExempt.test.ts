@@ -5,7 +5,7 @@ import {
   isAlwaysShown,
   isExempt,
   withExemptions
-} from "@/extension/branchExempt";
+} from "@ging/core/extension/branchExempt";
 
 describe("branchGlobMatches", () => {
   it("matches an exact name", () => {

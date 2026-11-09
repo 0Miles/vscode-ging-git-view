@@ -4,8 +4,8 @@
  * in the fast backend test project, like its neighbours in this directory.
  */
 
-import { batchSkipReason } from "@/backend/utils/refActionCatalogue";
-import type { BatchAction } from "@/types";
+import { batchSkipReason } from "@ging/shared/backend/utils/refActionCatalogue";
+import type { BatchAction } from "@ging/shared/types";
 
 import type { BranchTreeLeaf, BranchTreeNode } from "./branchTree";
 

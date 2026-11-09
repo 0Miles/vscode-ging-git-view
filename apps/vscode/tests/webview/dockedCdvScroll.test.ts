@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import type { GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
 
 import {
   VIEWPORT_HEIGHT,
@@ -77,7 +77,7 @@ describe("Page Up/Down with the Commit Details View docked to the bottom", () =>
     window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
     window.scrollBy = scrollBy as unknown as typeof window.scrollBy;
     Element.prototype.scrollIntoView = vi.fn();
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

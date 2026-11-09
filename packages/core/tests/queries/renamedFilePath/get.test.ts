@@ -5,9 +5,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getNewPathOfRenamedFile } from "@/backend/queries/renamedFilePath";
+import { getNewPathOfRenamedFile } from "@ging/core/backend/queries/renamedFilePath";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

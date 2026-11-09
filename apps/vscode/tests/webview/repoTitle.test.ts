@@ -22,7 +22,7 @@ describe("toolbar repo title", () => {
         lastActiveRepo: REPO_A
       })
     );
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("shows the repo's folder name on boot, with the branch still unknown", () => {
@@ -70,7 +70,7 @@ describe("toolbar repo title with a custom repo name", () => {
         lastActiveRepo: REPO_A
       })
     );
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("prefers the custom name over the folder name", () => {

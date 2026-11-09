@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import { DEFAULT_REPO, createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
@@ -62,7 +62,7 @@ describe("restoring the webview from saved state (tab switch)", () => {
     vi.resetModules();
     createVscodeMock(savedState({ remotes: ["origin"], pushDefault: null }));
     setupHtml(defaultViewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     // No responses delivered: assert on the initial render from saved state.
   });
 
@@ -79,7 +79,7 @@ describe("restoring from a saved state without remotes (pre-upgrade state)", () 
     vi.resetModules();
     createVscodeMock(savedState({}));
     setupHtml(defaultViewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("re-folds the labels once the remotes load", () => {

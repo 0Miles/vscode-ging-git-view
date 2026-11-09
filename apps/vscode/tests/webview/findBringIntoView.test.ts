@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { BranchSearchEntry, GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { BranchSearchEntry, GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import {
   createVscodeMock,
@@ -227,7 +227,7 @@ describe("bringing the current find match into view", () => {
     // jsdom implements neither, so record what the webview asks for instead.
     window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = scrollIntoView;
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse(commits));
   });

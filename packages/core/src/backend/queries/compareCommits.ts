@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { GitFileChange } from "@/backend/types";
+import type { GitFileChange } from "@ging/shared/backend/types";
 
 import { parseDiffFileChanges } from "./diffFileChanges";
 

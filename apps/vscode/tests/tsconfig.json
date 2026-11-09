@@ -1,16 +1,14 @@
 {
-  "extends": "../tsconfig.json",
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["es2023", "dom"],
-    // The webview harness is plain JS run by node; it opts in with `// @ts-check`.
-    "allowJs": true
+    "types": ["node", "mocha"],
+    "paths": {
+      "@ging/vscode/*": ["../src/*"]
+    }
   },
-  "include": [
-    "./backend/**/*.ts",
-    "./extension/**/*.ts",
-    "./webview/**/*.ts",
-    "../src/backend/**/*.ts",
-    "../src/webview/**/*.ts",
-    "../scripts/webview-harness.js"
-  ]
+  // The webview suites drive @ging/webview, whose globals (`l10n`, `viewState`,
+  // the GG types...) are ambient declarations nothing imports.
+  "include": ["./**/*.ts", "../../../packages/webview/src/**/*.d.ts"],
+  "exclude": ["out"]
 }

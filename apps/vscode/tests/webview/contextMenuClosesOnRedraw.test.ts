@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
+import type { GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
 
 import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 
@@ -80,7 +80,7 @@ describe("a redraw arriving while a context menu is open", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(makeViewState());
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

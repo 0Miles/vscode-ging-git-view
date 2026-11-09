@@ -3,12 +3,13 @@ import * as http from "node:http";
 import * as https from "node:https";
 import * as url from "node:url";
 
-import { getRemoteUrl } from "./backend/utils/git";
-import { gravatarHash } from "./backend/utils/gravatar";
-import { RemoteSource, remoteSourceFromUrl } from "./backend/utils/remoteSource";
+import { getRemoteUrl } from "@ging/core/backend/utils/git";
+import { gravatarHash } from "@ging/core/backend/utils/gravatar";
+import { RemoteSource, remoteSourceFromUrl } from "@ging/core/backend/utils/remoteSource";
+import { AvatarCache, ResponseMessage } from "@ging/shared/types";
+
 import { config } from "./config";
 import { ExtensionState } from "./extensionState";
-import { AvatarCache, ResponseMessage } from "./types";
 
 export class AvatarManager {
   private readonly gitPath: () => string;

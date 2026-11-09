@@ -1,15 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import { resetToCommit } from "@/backend/actions/commit";
-import type {
-  ActionPayload,
-  ActionResponseExtra,
-  BatchActionPayload,
-  BatchDeleteResult,
-  BatchPushResult,
-  BatchRefResult
-} from "@/backend/types";
-import { REMOTE_PREFIX, splitRemoteRef } from "@/backend/utils/branchRef";
+import { resetToCommit } from "@ging/core/backend/actions/commit";
 import {
   attemptOnEachRemote,
   formatGitError,
@@ -17,7 +8,16 @@ import {
   isRemoteUpdatedSinceCheckoutError,
   isStaleLeaseInfoError,
   LabelledGitErrors
-} from "@/backend/utils/gitError";
+} from "@ging/core/backend/utils/gitError";
+import type {
+  ActionPayload,
+  ActionResponseExtra,
+  BatchActionPayload,
+  BatchDeleteResult,
+  BatchPushResult,
+  BatchRefResult
+} from "@ging/shared/backend/types";
+import { REMOTE_PREFIX, splitRemoteRef } from "@ging/shared/backend/utils/branchRef";
 
 export async function createBranch(
   git: SimpleGit,

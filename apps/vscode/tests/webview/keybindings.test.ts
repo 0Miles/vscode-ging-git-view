@@ -16,7 +16,7 @@ describe("keyboard shortcuts", () => {
           keybindings: { find: "f", refresh: "r", scrollToHead: "h", scrollToStash: "s" }
         })
       );
-      await import("@/webview/main");
+      await import("@ging/webview/main");
     });
 
     it("opens the Find Widget on Ctrl+F", () => {
@@ -36,7 +36,7 @@ describe("keyboard shortcuts", () => {
           keybindings: { find: null, refresh: "r", scrollToHead: "h", scrollToStash: "s" }
         })
       );
-      await import("@/webview/main");
+      await import("@ging/webview/main");
     });
 
     it("does not open the Find Widget on Ctrl+F", () => {

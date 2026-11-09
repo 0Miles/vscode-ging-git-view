@@ -1,8 +1,8 @@
 import * as fs from "node:fs/promises";
 
-import { isGitRepository } from "@/backend/utils/git";
-import { submodulePathsFromGitmodules } from "@/backend/utils/gitmodules";
-import { evalPromises } from "@/backend/utils/promise";
+import { isGitRepository } from "@ging/core/backend/utils/git";
+import { submodulePathsFromGitmodules } from "@ging/core/backend/utils/gitmodules";
+import { evalPromises } from "@ging/core/backend/utils/promise";
 
 async function isDirectory(path: string): Promise<boolean> {
   return fs

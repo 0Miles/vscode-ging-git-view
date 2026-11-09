@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import {
   createVscodeMock,
@@ -76,7 +76,7 @@ describe("automatic loading on scroll, switched off", () => {
     // The shared setup starts every suite at the top of the page; this one
     // needs the opposite end, where the threshold would hold if it were read.
     parkViewportAt(NEAR_BOTTOM);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse);
 

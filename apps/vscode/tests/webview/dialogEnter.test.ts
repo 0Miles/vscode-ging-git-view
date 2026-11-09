@@ -21,7 +21,7 @@ describe("dialog Enter submission", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   let cleanup: () => void;

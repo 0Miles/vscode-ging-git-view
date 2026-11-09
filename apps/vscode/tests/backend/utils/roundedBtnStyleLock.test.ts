@@ -31,7 +31,10 @@ import { describe, expect, it } from "vitest";
  * only that nobody removed them without meeting this comment first.
  */
 
-const css = readFileSync(new URL("../../../media/main.css", import.meta.url), "utf8");
+const css = readFileSync(
+  new URL("../../../../../packages/webview/media/main.css", import.meta.url),
+  "utf8"
+);
 
 /** The `prop: value` pairs of a rule, by exact selector text, in source order —
  *  empty when there is no such rule, so a missing one fails as a named test

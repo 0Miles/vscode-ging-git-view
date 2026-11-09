@@ -5,7 +5,7 @@ import {
   computeDefaultBranchFilter,
   pruneBranchFilter,
   resolveBranchFilter
-} from "@/extension/branchFilter";
+} from "@ging/core/extension/branchFilter";
 
 describe("branchFilterEquals", () => {
   it("is order-insensitive", () => {

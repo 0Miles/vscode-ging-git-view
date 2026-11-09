@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { WorktreeEntry } from "@/backend/types";
+import type { WorktreeEntry } from "@ging/shared/backend/types";
 
 const eolRegex = /\r?\n/;
 const headsPrefix = "refs/heads/";

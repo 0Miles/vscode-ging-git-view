@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { webviewBridgeFactory } from "@/extension/webviewBridge";
-import type { RepoFileWatcher } from "@/repoFileWatcher";
-import type { RequestMessage } from "@/types";
+import type { RequestMessage } from "@ging/shared/types";
+import { webviewBridgeFactory } from "@ging/vscode/extension/webviewBridge";
+import type { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
 
 // `vi.mock` is hoisted above the imports, so the bridge's `import "vscode"`
 // resolves to this stub even though the mock is declared after it.

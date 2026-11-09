@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeKeybinding } from "@/backend/utils/keybinding";
+import { normalizeKeybinding } from "@ging/core/backend/utils/keybinding";
 
 describe("normalizeKeybinding", () => {
   it("maps a CTRL/CMD + <key> value to the lowercase key char", () => {

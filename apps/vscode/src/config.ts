@@ -1,14 +1,14 @@
 import * as vscode from "vscode";
 
-import { SquashMessageFormat } from "./backend/actions/merge";
-import { CommitOrdering, DateType, GitResetMode } from "./backend/types";
-import { mergeContextMenuActionsVisibility } from "./backend/utils/contextMenuVisibility";
-import { resolveGitPath } from "./backend/utils/gitPath";
-import { normalizeKeybinding } from "./backend/utils/keybinding";
+import { SquashMessageFormat } from "@ging/core/backend/actions/merge";
+import { mergeContextMenuActionsVisibility } from "@ging/core/backend/utils/contextMenuVisibility";
+import { resolveGitPath } from "@ging/core/backend/utils/gitPath";
+import { normalizeKeybinding } from "@ging/core/backend/utils/keybinding";
 import {
   normalizePullRequestProviders,
   type PullRequestProvider
-} from "./backend/utils/pullRequest";
+} from "@ging/core/backend/utils/pullRequest";
+import { CommitOrdering, DateType, GitResetMode } from "@ging/shared/backend/types";
 import {
   ContextMenuActionsVisibility,
   DateFormat,
@@ -18,7 +18,7 @@ import {
   RefSpaceSubstitution,
   RepoSettingDefaults,
   RepoSettingField
-} from "./types";
+} from "@ging/shared/types";
 
 type TabIconColourTheme = "colour" | "grey";
 type AddTagType = "annotated" | "lightweight";

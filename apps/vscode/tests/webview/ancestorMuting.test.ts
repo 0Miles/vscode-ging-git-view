@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import { createVscodeMock, makeViewState, receive, setupHtml } from "./setup";
 
@@ -48,7 +48,7 @@ describe("muteCommitsNotAncestorsOfHead", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

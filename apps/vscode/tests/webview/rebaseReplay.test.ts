@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { rebaseReplay } from "@/webview/rebaseReplay";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import { rebaseReplay } from "@ging/webview/rebaseReplay";
 
 // What the rebase dialog lists: the commits git would really replay for a
 // range, read off the loaded commits alone. Its answers are what the ticks in

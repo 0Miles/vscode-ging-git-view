@@ -8,7 +8,7 @@ import {
   GitResetMode,
   QueryRequest,
   QueryResponse
-} from "@/backend/types";
+} from "@ging/shared/backend/types";
 
 /** A configurable keyboard shortcut, normalised to a lowercase key char, or
  *  null when the shortcut is set to "UNASSIGNED". */

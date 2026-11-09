@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import { createVscodeMock, graphRow, makeViewState, receive, rightClick, setupHtml } from "./setup";
 
@@ -65,7 +65,7 @@ describe("a context menu raised on a local head chip", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(makeViewState());
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     receive({
       command: "loadBranches",

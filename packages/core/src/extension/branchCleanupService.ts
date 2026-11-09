@@ -13,10 +13,10 @@
 
 import type { SimpleGit } from "simple-git";
 
-import { basisDate } from "@/backend/queries/branchRedundancy";
-import { scanBranchRedundancy } from "@/backend/queries/scanBranchRedundancy";
-import type { DateType } from "@/backend/types";
-import type { BranchCleanupPayload } from "@/types";
+import { basisDate } from "@ging/core/backend/queries/branchRedundancy";
+import { scanBranchRedundancy } from "@ging/core/backend/queries/scanBranchRedundancy";
+import type { DateType } from "@ging/shared/backend/types";
+import type { BranchCleanupPayload } from "@ging/shared/types";
 
 import { resolveCleanupCandidates } from "./branchCleanup";
 import type { BranchFacts } from "./branchFacts";

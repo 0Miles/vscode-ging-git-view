@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatGitCommandArgs } from "@/backend/utils/gitCommandLog";
+import { formatGitCommandArgs } from "@ging/core/backend/utils/gitCommandLog";
 
 describe("formatGitCommandArgs", () => {
   it("joins plain arguments with spaces", () => {

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
-import { RepoFileWatcher } from "@/repoFileWatcher";
-import { RequestMessage, ResponseMessage } from "@/types";
+import { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
 
 export function webviewBridgeFactory(
   webview: vscode.Webview,

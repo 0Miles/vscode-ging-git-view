@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -189,7 +189,7 @@ describe("a batch retry offer whose dialog is taken away", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     loadBranches();
     receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
     loadCommits();

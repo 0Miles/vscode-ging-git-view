@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import {
   clickId,
@@ -72,7 +72,7 @@ describe("Find opening a closed docked Commit Details View", () => {
           : new DOMRect(0, 0, 800, 0);
       }
     });
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

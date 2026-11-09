@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { QueryResult } from "@/backend/types";
+import type { QueryResult } from "@ging/shared/backend/types";
 
 export async function loadRemotes(git: SimpleGit): Promise<QueryResult<"loadRemotes">> {
   try {

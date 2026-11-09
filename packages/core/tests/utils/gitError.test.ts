@@ -5,7 +5,7 @@ import {
   isRemoteUpdatedSinceCheckoutError,
   isStaleLeaseInfoError,
   LabelledGitErrors
-} from "@/backend/utils/gitError";
+} from "@ging/core/backend/utils/gitError";
 
 describe("LabelledGitErrors", () => {
   const nonFastForward = new Error(

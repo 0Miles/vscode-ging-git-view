@@ -4,11 +4,11 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { resolveDefaultBranch } from "@/backend/queries/defaultBranch";
-import { loadBranches } from "@/backend/queries/loadBranches";
-import { branchKeyFromRefname } from "@/backend/utils/branchRef";
+import { resolveDefaultBranch } from "@ging/core/backend/queries/defaultBranch";
+import { loadBranches } from "@ging/core/backend/queries/loadBranches";
+import { branchKeyFromRefname } from "@ging/shared/backend/utils/branchRef";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 /** Commit a file so the branch tip moves, giving `--merged` something to
  *  compare that isn't the initial commit. */

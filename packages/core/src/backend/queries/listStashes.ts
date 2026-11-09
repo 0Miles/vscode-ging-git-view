@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { ScmStashEntry } from "@/backend/types";
+import type { ScmStashEntry } from "@ging/shared/backend/types";
 
 const eolRegex = /\r?\n/;
 

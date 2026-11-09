@@ -3,7 +3,7 @@ import * as path from "node:path";
 
 import type { SimpleGit } from "simple-git";
 
-import type { GitOperation } from "@/backend/types";
+import type { GitOperation } from "@ging/shared/backend/types";
 
 /** Detect an in-progress git operation by the marker files/dirs git leaves in
  *  the git dir while it is paused (typically on conflict). Returns null when the

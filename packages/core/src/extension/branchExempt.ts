@@ -12,7 +12,7 @@
  * Kept free of any `vscode` import so it runs in the fast backend test project.
  */
 
-import { displayRef, splitRemoteRef } from "@/backend/utils/branchRef";
+import { displayRef, splitRemoteRef } from "@ging/shared/backend/utils/branchRef";
 
 export type BranchClassification = {
   /** Every branch matching the rule. Exemptions ignored — this is the fact. */

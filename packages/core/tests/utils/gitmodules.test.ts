@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { submodulePathsFromGitmodules } from "@/backend/utils/gitmodules";
+import { submodulePathsFromGitmodules } from "@ging/core/backend/utils/gitmodules";
 
 describe("submodulePathsFromGitmodules", () => {
   it("extracts path values from submodule sections", () => {

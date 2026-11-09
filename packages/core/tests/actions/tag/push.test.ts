@@ -6,10 +6,10 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { pushTag } from "@/backend/actions/tag";
-import { formatGitError } from "@/backend/utils/gitError";
+import { pushTag } from "@ging/core/backend/actions/tag";
+import { formatGitError } from "@ging/core/backend/utils/gitError";
 
-import { bareGit, makeRepo, rejection, rmrf } from "@tests/backend/helpers";
+import { bareGit, makeRepo, rejection, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 let bare: string;

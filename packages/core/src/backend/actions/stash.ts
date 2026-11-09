@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { ActionPayload } from "@/backend/types";
+import type { ActionPayload } from "@ging/shared/backend/types";
 
 /** Apply a stash to the working tree, keeping it in the stash list. With
  *  `reinstateIndex`, the stash's staged changes are restored to the index too. */

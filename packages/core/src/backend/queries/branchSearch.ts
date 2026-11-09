@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { BranchSearchEntry, CommitOrdering } from "@/backend/types";
+import type { BranchSearchEntry, CommitOrdering } from "@ging/shared/backend/types";
 
 import { gitLogScopeArgs, gitLogTraversalArgs } from "./gitLogScope";
 

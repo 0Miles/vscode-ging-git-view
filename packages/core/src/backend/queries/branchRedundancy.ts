@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { BranchRedundancy, DateType, RedundancyCommit } from "@/backend/types";
+import type { BranchRedundancy, DateType, RedundancyCommit } from "@ging/shared/backend/types";
 
 import { detectDefaultBranch } from "./defaultBranch";
 

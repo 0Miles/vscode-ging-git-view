@@ -8,8 +8,8 @@ import {
   PULL_REQUEST_PROVIDER_TYPES,
   type PullRequestProvider,
   type PullRequestProviderType
-} from "@/backend/utils/pullRequest";
-import * as l10n from "@/l10n";
+} from "@ging/core/backend/utils/pullRequest";
+import * as l10n from "@ging/vscode/l10n";
 
 /**
  * The UI over the `pullRequests.providers` setting: a quick-pick that lists

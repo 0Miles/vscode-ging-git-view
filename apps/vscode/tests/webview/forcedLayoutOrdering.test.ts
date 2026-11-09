@@ -3,8 +3,8 @@ import * as path from "node:path";
 
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import {
   createVscodeMock,
@@ -71,7 +71,10 @@ const STYLED_ATTRIBUTES = new Set(
   ["class", "style"].concat(
     Array.from(
       fs
-        .readFileSync(path.resolve(__dirname, "../../media/main.css"), "utf8")
+        .readFileSync(
+          path.resolve(__dirname, "../../../../packages/webview/media/main.css"),
+          "utf8"
+        )
         .matchAll(/\[\s*([A-Za-z][\w-]*)/g),
       (m) => m[1].toLowerCase()
     )
@@ -356,7 +359,7 @@ describe("how many times a redraw makes the browser lay the commit table out", (
     vi.resetModules();
     createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse(0));
 

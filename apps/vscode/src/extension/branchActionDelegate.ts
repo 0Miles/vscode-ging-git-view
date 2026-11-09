@@ -7,13 +7,13 @@
  * backend test project, like its neighbours in this directory.
  */
 
-import { displayRef } from "@/backend/utils/branchRef";
+import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
   isHostAction,
   REF_ACTION_CATALOGUE,
   type CatalogueRefAction,
   type HostRefAction
-} from "@/backend/utils/refActionCatalogue";
+} from "@ging/shared/backend/utils/refActionCatalogue";
 import type {
   BatchAction,
   BatchSkipped,
@@ -21,7 +21,7 @@ import type {
   ResponseRunRefAction,
   ResponseRunRefBatchAction,
   ResponseShowBranchCleanup
-} from "@/types";
+} from "@ging/shared/types";
 
 import type { BranchActionTarget, BranchActionTargets } from "./branchesView";
 

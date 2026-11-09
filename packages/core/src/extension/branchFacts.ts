@@ -21,7 +21,7 @@
 
 import type { SimpleGit } from "simple-git";
 
-import { loadBranches } from "@/backend/queries/loadBranches";
+import { loadBranches } from "@ging/core/backend/queries/loadBranches";
 
 import { classifyInactive } from "./branchActivity";
 import { type BranchClassification, type BranchExemptions } from "./branchExempt";

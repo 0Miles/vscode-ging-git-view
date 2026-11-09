@@ -1,4 +1,4 @@
-import type { GitRepoState, RepoScopeSettings } from "@/types";
+import type { GitRepoState, RepoScopeSettings } from "@ging/shared/types";
 
 /**
  * Per-repo settings resolution, kept free of vscode so it can be tested on its

@@ -3,9 +3,9 @@ import * as path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   createVscodeMock,
@@ -127,9 +127,12 @@ describe("resizing a column while another is hidden", () => {
     mock = createVscodeMock();
     setupHtml(viewState);
     const style = document.createElement("style");
-    style.textContent = fs.readFileSync(path.resolve(__dirname, "../../media/main.css"), "utf8");
+    style.textContent = fs.readFileSync(
+      path.resolve(__dirname, "../../../../packages/webview/media/main.css"),
+      "utf8"
+    );
     document.head.appendChild(style);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

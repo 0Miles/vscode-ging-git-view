@@ -11,7 +11,7 @@ import {
   rebaseOntoRange,
   signatureCategory,
   substituteRefSpaces
-} from "@/webview/utils/git";
+} from "@ging/webview/utils/git";
 
 const tooltipLabels = { head: "On HEAD", branches: "Branches: {0}", tags: "Tags: {0}" };
 

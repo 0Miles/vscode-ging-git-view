@@ -3,9 +3,9 @@ import * as path from "node:path";
 import { GitConstructError } from "simple-git";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { gitClientFactory } from "@/backend/gitClient";
+import { gitClientFactory } from "@ging/core/backend/gitClient";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 describe("gitClientFactory (real git)", () => {
   let repo: string;

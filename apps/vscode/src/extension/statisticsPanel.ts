@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
-import type { Statistics } from "@/backend/queries/loadStatistics";
-import * as l10n from "@/l10n";
+import type { Statistics } from "@ging/core/backend/queries/loadStatistics";
+import * as l10n from "@ging/vscode/l10n";
 
 const ESCAPES: Record<string, string> = {
   "&": "&amp;",

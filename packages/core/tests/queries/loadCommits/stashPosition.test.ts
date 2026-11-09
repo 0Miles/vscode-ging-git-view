@@ -5,9 +5,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { loadCommits } from "@/backend/queries/loadCommits";
+import { loadCommits } from "@ging/core/backend/queries/loadCommits";
 
-import { makeRepo, rmrf } from "@tests/backend/helpers";
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 /**
  * Where a stash's row lands, and — the point of this suite — that it does not

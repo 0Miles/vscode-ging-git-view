@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
-import type { GitFileChange } from "@/backend/types";
+import type { GitFileChange } from "@ging/shared/backend/types";
 import {
   alterGitFileTree,
   compactGitFileTree,
@@ -10,7 +10,7 @@ import {
   generateGitFileTreeHtml,
   parentGitFolderRow,
   serializeGitFileTree
-} from "@/webview/utils/fileTree";
+} from "@ging/webview/utils/fileTree";
 
 function file(newFilePath: string): GitFileChange {
   return { oldFilePath: newFilePath, newFilePath, type: "M", additions: 0, deletions: 0 };

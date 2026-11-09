@@ -15,16 +15,16 @@ import type {
   GitResetMode,
   GitTagDetails,
   RedundancyCommit
-} from "@/backend/types";
-import { displayRef, REMOTE_PREFIX } from "@/backend/utils/branchRef";
+} from "@ging/shared/backend/types";
+import { displayRef, REMOTE_PREFIX } from "@ging/shared/backend/utils/branchRef";
 import {
   planRebase,
   type RebaseCommit,
   type RebasePlan,
   rebaseTodo
-} from "@/backend/utils/rebasePlan";
-import { REF_ACTION_CATALOGUE } from "@/backend/utils/refActionCatalogue";
-import type { LocalizedStrings } from "@/extension/webviewL10n";
+} from "@ging/shared/backend/utils/rebasePlan";
+import { REF_ACTION_CATALOGUE } from "@ging/shared/backend/utils/refActionCatalogue";
+import type { LocalizedStrings } from "@ging/webview/localizedStrings";
 
 import { BatchRun, type BatchRunCommand, type BatchRunOptions } from "./batchRun";
 import { defaultCheckedRefs, groupToggleState, mergeCheckedRefs } from "./branchCleanup";

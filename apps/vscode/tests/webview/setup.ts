@@ -1,9 +1,9 @@
 import { expect } from "vitest";
 
-import type { GitCommitDetails } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import { buildWebviewMarkup } from "@/extension/webviewMarkup";
-import type * as GG from "@/types";
+import type { GitCommitDetails } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
+import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
 
 // The fixture itself lives in its own module so the webview harness can load
 // it without vitest; suites keep importing it from here.

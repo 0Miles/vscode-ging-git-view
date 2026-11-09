@@ -7,7 +7,7 @@ import {
   parseRemoteUrl,
   pullRequestCreateUrl,
   type PullRequestProvider
-} from "@/backend/utils/pullRequest";
+} from "@ging/core/backend/utils/pullRequest";
 
 describe("parseRemoteUrl", () => {
   it("reads host and path from every remote spelling", () => {

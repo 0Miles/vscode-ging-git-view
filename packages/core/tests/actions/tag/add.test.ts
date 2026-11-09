@@ -6,9 +6,9 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { addTag } from "@/backend/actions/tag";
+import { addTag } from "@ging/core/backend/actions/tag";
 
-import { bareGit, git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { bareGit, git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 let commitHash: string;

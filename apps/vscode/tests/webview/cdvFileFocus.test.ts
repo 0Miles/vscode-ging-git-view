@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@/backend/types";
-import type * as GG from "@/types";
-import { generateGitFileListHtml } from "@/webview/utils/fileTree";
+import type { GitCommitDetails, GitCommitNode, GitFileChange } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { generateGitFileListHtml } from "@ging/webview/utils/fileTree";
 
 import {
   createVscodeMock,
@@ -159,7 +159,7 @@ describe("keyboard focus in the Commit Details View's file list", () => {
     // jsdom implements neither, so record what the webview asks for instead.
     window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
     Element.prototype.scrollIntoView = scrollIntoView;
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse(commits));
   });

@@ -1,5 +1,5 @@
-import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@/backend/utils/contextMenuVisibility";
-import type * as GG from "@/types";
+import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@ging/core/backend/utils/contextMenuVisibility";
+import type * as GG from "@ging/shared/types";
 
 /* The single source of the default GitGraphViewState (issue #76). It lives
  * apart from setup.ts because two kinds of caller load it: the webview suites,

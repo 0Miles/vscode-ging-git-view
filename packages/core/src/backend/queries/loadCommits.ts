@@ -8,7 +8,7 @@ import type {
   GitRef,
   GitRefData,
   QueryResult
-} from "@/backend/types";
+} from "@ging/shared/backend/types";
 
 import { gitLogScopeArgs, gitLogScopeReachesReflogs, gitLogTraversalArgs } from "./gitLogScope";
 import { type GraphStash, loadStashes } from "./loadStashes";

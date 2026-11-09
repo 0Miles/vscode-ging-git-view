@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { mergeContextMenuActionsVisibility } from "@/backend/utils/contextMenuVisibility";
+import { mergeContextMenuActionsVisibility } from "@ging/core/backend/utils/contextMenuVisibility";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import {
   createVscodeMock,
@@ -77,7 +77,7 @@ describe("context menu positioning", () => {
     // below is arithmetic on it; the width is this suite's own.
     Object.defineProperty(window, "innerHeight", { value: VIEWPORT_HEIGHT, configurable: true });
     Object.defineProperty(window, "innerWidth", { value: VIEWPORT_WIDTH, configurable: true });
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

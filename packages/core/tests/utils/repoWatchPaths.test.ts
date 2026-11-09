@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isWatchedRepoPath } from "@/backend/utils/repoWatchPaths";
+import { isWatchedRepoPath } from "@ging/core/backend/utils/repoWatchPaths";
 
 describe("isWatchedRepoPath", () => {
   it("watches in-progress operation markers (so the conflict banner appears/clears)", () => {

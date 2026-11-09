@@ -6,10 +6,10 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { deleteBranch } from "@/backend/actions/branch";
-import { formatGitError, isNotFullyMergedError } from "@/backend/utils/gitError";
+import { deleteBranch } from "@ging/core/backend/actions/branch";
+import { formatGitError, isNotFullyMergedError } from "@ging/core/backend/utils/gitError";
 
-import { bareGit, git, makeRepo, rejection, rmrf } from "@tests/backend/helpers";
+import { bareGit, git, makeRepo, rejection, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 

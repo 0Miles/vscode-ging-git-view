@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { BranchSearchEntry, GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import type * as GG from "@/types";
+import type { BranchSearchEntry, GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -143,7 +143,7 @@ beforeAll(async () => {
   Element.prototype.scrollIntoView = vi.fn(function (this: Element) {
     scrolledTo.push((this as HTMLElement).dataset.hash);
   });
-  await import("@/webview/main");
+  await import("@ging/webview/main");
   receive(branchesResponse);
   receive(commitsResponse);
   clickId("findBtn");

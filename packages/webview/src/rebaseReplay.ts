@@ -16,7 +16,7 @@
  *   the user was never shown.
  */
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import { commitsReachableFrom } from "./utils/git";
 

@@ -41,7 +41,7 @@ describe("the graph's branch-filter chip", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   it("stays hidden while the filter is empty — show all is the unmarked state", () => {

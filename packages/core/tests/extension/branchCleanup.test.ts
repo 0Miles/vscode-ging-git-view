@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCleanupCandidates } from "@/extension/branchCleanup";
+import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
 
 /** A classification whose fact set and hidable set agree — the ordinary case,
  *  where nothing is exempt from hiding. */

@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { copyRepo, makeRepo, rmrf, toRepoPath } from "@tests/backend/helpers";
+import { copyRepo, makeRepo, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();

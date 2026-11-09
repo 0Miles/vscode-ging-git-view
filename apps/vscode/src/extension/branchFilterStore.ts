@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { branchFilterEquals } from "./branchFilter";
+import { branchFilterEquals } from "@ging/core/extension/branchFilter";
 
 /** A change to a repo's branch filter. `branches` is the new selection; an
  *  empty array means "show all branches". */

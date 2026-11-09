@@ -2,5 +2,10 @@ packages:
   - packages/*
   - apps/*
 
+# Versions more than one workspace package pins.
+catalog:
+  "@types/node": ^20.19.39
+  esbuild: ^0.28.0
+
 onlyBuiltDependencies:
   - esbuild

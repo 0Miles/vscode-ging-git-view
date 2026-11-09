@@ -1,8 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import { BRANCH_DRAG_THRESHOLD } from "@/webview/branchDrag";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
+import { BRANCH_DRAG_THRESHOLD } from "@ging/webview/branchDrag";
 
 import {
   clickId,
@@ -146,7 +146,7 @@ beforeAll(async () => {
   vi.resetModules();
   mock = createVscodeMock();
   setupHtml(makeViewState({ combineLocalAndRemoteBranchLabels: false }));
-  await import("@/webview/main");
+  await import("@ging/webview/main");
   loadBranches(true);
   receive({ command: "loadRemotes", remotes: ["origin"], pushDefault: null });
   loadCommits(commits, true);

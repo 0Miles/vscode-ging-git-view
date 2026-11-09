@@ -1,7 +1,7 @@
 import type { SimpleGit } from "simple-git";
 
-import type { ActionPayload } from "@/backend/types";
-import { attemptOnEachRemote } from "@/backend/utils/gitError";
+import { attemptOnEachRemote } from "@ging/core/backend/utils/gitError";
+import type { ActionPayload } from "@ging/shared/backend/types";
 
 export async function addTag(
   git: SimpleGit,

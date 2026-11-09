@@ -1,7 +1,7 @@
 import type { SimpleGit } from "simple-git";
 
-import { branchKeyFromRefname, parseRefnames } from "@/backend/utils/branchRef";
-import { isGitRepository } from "@/backend/utils/git";
+import { isGitRepository } from "@ging/core/backend/utils/git";
+import { branchKeyFromRefname, parseRefnames } from "@ging/shared/backend/utils/branchRef";
 
 import { detectDefaultBranch } from "./defaultBranch";
 

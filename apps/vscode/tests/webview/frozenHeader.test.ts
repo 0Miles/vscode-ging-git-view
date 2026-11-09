@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import {
   VIEWPORT_HEIGHT,
@@ -59,7 +59,7 @@ describe("the frozen header", () => {
     Element.prototype.scrollIntoView = function (this: Element) {
       scrolledIntoView.push(this);
     };
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

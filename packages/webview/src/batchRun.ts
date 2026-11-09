@@ -1,4 +1,4 @@
-import type { BatchRefResult } from "@/backend/types";
+import type { BatchRefResult } from "@ging/shared/backend/types";
 
 /** What a run is told about each action it may carry, keyed by action: the
  *  result one ref reports, and the parameters `start` is given and every `send`

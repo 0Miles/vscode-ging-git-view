@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import { createVscodeMock, dialogText, makeViewState, receive, setupHtml } from "./setup";
 
@@ -23,7 +23,7 @@ describe("a refused push", () => {
     vi.resetModules();
     createVscodeMock();
     setupHtml(makeViewState());
-    await import("@/webview/main");
+    await import("@ging/webview/main");
   });
 
   afterEach(dismiss);

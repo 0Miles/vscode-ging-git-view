@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitDetails, GitCommitNode } from "@/backend/types";
-import type * as GG from "@/types";
+import type { GitCommitDetails, GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
 
 import {
   clickId,
@@ -255,7 +255,7 @@ describe("the size a confirmed Find load asks for", () => {
     mock = createVscodeMock();
     setupHtml(viewState);
     Element.prototype.scrollIntoView = scrollIntoView;
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse());
     clickId("findBtn");

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveGitPath } from "@/backend/utils/gitPath";
+import { resolveGitPath } from "@ging/core/backend/utils/gitPath";
 
 const noneExist = () => false;
 const allExist = () => true;

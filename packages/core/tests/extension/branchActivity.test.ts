@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyInactive, relativeAge } from "@/extension/branchActivity";
+import { classifyInactive, relativeAge } from "@ging/core/extension/branchActivity";
 
 const DAY = 86_400;
 const NOW = 1_700_000_000; // fixed "now" so the tests are deterministic

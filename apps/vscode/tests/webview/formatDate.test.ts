@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDate, pad2 } from "@/webview/utils/date";
+import { formatDate, pad2 } from "@ging/webview/utils/date";
 
 // 19 Nov 2026 11:24:05 (local time)
 const date = new Date(2026, 10, 19, 11, 24, 5);

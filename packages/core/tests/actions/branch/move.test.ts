@@ -6,10 +6,10 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { moveBranch } from "@/backend/actions/branch";
-import { formatGitError } from "@/backend/utils/gitError";
+import { moveBranch } from "@ging/core/backend/actions/branch";
+import { formatGitError } from "@ging/core/backend/utils/gitError";
 
-import { git, makeRepo, rmrf } from "@tests/backend/helpers";
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 // Dragging a branch label onto a commit (#208). Which git command moves it is
 // the host's call, read off HEAD at the moment it runs: `reset --keep` for the

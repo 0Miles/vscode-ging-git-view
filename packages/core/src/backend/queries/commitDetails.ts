@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { GitCommitDetails, QueryResult } from "@/backend/types";
+import type { GitCommitDetails, QueryResult } from "@ging/shared/backend/types";
 
 import { parseDiffFileChanges, toPath, unquoteGitPath } from "./diffFileChanges";
 

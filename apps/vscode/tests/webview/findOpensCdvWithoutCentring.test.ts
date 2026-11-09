@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
 
 import { clickId, createVscodeMock, makeViewState, receive, search, setupHtml } from "./setup";
 
@@ -38,7 +38,7 @@ describe("Find opening a Commit Details View with centring off", () => {
     Element.prototype.scrollIntoView = vi.fn(function (this: Element, arg?: ScrollIntoViewOptions) {
       if (arg?.block === "center") centred.push((this as HTMLElement).dataset.hash);
     });
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive({
       command: "loadBranches",
       token: 0,

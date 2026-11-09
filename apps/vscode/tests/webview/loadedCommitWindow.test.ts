@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitCommitNode } from "@/backend/types";
-import { getWebviewLocalizedStrings } from "@/extension/webviewL10n";
-import type * as GG from "@/types";
+import type { GitCommitNode } from "@ging/shared/backend/types";
+import type * as GG from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/vscode/extension/webviewL10n";
 
 import {
   clickId,
@@ -138,7 +138,7 @@ describe("the loaded commit window on screen", () => {
     Element.prototype.scrollIntoView = function (this: Element) {
       scrolledIntoView.push(this);
     };
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     receive(branchesResponse);
     receive(commitsResponse());
   });
@@ -428,7 +428,7 @@ describe("restored into a panel that has just become visible again", () => {
     vi.resetModules();
     restoredMock = createVscodeMock(savedState);
     setupHtml(viewState);
-    await import("@/webview/main");
+    await import("@ging/webview/main");
     // Read before anything is dispatched: the restore renders the saved graph
     // during construction, and the previous suite's webview is still listening
     // on `window`.
