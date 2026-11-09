@@ -1,6 +1,7 @@
 import type {
   ActionPayload,
   ActionRequest,
+  ActionResponseExtra,
   BatchActionPayload,
   BatchActionRequest,
   BatchResultOf,
@@ -4677,10 +4678,10 @@ class GitGraphView {
         // a single push explains it (ADR-0025). Each ref keeps git's own line;
         // no force round is offered.
         failureNote: (failed) => {
-          return leaseRefusalNote(
-            failed.some((r) => r.remoteUpdatedSinceCheckout),
-            failed.flatMap((r) => r.staleInfoRefs)
-          );
+          return leaseRefusalNote({
+            remoteUpdatedSinceCheckout: failed.some((r) => r.remoteUpdatedSinceCheckout),
+            staleInfoRefs: failed.flatMap((r) => r.staleInfoRefs)
+          });
         }
       },
       fastForwardBranches: {
@@ -9225,7 +9226,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
       break;
     case "pushBranch":
-      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout, msg.staleInfoRefs);
+      handlePushBranchResponse(msg.status, msg);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -9430,36 +9431,45 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
  *  it: overwriting someone's work stays a separate, deliberate choice. Pushed
  *  to several remotes, each may have refused for its own reason (#264), so
  *  every reason that applies is explained. */
-function handlePushBranchResponse(
-  status: GitCommandStatus,
-  remoteUpdatedSinceCheckout: boolean,
-  staleInfoRefs: string[]
-) {
-  const explanation = leaseRefusalNote(remoteUpdatedSinceCheckout, staleInfoRefs);
+function handlePushBranchResponse(status: GitCommandStatus, refusal: PushRefusalFacts) {
+  const explanation = leaseRefusalNote(refusal);
   refreshGraphOrDisplayError(
     status,
     explanation === null ? l10n.unableToPushBranch : l10n.unableToPushBranch + "<br>" + explanation
   );
 }
 
+/** What the host reports about a refused push beside its status. A batch push
+ *  never reports `leaseRefusedForNamedTarget` — it pushes every branch under
+ *  its own name — so the field is optional here, as `BatchPushResult` omits
+ *  it. */
+type PushRefusalFacts = Omit<ActionResponseExtra<"pushBranch">, "leaseRefusedForNamedTarget"> &
+  Partial<Pick<ActionResponseExtra<"pushBranch">, "leaseRefusedForNamedTarget">>;
+
 /** Each kind of lease refusal explained once, or null when there was none.
  *  Shared by the single push and the batch push summary. */
-function leaseRefusalNote(remoteUpdatedSinceCheckout: boolean, staleInfoRefs: string[]) {
+function leaseRefusalNote(refusal: PushRefusalFacts) {
   const notes = [
-    remoteUpdatedSinceCheckout ? leaseRefusedExplanation() : null,
-    staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
+    refusal.remoteUpdatedSinceCheckout
+      ? leaseRefusedExplanation(refusal.leaseRefusedForNamedTarget === true)
+      : null,
+    refusal.staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(refusal.staleInfoRefs) : null
   ].filter((note) => note !== null);
   return notes.length > 0 ? notes.join("<br>") : null;
 }
 
 /** Why a Force with lease was refused for an unintegrated remote tip, and what
  *  to do about it, naming the Force option in the UI's own words. Shared by the
- *  single push and the batch push summary so the two never drift apart. */
-function leaseRefusedExplanation(): string {
-  return l10n.dialogPushForceLeaseRefused.replace(
-    "{0}",
-    "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>"
-  );
+ *  single push and the batch push summary so the two never drift apart.
+ *
+ *  For a named target (#303) no pull or rebase of the pushed branch satisfies
+ *  the check (#311), so that refusal skips "pull or rebase first" and points
+ *  at Force alone. */
+function leaseRefusedExplanation(forNamedTarget: boolean): string {
+  const template = forNamedTarget
+    ? l10n.dialogPushForceLeaseRefusedNamedTarget
+    : l10n.dialogPushForceLeaseRefused;
+  return template.replace("{0}", "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>");
 }
 
 /** Why a Force with lease was refused for "(stale info)" — the tracking refs
