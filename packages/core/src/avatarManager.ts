@@ -6,14 +6,28 @@ import * as url from "node:url";
 import { getRemoteUrl } from "@ging/core/backend/utils/git";
 import { gravatarHash } from "@ging/core/backend/utils/gravatar";
 import { RemoteSource, remoteSourceFromUrl } from "@ging/core/backend/utils/remoteSource";
-import { AvatarCache, ResponseMessage } from "@ging/shared/types";
+import { Avatar, AvatarCache, ResponseMessage } from "@ging/shared/types";
 
-import { config } from "./config";
-import { ExtensionState } from "./extensionState";
+/** The settings the avatar fetch reads, each read at the moment it is needed. */
+export interface AvatarConfig {
+  gitPath(): string;
+  /** The GitLab token for the user-search API; empty when none is configured. */
+  gitLabToken(): string;
+}
+
+/** Where avatars persist between sessions: the image files in a folder, and
+ *  the cache entry recording each one. */
+export interface AvatarStore {
+  getAvatarStoragePath(): string;
+  getAvatarCache(): AvatarCache;
+  saveAvatar(email: string, avatar: Avatar): void;
+  removeAvatarFromCache(email: string): void;
+  clearAvatarCache(): void;
+}
 
 export class AvatarManager {
-  private readonly gitPath: () => string;
-  private readonly extensionState: ExtensionState;
+  private readonly config: AvatarConfig;
+  private readonly store: AvatarStore;
   private readonly avatarStorageFolder: string;
   private postToWebview: ((msg: ResponseMessage) => void) | null = null;
   private avatars: AvatarCache;
@@ -24,11 +38,11 @@ export class AvatarManager {
   private githubTimeout: number = 0;
   private gitLabTimeout: number = 0;
 
-  constructor(gitPath: () => string, extensionState: ExtensionState) {
-    this.gitPath = gitPath;
-    this.extensionState = extensionState;
-    this.avatarStorageFolder = this.extensionState.getAvatarStoragePath();
-    this.avatars = this.extensionState.getAvatarCache();
+  constructor(config: AvatarConfig, store: AvatarStore) {
+    this.config = config;
+    this.store = store;
+    this.avatarStorageFolder = this.store.getAvatarStoragePath();
+    this.avatars = this.store.getAvatarCache();
     this.queue = new AvatarRequestQueue(() => {
       if (this.interval !== null) return;
       this.interval = setInterval(() => {
@@ -74,12 +88,12 @@ export class AvatarManager {
 
   public removeAvatarFromCache(email: string) {
     delete this.avatars[email];
-    this.extensionState.removeAvatarFromCache(email);
+    this.store.removeAvatarFromCache(email);
   }
 
   public clearCache() {
     this.avatars = {};
-    this.extensionState.clearAvatarCache();
+    this.store.clearAvatarCache();
   }
 
   private async fetchAvatarsInterval() {
@@ -111,7 +125,7 @@ export class AvatarManager {
       return this.remoteSourceCache[avatarRequest.repo];
     } else {
       // Determine the avatar source (GitHub/GitLab over HTTPS or SSH, else Gravatar).
-      let remoteUrl = await getRemoteUrl(avatarRequest.repo, this.gitPath());
+      let remoteUrl = await getRemoteUrl(avatarRequest.repo, this.config.gitPath());
       const remoteSource = remoteSourceFromUrl(remoteUrl);
       this.remoteSourceCache[avatarRequest.repo] = remoteSource; // Add the remote source to the cache for future use
       return remoteSource;
@@ -201,7 +215,7 @@ export class AvatarManager {
   }
 
   private fetchFromGitLab(avatarRequest: AvatarRequestItem) {
-    const gitLabToken = config.gitLabToken();
+    const gitLabToken = this.config.gitLabToken();
     if (gitLabToken === "") {
       // The GitLab user-search API requires an authenticated token. Without one
       // configured, skip GitLab and fall back to Gravatar rather than sending an
@@ -345,7 +359,7 @@ export class AvatarManager {
     } else {
       this.avatars[email] = { image: image, timestamp: new Date().getTime(), identicon: identicon };
     }
-    this.extensionState.saveAvatar(email, this.avatars[email]);
+    this.store.saveAvatar(email, this.avatars[email]);
     this.sendAvatarToWebView(email, () => {});
   }
 

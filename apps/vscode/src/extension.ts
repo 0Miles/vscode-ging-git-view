@@ -1,6 +1,7 @@
 import type { SimpleGit } from "simple-git";
 import * as vscode from "vscode";
 
+import { AvatarManager } from "@ging/core/avatarManager";
 import { createBranch } from "@ging/core/backend/actions/branch";
 import { resetToCommit } from "@ging/core/backend/actions/commit";
 import { fetchFromRemotes, fetchRemote, listRemoteNames } from "@ging/core/backend/actions/fetch";
@@ -35,7 +36,6 @@ import {
 } from "@ging/shared/backend/utils/refActionCatalogue";
 import type { BatchSkipped, RepoSettingField } from "@ging/shared/types";
 
-import { AvatarManager } from "./avatarManager";
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
 import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
@@ -110,7 +110,7 @@ export function activate(context: vscode.ExtensionContext) {
           }
         })
   });
-  const avatarManager = new AvatarManager(config.gitPath, extensionState);
+  const avatarManager = new AvatarManager(config, extensionState);
   const statusBarItem = new StatusBarItem(context, config);
   // Prompt for remote credentials when git asks: the askpass env is
   // passed only to this client's git children, never onto the shared host env.

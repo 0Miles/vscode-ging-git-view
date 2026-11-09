@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 
 import * as vscode from "vscode";
 
+import { AvatarManager } from "@ging/core/avatarManager";
 import { createArchive } from "@ging/core/backend/actions/archive";
 import {
   checkoutBranch,
@@ -74,7 +75,6 @@ import type {
 } from "@ging/shared/backend/types";
 import { GitFileChangeType } from "@ging/shared/backend/types";
 import { RepoScopeSettings, RequestMessage, ResponseMessage } from "@ging/shared/types";
-import { AvatarManager } from "@ging/vscode/avatarManager";
 import { Config } from "@ging/vscode/config";
 import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
 import { copyToClipboard } from "@ging/vscode/extension/utils/clipboard";
