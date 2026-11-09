@@ -28,18 +28,6 @@ const esbuildProblemMatcherPlugin = {
   }
 };
 
-// The extension's own modules import each other as `@ging/vscode/...` (see
-// tsconfig.json); everything else resolves through the packages' `exports`.
-const appAliasPlugin = {
-  name: "app-alias",
-  setup(build) {
-    build.onResolve({ filter: /^@ging\/vscode\// }, async (args) => {
-      const resolved = path.resolve(__dirname, "src", args.path.slice("@ging/vscode/".length));
-      return build.resolve(resolved, { kind: args.kind, resolveDir: path.dirname(resolved) });
-    });
-  }
-};
-
 // Entry points that live in workspace packages, found through each package's
 // `exports` the same way the bundles' own imports are.
 const webviewMain = require.resolve("@ging/webview/main");
@@ -61,7 +49,7 @@ async function main() {
     outfile: "out/extension.js",
     external: ["vscode"],
     logLevel: "silent",
-    plugins: [appAliasPlugin, esbuildProblemMatcherPlugin]
+    plugins: [esbuildProblemMatcherPlugin]
   });
 
   const webview = await esbuild.context({
@@ -74,7 +62,7 @@ async function main() {
     target: "es6",
     outfile: "out/web.min.js",
     logLevel: "silent",
-    plugins: [appAliasPlugin, esbuildProblemMatcherPlugin]
+    plugins: [esbuildProblemMatcherPlugin]
   });
 
   // Standalone helper git runs via GIT_ASKPASS (#114); a separate node bundle.
@@ -89,7 +77,7 @@ async function main() {
     target: "es6",
     outfile: "out/askpassMain.js",
     logLevel: "silent",
-    plugins: [appAliasPlugin, esbuildProblemMatcherPlugin]
+    plugins: [esbuildProblemMatcherPlugin]
   });
 
   // Standalone helper git runs as GIT_SEQUENCE_EDITOR; another node bundle.
@@ -104,7 +92,7 @@ async function main() {
     target: "es6",
     outfile: "out/sequenceEditorMain.js",
     logLevel: "silent",
-    plugins: [appAliasPlugin, esbuildProblemMatcherPlugin]
+    plugins: [esbuildProblemMatcherPlugin]
   });
 
   // The shell scripts git loads at runtime from out/.
