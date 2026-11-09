@@ -11,7 +11,10 @@ import { rmrf } from "@ging/core/tests/helpers";
 /**
  * `scripts/check-l10n.js` is what CI runs (`pnpm run l10n:check`), so, as with
  * `checkAdr.test.ts`, these tests spawn the real script against a throwaway
- * layout and hold it to its exit code and the key it names.
+ * workspace and hold it to its exit code and the key it names. The workspace has
+ * the repo's own split layout — manifest and package.nls.* in apps/vscode, the
+ * bundles in packages/shared/l10n — so a failing case here is the script failing
+ * on the layout CI runs it against.
  *
  * Only the punctuation rule is covered here. Each fixture writes the same
  * strings to the English base and to `zh-tw`, which keeps the completeness and
@@ -26,11 +29,13 @@ type Strings = Record<string, string>;
 interface Fixture {
   bundle?: Strings;
   nls?: Strings;
+  /** What the extension's build-time copy of the bundles holds, when it exists. */
+  bundleCopy?: Strings;
 }
 
 const roots: string[] = [];
 
-function makeFixture({ bundle = {}, nls = {} }: Fixture): string {
+function makeFixture({ bundle = {}, nls = {}, bundleCopy }: Fixture): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-l10n-"));
   roots.push(root);
   const write = (relative: string, content: unknown) => {
@@ -38,11 +43,15 @@ function makeFixture({ bundle = {}, nls = {} }: Fixture): string {
     fs.mkdirSync(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, JSON.stringify(content));
   };
-  write("package.json", {});
-  write("package.nls.json", nls);
-  write("package.nls.zh-tw.json", nls);
-  write("l10n/bundle.l10n.json", bundle);
-  write("l10n/bundle.l10n.zh-tw.json", bundle);
+  write("apps/vscode/package.json", {});
+  write("apps/vscode/package.nls.json", nls);
+  write("apps/vscode/package.nls.zh-tw.json", nls);
+  write("packages/shared/l10n/bundle.l10n.json", bundle);
+  write("packages/shared/l10n/bundle.l10n.zh-tw.json", bundle);
+  if (bundleCopy) {
+    write("apps/vscode/l10n/bundle.l10n.json", bundleCopy);
+    write("apps/vscode/l10n/bundle.l10n.zh-tw.json", bundleCopy);
+  }
   return root;
 }
 
@@ -109,6 +118,20 @@ describe("check-l10n punctuation", () => {
   it("leaves a half-width comma between English words alone", () => {
     const { status, output } = run(
       makeFixture({ bundle: { list: "動作（merge, rebase）建立的 commit" } })
+    );
+
+    expect(output).toContain("All translations are complete");
+    expect(status).toBe(0);
+  });
+
+  // The bundles are checked where they are kept. The copy the build puts in the
+  // extension is regenerated from them, so a stale one says nothing about them.
+  it("reads the bundles from packages/shared/l10n, not the extension's build copy", () => {
+    const { status, output } = run(
+      makeFixture({
+        bundle: { mixed: "變更（{0}）" },
+        bundleCopy: { mixed: "變更({0}）" }
+      })
     );
 
     expect(output).toContain("All translations are complete");
