@@ -35,7 +35,7 @@ webview 那一側(真實 Chromium):3000 列的字串組裝加 `innerHTML` 加逐
 
 **補記(#93 落地之後):上面那個排序過時了,而且是被本專案自己的另一張票推翻的。**
 
-#93 修掉了「stash 的列位置是載入量的函數」這件事,而那正是上面那條推論的第一環。修正後,載入清單(含 stash 列)是 **prefix-stable** 的 —— 視窗變大只會往下追加,新出現的 stash 必定落在新增的那一段裡,永遠不會插進已經畫好的前綴。這有證明,也有測試釘住(`tests/backend/queries/loadCommits/stashPosition.test.ts` 的 `only ever appends rows below the ones a smaller window already had`)。
+#93 修掉了「stash 的列位置是載入量的函數」這件事,而那正是上面那條推論的第一環。修正後,載入清單(含 stash 列)是 **prefix-stable** 的 —— 視窗變大只會往下追加,新出現的 stash 必定落在新增的那一段裡,永遠不會插進已經畫好的前綴。這有證明,也有測試釘住(`packages/core/tests/queries/loadCommits/stashPosition.test.ts` 的 `only ever appends rows below the ones a smaller window already had`)。
 
 所以「開著 stash 就得退回整份重抓 → stash 預設開 → append 一次都不會跑」這條鏈斷在第一環。倖存的較小主張是:placement 仍需要**跨頁狀態**(要知道先前的頁裡沒有更舊的 commit、以及這是不是最後一頁),但那是簿記,不是整份重抓。
 
@@ -55,7 +55,7 @@ webview 那一側(真實 Chromium):3000 列的字串組裝加 `innerHTML` 加逐
 
 那個判斷式裡另外還寫著一句明示的 sentinel 檢查(`parentVertex.getId() > -1`),但它是**多餘的** —— 實測拿掉它,版面數值一個字都不變,因為「已經掛在某條 branch 上」那一句已經把 sentinel 擋掉了。會找錯行的人請看這裡。
 
-最小重現(已由兩個獨立實作交叉驗證,並固定在 `tests/webview/graphLayout.test.ts`):第一頁三列 —— `M` 的 parents 是 `[A, P]`、`A` 的 parent 是 `P`、`Z` 的 parent 也是 `P`;`P` 落在第二頁。第二頁到達後 `Z` 的 lane 寬度由 62 變成 46、顏色由 2 變成 1。
+最小重現(已由兩個獨立實作交叉驗證,並固定在 `packages/webview/tests/graphLayout.test.ts`):第一頁三列 —— `M` 的 parents 是 `[A, P]`、`A` 的 parent 是 `P`、`Z` 的 parent 也是 `P`;`P` 落在第二頁。第二頁到達後 `Z` 的 lane 寬度由 62 變成 46、顏色由 2 變成 1。
 
 發生率(6000 個合成存放庫,修正後的產生器):既有列繪製改變 **10.1%**,vertex 真的換 lane 或換色 **2.8%**。移除「合併後分支繼續長 commit」這個 motif 之後降為 **0.0%**。
 
