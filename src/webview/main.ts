@@ -5261,8 +5261,8 @@ class GitGraphView {
               { type: "text-ref", name: l10n.dialogPushBranchTarget, default: sourceBranch }
             ]
           };
-    // Where an answer of the form pushes. The push and its summary both read
-    // the form through this, so the summary cannot name a destination the push
+    // Where an answer of the form pushes. The push and its preview both read
+    // the form through this, so the preview cannot name a destination the push
     // would not use, nor miss one it would.
     const destinations = (
       values: string[],
@@ -5291,7 +5291,7 @@ class GitGraphView {
         ? undefined
         : (values, advancedValues) => {
             const to = destinations(values, advancedValues);
-            return pushSummaryHtml(sourceBranch, to.remotes, to.targetBranch ?? sourceBranch);
+            return pushPreviewHtml(sourceBranch, to.remotes, to.targetBranch ?? sourceBranch);
           }
     );
   }
@@ -9533,15 +9533,15 @@ function getCommitDate(dateVal: number) {
 }
 
 /* Utils */
-/** The Push dialog's summary (#304): a heading, then one line per remote ref
+/** The Push dialog's preview (#304): a heading, then one line per remote ref
  *  the push would update, `<source> → <remote>/<target>` — or, with no remote
  *  to push to, a line saying plainly that nothing will be pushed. Every name
  *  is escaped: git allows `<`, `&` and `"` in a remote's name, and the target
  *  is whatever was typed. */
-function pushSummaryHtml(source: string, remotes: string[], target: string): string {
+function pushPreviewHtml(source: string, remotes: string[], target: string): string {
   const lines =
     remotes.length === 0
-      ? ['<div class="dialogFormSummaryNone">' + l10n.dialogPushBranchSummaryNone + "</div>"]
+      ? ['<div class="dialogFormPreviewNone">' + l10n.dialogPushBranchPreviewNone + "</div>"]
       : remotes.map(
           (remote) =>
             "<div>" +
@@ -9553,8 +9553,8 @@ function pushSummaryHtml(source: string, remotes: string[], target: string): str
             "</div>"
         );
   return (
-    '<div class="dialogFormSummaryHeading">' +
-    l10n.dialogPushBranchSummary +
+    '<div class="dialogFormPreviewHeading">' +
+    l10n.dialogPushBranchPreview +
     "</div>" +
     lines.join("")
   );
@@ -9951,7 +9951,7 @@ function dialogFormRows(inputs: DialogInput[], offset: number, multiElementForm:
  * flagged `supersededByAdvanced` are disabled while it is open. Advanced
  * inputs are never remembered — see `DialogAdvancedSection`.
  *
- * `summarise`, when given, adds a quiet block beneath the inputs that says
+ * `preview`, when given, adds a quiet block beneath the inputs that says
  * what submitting would do (#304), drawn when the form opens and again on
  * every edit of any input and every opening or closing of the advanced
  * section. It is handed the form read exactly as submitting reads it, so it
@@ -9966,7 +9966,7 @@ function showFormDialog(
   sourceElem: HTMLElement | null,
   rememberKey?: string,
   advanced?: DialogAdvancedSection,
-  summarise?: DialogFormSummary
+  preview?: DialogFormPreview
 ) {
   // With a rememberKey, seed the remembered selects/checkboxes and offer a
   // "Remember my choice" toggle below the form (free-text inputs are never
@@ -9994,12 +9994,12 @@ function showFormDialog(
       dialogFormRows(advanced.inputs, inputs.length, true) +
       "</table></details>";
   }
-  if (summarise !== undefined) {
-    // Below the advanced section, so opening it pushes the summary down rather
+  if (preview !== undefined) {
+    // Below the advanced section, so opening it pushes the preview down rather
     // than tucking it out of sight; above "Remember my choice", which is about
     // next time rather than this push. A polite live region: a screen reader
     // hears the new destination after an edit without being interrupted.
-    html += '<div class="dialogFormSummary" aria-live="polite"></div>';
+    html += '<div class="dialogFormPreview" aria-live="polite"></div>';
   }
   if (rememberKey !== undefined) {
     // Its own single-row form table so it inherits the themed checkbox styling
@@ -10018,7 +10018,7 @@ function showFormDialog(
     advanced !== undefined &&
     dialog.querySelector<HTMLDetailsElement>("details.dialogAdvanced")?.open === true;
   // The form's answer as it stands: what submitting hands `actioned`, and what
-  // the summary is drawn from — one reading, so the two cannot drift apart.
+  // the preview is drawn from — one reading, so the two cannot drift apart.
   const answer = (): [values: string[], advanced: string[] | null] => [
     dialogFormValues(inputs, 0),
     advanced !== undefined && advancedOpen()
@@ -10081,20 +10081,19 @@ function showFormDialog(
     });
   }
   if (refInputs.length > 0) checkRefInputs();
-  const summaryBox = dialog.querySelector<HTMLElement>(".dialogFormSummary");
-  const redrawSummary = () => {
-    if (summarise !== undefined && summaryBox !== null)
-      summaryBox.innerHTML = summarise(...answer());
+  const previewBox = dialog.querySelector<HTMLElement>(".dialogFormPreview");
+  const redrawPreview = () => {
+    if (preview !== undefined && previewBox !== null) previewBox.innerHTML = preview(...answer());
   };
-  if (summaryBox !== null) {
-    redrawSummary();
+  if (previewBox !== null) {
+    redrawPreview();
     // `input` for typing, `change` for a select or a tick, and `keyup` as well
     // because a ref input's own keyup listener (added above, so run first)
-    // may substitute its spaces after `input` has fired — the summary must
+    // may substitute its spaces after `input` has fired — the preview must
     // show the name that will be sent, not the one typed.
     for (let i = 0; i < allInputs.length; i++) {
       const elem = dialogInputElem(i)!;
-      for (const type of ["input", "change", "keyup"]) elem.addEventListener(type, redrawSummary);
+      for (const type of ["input", "change", "keyup"]) elem.addEventListener(type, redrawPreview);
     }
   }
   if (advanced !== undefined) {
@@ -10111,7 +10110,7 @@ function showFormDialog(
       if (!section.isConnected) return;
       for (const elem of superseded) elem.disabled = section.open;
       if (refInputs.length > 0) checkRefInputs();
-      redrawSummary();
+      redrawPreview();
     });
   }
 }

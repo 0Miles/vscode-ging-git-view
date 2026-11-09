@@ -131,7 +131,7 @@ declare global {
    *  section's or null while it is collapsed — so a caller can derive both
    *  from one reading and the two cannot disagree. Anything taken from the
    *  user or the repo is the caller's to escape. */
-  type DialogFormSummary = (values: string[], advanced: string[] | null) => string;
+  type DialogFormPreview = (values: string[], advanced: string[] | null) => string;
   type DialogInputValue = string | boolean;
 
   interface ExpandedCommit {

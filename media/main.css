@@ -1379,7 +1379,7 @@ body.vscode-high-contrast #contextMenu {
    nothing. A block of its own, so it starts on a new line whatever precedes
    it, no wider than the form; a long ref name wraps rather than widening the
    dialog. */
-#dialog .dialogFormSummary {
+#dialog .dialogFormPreview {
   max-width: 360px;
   margin-top: 10px;
   padding-top: 6px;
@@ -1387,13 +1387,13 @@ body.vscode-high-contrast #contextMenu {
   color: var(--vscode-descriptionForeground);
   overflow-wrap: anywhere;
 }
-#dialog .dialogFormSummaryHeading {
+#dialog .dialogFormPreviewHeading {
   margin-bottom: 2px;
 }
-#dialog .dialogFormSummary > div:not(.dialogFormSummaryHeading) {
+#dialog .dialogFormPreview > div:not(.dialogFormPreviewHeading) {
   font-family: var(--vscode-editor-font-family), monospace;
 }
-#dialog .dialogFormSummary > .dialogFormSummaryNone {
+#dialog .dialogFormPreview > .dialogFormPreviewNone {
   font-family: inherit;
   font-style: italic;
 }

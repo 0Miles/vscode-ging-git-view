@@ -17,8 +17,8 @@ import {
 
 // The single-branch Push dialog says, while it is up, which remote refs the
 // push would update (#304): `<branch> → <remote>/<target>`, one per
-// destination. Each test that reads a summary then pushes, asserting the two
-// agree — the summary is only worth showing if it is what gets sent.
+// destination. Each test that reads a preview then pushes, asserting the two
+// agree — the preview is only worth showing if it is what gets sent.
 
 const L = getWebviewLocalizedStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
@@ -67,11 +67,11 @@ function openBranchPush() {
   clickItem(L.pushBranch + E);
 }
 
-/** The summary's lines as the user reads them, heading first. */
-function summaryLines(): string[] {
-  const summary = document.querySelector("#dialog .dialogFormSummary");
-  expect(summary, "the push summary").not.toBeNull();
-  return Array.from(summary!.children).map((line) => (line.textContent ?? "").trim());
+/** The preview's lines as the user reads them, heading first. */
+function previewLines(): string[] {
+  const preview = document.querySelector("#dialog .dialogFormPreview");
+  expect(preview, "the push preview").not.toBeNull();
+  return Array.from(preview!.children).map((line) => (line.textContent ?? "").trim());
 }
 
 function remoteBox(name: string) {
@@ -127,7 +127,7 @@ function submit() {
   action!.dispatchEvent(new MouseEvent("click"));
 }
 
-describe("the Push dialog's summary of where the push goes", () => {
+describe("the Push dialog's preview of where the push goes", () => {
   beforeAll(async () => {
     vi.resetModules();
     mock = createVscodeMock();
@@ -148,7 +148,7 @@ describe("the Push dialog's summary of where the push goes", () => {
     remotesAre(["origin"]);
     openBranchPush();
 
-    expect(summaryLines()).toEqual([L.dialogPushBranchSummary, "feature → origin/feature"]);
+    expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → origin/feature"]);
 
     submit();
     expect(mock.sentOf("pushBranch")).toMatchObject([{ remotes: ["origin"] }]);
@@ -160,15 +160,15 @@ describe("the Push dialog's summary of where the push goes", () => {
     openBranchPush();
     remoteBox("backup").click();
 
-    expect(summaryLines()).toEqual([
-      L.dialogPushBranchSummary,
+    expect(previewLines()).toEqual([
+      L.dialogPushBranchPreview,
       "feature → origin/feature",
       "feature → backup/feature"
     ]);
 
     remoteBox("origin").click();
 
-    expect(summaryLines()).toEqual([L.dialogPushBranchSummary, "feature → backup/feature"]);
+    expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → backup/feature"]);
     submit();
     expect(mock.sentOf("pushBranch")).toMatchObject([{ remotes: ["backup"] }]);
   });
@@ -178,7 +178,7 @@ describe("the Push dialog's summary of where the push goes", () => {
     openBranchPush();
     remoteBox("origin").click();
 
-    expect(summaryLines()).toEqual([L.dialogPushBranchSummary, L.dialogPushBranchSummaryNone]);
+    expect(previewLines()).toEqual([L.dialogPushBranchPreview, L.dialogPushBranchPreviewNone]);
     submit();
     expect(mock.sentOf("pushBranch")).toEqual([]);
   });
@@ -189,13 +189,13 @@ describe("the Push dialog's summary of where the push goes", () => {
     remoteBox("upstream").click();
     await setAdvanced(true);
 
-    expect(summaryLines()).toEqual([L.dialogPushBranchSummary, "feature → origin/feature"]);
+    expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → origin/feature"]);
 
     typeTarget("review/feature");
-    expect(summaryLines()).toEqual([L.dialogPushBranchSummary, "feature → origin/review/feature"]);
+    expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → origin/review/feature"]);
 
     chooseRemote("backup");
-    expect(summaryLines()).toEqual([L.dialogPushBranchSummary, "feature → backup/review/feature"]);
+    expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → backup/review/feature"]);
 
     submit();
     expect(mock.sentOf("pushBranch")).toMatchObject([
@@ -212,8 +212,8 @@ describe("the Push dialog's summary of where the push goes", () => {
     typeTarget("elsewhere");
     await setAdvanced(false);
 
-    expect(summaryLines()).toEqual([
-      L.dialogPushBranchSummary,
+    expect(previewLines()).toEqual([
+      L.dialogPushBranchPreview,
       "feature → origin/feature",
       "feature → upstream/feature"
     ]);
@@ -230,7 +230,7 @@ describe("the Push dialog's summary of where the push goes", () => {
       await setAdvanced(true);
       typeTarget("review this");
 
-      expect(summaryLines()).toEqual([L.dialogPushBranchSummary, "feature → origin/review-this"]);
+      expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → origin/review-this"]);
       submit();
     } finally {
       viewState.referenceInputSpaceSubstitution = "None";
@@ -266,11 +266,11 @@ describe("the Push dialog's summary of where the push goes", () => {
     remoteBox(odd).click();
 
     expect(
-      document.querySelector("#dialog .dialogFormSummary b, #dialog .dialogFormSummary i"),
+      document.querySelector("#dialog .dialogFormPreview b, #dialog .dialogFormPreview i"),
       "no markup from a name"
     ).toBeNull();
-    expect(summaryLines()).toEqual([
-      L.dialogPushBranchSummary,
+    expect(previewLines()).toEqual([
+      L.dialogPushBranchPreview,
       `${branch} → origin/${branch}`,
       `${branch} → ${odd}/${branch}`
     ]);
@@ -279,14 +279,14 @@ describe("the Push dialog's summary of where the push goes", () => {
     chooseRemote(odd);
     typeTarget("a&b");
 
-    expect(summaryLines()).toEqual([L.dialogPushBranchSummary, `${branch} → ${odd}/a&b`]);
+    expect(previewLines()).toEqual([L.dialogPushBranchPreview, `${branch} → ${odd}/a&b`]);
     submit();
     expect(mock.sentOf("pushBranch")).toMatchObject([
       { branchName: branch, remotes: [odd], targetBranch: "a&b" }
     ]);
   });
 
-  // The summary describes one branch going to named refs. A batch pushes each
+  // The preview describes one branch going to named refs. A batch pushes each
   // branch to its own name, so it has none — nor does any other form.
   it("is not shown by the batch push, which sends what it always sent", () => {
     remotesAre(["origin", "upstream"]);
@@ -299,7 +299,7 @@ describe("the Push dialog's summary of where the push goes", () => {
       seq: 1
     });
     expect(document.getElementById("dialogAction"), "the batch push form").not.toBeNull();
-    expect(document.querySelector("#dialog .dialogFormSummary")).toBeNull();
+    expect(document.querySelector("#dialog .dialogFormPreview")).toBeNull();
 
     submit();
 
@@ -325,6 +325,6 @@ describe("the Push dialog's summary of where the push goes", () => {
     clickItem(L.createBranch + E);
 
     expect(document.getElementById("dialogAction"), "the Create Branch form").not.toBeNull();
-    expect(document.querySelector("#dialog .dialogFormSummary")).toBeNull();
+    expect(document.querySelector("#dialog .dialogFormPreview")).toBeNull();
   });
 });
