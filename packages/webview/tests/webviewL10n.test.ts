@@ -34,9 +34,9 @@ describe("getWebviewLocalizedStrings", () => {
 
     expect(asked.length).toBeGreaterThan(0);
     // `ui.findOpenCommitDetails` (the find widget's open-details button tooltip)
-    // has never had a bundle entry, so every locale shows the raw key. Adding
-    // one changes what users see, which this move must not; it is pinned here so
-    // the gap cannot widen unnoticed, and the entry goes in with its own change.
+    // has never had a bundle entry, so every locale shows the raw key (#313).
+    // Pinned here so the gap cannot widen unnoticed; #313 adds the entry and
+    // empties this list.
     expect(asked.filter((key) => !Object.hasOwn(englishBundle, key))).toEqual([
       "ui.findOpenCommitDetails"
     ]);
