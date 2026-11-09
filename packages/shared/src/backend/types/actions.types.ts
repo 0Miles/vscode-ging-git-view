@@ -54,6 +54,11 @@ type ActionPayloads = {
     /** One or more remotes to push to. */
     remotes: string[];
     forceMode: "normal" | "force" | "forceWithLease";
+    /** The branch to create or update on the remote, when it is not
+     *  `branchName` itself: the Push dialog's advanced options (#303). Absent,
+     *  the push is `git push <remote> <branchName>` exactly as before. Only ever
+     *  given with a single remote, and never by the batch push. */
+    targetBranch?: string;
   };
   pushTag: { tagName: string; remotes: string[] };
   rebaseOn: { obj: string };

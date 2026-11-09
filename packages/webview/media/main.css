@@ -1353,39 +1353,79 @@ body.vscode-high-contrast #contextMenu {
   outline: none;
 }
 
-#dialog > table.dialogForm {
+/* Descendant rather than child selectors throughout: a form's advanced inputs
+   sit in a table of their own inside `details.dialogAdvanced` (#303), and are
+   the same controls as the ones above them. */
+#dialog table.dialogForm {
   display: inline-table;
   width: 360px;
 }
-#dialog > table.dialogForm td {
+/* The advanced section: a native disclosure, so the summary keeps its own
+   marker and keyboard behaviour; only its spacing and focus ring are ours. */
+#dialog details.dialogAdvanced {
+  margin-top: 8px;
+}
+#dialog details.dialogAdvanced > summary {
+  cursor: pointer;
+  user-select: none;
+}
+#dialog details.dialogAdvanced > summary:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+/* What submitting the form would do (#304): the Push dialog's
+   "feature → origin/feature" lines. Quiet — description colour, set off by a
+   rule rather than a box — since it reports the inputs above and asks for
+   nothing. A block of its own, so it starts on a new line whatever precedes
+   it, no wider than the form; a long ref name wraps rather than widening the
+   dialog. */
+#dialog .dialogFormPreview {
+  max-width: 360px;
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+#dialog .dialogFormPreviewHeading {
+  margin-bottom: 2px;
+}
+#dialog .dialogFormPreview > div:not(.dialogFormPreviewHeading) {
+  font-family: var(--vscode-editor-font-family), monospace;
+}
+#dialog .dialogFormPreview > .dialogFormPreviewNone {
+  font-family: inherit;
+  font-style: italic;
+}
+#dialog table.dialogForm td {
   padding-top: 8px;
   text-align: left;
   white-space: nowrap;
 }
-#dialog > table.dialogForm td:last-child {
+#dialog table.dialogForm td:last-child {
   width: 100%;
 }
-#dialog > table.dialogForm.multi td:nth-child(1) {
+#dialog table.dialogForm.multi td:nth-child(1) {
   padding-right: 8px;
 }
-#dialog > table.dialogForm.single select {
+#dialog table.dialogForm.single select {
   width: 100%;
 }
-#dialog > table.dialogForm .dialogFormCheckbox {
+#dialog table.dialogForm .dialogFormCheckbox {
   display: inline-block;
   text-align: left;
   width: 100%;
 }
-#dialog > table.dialogForm .dialogFormCheckbox input[type="checkbox"] {
+#dialog table.dialogForm .dialogFormCheckbox input[type="checkbox"] {
   margin-left: 0;
   margin-right: 6px;
 }
-#dialog > table.dialogForm input[type="text"] {
+#dialog table.dialogForm input[type="text"] {
   width: 100%;
 }
 /* Theme dialog inputs to respect the active VS Code Color Theme: a
    custom-rendered checkbox and themed select/text controls. */
-#dialog > table.dialogForm input[type="checkbox"],
+#dialog table.dialogForm input[type="checkbox"],
 #repoSettingsDrawer input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -1403,12 +1443,12 @@ body.vscode-high-contrast #contextMenu {
   outline-style: none;
   cursor: pointer;
 }
-#dialog > table.dialogForm input[type="checkbox"]:checked,
+#dialog table.dialogForm input[type="checkbox"]:checked,
 #repoSettingsDrawer input[type="checkbox"]:checked {
   background: var(--vscode-checkbox-selectBackground, var(--vscode-button-background));
   border-color: var(--vscode-checkbox-selectBorder, var(--vscode-button-background));
 }
-#dialog > table.dialogForm input[type="checkbox"]:checked::after,
+#dialog table.dialogForm input[type="checkbox"]:checked::after,
 #repoSettingsDrawer input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
@@ -1420,8 +1460,8 @@ body.vscode-high-contrast #contextMenu {
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
-#dialog > table.dialogForm input[type="text"],
-#dialog > table.dialogForm select,
+#dialog table.dialogForm input[type="text"],
+#dialog table.dialogForm select,
 #repoSettingsDrawer select {
   padding: 4px;
   box-sizing: border-box;
@@ -1439,7 +1479,7 @@ body.vscode-high-contrast #contextMenu {
   color: var(--vscode-input-foreground);
   outline-style: none;
 }
-#dialog > table.dialogForm select,
+#dialog table.dialogForm select,
 #repoSettingsDrawer select {
   appearance: none;
   -webkit-appearance: none;
@@ -1453,13 +1493,13 @@ body.vscode-high-contrast #contextMenu {
   background-position: right 6px center;
   padding-right: 22px;
 }
-body.vscode-light #dialog > table.dialogForm select,
-body.vscode-high-contrast-light #dialog > table.dialogForm select,
+body.vscode-light #dialog table.dialogForm select,
+body.vscode-high-contrast-light #dialog table.dialogForm select,
 body.vscode-light #repoSettingsDrawer select,
 body.vscode-high-contrast-light #repoSettingsDrawer select {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill='%23424242' d='M8 11L3 6h10z'/></svg>");
 }
-#dialog > table.dialogForm select option,
+#dialog table.dialogForm select option,
 #repoSettingsDrawer select option {
   background-color: var(--vscode-dropdown-background, var(--vscode-input-background));
   color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
