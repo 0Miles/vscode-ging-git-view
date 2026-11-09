@@ -419,6 +419,7 @@
   "ui.findPrevious": "上一个匹配",
   "ui.findNext": "下一个匹配",
   "ui.findClose": "关闭",
+  "ui.findOpenCommitDetails": "为每个匹配打开 commit 详情视图",
   "ui.findCount": "第 {0} 个，共 {1} 个",
   "dialog.find.loadMoreConfirm": "定位此 branch 需要额外加载 {0} 个 commits。要继续吗？",
   "dialog.addTag.pushToRemote": "创建后 push 到 remote",
