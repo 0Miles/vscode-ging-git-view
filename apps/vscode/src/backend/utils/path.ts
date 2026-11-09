@@ -1,30 +1,14 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
 
 import * as vscode from "vscode";
 
-const FS_REGEX = /\\/g;
+import { getPathFromStr } from "@ging/core/backend/utils/path";
 
-export function isDirectory(filePath: string) {
-  return new Promise<boolean>((resolve) => {
-    fs.stat(filePath, (err, stats) => {
-      resolve(err ? false : stats.isDirectory());
-    });
-  });
-}
-
-export function doesPathExist(filePath: string) {
-  return new Promise<boolean>((resolve) => {
-    fs.stat(filePath, (err) => resolve(!err));
-  });
-}
+// The two path helpers that take or make a `vscode.Uri`; the plain-string ones
+// live in @ging/core/backend/utils/path.
 
 export function getPathFromUri(uri: vscode.Uri) {
-  return uri.fsPath.replace(FS_REGEX, "/");
-}
-
-export function getPathFromStr(str: string) {
-  return str.replace(FS_REGEX, "/");
+  return getPathFromStr(uri.fsPath);
 }
 
 export function buildExtensionUri(extensionPath: string, ...pathComps: string[]) {
