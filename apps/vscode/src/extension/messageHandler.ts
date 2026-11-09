@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { AvatarManager } from "@ging/core/avatarManager";
 import { createArchive } from "@ging/core/backend/actions/archive";
 import {
+  checkoutAndPullBranch,
   checkoutBranch,
   createBranch,
   deleteBranch,
@@ -262,6 +263,9 @@ export function registerMessageHandlers(
   registerAction("renameBranch", (msg) => renameBranch(gitClient.getInstance(), msg));
   registerAction("moveBranch", (msg) => moveBranch(gitClient.getInstance(), msg));
   registerAction("checkoutBranch", (msg) => checkoutBranch(gitClient.getInstance(), msg));
+  registerAction("checkoutAndPullBranch", (msg) =>
+    checkoutAndPullBranch(gitClient.getInstance(), msg)
+  );
   registerAction("checkoutCommit", (msg) => checkoutCommit(gitClient.getInstance(), msg));
   registerAction("cherrypickCommit", (msg) =>
     cherrypickCommit(gitClient.getInstance(), msg, config.signCommits())

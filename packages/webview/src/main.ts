@@ -4001,13 +4001,19 @@ class GitGraphView {
       };
       if (this.gitBranches.includes(leaf)) {
         // A local branch with the same name already exists: let the user check
-        // it out directly, reset it to the remote (discarding local commits), or
+        // it out directly, check it out and pull the remote into it (keeping
+        // local commits), reset it to the remote (discarding local commits), or
         // create a new local branch under a different name.
         showSelectDialog(
           fillTemplate(l10n.dialogCheckoutRemoteExists, "<b><i>" + escapeHtml(leaf) + "</i></b>"),
           "existing",
           [
             { name: l10n.dialogCheckoutExistingLocal, value: "existing" },
+            // Pulling needs the remote's name, which is only known once the
+            // remotes have loaded.
+            ...(remote !== undefined
+              ? [{ name: l10n.dialogCheckoutPullLocal, value: "pull" }]
+              : []),
             { name: l10n.dialogCheckoutResetLocal, value: "reset" },
             { name: l10n.dialogCheckoutNewLocal, value: "new" }
           ],
@@ -4024,6 +4030,15 @@ class GitGraphView {
                 branchName: leaf,
                 remoteBranch: null,
                 force: false
+              });
+            } else if (choice === "pull" && remote !== undefined) {
+              showActionRunningDialog(l10n.pulling);
+              sendMessage({
+                command: "checkoutAndPullBranch",
+                repo,
+                branchName: leaf,
+                remote,
+                branchOnRemote: leaf
               });
             } else if (choice === "reset") {
               // Destructive: confirm before discarding the local branch's commits.
@@ -4050,7 +4065,8 @@ class GitGraphView {
           }),
           null,
           // Remembering "reset" is safe: that path keeps its own destructive
-          // confirmation above.
+          // confirmation above. "pull" needs none: it never discards a commit,
+          // and a conflict stops git mid-merge or mid-rebase for the user.
           "checkoutRemoteExists"
         );
       } else {
@@ -9025,6 +9041,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
   switch (msg.command) {
     case "addTag":
     case "checkoutBranch":
+    case "checkoutAndPullBranch":
     case "checkoutCommit":
     case "dropCommit":
     case "applyStash":
@@ -9294,6 +9311,7 @@ const ACTION_FAILURE: Record<
 > = {
   addTag: "unableToAddTag",
   checkoutBranch: "unableToCheckoutBranch",
+  checkoutAndPullBranch: "unableToCheckoutAndPullBranch",
   checkoutCommit: "unableToCheckoutCommit",
   dropCommit: "unableToDrop",
   applyStash: "unableToApplyStash",

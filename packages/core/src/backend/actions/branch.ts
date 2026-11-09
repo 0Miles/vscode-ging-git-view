@@ -362,3 +362,15 @@ export async function checkoutBranch(
     await git.checkoutBranch(input.branchName, input.remoteBranch);
   }
 }
+
+/** Check out an existing local branch and pull the remote branch into it. Unlike
+ *  a `checkout -B` reset this keeps local-only commits: the pull merges or
+ *  rebases them as the user's own git config says. One action rather than two
+ *  messages so the pull cannot start before the checkout has finished. */
+export async function checkoutAndPullBranch(
+  git: SimpleGit,
+  input: ActionPayload<"checkoutAndPullBranch">
+): Promise<void> {
+  await git.checkout(input.branchName);
+  await pullBranch(git, { remote: input.remote, branchName: input.branchOnRemote });
+}
