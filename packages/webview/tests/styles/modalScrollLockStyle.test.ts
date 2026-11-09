@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
  * of its neighbour `roundedBtnStyleLock.test.ts` and here for the same reason:
  * it reads a file off disk and has no use for a DOM. The class that switches
  * the lock on is pinned where the dialog is
- * (`apps/vscode/tests/webview/modalScrollLock.test.ts`); what the class *does* is only
+ * (`packages/webview/tests/modalScrollLock.test.ts`); what the class *does* is only
  * these declarations, and jsdom loads no stylesheet to notice them gone.
  *
  * The evidence that they work is a measurement in a real Chromium, not this
@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
  * this comment first.
  */
 
-const css = readFileSync(new URL("../media/main.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("../../media/main.css", import.meta.url), "utf8");
 
 /** The declarations of a rule, by exact selector text, as `prop: value` with
  *  whitespace collapsed — empty when there is no such rule, so a missing one

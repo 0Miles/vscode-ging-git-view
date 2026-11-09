@@ -72,7 +72,7 @@ const STYLED_ATTRIBUTES = new Set(
     Array.from(
       fs
         .readFileSync(
-          path.resolve(__dirname, "../../../../packages/webview/media/main.css"),
+          path.resolve(__dirname, "../media/main.css"),
           "utf8"
         )
         .matchAll(/\[\s*([A-Za-z][\w-]*)/g),

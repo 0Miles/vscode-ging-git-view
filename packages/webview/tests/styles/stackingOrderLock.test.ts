@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
  * numbers do.
  */
 
-const css = readFileSync(new URL("../media/main.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("../../media/main.css", import.meta.url), "utf8");
 
 /** Every rule carrying a `z-index`, as [selector with whitespace collapsed,
  *  value as written], in source order. Innermost blocks only, so a rule inside

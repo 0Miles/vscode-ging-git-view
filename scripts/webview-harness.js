@@ -68,14 +68,14 @@ const THEME_VARS = {
  * The webview suites' viewState fixture, loaded rather than copied so the two
  * cannot drift (issue #76). It is TypeScript importing the workspace packages,
  * so esbuild bundles it into the harness output (resolving them from the
- * extension's node_modules) and node requires the bundle.
+ * webview package's node_modules) and node requires the bundle.
  *
- * @returns {typeof import("../apps/vscode/tests/webview/viewStateFixture")}
+ * @returns {typeof import("../packages/webview/tests/viewStateFixture")}
  */
 function loadViewStateFixture() {
   const outfile = path.join(OUT, "viewStateFixture.cjs");
   esbuild.buildSync({
-    entryPoints: [path.join(APP, "tests", "webview", "viewStateFixture.ts")],
+    entryPoints: [path.join(ROOT, "packages", "webview", "tests", "viewStateFixture.ts")],
     bundle: true,
     format: "cjs",
     platform: "node",
