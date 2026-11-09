@@ -5261,24 +5261,38 @@ class GitGraphView {
               { type: "text-ref", name: l10n.dialogPushBranchTarget, default: sourceBranch }
             ]
           };
+    // Where an answer of the form pushes. The push and its preview both read
+    // the form through this, so the preview cannot name a destination the push
+    // would not use, nor miss one it would.
+    const destinations = (
+      values: string[],
+      advancedValues: string[] | null
+    ): { remotes: string[]; targetBranch: ActionPayload<"pushBranch">["targetBranch"] } =>
+      advancedValues !== null
+        ? // Open, the section is the destination, and the ticks are not read.
+          { remotes: [advancedValues[0]], targetBranch: advancedValues[1] }
+        : {
+            remotes:
+              remotes.length === 1 ? remotes : remotes.filter((_, i) => values[i] === "checked"),
+            targetBranch: undefined
+          };
     showFormDialog(
       remotes.length === 1 ? bodies.oneRemote : bodies.manyRemotes,
       [...remoteInputs, forceInput],
       l10n.pushBranch,
       (values, advancedValues) => {
-        const forceMode = values[remoteInputs.length];
-        if (advancedValues !== null) {
-          // Open, the section is the destination, and the ticks are not read.
-          send([advancedValues[0]], forceMode, advancedValues[1]);
-        } else {
-          const ticked =
-            remotes.length === 1 ? remotes : remotes.filter((_, i) => values[i] === "checked");
-          send(ticked, forceMode, undefined);
-        }
+        const to = destinations(values, advancedValues);
+        send(to.remotes, values[remoteInputs.length], to.targetBranch);
       },
       null,
       rememberKey,
-      advanced
+      advanced,
+      sourceBranch === undefined
+        ? undefined
+        : (values, advancedValues) => {
+            const to = destinations(values, advancedValues);
+            return pushPreviewHtml(sourceBranch, to.remotes, to.targetBranch ?? sourceBranch);
+          }
     );
   }
   private pushBranchAction(branchName: string) {
@@ -9519,6 +9533,32 @@ function getCommitDate(dateVal: number) {
 }
 
 /* Utils */
+/** The Push dialog's preview (#304): a heading, then one line per remote ref
+ *  the push would update, `<source> → <remote>/<target>` — or, with no remote
+ *  to push to, a line saying plainly that nothing will be pushed. Every name
+ *  is escaped: git allows `<`, `&` and `"` in a remote's name, and the target
+ *  is whatever was typed. */
+function pushPreviewHtml(source: string, remotes: string[], target: string): string {
+  const lines =
+    remotes.length === 0
+      ? ['<div class="dialogFormPreviewNone">' + l10n.dialogPushBranchPreviewNone + "</div>"]
+      : remotes.map(
+          (remote) =>
+            "<div>" +
+            escapeHtml(source) +
+            " &rarr; " +
+            escapeHtml(remote) +
+            "/" +
+            escapeHtml(target) +
+            "</div>"
+        );
+  return (
+    '<div class="dialogFormPreviewHeading">' +
+    l10n.dialogPushBranchPreview +
+    "</div>" +
+    lines.join("")
+  );
+}
 function toPushForceMode(v: string): ActionPayload<"pushBranch">["forceMode"] {
   return v === "force" ? "force" : v === "forceWithLease" ? "forceWithLease" : "normal";
 }
@@ -9910,6 +9950,13 @@ function dialogFormRows(inputs: DialogInput[], offset: number, multiElementForm:
  * section is open, and is checked again the moment it opens or closes. Inputs
  * flagged `supersededByAdvanced` are disabled while it is open. Advanced
  * inputs are never remembered — see `DialogAdvancedSection`.
+ *
+ * `preview`, when given, adds a quiet block beneath the inputs that says
+ * what submitting would do (#304), drawn when the form opens and again on
+ * every edit of any input and every opening or closing of the advanced
+ * section. It is handed the form read exactly as submitting reads it, so it
+ * never describes values other than the ones `actioned` would get. Without it
+ * the form is what it always was.
  */
 function showFormDialog(
   message: string,
@@ -9918,7 +9965,8 @@ function showFormDialog(
   actioned: (values: string[], advanced: string[] | null) => void,
   sourceElem: HTMLElement | null,
   rememberKey?: string,
-  advanced?: DialogAdvancedSection
+  advanced?: DialogAdvancedSection,
+  preview?: DialogFormPreview
 ) {
   // With a rememberKey, seed the remembered selects/checkboxes and offer a
   // "Remember my choice" toggle below the form (free-text inputs are never
@@ -9946,6 +9994,13 @@ function showFormDialog(
       dialogFormRows(advanced.inputs, inputs.length, true) +
       "</table></details>";
   }
+  if (preview !== undefined) {
+    // Below the advanced section, so opening it pushes the preview down rather
+    // than tucking it out of sight; above "Remember my choice", which is about
+    // next time rather than this push. A polite live region: a screen reader
+    // hears the new destination after an edit without being interrupted.
+    html += '<div class="dialogFormPreview" aria-live="polite"></div>';
+  }
   if (rememberKey !== undefined) {
     // Its own single-row form table so it inherits the themed checkbox styling
     // without changing the layout of the inputs above. Read back by its fixed
@@ -9962,6 +10017,14 @@ function showFormDialog(
   const advancedOpen = () =>
     advanced !== undefined &&
     dialog.querySelector<HTMLDetailsElement>("details.dialogAdvanced")?.open === true;
+  // The form's answer as it stands: what submitting hands `actioned`, and what
+  // the preview is drawn from — one reading, so the two cannot drift apart.
+  const answer = (): [values: string[], advanced: string[] | null] => [
+    dialogFormValues(inputs, 0),
+    advanced !== undefined && advancedOpen()
+      ? dialogFormValues(advanced.inputs, inputs.length)
+      : null
+  ];
   // The ref inputs whose value must be a usable ref name before the form can
   // be submitted: the form's own always, the advanced ones while they show.
   const refInputs = allInputs.flatMap((input, i) => (input.type === "text-ref" ? [i] : []));
@@ -9992,11 +10055,7 @@ function showFormDialog(
       if (refInputs.length > 0) checkRefInputs();
       if (dialog.className === "active noInput" || dialog.className === "active inputInvalid")
         return;
-      const values = dialogFormValues(inputs, 0);
-      const advancedValues =
-        advanced !== undefined && advancedOpen()
-          ? dialogFormValues(advanced.inputs, inputs.length)
-          : null;
+      const [values, advancedValues] = answer();
       if (rememberKey !== undefined)
         saveOrForgetDialogMemory(rememberKey, inputs, values, hasMemory);
       hideDialog();
@@ -10022,6 +10081,21 @@ function showFormDialog(
     });
   }
   if (refInputs.length > 0) checkRefInputs();
+  const previewBox = dialog.querySelector<HTMLElement>(".dialogFormPreview");
+  const redrawPreview = () => {
+    if (preview !== undefined && previewBox !== null) previewBox.innerHTML = preview(...answer());
+  };
+  if (previewBox !== null) {
+    redrawPreview();
+    // `input` for typing, `change` for a select or a tick, and `keyup` as well
+    // because a ref input's own keyup listener (added above, so run first)
+    // may substitute its spaces after `input` has fired — the preview must
+    // show the name that will be sent, not the one typed.
+    for (let i = 0; i < allInputs.length; i++) {
+      const elem = dialogInputElem(i)!;
+      for (const type of ["input", "change", "keyup"]) elem.addEventListener(type, redrawPreview);
+    }
+  }
   if (advanced !== undefined) {
     const section = <HTMLDetailsElement>dialog.querySelector("details.dialogAdvanced");
     const superseded = inputs.flatMap((input, i) =>
@@ -10036,6 +10110,7 @@ function showFormDialog(
       if (!section.isConnected) return;
       for (const elem of superseded) elem.disabled = section.open;
       if (refInputs.length > 0) checkRefInputs();
+      redrawPreview();
     });
   }
 }

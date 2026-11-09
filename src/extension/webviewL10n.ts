@@ -318,6 +318,8 @@ export function getWebviewLocalizedStrings() {
     dialogPushBranchConfirm: l10n.t("dialog.pushBranch.confirm"),
     dialogPushBranchAdvanced: l10n.t("dialog.pushBranch.advanced"),
     dialogPushBranchTarget: l10n.t("dialog.pushBranch.target"),
+    dialogPushBranchPreview: l10n.t("dialog.pushBranch.preview"),
+    dialogPushBranchPreviewNone: l10n.t("dialog.pushBranch.previewNone"),
     dialogPushForce: l10n.t("dialog.pushForce"),
     dialogPushForceNone: l10n.t("dialog.pushForce.none"),
     dialogPushForceForce: l10n.t("dialog.pushForce.force"),

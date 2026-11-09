@@ -1373,6 +1373,30 @@ body.vscode-high-contrast #contextMenu {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 1px;
 }
+/* What submitting the form would do (#304): the Push dialog's
+   "feature → origin/feature" lines. Quiet — description colour, set off by a
+   rule rather than a box — since it reports the inputs above and asks for
+   nothing. A block of its own, so it starts on a new line whatever precedes
+   it, no wider than the form; a long ref name wraps rather than widening the
+   dialog. */
+#dialog .dialogFormPreview {
+  max-width: 360px;
+  margin-top: 10px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.35));
+  color: var(--vscode-descriptionForeground);
+  overflow-wrap: anywhere;
+}
+#dialog .dialogFormPreviewHeading {
+  margin-bottom: 2px;
+}
+#dialog .dialogFormPreview > div:not(.dialogFormPreviewHeading) {
+  font-family: var(--vscode-editor-font-family), monospace;
+}
+#dialog .dialogFormPreview > .dialogFormPreviewNone {
+  font-family: inherit;
+  font-style: italic;
+}
 /* A remote tick the open advanced section has taken over from. */
 #dialog table.dialogForm input[type="checkbox"]:disabled,
 #dialog table.dialogForm label:has(input:disabled) {

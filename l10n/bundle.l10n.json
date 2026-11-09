@@ -396,6 +396,8 @@
   "dialog.pushBranch.confirm": "Are you sure you want to push the branch {0}?",
   "dialog.pushBranch.advanced": "Advanced options",
   "dialog.pushBranch.target": "Target branch",
+  "dialog.pushBranch.preview": "Will push:",
+  "dialog.pushBranch.previewNone": "No remote is ticked, so nothing will be pushed.",
   "dialog.pushForce": "Force Push",
   "dialog.pushRemote": "Remote",
   "versionInfo.copy": "Copy",
