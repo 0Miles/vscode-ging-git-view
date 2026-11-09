@@ -314,7 +314,6 @@ export function getWebviewLocalizedStrings() {
     dialogFetchIntoLocalBranchName: l10n.t("dialog.fetchIntoLocalBranch.name"),
     dialogFetchIntoLocalBranchForce: l10n.t("dialog.fetchIntoLocalBranch.force"),
     dialogFetchIntoLocalBranchSubmit: l10n.t("dialog.fetchIntoLocalBranch.submit"),
-    dialogPushBranchSelectRemote: l10n.t("dialog.pushBranch.selectRemote"),
     dialogPushBranchConfirm: l10n.t("dialog.pushBranch.confirm"),
     dialogPushBranchAdvanced: l10n.t("dialog.pushBranch.advanced"),
     dialogPushBranchTarget: l10n.t("dialog.pushBranch.target"),

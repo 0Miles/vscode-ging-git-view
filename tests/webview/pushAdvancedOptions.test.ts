@@ -15,11 +15,12 @@ import {
   setupHtml
 } from "./setup";
 
-// The single-branch Push dialog keeps a collapsed "Advanced options" section
-// (#303). Collapsed, the dialog is the one it always was and sends what it
-// always sent. Expanded, its own two fields decide where the branch goes: one
-// remote from a dropdown and a target branch name on it, which need not be the
-// branch's own — and the remote ticks above stop counting.
+// The single-branch Push dialog asks for the force mode, offers "Remember my
+// choice" for it, and folds the destination under "Advanced" (#17, #303): one
+// tick per remote, the push-default remote alone ticked, then a target branch
+// name, the branch's own to start with. Folding only hides them — they count
+// collapsed or not — and left as they start they push where the dialog always
+// did, with the message it always sent.
 
 const L = getWebviewLocalizedStrings();
 const E = "…"; // the rendered form of the ELLIPSIS entity
@@ -76,20 +77,6 @@ function advancedSection() {
   return document.querySelector<HTMLDetailsElement>("#dialog details");
 }
 
-/** Expand the advanced section the way a click on its summary does, and let
- *  the `toggle` event it queues land. */
-async function expandAdvanced() {
-  const details = advancedSection();
-  expect(details, "the advanced section").not.toBeNull();
-  details!.open = true;
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-async function collapseAdvanced() {
-  advancedSection()!.open = false;
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 /** The control in the row labelled `label`. */
 function field<T extends HTMLElement>(label: string): T {
   const cell = Array.from(document.querySelectorAll("#dialog td")).find(
@@ -99,10 +86,6 @@ function field<T extends HTMLElement>(label: string): T {
   const control = cell!.parentElement!.querySelector<T>("select, input");
   expect(control, label).not.toBeNull();
   return control!;
-}
-
-function remoteSelect() {
-  return field<HTMLSelectElement>(L.dialogPushRemote);
 }
 
 function targetInput() {
@@ -124,10 +107,14 @@ function remoteBox(name: string) {
   return label!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
 }
 
-function chooseForceMode(mode: "normal" | "force" | "forceWithLease") {
+function forceSelect() {
   const select = document.querySelector<HTMLSelectElement>("#dialog select");
   expect(select, "the force-mode select").not.toBeNull();
-  select!.value = mode;
+  return select!;
+}
+
+function rememberBox() {
+  return document.getElementById("dialogRememberChoice") as HTMLInputElement;
 }
 
 function submit() {
@@ -137,7 +124,7 @@ function submit() {
   action!.dispatchEvent(new MouseEvent("click"));
 }
 
-describe("the Push dialog's advanced options", () => {
+describe("the Push dialog's advanced section", () => {
   beforeAll(async () => {
     vi.resetModules();
     mock = createVscodeMock();
@@ -155,11 +142,11 @@ describe("the Push dialog's advanced options", () => {
     mock.clearMessages();
   });
 
-  it("sends exactly what it always sent while collapsed, with one remote", () => {
+  it("sends exactly what it always sent when left alone, with one remote", () => {
     remotesAre(["origin"]);
     openBranchPush();
     expect(advancedSection()!.open, "collapsed by default").toBe(false);
-    chooseForceMode("force");
+    forceSelect().value = "force";
 
     submit();
 
@@ -174,11 +161,10 @@ describe("the Push dialog's advanced options", () => {
     ]);
   });
 
-  it("sends exactly what it always sent while collapsed, with the remotes ticked", () => {
-    remotesAre(["origin", "upstream"]);
+  it("pushes to the push-default remote alone when left alone, with several", () => {
+    remotesAre(["origin", "upstream", "backup"], "upstream");
     openBranchPush();
     expect(advancedSection()!.open, "collapsed by default").toBe(false);
-    remoteBox("upstream").checked = true;
 
     submit();
 
@@ -187,17 +173,44 @@ describe("the Push dialog's advanced options", () => {
         command: "pushBranch",
         repo: DEFAULT_REPO,
         branchName: "feature",
-        remotes: ["origin", "upstream"],
+        remotes: ["upstream"],
         forceMode: "normal"
       }
     ]);
   });
 
-  it("pushes to the one remote chosen and the target named once expanded", async () => {
+  it("asks for the force mode and its memory up front, and folds the destination under Advanced", () => {
+    remotesAre(["origin", "upstream"]);
+    openBranchPush();
+    const section = advancedSection()!;
+
+    expect(section.querySelector("summary")!.textContent).toBe(L.dialogPushBranchAdvanced);
+    expect(section.contains(forceSelect()), "the force mode is not folded").toBe(false);
+    expect(
+      rememberBox().compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING,
+      "Remember my choice sits above the section"
+    ).not.toBe(0);
+    expect(section.contains(remoteBox("origin")), "the remote ticks are folded").toBe(true);
+    expect(section.contains(targetInput()), "the target is folded").toBe(true);
+    expect(section.querySelector("select"), "no remote dropdown").toBeNull();
+    expect(remoteBox("origin").checked).toBe(true);
+    expect(remoteBox("upstream").checked).toBe(false);
+    expect(targetInput().value).toBe("feature");
+  });
+
+  it("offers no tick for a lone remote, the only destination there is", () => {
     remotesAre(["origin"]);
     openBranchPush();
-    await expandAdvanced();
-    typeTarget("review/feature");
+
+    expect(advancedSection()!.querySelector('input[type="checkbox"]')).toBeNull();
+  });
+
+  it("pushes to every remote ticked", () => {
+    remotesAre(["origin", "upstream", "backup"]);
+    openBranchPush();
+    advancedSection()!.open = true;
+    remoteBox("backup").checked = true;
+    forceSelect().value = "forceWithLease";
 
     submit();
 
@@ -206,57 +219,41 @@ describe("the Push dialog's advanced options", () => {
         command: "pushBranch",
         repo: DEFAULT_REPO,
         branchName: "feature",
-        remotes: ["origin"],
+        remotes: ["origin", "backup"],
+        forceMode: "forceWithLease"
+      }
+    ]);
+  });
+
+  it("counts the ticks and the target once folded away again", () => {
+    remotesAre(["origin", "upstream"]);
+    openBranchPush();
+    advancedSection()!.open = true;
+    remoteBox("origin").checked = false;
+    remoteBox("upstream").checked = true;
+    typeTarget("review/feature");
+    advancedSection()!.open = false;
+
+    submit();
+
+    expect(mock.sentOf("pushBranch")).toEqual([
+      {
+        command: "pushBranch",
+        repo: DEFAULT_REPO,
+        branchName: "feature",
+        remotes: ["upstream"],
         forceMode: "normal",
         targetBranch: "review/feature"
       }
     ]);
   });
 
-  it("offers every remote, the push-default one chosen, and the source's own name as target", async () => {
-    remotesAre(["origin", "upstream", "backup"], "upstream");
+  it("names no target while the target is still the branch's own name", () => {
+    remotesAre(["origin"]);
     openBranchPush();
-    await expandAdvanced();
-
-    expect(Array.from(remoteSelect().options).map((o) => o.value)).toEqual([
-      "origin",
-      "upstream",
-      "backup"
-    ]);
-    expect(remoteSelect().value).toBe("upstream");
-    expect(targetInput().value).toBe("feature");
-  });
-
-  it("ignores the remote ticks once expanded, pushing to the remote chosen with the force mode chosen", async () => {
-    remotesAre(["origin", "upstream", "backup"]);
-    openBranchPush();
-    remoteBox("upstream").checked = true;
-    chooseForceMode("forceWithLease");
-    await expandAdvanced();
-    expect(remoteBox("origin").disabled, "the ticks stop counting, visibly").toBe(true);
-    remoteSelect().value = "backup";
-
-    submit();
-
-    expect(mock.sentOf("pushBranch")).toEqual([
-      {
-        command: "pushBranch",
-        repo: DEFAULT_REPO,
-        branchName: "feature",
-        remotes: ["backup"],
-        forceMode: "forceWithLease",
-        targetBranch: "feature"
-      }
-    ]);
-  });
-
-  it("gives the remote ticks back when collapsed again", async () => {
-    remotesAre(["origin", "upstream"]);
-    openBranchPush();
-    await expandAdvanced();
-    remoteSelect().value = "upstream";
-    await collapseAdvanced();
-    expect(remoteBox("origin").disabled).toBe(false);
+    advancedSection()!.open = true;
+    typeTarget("elsewhere");
+    typeTarget("feature");
 
     submit();
 
@@ -271,13 +268,23 @@ describe("the Push dialog's advanced options", () => {
     ]);
   });
 
+  it("pushes nothing once every remote is unticked", () => {
+    remotesAre(["origin", "upstream"]);
+    openBranchPush();
+    remoteBox("origin").checked = false;
+
+    submit();
+
+    expect(mock.sentOf("pushBranch")).toEqual([]);
+  });
+
   it.each([
     ["empty", ""],
     ["a name git would refuse", "bad..name"]
-  ])("cannot push to a target that is %s", async (_, target) => {
+  ])("cannot push to a target that is %s", (_, target) => {
     remotesAre(["origin"]);
     openBranchPush();
-    await expandAdvanced();
+    advancedSection()!.open = true;
     typeTarget(target);
 
     submit();
@@ -286,45 +293,25 @@ describe("the Push dialog's advanced options", () => {
     expect(document.getElementById("dialogAction"), "the dialog stays up").not.toBeNull();
   });
 
-  it("lets a target nobody can see stand in the way of nothing", async () => {
+  it("refuses a bad target folded out of sight, and unfolds it to show why", () => {
     remotesAre(["origin"]);
     openBranchPush();
-    await expandAdvanced();
+    advancedSection()!.open = true;
     typeTarget("");
-    await collapseAdvanced();
-
-    submit();
-
-    expect(mock.sentOf("pushBranch")).toEqual([
-      {
-        command: "pushBranch",
-        repo: DEFAULT_REPO,
-        branchName: "feature",
-        remotes: ["origin"],
-        forceMode: "normal"
-      }
-    ]);
-  });
-
-  it("checks a target left invalid the moment the section is opened again", async () => {
-    remotesAre(["origin"]);
-    openBranchPush();
-    await expandAdvanced();
-    typeTarget("");
-    await collapseAdvanced();
-    await expandAdvanced();
+    advancedSection()!.open = false;
 
     submit();
 
     expect(mock.sentOf("pushBranch")).toEqual([]);
+    expect(advancedSection()!.open).toBe(true);
   });
 
-  it("substitutes spaces in the target as in any other ref name box", async () => {
+  it("substitutes spaces in the target as in any other ref name box", () => {
     viewState.referenceInputSpaceSubstitution = "Hyphen";
     try {
       remotesAre(["origin"]);
       openBranchPush();
-      await expandAdvanced();
+      advancedSection()!.open = true;
       typeTarget("review this");
 
       submit();
@@ -335,11 +322,10 @@ describe("the Push dialog's advanced options", () => {
     expect(mock.sentOf("pushBranch")).toMatchObject([{ targetBranch: "review-this" }]);
   });
 
-  it("refuses, naming it, once the remote chosen in the dropdown is gone", async () => {
+  it("refuses, naming it, once a remote ticked is gone", () => {
     remotesAre(["origin", "upstream"]);
     openBranchPush();
-    await expandAdvanced();
-    remoteSelect().value = "upstream";
+    remoteBox("upstream").checked = true;
 
     remotesAre(["origin"]);
     submit();
@@ -348,10 +334,9 @@ describe("the Push dialog's advanced options", () => {
     expect(dialogText()).toContain(L.dialogPushRemoteGone.replace("{0}", "upstream"));
   });
 
-  it("refuses once the repo moved", async () => {
+  it("refuses once the repo moved", () => {
     remotesAre(["origin"]);
     openBranchPush();
-    await expandAdvanced();
 
     receive({ command: "setRepo", repo: OTHER_REPO });
     submit();
@@ -360,14 +345,15 @@ describe("the Push dialog's advanced options", () => {
     expect(dialogText()).toContain(L.dialogPushRepoMoved);
   });
 
-  it("remembers the force mode alone, and opens collapsed with fresh defaults next time", async () => {
+  it("remembers the force mode alone, and opens folded with fresh defaults next time", () => {
     remotesAre(["origin", "upstream"]);
     openBranchPush();
-    chooseForceMode("force");
-    await expandAdvanced();
-    remoteSelect().value = "upstream";
+    forceSelect().value = "force";
+    advancedSection()!.open = true;
+    remoteBox("origin").checked = false;
+    remoteBox("upstream").checked = true;
     typeTarget("elsewhere");
-    (document.getElementById("dialogRememberChoice") as HTMLInputElement).checked = true;
+    rememberBox().checked = true;
 
     submit();
 
@@ -381,10 +367,10 @@ describe("the Push dialog's advanced options", () => {
 
     // The push's own progress dialog is up; the next push replaces it.
     openBranchPush();
-    expect(document.querySelector<HTMLSelectElement>("#dialog select")!.value).toBe("force");
+    expect(forceSelect().value).toBe("force");
     expect(advancedSection()!.open).toBe(false);
-    await expandAdvanced();
-    expect(remoteSelect().value).toBe("origin");
+    expect(remoteBox("origin").checked).toBe(true);
+    expect(remoteBox("upstream").checked).toBe(false);
     expect(targetInput().value).toBe("feature");
   });
 
@@ -406,9 +392,9 @@ describe("the Push dialog's advanced options", () => {
     expect(document.getElementById("dialogAction"), "the dialog stays up").not.toBeNull();
   });
 
-  // git takes `<`, `&` and `"` in a remote's name. Shown as a tick's label or a
-  // dropdown option it must read as itself, not as markup, and what is pushed
-  // to is still the name itself, unescaped.
+  // git takes `<`, `&` and `"` in a remote's name. Shown as a tick's label it
+  // must read as itself, not as markup, and what is pushed to is still the name
+  // itself, unescaped.
   const ODD = 'x<b>&"y';
 
   it("shows a remote's name as text in its tick, and pushes to the name itself", () => {
@@ -420,18 +406,6 @@ describe("the Push dialog's advanced options", () => {
     submit();
 
     expect(mock.sentOf("pushBranch")).toMatchObject([{ remotes: ["origin", ODD] }]);
-  });
-
-  it("offers a remote's name as itself in the dropdown, and pushes to it", async () => {
-    remotesAre(["origin", ODD]);
-    openBranchPush();
-    await expandAdvanced();
-    expect(Array.from(remoteSelect().options).map((o) => o.textContent)).toEqual(["origin", ODD]);
-    remoteSelect().value = ODD;
-
-    submit();
-
-    expect(mock.sentOf("pushBranch")).toMatchObject([{ remotes: [ODD], targetBranch: "feature" }]);
   });
 
   it("is not offered by the batch push, which sends what it always sent", () => {

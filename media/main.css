@@ -1397,12 +1397,6 @@ body.vscode-high-contrast #contextMenu {
   font-family: inherit;
   font-style: italic;
 }
-/* A remote tick the open advanced section has taken over from. */
-#dialog table.dialogForm input[type="checkbox"]:disabled,
-#dialog table.dialogForm label:has(input:disabled) {
-  opacity: 0.5;
-  cursor: default;
-}
 #dialog table.dialogForm td {
   padding-top: 8px;
   text-align: left;

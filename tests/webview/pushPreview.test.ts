@@ -17,7 +17,8 @@ import {
 
 // The single-branch Push dialog says, while it is up, which remote refs the
 // push would update (#304): `<branch> → <remote>/<target>`, one per
-// destination. Each test that reads a preview then pushes, asserting the two
+// destination, folded under "Advanced" with the ticks and target it describes.
+// Each test that reads a preview then pushes, asserting the two
 // agree — the preview is only worth showing if it is what gets sent.
 
 const L = getWebviewLocalizedStrings();
@@ -86,15 +87,6 @@ function advancedSection() {
   return document.querySelector<HTMLDetailsElement>("#dialog details");
 }
 
-/** Open or close the advanced section the way a click on its summary does,
- *  and let the `toggle` event it queues land. */
-async function setAdvanced(open: boolean) {
-  const details = advancedSection();
-  expect(details, "the advanced section").not.toBeNull();
-  details!.open = open;
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 /** The control in the row labelled `label`. */
 function field<T extends HTMLElement>(label: string): T {
   const cell = Array.from(document.querySelectorAll("#dialog td")).find(
@@ -102,13 +94,6 @@ function field<T extends HTMLElement>(label: string): T {
   );
   expect(cell, label).toBeDefined();
   return cell!.parentElement!.querySelector<T>("select, input")!;
-}
-
-/** Pick a remote in the dropdown as the user does: the value, then `change`. */
-function chooseRemote(remote: string) {
-  const select = field<HTMLSelectElement>(L.dialogPushRemote);
-  select.value = remote;
-  select.dispatchEvent(new Event("change"));
 }
 
 /** Type into the target box: the value, `input`, then the keyup the ref
@@ -149,6 +134,10 @@ describe("the Push dialog's preview of where the push goes", () => {
     openBranchPush();
 
     expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → origin/feature"]);
+    expect(
+      advancedSection()!.contains(document.querySelector("#dialog .dialogFormPreview")),
+      "folded with what it describes"
+    ).toBe(true);
 
     submit();
     expect(mock.sentOf("pushBranch")).toMatchObject([{ remotes: ["origin"] }]);
@@ -183,51 +172,45 @@ describe("the Push dialog's preview of where the push goes", () => {
     expect(mock.sentOf("pushBranch")).toEqual([]);
   });
 
-  it("names only the dropdown's remote and the target typed once expanded, following each edit", async () => {
+  it("follows the target typed, on every remote ticked", () => {
     remotesAre(["origin", "upstream", "backup"]);
     openBranchPush();
     remoteBox("upstream").click();
-    await setAdvanced(true);
-
-    expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → origin/feature"]);
 
     typeTarget("review/feature");
-    expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → origin/review/feature"]);
-
-    chooseRemote("backup");
-    expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → backup/review/feature"]);
+    expect(previewLines()).toEqual([
+      L.dialogPushBranchPreview,
+      "feature → origin/review/feature",
+      "feature → upstream/review/feature"
+    ]);
 
     submit();
     expect(mock.sentOf("pushBranch")).toMatchObject([
-      { remotes: ["backup"], targetBranch: "review/feature" }
+      { remotes: ["origin", "upstream"], targetBranch: "review/feature" }
     ]);
   });
 
-  it("goes back to the ticked remotes when collapsed again", async () => {
+  it("describes the same push whether the section is folded or not", () => {
     remotesAre(["origin", "upstream"]);
     openBranchPush();
+    advancedSection()!.open = true;
+    remoteBox("origin").click();
     remoteBox("upstream").click();
-    await setAdvanced(true);
-    chooseRemote("upstream");
     typeTarget("elsewhere");
-    await setAdvanced(false);
+    advancedSection()!.open = false;
 
-    expect(previewLines()).toEqual([
-      L.dialogPushBranchPreview,
-      "feature → origin/feature",
-      "feature → upstream/feature"
-    ]);
+    expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → upstream/elsewhere"]);
     submit();
-    expect(mock.sentOf("pushBranch")).toMatchObject([{ remotes: ["origin", "upstream"] }]);
-    expect(mock.sentOf("pushBranch")[0]).not.toHaveProperty("targetBranch");
+    expect(mock.sentOf("pushBranch")).toMatchObject([
+      { remotes: ["upstream"], targetBranch: "elsewhere" }
+    ]);
   });
 
-  it("names the target as it will be sent, spaces substituted", async () => {
+  it("names the target as it will be sent, spaces substituted", () => {
     viewState.referenceInputSpaceSubstitution = "Hyphen";
     try {
       remotesAre(["origin"]);
       openBranchPush();
-      await setAdvanced(true);
       typeTarget("review this");
 
       expect(previewLines()).toEqual([L.dialogPushBranchPreview, "feature → origin/review-this"]);
@@ -242,7 +225,7 @@ describe("the Push dialog's preview of where the push goes", () => {
 
   // git takes `<`, `&` and `"` in a remote's name and `<` and `&` in a
   // branch's; the target box takes `&`. Each must read as itself, not as markup.
-  it("shows branch, remote and target names as text, and pushes to the names themselves", async () => {
+  it("shows branch, remote and target names as text, and pushes to the names themselves", () => {
     const branch = "fix<i>&co";
     const odd = 'x<b>&"y';
     receive({ ...branchesResponse, branches: ["feature", branch] });
@@ -275,8 +258,7 @@ describe("the Push dialog's preview of where the push goes", () => {
       `${branch} → ${odd}/${branch}`
     ]);
 
-    await setAdvanced(true);
-    chooseRemote(odd);
+    remoteBox("origin").click();
     typeTarget("a&b");
 
     expect(previewLines()).toEqual([L.dialogPushBranchPreview, `${branch} → ${odd}/a&b`]);
