@@ -36,6 +36,7 @@ export function getWebviewLocalizedStrings() {
     filterPlaceholder: l10n.t("ui.filterPlaceholder"),
     noResultsFound: l10n.t("ui.noResultsFound"),
     unableToSearchBranches: l10n.t("error.unableToSearchBranches"),
+    unableToLocateCommit: l10n.t("error.unableToLocateCommit"),
     description: l10n.t("ui.description"),
     date: l10n.t("ui.date"),
     author: l10n.t("ui.author"),

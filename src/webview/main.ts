@@ -34,6 +34,7 @@ import { applyDialogMemory, extractDialogMemory } from "./dialogMemory";
 import { createErrorReporter } from "./errorReporting";
 import { buildFindMatches, planFindLoad, resolveFindCurrent, type FindMatch } from "./find";
 import { Graph } from "./graph";
+import { planLocate } from "./locate";
 import { type RebaseReplay, rebaseReplay } from "./rebaseReplay";
 import { menuFor, type RefMenuActions, type RefTarget } from "./refContextMenu";
 import { formatDate, pad2 } from "./utils/date";
@@ -526,8 +527,22 @@ class GitGraphView {
     | GG.ResponseRunRefAction
     | GG.ResponseRunRefBatchAction
     | GG.ResponseShowBranchCleanup
+    | GG.ResponseLocateCommit
     | null = null;
   private lastRefActionSeq = 0;
+  /** The blame hover's locate (#310) once it has started — see
+   *  {@link startLocate}. `navigation` is the {@link loadToken} it started
+   *  under: a navigation since (ADR-0024) abandons it. `logDepth` is undefined
+   *  while the host is still measuring where the commit sits, and `paging`
+   *  says its own page has been asked for. Null when no locate is under way. */
+  private locate: {
+    hash: string;
+    navigation: number;
+    token: number;
+    logDepth?: number | null;
+    paging: boolean;
+  } | null = null;
+  private locateToken = 0;
   // The one batch run in flight (at most): rounds, retry offer and summary all
   // live behind its interface — the adapters below only execute its commands.
   private batchRun = new BatchRun<BatchActionTypes>();
@@ -1780,6 +1795,8 @@ class GitGraphView {
       // A side-view-delegated action may have been waiting for this load, and
       // it goes on waiting for nothing if a throwing close-out skips this.
       this.tryRunPendingRefAction();
+      // So may a locate that found this load in flight.
+      this.continueLocate();
     }
   }
 
@@ -1915,8 +1932,9 @@ class GitGraphView {
    *  button.
    *
    *  Counted rather than set, because the indicator is one class on one button
-   *  and five separate things raise it: a refresh, a branch-change reload, a
-   *  Find step that has to page, a Repository Setting that reloads the commits
+   *  and six separate things raise it: a refresh, a branch-change reload, a
+   *  Find step that has to page, a locate that has to page
+   *  ({@link continueLocate}), a Repository Setting that reloads the commits
    *  ({@link applyRepoSettings}), and a commit ordering picked from the
    *  column-header menu. ADR-0019's "at most one commit load in
    *  flight" is what makes the overlap easy to miss — it holds, and it is not
@@ -4537,6 +4555,16 @@ class GitGraphView {
     this.pendingRefAction = msg;
     this.tryRunPendingRefAction();
   }
+  /** Entry point for the blame hover's "locate in the graph" (#310). The host
+   *  sends it right after opening the graph on the commit's repository or
+   *  switching to it, so it rides the same wait-for-load queue and seq counter
+   *  as the three above: it starts once this view shows that repository with
+   *  nothing loading. */
+  public locateCommit(msg: GG.ResponseLocateCommit) {
+    if (msg.seq <= this.lastRefActionSeq) return; // duplicate delivery
+    this.pendingRefAction = msg;
+    this.tryRunPendingRefAction();
+  }
   /** Run the pending delegated action once this view shows its repo with no
    *  load in flight (a fresh panel / repo switch reloads branches+commits; the
    *  remotes for that repo arrive before them, as requests are handled in
@@ -4550,7 +4578,119 @@ class GitGraphView {
     if (pending.command === "runRefBatchAction") this.dispatchRefBatchAction(pending);
     else if (pending.command === "showBranchCleanup") {
       openCleanupDialog(pending.repo, pending.payload);
-    } else this.dispatchRefAction(pending);
+    } else if (pending.command === "locateCommit") this.startLocate(pending.hash);
+    else this.dispatchRefAction(pending);
+  }
+
+  /** Select `hash` and bring it into view — at once when it is drawn, or once
+   *  the host has said where it sits in the graph's `git log` and a page that
+   *  deep has landed ({@link continueLocate}). Replaces any locate still under
+   *  way: the latest request is what the user is asking for. */
+  private startLocate(hash: string) {
+    this.locate = null;
+    if (this.commitLookup[hash] !== undefined) {
+      this.revealLocatedCommit(hash);
+      return;
+    }
+    const token = ++this.locateToken;
+    this.locate = { hash, navigation: this.loadToken, token, paging: false };
+    sendMessage({
+      command: "commitLogDepth",
+      repo: this.currentRepo,
+      hash,
+      branchNames: this.currentBranches !== null ? this.currentBranches : [""],
+      commitOrder: this.gitRepos[this.currentRepo]?.commitOrdering ?? undefined,
+      hiddenRemotes: this.gitRepos[this.currentRepo]?.hiddenRemotes ?? [],
+      token
+    });
+  }
+
+  /** The host's answer to {@link startLocate}'s question. An answer to a
+   *  locate since replaced, or one a navigation has abandoned, is dropped. */
+  public loadCommitLogDepth(
+    hash: string,
+    logDepth: number | null,
+    token: number,
+    status: string | null
+  ) {
+    const locate = this.locate;
+    if (locate === null || locate.token !== token || locate.hash !== hash) return;
+    if (status !== null) {
+      this.locate = null;
+      raiseAnswerError(l10n.unableToLocateCommit, status);
+      return;
+    }
+    locate.logDepth = logDepth;
+    this.continueLocate();
+  }
+
+  /** Take the locate's next step, if it has one to take now. Re-tried after
+   *  every commit load lands, so a locate that found a load in flight waits for
+   *  it rather than being refused: the user asked from the editor and cannot
+   *  see the graph's footer, so there is no one to say "try again" to.
+   *
+   *  The step is planned here, not when the depth arrived — the loaded commit
+   *  window and the drawn commits can both move while a load is out, and a
+   *  stale plan would set the window back (ADR-0019). */
+  private continueLocate() {
+    const locate = this.locate;
+    if (locate === null || locate.logDepth === undefined || locate.paging) return;
+    // A navigation since it began: the commits it was measured against are not
+    // the ones on screen any more, and nothing about the new ones was asked.
+    if (locate.navigation !== this.loadToken) {
+      this.locate = null;
+      return;
+    }
+    const step = planLocate({
+      loaded: this.commitLookup[locate.hash] !== undefined,
+      logDepth: locate.logDepth,
+      maxCommits: this.maxCommits
+    });
+    if (step.kind === "reveal") {
+      this.locate = null;
+      this.revealLocatedCommit(locate.hash);
+      return;
+    }
+    if (step.kind === "notInGraph") {
+      this.locate = null;
+      sendMessage({ command: "locateCommitNotInGraph", hash: locate.hash });
+      return;
+    }
+    if (this.branchLoadInFlight || this.commitLoadInFlight) return;
+    locate.paging = true;
+    this.maxCommits = step.maxCommits;
+    this.saveState();
+    // Claimed like a Find step that has to page: the user asked for this load,
+    // and the footer it would otherwise speak in may be nowhere near the
+    // viewport.
+    this.beginBusyLoad();
+    this.requestLoadCommits(true, () => {
+      this.endBusyLoad();
+      if (this.locate !== locate) return;
+      this.locate = null;
+      // Abandoned by a navigation, which runs this callback after moving the
+      // token on: the page it asked for is not coming.
+      if (locate.navigation !== this.loadToken) return;
+      if (this.commitLookup[locate.hash] !== undefined) this.revealLocatedCommit(locate.hash);
+      // Loaded as deep as it was measured, and still not drawn: the history
+      // moved under it.
+      else sendMessage({ command: "locateCommitNotInGraph", hash: locate.hash });
+    });
+  }
+
+  /** Select the located commit's row — focus is the graph's selection
+   *  (ADR-0014) — and centre it, blinking it the way "Locate HEAD" does. The
+   *  Commit Details View is neither opened nor moved (#310): this answers
+   *  "where is it", not "show me what it changed". */
+  private revealLocatedCommit(hash: string) {
+    const row = this.graphRowByHash(hash);
+    if (row === null) {
+      sendMessage({ command: "locateCommitNotInGraph", hash });
+      return;
+    }
+    this.graphTabStop.focusInPlace(row);
+    if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "center" });
+    blinkRow(row);
   }
   /** One handler per delegated action, keyed by the catalogue-derived union —
    *  a new catalogue entry fails compilation here until it is handled, so a
@@ -9296,6 +9436,12 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "showBranchCleanup":
       gitGraph.showBranchCleanup(msg);
+      break;
+    case "locateCommit":
+      gitGraph.locateCommit(msg);
+      break;
+    case "commitLogDepth":
+      gitGraph.loadCommitLogDepth(msg.hash, msg.logDepth, msg.token, msg.status);
       break;
     case "branchCleanupOpen":
       handleBranchCleanupOpen(msg);

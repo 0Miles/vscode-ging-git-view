@@ -217,6 +217,7 @@
   "dialog.rememberChoice": "记住我的选择",
   "error.unableToLoadCommitDetails": "无法加载 commit 详情",
   "error.unableToSearchBranches": "无法搜索 branches",
+  "error.unableToLocateCommit": "无法在图形中定位这个 commit",
   "type.commitHash": "Commit 哈希",
   "type.commitSubject": "Commit 主题",
   "type.tagName": "Tag 名",
@@ -469,5 +470,8 @@
   "blame.hover.openLineChange": "打开这一行在这个 commit 的更改",
   "blame.copiedHash": "已复制 commit hash {0}",
   "blame.workspaceKeepsOff": "已在用户设置中开启 inline blame，但这个工作区的设置仍然将它关闭。",
-  "blame.workspaceKeepsOn": "已在用户设置中关闭 inline blame，但这个工作区的设置仍然将它开启。"
+  "blame.workspaceKeepsOn": "已在用户设置中关闭 inline blame，但这个工作区的设置仍然将它开启。",
+  "blame.hover.locateCommit": "在 GING 图形中定位",
+  "blame.locate.notInGraph": "commit {0} 不在 GING 图形中：图形当前的设置没有显示它。",
+  "blame.locate.failed": "无法在 GING 图形中定位这个 commit"
 }
