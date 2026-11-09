@@ -62,4 +62,10 @@ describe("getCommitFileContent", () => {
     const content = await getCommitFileContent("git", r, head(r), "does-not-exist.txt", "utf8");
     expect(content).toBe("");
   });
+
+  it("returns an empty string for the parent of a root commit, which has none", async () => {
+    // The left side of a diff of a root commit's file (see `commitDiffView`).
+    const r = newRepo();
+    expect(await getCommitFileContent("git", r, `${head(r)}^`, "f", "utf8")).toBe("");
+  });
 });

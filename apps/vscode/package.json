@@ -343,6 +343,21 @@
         "category": "GING",
         "command": "ging-git-view.remotes.copyUrl",
         "title": "%command.remotes.copyUrl%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.blame.toggle",
+        "title": "%command.blame.toggle%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.blame.copySha",
+        "title": "%command.blame.copyHash%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.blame.openLineChange",
+        "title": "%command.blame.openLineChange%"
       }
     ],
     "views": {
@@ -755,6 +770,14 @@
         },
         {
           "command": "ging-git-view.branches.collapseAll",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.blame.copySha",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.blame.openLineChange",
           "when": "false"
         }
       ]
@@ -1670,9 +1693,27 @@
           ],
           "default": "colour",
           "description": "%config.tabIconColourTheme%"
+        },
+        "ging-git-view.blame.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "%config.blame.enabled%"
         }
       }
-    }
+    },
+    "colors": [
+      {
+        "id": "ging-git-view.blameAnnotationForeground",
+        "description": "%color.blameAnnotationForeground%",
+        "defaults": {
+          "dark": "editorCodeLens.foreground",
+          "light": "editorCodeLens.foreground",
+          "highContrast": "editorCodeLens.foreground",
+          "highContrastLight": "editorCodeLens.foreground"
+        }
+      }
+    ]
   },
   "activationEvents": [
     "onStartupFinished",
