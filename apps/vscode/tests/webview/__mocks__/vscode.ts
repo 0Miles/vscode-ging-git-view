@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 // Load English translations from bundle.l10n.json
-const l10nPath = path.resolve(__dirname, "../../../l10n/bundle.l10n.json");
+const l10nPath = path.resolve(__dirname, "../../../../../packages/shared/l10n/bundle.l10n.json");
 const translations: Record<string, string> = JSON.parse(fs.readFileSync(l10nPath, "utf8"));
 
 export const l10n = {

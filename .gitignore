@@ -5,6 +5,7 @@ node_modules/
 
 # Copied into the extension at build / package time (esbuild.js, vscode:prepublish)
 /apps/vscode/media/
+/apps/vscode/l10n/
 /apps/vscode/README.md
 /apps/vscode/CHANGELOG.md
 /apps/vscode/LICENSE
