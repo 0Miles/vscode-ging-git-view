@@ -10,8 +10,8 @@ import type { Avatar, AvatarCache, ResponseMessage } from "@ging/shared/types";
 import { rmrf } from "@ging/core/tests/helpers";
 
 /**
- * AvatarManager against the two narrow seams it now takes in place of the
- * extension's whole Config and ExtensionState. Only the paths that stay on this
+ * AvatarManager against fakes of its two seams, AvatarConfig and AvatarStore
+ * (the host passes its Config and ExtensionState). Only the paths that stay on this
  * machine are driven here: anything that re-requests an avatar goes on to ask
  * git for the remote and then the network, which is not a unit test's business.
  * Whether it re-requested is still observable — the first thing a request does
@@ -32,8 +32,8 @@ function avatarFolder(file: string, bytes: string): string {
   return folder;
 }
 
-function fakeConfig(): AvatarConfig & { gitPath: ReturnType<typeof vi.fn> } {
-  return { gitPath: vi.fn(() => "git"), gitLabToken: () => "" };
+function fakeConfig() {
+  return { gitPath: vi.fn(() => "git"), gitLabToken: () => "" } satisfies AvatarConfig;
 }
 
 function fakeStore(folder: string, cache: AvatarCache) {
@@ -56,7 +56,7 @@ function freshAvatar(image: string): Avatar {
 
 describe("AvatarManager", () => {
   it("posts a fresh cached avatar from the store's folder without requesting it again", async () => {
-    // "PNGDATA" in base64.
+    // The file holds the bytes "PNGDATA", which base64-encode to UE5HREFUQQ==.
     const folder = avatarFolder("abc.png", "PNGDATA");
     const config = fakeConfig();
     const manager = new AvatarManager(
