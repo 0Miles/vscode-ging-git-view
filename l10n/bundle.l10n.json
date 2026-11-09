@@ -419,7 +419,7 @@
   "ui.findPrevious": "Previous match",
   "ui.findNext": "Next match",
   "ui.findClose": "Close",
-  "ui.findOpenCommitDetails": "Open Commit Details View for each match",
+  "ui.findOpenCommitDetails": "Open Commit Details View while navigating matches",
   "ui.findCount": "{0} of {1}",
   "dialog.find.loadMoreConfirm": "Locating this branch requires loading {0} additional commits. Continue?",
   "dialog.addTag.pushToRemote": "Push to remote after creating",
