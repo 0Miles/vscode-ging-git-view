@@ -5,7 +5,7 @@
  */
 
 import { batchSkipReason } from "@ging/shared/backend/utils/refActionCatalogue";
-import type { BatchAction } from "@ging/shared/types";
+import type { BatchAction, BatchSkipped } from "@ging/shared/types";
 
 import type { BranchTreeLeaf, BranchTreeNode } from "./branchTree";
 
@@ -54,3 +54,20 @@ export function resolveActionTargets(
   walk(roots);
   return { targets, skipped };
 }
+
+/** A batch context-menu command's action targets, as refs rather than tree
+ *  nodes — the form both the graph webview and the clipboard need. */
+export type BranchActionTargets = {
+  repo: string;
+  /** Branch-list-format refs, in tree order. */
+  targets: string[];
+  skipped: BatchSkipped[];
+};
+
+/** The branch a context-menu command operates on. */
+export type BranchActionTarget = {
+  repo: string;
+  branch: string;
+  isRemote: boolean;
+  isCurrent: boolean;
+};

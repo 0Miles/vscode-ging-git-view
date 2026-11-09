@@ -4,8 +4,11 @@ import {
   createBranchActionDelegate,
   type BranchActionDelegateDeps,
   type DelegatedMessage
-} from "@ging/vscode/extension/branchActionDelegate";
-import type { BranchActionTarget, BranchActionTargets } from "@ging/vscode/extension/branchesView";
+} from "@ging/core/extension/branchActionDelegate";
+import type {
+  BranchActionTarget,
+  BranchActionTargets
+} from "@ging/core/extension/branchActionTargets";
 
 const REPO = "/repo";
 

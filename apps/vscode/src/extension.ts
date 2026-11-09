@@ -19,6 +19,7 @@ import { loadDanglingCommits, loadReflog } from "@ging/core/backend/queries/load
 import { loadStatistics } from "@ging/core/backend/queries/loadStatistics";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import { repoContainingPath, resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
+import { createBranchActionDelegate } from "@ging/core/extension/branchActionDelegate";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
@@ -40,7 +41,6 @@ import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
 import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
-import { createBranchActionDelegate } from "./extension/branchActionDelegate";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
 import { createBranchFilterStore } from "./extension/branchFilterStore";
 import {

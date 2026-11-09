@@ -23,7 +23,7 @@ import type {
   ResponseShowBranchCleanup
 } from "@ging/shared/types";
 
-import type { BranchActionTarget, BranchActionTargets } from "./branchesView";
+import type { BranchActionTarget, BranchActionTargets } from "./branchActionTargets";
 
 /**
  * A message that must reach the graph webview once it is showing its repo with
