@@ -1,37 +1,33 @@
+import type { HunkExcerpt } from "@/backend/queries/blameCommitChange";
 import type { BlameLine } from "@/backend/queries/blameFile";
+import { abbrevCommit } from "@/backend/utils/string";
 
-import { isUser, relativeTime } from "./blameAnnotation";
+import { type BlameAnnotationContext, isUser, relativeTime } from "./blameAnnotation";
 
 /** Hunks longer than this are cut to a window around the blamed line. */
 const HUNK_MAX_LINES = 10;
 /** How many of the window's lines come before the blamed line, room allowing. */
 const HUNK_LINES_BEFORE = 4;
 const AVATAR_SIZE = 16;
-const SHORT_SHA = 7;
 
 /** What the hover knows beyond the blame itself, each part null until (or
  *  unless) it is there. */
 export type BlameHoverDetails = {
   /** The commit's full message; the blame's summary stands in until then. */
   message: string | null;
-  /** The commit's hunk holding the line, and the index in it of the line. */
-  hunk: { lines: string[]; index: number } | null;
+  /** The commit's hunk holding the line. */
+  hunk: HunkExcerpt | null;
   /** An image URI of the author's avatar; the account icon stands in without. */
   avatar: string | null;
 };
 
-export type BlameHoverContext = {
-  /** The current time, in milliseconds since the epoch. */
-  now: number;
-  /** VS Code's UI language (`vscode.env.language`), e.g. `en` or `zh-tw`. */
-  locale: string;
+/** What the annotation is drawn with, and the rest the hover needs. */
+export type BlameHoverContext = BlameAnnotationContext & {
   /** The time zone to show the absolute time in; the system's by default. */
   timeZone?: string;
-  /** The repository's effective `user.email`; "" when unset. */
-  userEmail: string;
-  /** Localised labels: `you` for the user's own name, `uncommitted` for a line
-   *  not committed yet, `changes` before the SHAs, `copySha` their tooltip. */
-  labels: { you: string; uncommitted: string; changes: string; copySha: string };
+  /** The annotation's labels, plus `changes` before the SHAs and `copySha`,
+   *  their tooltip. */
+  labels: BlameAnnotationContext["labels"] & { changes: string; copySha: string };
   /** The command a SHA link runs, given the full SHA. */
   copyShaCommand: string;
 };
@@ -66,11 +62,11 @@ export function blameHoverMarkdown(
     `${avatar} **${escapeText(author)}**, ${escapeText(relative)} (${escapeText(absolute)})`,
     escapeText(details.message ?? line.summary)
   ];
-  if (details.hunk !== null) sections.push(codeBlock(hunkWindow(details.hunk), "diff"));
+  if (details.hunk !== null) sections.push(diffBlock(hunkWindow(details.hunk)));
   sections.push("---");
 
   const shaLink = (sha: string) =>
-    `[\`${sha.slice(0, SHORT_SHA)}\`](command:${context.copyShaCommand}?` +
+    `[\`${abbrevCommit(sha)}\`](command:${context.copyShaCommand}?` +
     `${encodeURIComponent(JSON.stringify([sha]))} "${labels.copySha.replace(/"/g, "'")}")`;
   const shas =
     line.previous === null
@@ -83,7 +79,7 @@ export function blameHoverMarkdown(
 
 /** At most `HUNK_MAX_LINES` of the hunk, the blamed line among them, with "…"
  *  where lines were cut. */
-function hunkWindow({ lines, index }: { lines: string[]; index: number }): string[] {
+function hunkWindow({ lines, index }: HunkExcerpt): string[] {
   if (lines.length <= HUNK_MAX_LINES) return lines;
   const start = Math.max(0, Math.min(index - HUNK_LINES_BEFORE, lines.length - HUNK_MAX_LINES));
   const end = start + HUNK_MAX_LINES;
@@ -94,14 +90,14 @@ function hunkWindow({ lines, index }: { lines: string[]; index: number }): strin
   ];
 }
 
-/** A fenced code block, its fence longer than any run of backticks inside. */
-function codeBlock(lines: string[], language: string): string {
+/** A fenced diff block, its fence longer than any run of backticks inside. */
+function diffBlock(lines: string[]): string {
   const longest = Math.max(
     0,
     ...lines.map((l) => Math.max(0, ...(l.match(/`+/g) ?? []).map((r) => r.length)))
   );
   const fence = "`".repeat(Math.max(3, longest + 1));
-  return [`${fence}${language}`, ...lines, fence].join("\n");
+  return [`${fence}diff`, ...lines, fence].join("\n");
 }
 
 /**

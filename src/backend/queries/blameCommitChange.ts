@@ -12,6 +12,9 @@ export type DiffHunk = {
   lines: string[];
 };
 
+/** A hunk's lines, and the index among them of the one line it is shown for. */
+export type HunkExcerpt = { lines: string[]; index: number };
+
 /** What a blamed line's commit did: its full message, and the hunks of its
  *  change to the line's file. */
 export type CommitChange = { message: string; hunks: DiffHunk[] };
@@ -61,7 +64,7 @@ export function parseHunks(patch: string): DiffHunk[] {
  * its `lines` of that line; null when no hunk does — the change didn't touch
  * it.
  */
-export function hunkAt(hunks: DiffHunk[], line: number): { lines: string[]; index: number } | null {
+export function hunkAt(hunks: DiffHunk[], line: number): HunkExcerpt | null {
   const hunk = hunks.find((h) => h.newStart <= line && line < h.newStart + h.newCount);
   if (hunk === undefined) return null;
   let at = hunk.newStart;

@@ -73,7 +73,7 @@ export class AvatarManager {
     if (typeof image !== "string") return null;
     try {
       const data = await fs.promises.readFile(this.avatarStorageFolder + "/" + image);
-      return "data:image/" + image.split(".")[1] + ";base64," + data.toString("base64");
+      return avatarDataUri(image, data);
     } catch {
       return null;
     }
@@ -374,16 +374,17 @@ export class AvatarManager {
           this.postToWebview({
             command: "fetchAvatar",
             email: email,
-            image:
-              "data:image/" +
-              this.avatars[email].image!.split(".")[1] +
-              ";base64," +
-              data.toString("base64")
+            image: avatarDataUri(this.avatars[email].image, data)
           });
         }
       });
     }
   }
+}
+
+/** A cached avatar file's bytes as a data URI; the file is named `<hash>.<format>`. */
+function avatarDataUri(fileName: string, data: Buffer): string {
+  return "data:image/" + fileName.split(".")[1] + ";base64," + data.toString("base64");
 }
 
 // Queue implementation, ordering avatar requests by their checkAfter value

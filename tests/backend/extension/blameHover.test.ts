@@ -53,7 +53,7 @@ function hover(
 
 /** The command link that copies `sha`, as the hover writes it. */
 const copyLink = (sha: string) =>
-  `[\`${sha.slice(0, 7)}\`](command:ext.copySha?${encodeURIComponent(JSON.stringify([sha]))} "Copy commit ID")`;
+  `[\`${sha.slice(0, 8)}\`](command:ext.copySha?${encodeURIComponent(JSON.stringify([sha]))} "Copy commit ID")`;
 
 /** The lines inside the hover's diff block. */
 function diffBody(markdown: string) {
