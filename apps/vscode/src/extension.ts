@@ -1,6 +1,7 @@
 import type { SimpleGit } from "simple-git";
 import * as vscode from "vscode";
 
+import { AvatarManager } from "@ging/core/avatarManager";
 import { createBranch } from "@ging/core/backend/actions/branch";
 import { resetToCommit } from "@ging/core/backend/actions/commit";
 import { fetchFromRemotes, fetchRemote, listRemoteNames } from "@ging/core/backend/actions/fetch";
@@ -18,6 +19,7 @@ import { loadDanglingCommits, loadReflog } from "@ging/core/backend/queries/load
 import { loadStatistics } from "@ging/core/backend/queries/loadStatistics";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import { repoContainingPath, resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
+import { createBranchActionDelegate } from "@ging/core/extension/branchActionDelegate";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
@@ -35,12 +37,10 @@ import {
 } from "@ging/shared/backend/utils/refActionCatalogue";
 import type { BatchSkipped, RepoSettingField } from "@ging/shared/types";
 
-import { AvatarManager } from "./avatarManager";
-import { buildExtensionUri, getPathFromUri } from "./backend/utils/path";
+import { buildExtensionUri, getPathFromUri } from "./backend/utils/uri";
 import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
-import { createBranchActionDelegate } from "./extension/branchActionDelegate";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
 import { createBranchFilterStore } from "./extension/branchFilterStore";
 import {
@@ -110,7 +110,7 @@ export function activate(context: vscode.ExtensionContext) {
           }
         })
   });
-  const avatarManager = new AvatarManager(config.gitPath, extensionState);
+  const avatarManager = new AvatarManager(config, extensionState);
   const statusBarItem = new StatusBarItem(context, config);
   // Prompt for remote credentials when git asks: the askpass env is
   // passed only to this client's git children, never onto the shared host env.

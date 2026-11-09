@@ -4,7 +4,8 @@
   "private": true,
   "exports": {
     "./*": "./src/*.ts",
-    "./backend/types": "./src/backend/types/index.ts"
+    "./backend/types": "./src/backend/types/index.ts",
+    "./l10n/*": "./l10n/*"
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit"

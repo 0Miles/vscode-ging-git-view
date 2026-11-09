@@ -2,10 +2,9 @@ import * as fs from "node:fs";
 
 import { ExtensionContext, Memento } from "vscode";
 
+import { getPathFromStr } from "@ging/core/backend/utils/path";
 import { isUsableRepoPath, resolveCurrentRepo } from "@ging/core/backend/utils/repoPath";
 import { Avatar, AvatarCache, DialogMemoryStore, GitRepoSet } from "@ging/shared/types";
-
-import { getPathFromStr } from "./backend/utils/path";
 
 const AVATAR_STORAGE_FOLDER = "/avatars";
 const AVATAR_CACHE = "avatarCache";

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { getPathFromUri } from "@ging/vscode/backend/utils/path";
+import { getPathFromUri } from "@ging/vscode/backend/utils/uri";
 
 import {
   BuiltinGitApi,

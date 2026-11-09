@@ -8,13 +8,16 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 /**
- * The tree to check. Defaults to this repo's extension (apps/vscode, where its
- * manifest, package.nls.* and l10n/ live), which is what CI runs; the argument
- * lets the rules be driven against throwaway layouts in a test, the same way
- * `scripts/check-adr.js` is.
+ * The workspace to check. Defaults to this repo, which is what CI runs; the
+ * argument lets the rules be driven against a throwaway workspace in a test, the
+ * same way `scripts/check-adr.js` is. Either way both trees are found from it by
+ * the repo's own layout: the extension's manifest and package.nls.* in
+ * apps/vscode, and the l10n bundles in packages/shared/l10n, where they are kept.
+ * The build copies those into apps/vscode/l10n; that copy is never read here.
  */
-const ROOT_DIR = path.resolve(process.argv[2] ?? path.join(__dirname, "..", "apps", "vscode"));
-const L10N_DIR = path.join(ROOT_DIR, "l10n");
+const WORKSPACE_DIR = path.resolve(process.argv[2] ?? path.join(__dirname, ".."));
+const ROOT_DIR = path.join(WORKSPACE_DIR, "apps", "vscode");
+const L10N_DIR = path.join(WORKSPACE_DIR, "packages", "shared", "l10n");
 const BASE_FILE = "bundle.l10n.json";
 const PACKAGE_NLS_BASE = "package.nls.json";
 

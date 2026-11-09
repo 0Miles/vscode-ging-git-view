@@ -1,7 +1,6 @@
 import * as vscode from "vscode";
 
 import { SquashMessageFormat } from "@ging/core/backend/actions/merge";
-import { mergeContextMenuActionsVisibility } from "@ging/core/backend/utils/contextMenuVisibility";
 import { resolveGitPath } from "@ging/core/backend/utils/gitPath";
 import { normalizeKeybinding } from "@ging/core/backend/utils/keybinding";
 import {
@@ -9,6 +8,7 @@ import {
   type PullRequestProvider
 } from "@ging/core/backend/utils/pullRequest";
 import { CommitOrdering, DateType, GitResetMode } from "@ging/shared/backend/types";
+import { mergeContextMenuActionsVisibility } from "@ging/shared/backend/utils/contextMenuVisibility";
 import {
   ContextMenuActionsVisibility,
   DateFormat,

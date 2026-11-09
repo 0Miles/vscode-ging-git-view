@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { getPathFromStr } from "./backend/utils/path";
+import { getPathFromStr } from "@ging/core/backend/utils/path";
 
 /** Reads a file's contents at a commit, decoded per the `fileEncoding` setting. */
 export type DiffFileReader = (repo: string, commit: string, filePath: string) => Promise<string>;

@@ -1,14 +1,11 @@
 {
   "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["es2023", "dom"],
     "types": ["node", "mocha"],
     "paths": {
       "@ging/vscode/*": ["../src/*"]
     }
   },
-  // The webview suites drive @ging/webview, whose globals (`l10n`, `viewState`,
-  // the GG types...) are ambient declarations nothing imports.
-  "include": ["./**/*.ts", "../../../packages/webview/src/**/*.d.ts"],
+  "include": ["./**/*.ts"],
   "exclude": ["out"]
 }

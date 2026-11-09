@@ -177,7 +177,7 @@ async function getUnsavedChanges(git: SimpleGit) {
  * committer date (%ct) while the commits carry %at or %ct per `dateType`, topo
  * ordering isn't date-sorted at all, and clock skew happens. Any of those can
  * place a stash *below* its own base, pointing its only parent upward, which
- * the layout walk cannot terminate on (see `apps/vscode/tests/webview/graphLayout.test.ts`).
+ * the layout walk cannot terminate on (see `packages/webview/tests/graphLayout.test.ts`).
  *
  * When neither exists, the stash is older than everything loaded, so its place
  * is past the last loaded commit. Appending it there — what this used to do —

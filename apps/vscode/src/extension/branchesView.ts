@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 
-import { resolveActionTargets } from "@ging/core/extension/branchActionTargets";
+import {
+  type BranchActionTarget,
+  type BranchActionTargets,
+  resolveActionTargets
+} from "@ging/core/extension/branchActionTargets";
 import { relativeAge } from "@ging/core/extension/branchActivity";
 import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
 import { type BranchFacts } from "@ging/core/extension/branchFacts";
@@ -15,7 +19,7 @@ import {
   buildGroupedBranchRoots
 } from "@ging/core/extension/branchTree";
 import { displayRef, REMOTE_PREFIX } from "@ging/shared/backend/utils/branchRef";
-import type { BatchAction, BatchSkipped } from "@ging/shared/types";
+import type { BatchAction } from "@ging/shared/types";
 import * as l10n from "@ging/vscode/l10n";
 
 import { BranchFilterStore } from "./branchFilterStore";
@@ -389,23 +393,6 @@ function findNodeChain(
 function selectedBranchRefs(items: BranchItem[]): string[] {
   return branchSelectionOf(items.map((i) => i.node));
 }
-
-/** A batch context-menu command's action targets, as refs rather than tree
- *  nodes — the form both the graph webview and the clipboard need. */
-export type BranchActionTargets = {
-  repo: string;
-  /** Branch-list-format refs, in tree order. */
-  targets: string[];
-  skipped: BatchSkipped[];
-};
-
-/** The branch a context-menu command operates on. */
-export type BranchActionTarget = {
-  repo: string;
-  branch: string;
-  isRemote: boolean;
-  isCurrent: boolean;
-};
 
 /** Resolve the action target from a context-menu command argument (the clicked
  *  tree item), or null when it isn't a branch leaf (e.g. a folder). */

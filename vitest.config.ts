@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 // Package imports resolve through the packages' own `exports`; the one alias is
 // the extension's name for its own modules (see apps/vscode/tsconfig.json).
@@ -9,10 +9,17 @@ const appAlias = {
   replacement: path.resolve(__dirname, "apps/vscode/src") + "/"
 };
 
+// The webview package's stylesheet locks read main.css off disk, which needs node:
+// jsdom gives `import.meta.url` no file to resolve. The one line between its two
+// projects, named once: the backend project takes these, the webview project
+// everything else in the package's tests.
+const WEBVIEW_STYLE_LOCKS = "packages/webview/tests/styles/**/*.test.ts";
+
 // Two projects by environment, each collecting its suites from across the
-// workspace. The webview suites still live in apps/vscode: their fixture renders
-// the host's markup with the host's strings, and `getWebviewLocalizedStrings`
-// reads `vscode.l10n` until #294 moves it into @ging/webview.
+// workspace. Nothing in the webview suites imports `vscode` (the host's strings
+// reach them as the base bundle, see packages/webview/tests/setup.ts), so
+// neither project aliases it; the few host suites that load a module importing
+// it `vi.mock` it themselves.
 export default defineConfig({
   test: {
     projects: [
@@ -22,8 +29,7 @@ export default defineConfig({
           name: "backend",
           include: [
             "packages/core/tests/**/*.test.ts",
-            // the stylesheet locks: node, because jsdom gives `import.meta.url` no file to resolve
-            "packages/webview/tests/**/*.test.ts",
+            WEBVIEW_STYLE_LOCKS,
             "apps/vscode/tests/backend/**/*.test.ts"
           ],
           setupFiles: ["packages/core/tests/setup.ts"],
@@ -36,20 +42,12 @@ export default defineConfig({
         }
       },
       {
-        resolve: {
-          alias: [
-            appAlias,
-            {
-              find: "vscode",
-              replacement: path.resolve(__dirname, "apps/vscode/tests/webview/__mocks__/vscode.ts")
-            }
-          ]
-        },
         test: {
           name: "webview",
           environment: "jsdom",
-          include: ["apps/vscode/tests/webview/**/*.test.ts"],
-          setupFiles: ["apps/vscode/tests/webview/setup.ts"]
+          include: ["packages/webview/tests/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, WEBVIEW_STYLE_LOCKS],
+          setupFiles: ["packages/webview/tests/setup.ts"]
         }
       }
     ]

@@ -35,6 +35,7 @@ const askpassMain = require.resolve("@ging/core/extension/askpass/askpassMain");
 const sequenceEditorMain =
   require.resolve("@ging/core/extension/sequenceEditor/sequenceEditorMain");
 const webviewCss = require.resolve("@ging/webview/media/main.css");
+const l10nDir = path.dirname(require.resolve("@ging/shared/l10n/bundle.l10n.json"));
 
 async function main() {
   const extension = await esbuild.context({
@@ -114,10 +115,23 @@ async function main() {
     fs.copyFileSync(webviewCss, path.join("media", "main.css"));
   };
 
+  // The l10n bundles live in the shared package; VS Code loads them at runtime
+  // from the extension's own l10n/ (the manifest's `"l10n": "./l10n"`), so the
+  // folder is rebuilt from them whole, and a bundle removed there goes here too.
+  const copyL10n = () => {
+    fs.rmSync("l10n", { recursive: true, force: true });
+    fs.mkdirSync("l10n", { recursive: true });
+    for (const f of fs.readdirSync(l10nDir)) {
+      fs.copyFileSync(path.join(l10nDir, f), path.join("l10n", f));
+    }
+  };
+
   if (watch) {
     copyAskpassScripts();
     copyWebviewCss();
+    copyL10n();
     fs.watch(webviewCss, copyWebviewCss);
+    fs.watch(l10nDir, copyL10n);
     await Promise.all([
       extension.watch(),
       webview.watch(),
@@ -135,6 +149,7 @@ async function main() {
     await sequenceEditor.dispose();
     copyAskpassScripts();
     copyWebviewCss();
+    copyL10n();
   }
 }
 
