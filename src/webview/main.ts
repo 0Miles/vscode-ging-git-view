@@ -1,6 +1,7 @@
 import type {
   ActionPayload,
   ActionRequest,
+  ActionResponseExtra,
   BatchActionPayload,
   BatchActionRequest,
   BatchResultOf,
@@ -4678,11 +4679,11 @@ class GitGraphView {
         // no force round is offered. Every branch goes under its own name, so
         // none is refused for a target of another name (#311).
         failureNote: (failed) => {
-          return leaseRefusalNote(
-            failed.some((r) => r.remoteUpdatedSinceCheckout),
-            false,
-            failed.flatMap((r) => r.staleInfoRefs)
-          );
+          return leaseRefusalNote({
+            remoteUpdatedSinceCheckout: failed.some((r) => r.remoteUpdatedSinceCheckout),
+            leaseRefusedForNamedTarget: false,
+            staleInfoRefs: failed.flatMap((r) => r.staleInfoRefs)
+          });
         }
       },
       fastForwardBranches: {
@@ -9227,12 +9228,7 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
       break;
     case "pushBranch":
-      handlePushBranchResponse(
-        msg.status,
-        msg.remoteUpdatedSinceCheckout,
-        msg.leaseRefusedForRenamedTarget,
-        msg.staleInfoRefs
-      );
+      handlePushBranchResponse(msg.status, msg);
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -9437,33 +9433,25 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
  *  it: overwriting someone's work stays a separate, deliberate choice. Pushed
  *  to several remotes, each may have refused for its own reason (#264), so
  *  every reason that applies is explained. */
-function handlePushBranchResponse(
-  status: GitCommandStatus,
-  remoteUpdatedSinceCheckout: boolean,
-  leaseRefusedForRenamedTarget: boolean,
-  staleInfoRefs: string[]
-) {
-  const explanation = leaseRefusalNote(
-    remoteUpdatedSinceCheckout,
-    leaseRefusedForRenamedTarget,
-    staleInfoRefs
-  );
+function handlePushBranchResponse(status: GitCommandStatus, refusal: PushRefusal) {
+  const explanation = leaseRefusalNote(refusal);
   refreshGraphOrDisplayError(
     status,
     explanation === null ? l10n.unableToPushBranch : l10n.unableToPushBranch + "<br>" + explanation
   );
 }
 
+/** What the host reports about a refused push beside its status. */
+type PushRefusal = ActionResponseExtra<"pushBranch">;
+
 /** Each kind of lease refusal explained once, or null when there was none.
  *  Shared by the single push and the batch push summary. */
-function leaseRefusalNote(
-  remoteUpdatedSinceCheckout: boolean,
-  leaseRefusedForRenamedTarget: boolean,
-  staleInfoRefs: string[]
-) {
+function leaseRefusalNote(refusal: PushRefusal) {
   const notes = [
-    remoteUpdatedSinceCheckout ? leaseRefusedExplanation(leaseRefusedForRenamedTarget) : null,
-    staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
+    refusal.remoteUpdatedSinceCheckout
+      ? leaseRefusedExplanation(refusal.leaseRefusedForNamedTarget)
+      : null,
+    refusal.staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(refusal.staleInfoRefs) : null
   ].filter((note) => note !== null);
   return notes.length > 0 ? notes.join("<br>") : null;
 }
@@ -9472,11 +9460,11 @@ function leaseRefusalNote(
  *  to do about it, naming the Force option in the UI's own words. Shared by the
  *  single push and the batch push summary so the two never drift apart.
  *
- *  For a target named other than the pushed branch the check can never pass
- *  (#311), so that refusal skips "pull or rebase first" and points at Force. */
-function leaseRefusedExplanation(forRenamedTarget: boolean): string {
-  const template = forRenamedTarget
-    ? l10n.dialogPushForceLeaseRefusedRenamedTarget
+ *  For a named target (#303) no pull or rebase satisfies the check (#311), so
+ *  that refusal skips "pull or rebase first" and points at Force alone. */
+function leaseRefusedExplanation(forNamedTarget: boolean): string {
+  const template = forNamedTarget
+    ? l10n.dialogPushForceLeaseRefusedNamedTarget
     : l10n.dialogPushForceLeaseRefused;
   return template.replace("{0}", "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>");
 }

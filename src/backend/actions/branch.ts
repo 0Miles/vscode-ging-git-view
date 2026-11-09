@@ -235,11 +235,17 @@ class RemotePushError extends Error {
   constructor(
     readonly trackingRef: string,
     /** The push named a target other than the branch's own name (#303). */
-    readonly renamedTarget: boolean,
+    readonly namedTarget: boolean,
     cause: unknown
   ) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
   }
+}
+
+/** Each remote's own refusal in what `pushBranch` threw: one per remote that
+ *  refused when several were pushed to, else the error itself. */
+function pushFailures(error: unknown): unknown[] {
+  return error instanceof LabelledGitErrors ? error.failures.map((f) => f.error) : [error];
 }
 
 /** The tracking refs (`<remote>/<branch>`) a force-with-lease push was refused
@@ -247,23 +253,19 @@ class RemotePushError extends Error {
  *  the remotes were given. Empty for any other failure. See
  *  `isStaleLeaseInfoError`. */
 export function staleLeaseInfoRefs(error: unknown): string[] {
-  const failures =
-    error instanceof LabelledGitErrors ? error.failures.map((f) => f.error) : [error];
-  return failures.flatMap((e) =>
+  return pushFailures(error).flatMap((e) =>
     e instanceof RemotePushError && isStaleLeaseInfoError(e) ? [e.trackingRef] : []
   );
 }
 
-/** Whether a force-with-lease push to a target of another name (#303) was
- *  refused as unintegrated, by any remote. git reads that check off the reflog
- *  of the *local* branch named like the target, which is usually not there, so
- *  no pull or rebase of the pushed branch can satisfy it: only Force gets past
+/** Whether a force-with-lease push to a named target (#303) was refused as
+ *  unintegrated, by any remote. git reads that check off the reflog of the
+ *  *local* branch named like the target, which is usually not there, so no
+ *  pull or rebase of the pushed branch can satisfy it: only Force gets past
  *  (#311). See `isRemoteUpdatedSinceCheckoutError`. */
-function leaseRefusedForRenamedTarget(error: unknown): boolean {
-  const failures =
-    error instanceof LabelledGitErrors ? error.failures.map((f) => f.error) : [error];
-  return failures.some(
-    (e) => e instanceof RemotePushError && e.renamedTarget && isRemoteUpdatedSinceCheckoutError(e)
+function leaseRefusedForNamedTarget(error: unknown): boolean {
+  return pushFailures(error).some(
+    (e) => e instanceof RemotePushError && e.namedTarget && isRemoteUpdatedSinceCheckoutError(e)
   );
 }
 
@@ -271,11 +273,13 @@ type PushRefusalFacts = ActionResponseExtra<"pushBranch">;
 
 /** What a push reports beside its status, read off the raw error `pushBranch`
  *  threw (null when it succeeded). The single push and each ref of a batch
- *  push report the same facts, so both read them here. */
+ *  push report the same facts, so both read them here — except
+ *  `leaseRefusedForNamedTarget`, which a batch never reports: it pushes every
+ *  branch under its own name. */
 export function pushRefusalFacts(error: unknown): PushRefusalFacts {
   return {
     remoteUpdatedSinceCheckout: isRemoteUpdatedSinceCheckoutError(error),
-    leaseRefusedForRenamedTarget: leaseRefusedForRenamedTarget(error),
+    leaseRefusedForNamedTarget: leaseRefusedForNamedTarget(error),
     staleInfoRefs: staleLeaseInfoRefs(error)
   };
 }
@@ -290,12 +294,12 @@ export async function pushBranch(
   // The tracking ref is the destination's, so a stale lease on a named target
   // is explained as `<remote>/<target>`: the ref the lease actually protected.
   const remoteBranch = input.targetBranch ?? input.branchName;
-  const renamedTarget = remoteBranch !== input.branchName;
+  const namedTarget = remoteBranch !== input.branchName;
   await attemptOnEachRemote(input.remotes, (remote) =>
     git
       .raw(pushArgs(remote, input.branchName, input.forceMode, input.targetBranch))
       .catch((e: unknown) => {
-        throw new RemotePushError(`${remote}/${remoteBranch}`, renamedTarget, e);
+        throw new RemotePushError(`${remote}/${remoteBranch}`, namedTarget, e);
       })
   );
 }

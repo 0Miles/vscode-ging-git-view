@@ -186,7 +186,7 @@ describe("pushBranch to a named target under a lease", () => {
 
     expect(pushRefusalFacts(error)).toEqual({
       remoteUpdatedSinceCheckout: true,
-      leaseRefusedForRenamedTarget: true,
+      leaseRefusedForNamedTarget: true,
       staleInfoRefs: []
     });
   });
@@ -211,7 +211,7 @@ describe("pushBranch to a named target under a lease", () => {
 
     expect(pushRefusalFacts(error)).toEqual({
       remoteUpdatedSinceCheckout: false,
-      leaseRefusedForRenamedTarget: false,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: ["origin/review"]
     });
   });

@@ -33,7 +33,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: GIT_LINE,
       remoteUpdatedSinceCheckout: true,
-      leaseRefusedForRenamedTarget: false,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: []
     });
 
@@ -57,7 +57,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: line,
       remoteUpdatedSinceCheckout: true,
-      leaseRefusedForRenamedTarget: true,
+      leaseRefusedForNamedTarget: true,
       staleInfoRefs: []
     });
 
@@ -82,7 +82,7 @@ describe("a refused push", () => {
         "backup: [rejected]        main -> review (stale info)"
       ].join("\n"),
       remoteUpdatedSinceCheckout: true,
-      leaseRefusedForRenamedTarget: true,
+      leaseRefusedForNamedTarget: true,
       staleInfoRefs: ["backup/review"]
     });
 
@@ -98,7 +98,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: nonFastForward,
       remoteUpdatedSinceCheckout: false,
-      leaseRefusedForRenamedTarget: false,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: []
     });
 
@@ -117,7 +117,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: staleLine,
       remoteUpdatedSinceCheckout: false,
-      leaseRefusedForRenamedTarget: false,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: ["origin/main"]
     });
 
@@ -140,7 +140,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: "[rejected]        x -> x (stale info)",
       remoteUpdatedSinceCheckout: false,
-      leaseRefusedForRenamedTarget: false,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: ["origin/<i>x</i>"]
     });
 
@@ -160,7 +160,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: lines.join("\n"),
       remoteUpdatedSinceCheckout: true,
-      leaseRefusedForRenamedTarget: false,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: ["backup/main", "mirror/main"]
     });
 
