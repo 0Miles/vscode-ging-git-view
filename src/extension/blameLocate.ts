@@ -1,9 +1,10 @@
 import { isCommitHash } from "@/backend/utils/string";
 
-import type { CommitLocation } from "./blameHover";
+import { isRecord } from "./blameLineChange";
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+/** A blamed line's commit, as the hover's "locate in the graph" link hands it
+ *  to its command: the full SHA, in the repository the line is blamed in. */
+export type CommitLocation = { repo: string; sha: string };
 
 /**
  * The commit a hover's "locate in the graph" link handed its command, or null

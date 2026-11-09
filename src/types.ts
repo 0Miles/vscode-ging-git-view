@@ -350,6 +350,13 @@ export type RequestClearBranchFilter = {
   command: "clearBranchFilter";
 };
 
+/** Show All has run for a `clearBranchFilter`. Any filter it changed reached
+ *  the graph as a `setBranchFilter` posted while it ran, so ahead of this:
+ *  arriving with no such filter means Show All moved nothing. A locate
+ *  waiting on Show All (#310) reads it that way and gives up rather than
+ *  waiting for a navigation that is not coming. */
+export type ResponseBranchFilterCleared = { command: "branchFilterCleared" };
+
 export type RequestViewFileAtRevision = {
   command: "viewFileAtRevision";
   repo: string;
@@ -682,6 +689,7 @@ export type ResponseMessage =
   | ResponseSetScmMultiRepoSelection
   | ResponseSetRepoSettingDefaults
   | ResponseSetBranchFilter
+  | ResponseBranchFilterCleared
   | ResponseSetShowRemoteBranches
   | ResponseRunRefAction
   | ResponseRunRefBatchAction

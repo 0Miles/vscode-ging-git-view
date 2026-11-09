@@ -217,7 +217,6 @@
   "dialog.rememberChoice": "記住我的選擇",
   "error.unableToLoadCommitDetails": "無法載入 commit 詳情",
   "error.unableToSearchBranches": "無法搜尋 branches",
-  "error.unableToLocateCommit": "無法在圖形中定位這個 commit",
   "type.commitHash": "Commit 雜湊",
   "type.commitSubject": "Commit 主旨",
   "type.tagName": "Tag 名稱",
@@ -472,6 +471,6 @@
   "blame.workspaceKeepsOff": "已在使用者設定開啟 inline blame，但這個工作區的設定仍然把它關閉。",
   "blame.workspaceKeepsOn": "已在使用者設定關閉 inline blame，但這個工作區的設定仍然把它開啟。",
   "blame.hover.locateCommit": "在 GING 圖形中定位",
-  "blame.locate.notInGraph": "commit {0} 不在 GING 圖形中：圖形目前的設定沒有顯示它。",
+  "blame.locate.notInGraph": "commit {0} 沒有顯示在 GING 圖形中。只跟隨第一個父 commit、隱藏某個 remote 這類設定，可能讓 commit 不被顯示。",
   "blame.locate.failed": "無法在 GING 圖形中定位這個 commit"
 }

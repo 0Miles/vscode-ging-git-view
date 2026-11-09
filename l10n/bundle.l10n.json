@@ -217,7 +217,6 @@
   "dialog.rememberChoice": "Remember my choice",
   "error.unableToLoadCommitDetails": "Unable to load commit details",
   "error.unableToSearchBranches": "Unable to search branches",
-  "error.unableToLocateCommit": "Unable to locate the commit in the graph",
   "type.commitHash": "Commit Hash",
   "type.commitSubject": "Commit Subject",
   "type.tagName": "Tag Name",
@@ -472,6 +471,6 @@
   "blame.workspaceKeepsOff": "Inline blame is now on in your user settings, but this workspace's settings still turn it off.",
   "blame.workspaceKeepsOn": "Inline blame is now off in your user settings, but this workspace's settings still turn it on.",
   "blame.hover.locateCommit": "Locate in the GING graph",
-  "blame.locate.notInGraph": "Commit {0} isn't in the GING graph: the graph's current settings leave it out.",
+  "blame.locate.notInGraph": "Commit {0} isn't shown in the GING graph. Settings such as following only the first parent or hiding a remote can leave commits out.",
   "blame.locate.failed": "Unable to locate the commit in the GING graph"
 }

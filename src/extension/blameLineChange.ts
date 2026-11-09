@@ -57,7 +57,9 @@ export function lineChangeDiff(change: LineChange): CommitDiffRequest {
   };
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+/** A plain object, as a command link's JSON argument has to be to name its
+ *  fields. Shared by the hover links' argument checks. */
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** A path inside the repository, relative to its root, as git writes one. */

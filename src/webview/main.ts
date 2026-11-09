@@ -546,9 +546,17 @@ class GitGraphView {
     acrossAllBranches: boolean;
   } | null = null;
   private locateToken = 0;
-  /** A locate waiting on the Show All it asked the host for, with the
-   *  {@link loadToken} it asked under — see {@link resumeLocateAfterShowAll}. */
-  private locateAfterShowAll: { hash: string; repo: string; navigation: number } | null = null;
+  /** A locate waiting on the Show All it asked the host for — see
+   *  {@link resumeLocateAfterShowAll}. `navigation` is the {@link loadToken} of
+   *  the navigation Show All brought, once it has come: `arriving` marks the
+   *  empty filter that is that navigation, between its arrival and the token
+   *  moving on. */
+  private locateAfterShowAll: {
+    hash: string;
+    repo: string;
+    arriving: boolean;
+    navigation: number | null;
+  } | null = null;
   // The one batch run in flight (at most): rounds, retry offer and summary all
   // live behind its interface — the adapters below only execute its commands.
   private batchRun = new BatchRun<BatchActionTypes>();
@@ -1638,6 +1646,7 @@ class GitGraphView {
     // half can be dropped now — the reload abandons whatever is out rather than
     // standing down for it (#84).
     this.setCurrentBranches(branches);
+    this.noteFilterForLocate(branches);
     this.reloadForBranchChange();
   }
   /** Spend the branch callback. Cleared before it runs, not after: the
@@ -1924,6 +1933,7 @@ class GitGraphView {
    *  is how their answers are recognised as abandoned when they land. */
   private abandonLoadsInFlight() {
     this.loadToken++;
+    this.bindLocateAfterShowAll();
     if (this.branchLoadInFlight) {
       this.loadBranchesCallback = null;
       this.endBusyLoad();
@@ -4652,13 +4662,16 @@ class GitGraphView {
   ) {
     const locate = this.locate;
     if (locate === null || locate.token !== token || locate.hash !== hash) return;
+    // Recognised as stale before anything is read off it, its failure included:
+    // a locate the user has navigated away from has nothing left to report
+    // (ADR-0024).
+    if (locate.navigation !== this.loadToken) {
+      this.locate = null;
+      return;
+    }
     if (status !== null) {
       this.locate = null;
       raiseAnswerError(l10n.unableToLocateCommit, status);
-      return;
-    }
-    if (locate.navigation !== this.loadToken) {
-      this.locate = null;
       return;
     }
     const filtered = this.currentBranches !== null && this.currentBranches.length > 0;
@@ -4677,7 +4690,12 @@ class GitGraphView {
       // filter (a direct write), and its empty filter comes back to this view
       // as a navigation, after which the locate resumes
       // ({@link resumeLocateAfterShowAll}).
-      this.locateAfterShowAll = { hash, repo: this.currentRepo, navigation: this.loadToken };
+      this.locateAfterShowAll = {
+        hash,
+        repo: this.currentRepo,
+        arriving: false,
+        navigation: null
+      };
       sendMessage({ command: "clearBranchFilter" });
       return;
     }
@@ -4685,18 +4703,50 @@ class GitGraphView {
     this.continueLocate();
   }
 
-  /** Start the locate waiting on Show All over, once the empty filter has
-   *  arrived and its reload landed. That reload is a navigation, so it must be
-   *  the only one since the request: any other means the user moved the graph
-   *  on meanwhile, and the locate is abandoned with the rest (ADR-0024). */
+  /** A filter pushed by the host, about to reload the graph. The empty one, for
+   *  this repository, while a locate waits on Show All is that Show All
+   *  arriving: the navigation it starts is the one the locate binds to
+   *  ({@link bindLocateAfterShowAll}). */
+  private noteFilterForLocate(branches: string[]) {
+    const waiting = this.locateAfterShowAll;
+    if (waiting === null || waiting.navigation !== null) return;
+    waiting.arriving = branches.length === 0 && waiting.repo === this.currentRepo;
+  }
+
+  /** Every navigation passes here as it moves {@link loadToken} on. The first
+   *  one after a locate asked for Show All either is that Show All — the empty
+   *  filter {@link noteFilterForLocate} saw arrive — and the locate binds to
+   *  it, or it is something else the user did, and the locate is abandoned with
+   *  the loads (ADR-0024). Any navigation after the bound one abandons it too. */
+  private bindLocateAfterShowAll() {
+    const waiting = this.locateAfterShowAll;
+    if (waiting === null) return;
+    if (waiting.arriving && waiting.navigation === null) {
+      waiting.arriving = false;
+      waiting.navigation = this.loadToken;
+    } else {
+      this.locateAfterShowAll = null;
+    }
+  }
+
+  /** The host has run Show All. Had it changed the filter, the empty filter
+   *  would have arrived ahead of this and bound the locate; still unbound, Show
+   *  All moved nothing — the filter was already empty where the host keeps it —
+   *  and no navigation is coming to resume on, so the locate is let go rather
+   *  than left for some later, unrelated Show All to revive. */
+  public branchFilterCleared() {
+    const waiting = this.locateAfterShowAll;
+    if (waiting !== null && waiting.navigation === null) this.locateAfterShowAll = null;
+  }
+
+  /** Start the locate waiting on Show All over, once the reload of the
+   *  navigation it bound to has landed with that navigation still current. */
   private resumeLocateAfterShowAll() {
     const waiting = this.locateAfterShowAll;
-    if (waiting === null || this.loadToken === waiting.navigation) return;
+    if (waiting === null || waiting.navigation !== this.loadToken) return;
     if (this.branchLoadInFlight || this.commitLoadInFlight) return;
     this.locateAfterShowAll = null;
-    const shownAll = this.currentBranches !== null && this.currentBranches.length === 0;
-    if (waiting.repo !== this.currentRepo || this.loadToken !== waiting.navigation + 1) return;
-    if (shownAll) this.startLocate(waiting.hash);
+    if (waiting.repo === this.currentRepo) this.startLocate(waiting.hash);
   }
 
   /** Take the locate's next step, if it has one to take now. Re-tried after
@@ -4759,18 +4809,24 @@ class GitGraphView {
     }
   }
 
-  /** Select the located commit's row — focus is the graph's selection
-   *  (ADR-0014) — and centre it, blinking it the way "Locate HEAD" does. The
-   *  Commit Details View is neither opened nor moved (#310): this answers
-   *  "where is it", not "show me what it changed". */
+  /** Select the located commit's row and centre it, blinking it the way
+   *  "Locate HEAD" does. Focus is the graph's selection and an open Commit
+   *  Details View follows it (ADR-0014), so one already open moves onto the
+   *  commit; a closed one stays closed (#310) — this answers "where is it",
+   *  not "show me what it changed". When the view that moves centres its own
+   *  opening, the centring is left to it, as Find leaves it (#256). */
   private revealLocatedCommit(hash: string) {
     const row = this.graphRowByHash(hash);
     if (row === null) {
       sendMessage({ command: "locateCommitNotInGraph", hash });
       return;
     }
-    this.graphTabStop.focusInPlace(row);
-    if (typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "center" });
+    const opensDetails = this.expandedCommit !== null && this.expandedCommit.hash !== hash;
+    this.focusGraphRow(row);
+    const openingCentres = opensDetails && this.config.autoCenterCommitDetailsView;
+    if (!openingCentres && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "center" });
+    }
     blinkRow(row);
   }
   /** One handler per delegated action, keyed by the catalogue-derived union —
@@ -9517,6 +9573,9 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "locateCommit":
       gitGraph.locateCommit(msg);
+      break;
+    case "branchFilterCleared":
+      gitGraph.branchFilterCleared();
       break;
     case "commitLogDepth":
       gitGraph.loadCommitLogDepth(msg.hash, msg.logDepth, msg.token, msg.status);

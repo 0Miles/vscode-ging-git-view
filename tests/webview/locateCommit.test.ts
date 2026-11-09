@@ -3,7 +3,18 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { GitCommitNode } from "@/backend/types";
 import type * as GG from "@/types";
 
-import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+import {
+  clickId,
+  commitDetails,
+  createVscodeMock,
+  DEFAULT_REPO,
+  dialogShown,
+  dialogText,
+  makeViewState,
+  openDetailsOn,
+  receive,
+  setupHtml
+} from "./setup";
 
 // The blame hover's "locate in the graph" (#310): the host opens the graph on
 // the blamed file's repository and sends `locateCommit`; the graph selects the
@@ -251,8 +262,11 @@ describe("locating a blamed commit in the graph", () => {
       // Nothing loaded under the filter that hides it.
       expect(mock.sentOf("loadCommits")).toHaveLength(0);
 
-      // The host's Show All arrives as the empty filter, and its reload lands.
+      // The host's Show All arrives as the empty filter, then its
+      // acknowledgement — in that order, the filter being posted while Show All
+      // runs — and the reload lands.
       receive({ command: "setBranchFilter", branches: [] });
+      receive({ command: "branchFilterCleared" });
       receive(commitsResponse([tip, base]));
       // Measured afresh, on the history now on screen.
       answerDepth(4);
@@ -275,9 +289,80 @@ describe("locating a blamed commit in the graph", () => {
       // The user picks another filter before Show All lands, then Show All does.
       receive({ command: "setBranchFilter", branches: ["main", "feature"] });
       receive({ command: "setBranchFilter", branches: [] });
+      receive({ command: "branchFilterCleared" });
       receive(commitsResponse([tip, base]));
       expect(mock.sentOf("commitLogDepth")).toHaveLength(2);
       expect(centred).not.toContain("side999");
+    });
+
+    it("forgets the locate when Show All moved nothing, so a later Show All cannot revive it", () => {
+      receive({ command: "setBranchFilter", branches: ["main"] });
+      receive(commitsResponse([tip, base]));
+      mock.clearMessages();
+      centred.splice(0);
+      receive(locate("side999"));
+      answerDepth(null);
+      answerDepth(4);
+      expect(mock.sentOf("clearBranchFilter")).toHaveLength(1);
+
+      // The host's filter was already empty: Show All posted no filter, only
+      // its acknowledgement.
+      receive({ command: "branchFilterCleared" });
+
+      // Much later, the user shows all branches themselves.
+      receive({ command: "setBranchFilter", branches: [] });
+      receive(commitsResponse([tip, base]));
+      expect(mock.sentOf("commitLogDepth")).toHaveLength(2);
+      expect(centred).not.toContain("side999");
+    });
+  });
+
+  describe("when the depth cannot be measured", () => {
+    it("says so", () => {
+      mock.clearMessages();
+      receive(locate("broken111"));
+      answerDepth(null, "fatal: bad object");
+      expect(dialogShown()).toBe(true);
+      expect(dialogText()).toContain("Unable to locate the commit in the GING graph");
+      clickId("dialogDismiss");
+    });
+
+    it("stays silent about a failure a navigation has overtaken", () => {
+      receive(locate("broken222"));
+      const request = lastDepthRequest();
+      receive({ command: "setBranchFilter", branches: ["main"] });
+      receive(commitsResponse([tip, base]));
+      receive({
+        command: "commitLogDepth",
+        hash: request.hash,
+        logDepth: null,
+        token: request.token,
+        status: "fatal: bad object"
+      });
+      expect(dialogShown()).toBe(false);
+    });
+  });
+
+  // Focus is the graph's selection, and an open Commit Details View follows it
+  // (ADR-0014); what the locate never does is open one that is closed.
+  describe("with the Commit Details View", () => {
+    it("leaves a closed view closed", () => {
+      receive({ command: "setBranchFilter", branches: [] });
+      receive(commitsResponse([tip, base]));
+      mock.clearMessages();
+      receive(locate("aaa111"));
+      expect(focusedHash()).toBe("aaa111");
+      expect(mock.sentOf("commitDetails")).toHaveLength(0);
+    });
+
+    it("moves an open view onto the located commit", () => {
+      openDetailsOn("aaa111");
+      receive({ command: "commitDetails", commitDetails: commitDetails("aaa111") });
+      mock.clearMessages();
+
+      receive(locate("bbb222"));
+      expect(focusedHash()).toBe("bbb222");
+      expect(mock.sentOf("commitDetails").map((m) => m.commitHash)).toEqual(["bbb222"]);
     });
   });
 });

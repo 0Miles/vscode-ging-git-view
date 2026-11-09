@@ -28,12 +28,11 @@ import { createBlameCache } from "./blameCache";
 import {
   type BlameHoverDetails,
   blameHoverMarkdown,
-  type CommitLocation,
   copyableSha,
   createLastHoverDetails
 } from "./blameHover";
 import { lineChangeArgs, lineChangeDiff } from "./blameLineChange";
-import { commitLocationArgs } from "./blameLocate";
+import { type CommitLocation, commitLocationArgs } from "./blameLocate";
 import { createBlameRepoWatchers } from "./blameRepoWatchers";
 import { updateDelay } from "./blameSchedule";
 import { type BlameTarget, blameTarget, spansLines } from "./blameTarget";

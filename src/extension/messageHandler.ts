@@ -836,10 +836,14 @@ export function registerMessageHandlers(
   // Branches side-view's title button runs. Writing `branchFilterStore` here
   // instead would only do half the job — the tree's visual selection would stay
   // highlighted while the graph showed everything.
+  // Acknowledged once Show All has run. Any filter it changed has been posted
+  // by then — the store fires while Show All runs — so a locate waiting on it
+  // (#310) can tell "Show All moved nothing" from "its filter is on the way".
   bridge.onMessage(
     "clearBranchFilter",
-    () => {
-      void vscode.commands.executeCommand("ging-git-view.branches.showAll");
+    async () => {
+      await vscode.commands.executeCommand("ging-git-view.branches.showAll");
+      bridge.post({ command: "branchFilterCleared" });
     },
     { mutatesRepo: false }
   );

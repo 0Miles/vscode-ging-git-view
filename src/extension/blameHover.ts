@@ -4,6 +4,7 @@ import { abbrevCommit, isCommitHash } from "@/backend/utils/string";
 
 import { type BlameAnnotationContext, isUser, relativeTime } from "./blameAnnotation";
 import { lineChangeOf } from "./blameLineChange";
+import type { CommitLocation } from "./blameLocate";
 
 const AVATAR_SIZE = 16;
 
@@ -41,10 +42,6 @@ export type BlameHoverContext = BlameAnnotationContext & {
   /** The command the graph link runs, given its `CommitLocation`. */
   locateCommitCommand: string;
 };
-
-/** A blamed line's commit, as the hover's "locate in the graph" link hands it
- *  to its command: the full SHA, in the repository the line is blamed in. */
-export type CommitLocation = { repo: string; sha: string };
 
 /**
  * The hover card of a blamed line, as Markdown with theme icons: the author's
