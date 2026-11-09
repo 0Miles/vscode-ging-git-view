@@ -1,0 +1,16 @@
+{
+  "name": "@ging/vscode",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "@ging/core": "workspace:*",
+    "@ging/shared": "workspace:*",
+    "@ging/webview": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39"
+  }
+}

@@ -7,7 +7,7 @@
     ".pnpm-store/**",
     ".idea/**",
     "out/**",
-    "node_modules/**",
+    "**/node_modules/**",
     "**/*.ctx.md",
     "CHANGELOG.md"
   ],

@@ -7,7 +7,7 @@
     "oxlint/style.config.json"
   ],
   "jsPlugins": [{ "name": "import-js", "specifier": "eslint-plugin-import" }],
-  "ignorePatterns": [".pnpm-store/**", ".idea/**", "out/**", "node_modules/**", "*.config.js"],
+  "ignorePatterns": [".pnpm-store/**", ".idea/**", "out/**", "**/node_modules/**", "*.config.js"],
   "env": {
     "node": true
   },
@@ -67,10 +67,18 @@
       }
     },
     {
-      "files": ["src/webview/**/*.ts"],
+      "files": ["src/webview/**/*.ts", "packages/webview/**/*.ts"],
       "env": {
         "node": false,
         "browser": true
+      }
+    },
+    {
+      // Runs in both the webview and the extension host, so neither set of globals
+      "files": ["packages/shared/**/*.ts"],
+      "env": {
+        "node": false,
+        "browser": false
       }
     }
   ]

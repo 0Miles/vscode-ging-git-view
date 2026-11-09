@@ -1,6 +1,6 @@
 /.vscode-test/
 /media/*.js
-/node_modules/
+node_modules/
 **/out/
 *.vsix
 

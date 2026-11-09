@@ -1,0 +1,17 @@
+{
+  "name": "@ging/core",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "@ging/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39"
+  }
+}
