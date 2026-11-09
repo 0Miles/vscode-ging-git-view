@@ -38,7 +38,7 @@
     "vscode:prepublish": "pnpm run clean && pnpm run copy-docs && pnpm run package",
     "package": "pnpm -w run typecheck && pnpm -w run lint && node esbuild.js --production",
     "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
-    "copy-docs": "node -e \"for (const f of ['README.md', 'CHANGELOG.md', 'LICENSE']) require('fs').copyFileSync('../../' + f, f)\"",
+    "copy-docs": "node -e \"for (const f of ['README.md', 'CHANGELOG.md', 'LICENSE', 'resources/icon.png']) require('fs').copyFileSync('../../' + f, f)\"",
     "compile": "pnpm run clean && node esbuild.js",
     "test:ext": "pnpm run compile && pnpm run compile-tests && vscode-test",
     "compile-tests": "tsc -p tests/extension/tsconfig.json && tsc-alias -p tests/extension/tsconfig.json",

@@ -8,6 +8,7 @@ node_modules/
 /apps/vscode/README.md
 /apps/vscode/CHANGELOG.md
 /apps/vscode/LICENSE
+/apps/vscode/resources/icon.png
 
 *.orig
 
