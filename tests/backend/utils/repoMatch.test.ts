@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { repoContainingPath, resolveToKnownRepo } from "@/backend/utils/repoMatch";
+import { blameLocation, repoContainingPath, resolveToKnownRepo } from "@/backend/utils/repoMatch";
 
 describe("repoContainingPath", () => {
   it("returns the repo whose root contains the file", () => {
@@ -52,5 +52,40 @@ describe("resolveToKnownRepo", () => {
 
   it("returns null when the path cannot be resolved", () => {
     expect(resolveToKnownRepo("/missing", ["/real/repo"], failingRealpath)).toBeNull();
+  });
+});
+
+// Inline blame follows the editor: the file is blamed in the known repository
+// that holds it, never in whichever repository the graph shows.
+describe("blameLocation", () => {
+  it("blames a file in the known repository that contains it, by its repo-relative path", () => {
+    expect(blameLocation("/work/app/src/index.ts", ["/other", "/work/app"])).toEqual({
+      repo: "/work/app",
+      filePath: "src/index.ts"
+    });
+  });
+
+  it("blames a submodule or worktree file in its own repository, not the one around it", () => {
+    expect(
+      blameLocation("/work/app/.claude/worktrees/wt/a.ts", [
+        "/work/app",
+        "/work/app/.claude/worktrees/wt"
+      ])
+    ).toEqual({ repo: "/work/app/.claude/worktrees/wt", filePath: "a.ts" });
+  });
+
+  it("accepts a repo root written with a trailing slash", () => {
+    expect(blameLocation("/work/app/a.ts", ["/work/app/"])).toEqual({
+      repo: "/work/app/",
+      filePath: "a.ts"
+    });
+  });
+
+  it("has nothing to blame outside every known repository", () => {
+    expect(blameLocation("/elsewhere/a.ts", ["/work/app"])).toBeNull();
+  });
+
+  it("has nothing to blame at a repository's root itself", () => {
+    expect(blameLocation("/work/app", ["/work/app"])).toBeNull();
   });
 });

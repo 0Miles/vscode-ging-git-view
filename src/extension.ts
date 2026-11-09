@@ -29,6 +29,7 @@ import { repoContainingPath, resolveToKnownRepo } from "./backend/utils/repoMatc
 import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import { AskpassManager } from "./extension/askpass/askpassManager";
+import { createBlameController, registerBlameToggle } from "./extension/blameController";
 import { createBranchActionDelegate } from "./extension/branchActionDelegate";
 import { createBranchCleanup } from "./extension/branchCleanupService";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
@@ -308,6 +309,22 @@ export function activate(context: vscode.ExtensionContext) {
   };
   context.subscriptions.push(scmRepoTracker.onDidChangeRepos(mirrorBuiltinIntoRepoManager));
   mirrorBuiltinIntoRepoManager();
+
+  // Inline blame follows the editor: each file is blamed in the known repository
+  // that contains it, whatever the graph's current repository is. Created after
+  // the mirror above so a repo the built-in git just found is known by the time
+  // the controller hears about it.
+  context.subscriptions.push(
+    createBlameController({
+      knownRepos: () => Object.keys(repoManager.getRepos()),
+      gitPath: config.gitPath,
+      gitEnv,
+      onCommand: logger.logCmd,
+      gitClientFor: repoGitClients.gitClientFor,
+      onDidChangeKnownRepos: scmRepoTracker.onDidChangeRepos
+    }),
+    registerBlameToggle()
+  );
 
   // Publish the SC-focused repos so the `scm/repository` row button can show itself on just those
   // rows (`scmProviderRootUri in ...`). Deliberately NOT gated on followSourceControlSelection: that
