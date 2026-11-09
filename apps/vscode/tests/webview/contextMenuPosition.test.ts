@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { mergeContextMenuActionsVisibility } from "@ging/core/backend/utils/contextMenuVisibility";
 import type { GitCommitNode } from "@ging/shared/backend/types";
+import { mergeContextMenuActionsVisibility } from "@ging/shared/backend/utils/contextMenuVisibility";
 
 import {
   createVscodeMock,

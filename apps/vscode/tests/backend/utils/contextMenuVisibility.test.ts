@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
   mergeContextMenuActionsVisibility
-} from "@ging/core/backend/utils/contextMenuVisibility";
+} from "@ging/shared/backend/utils/contextMenuVisibility";
 
 type VisibilitySchema = {
   properties: Record<string, { properties: Record<string, unknown> }>;
