@@ -6,7 +6,12 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { pushBranch, pushBranches, staleLeaseInfoRefs } from "@/backend/actions/branch";
+import {
+  pushBranch,
+  pushBranches,
+  pushRefusalFacts,
+  staleLeaseInfoRefs
+} from "@/backend/actions/branch";
 import type { ActionPayload } from "@/backend/types";
 import { isRemoteUpdatedSinceCheckoutError } from "@/backend/utils/gitError";
 
@@ -158,6 +163,57 @@ describe("pushBranch to a named target under a lease", () => {
       targetBranch: "review"
     });
     expect(bareGit(["rev-parse", "review"], remote).trim()).toBe(rev(local, "main"));
+  });
+
+  // The refusal above is not one a pull or rebase can clear, so the host says
+  // which kind it was: the dialog then points at Force instead (#311).
+  it("reports that refusal as one for a target of another name", async () => {
+    const { local } = makeWorld();
+    git(["push", "origin", "main:refs/heads/review"], local);
+    git(["fetch", "origin"], local);
+    fs.writeFileSync(path.join(local, "mine.txt"), "mine");
+    git(["add", "."], local);
+    git(["commit", "--amend", "-m", "rewritten"], local);
+
+    const error = await rejection(
+      pushBranch(simpleGit(local), {
+        branchName: "main",
+        remotes: ["origin"],
+        forceMode: "forceWithLease",
+        targetBranch: "review"
+      })
+    );
+
+    expect(pushRefusalFacts(error)).toEqual({
+      remoteUpdatedSinceCheckout: true,
+      leaseRefusedForRenamedTarget: true,
+      staleInfoRefs: []
+    });
+  });
+
+  it("does not report a stale-info refusal on a target of another name as one", async () => {
+    const { local } = makeWorld();
+    git(["push", "origin", "main"], local);
+    git(["push", "origin", "main:refs/heads/review"], local);
+    git(["update-ref", "-d", "refs/remotes/origin/review"], local);
+    fs.writeFileSync(path.join(local, "mine.txt"), "mine");
+    git(["add", "."], local);
+    git(["commit", "--amend", "-m", "rewritten"], local);
+
+    const error = await rejection(
+      pushBranch(simpleGit(local), {
+        branchName: "main",
+        remotes: ["origin"],
+        forceMode: "forceWithLease",
+        targetBranch: "review"
+      })
+    );
+
+    expect(pushRefusalFacts(error)).toEqual({
+      remoteUpdatedSinceCheckout: false,
+      leaseRefusedForRenamedTarget: false,
+      staleInfoRefs: ["origin/review"]
+    });
   });
 });
 

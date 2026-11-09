@@ -4675,10 +4675,12 @@ class GitGraphView {
         errorTitle: l10n.unableToPushBranch,
         // Each kind of lease refusal is explained once for the whole batch, like
         // a single push explains it (ADR-0025). Each ref keeps git's own line;
-        // no force round is offered.
+        // no force round is offered. Every branch goes under its own name, so
+        // none is refused for a target of another name (#311).
         failureNote: (failed) => {
           return leaseRefusalNote(
             failed.some((r) => r.remoteUpdatedSinceCheckout),
+            false,
             failed.flatMap((r) => r.staleInfoRefs)
           );
         }
@@ -9225,7 +9227,12 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       gitGraph.handleDeleteBranchResponse(msg.status, msg.notFullyMerged);
       break;
     case "pushBranch":
-      handlePushBranchResponse(msg.status, msg.remoteUpdatedSinceCheckout, msg.staleInfoRefs);
+      handlePushBranchResponse(
+        msg.status,
+        msg.remoteUpdatedSinceCheckout,
+        msg.leaseRefusedForRenamedTarget,
+        msg.staleInfoRefs
+      );
       break;
     case "fetchAvatar":
       gitGraph.loadAvatar(msg.email, msg.image);
@@ -9433,9 +9440,14 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
 function handlePushBranchResponse(
   status: GitCommandStatus,
   remoteUpdatedSinceCheckout: boolean,
+  leaseRefusedForRenamedTarget: boolean,
   staleInfoRefs: string[]
 ) {
-  const explanation = leaseRefusalNote(remoteUpdatedSinceCheckout, staleInfoRefs);
+  const explanation = leaseRefusalNote(
+    remoteUpdatedSinceCheckout,
+    leaseRefusedForRenamedTarget,
+    staleInfoRefs
+  );
   refreshGraphOrDisplayError(
     status,
     explanation === null ? l10n.unableToPushBranch : l10n.unableToPushBranch + "<br>" + explanation
@@ -9444,9 +9456,13 @@ function handlePushBranchResponse(
 
 /** Each kind of lease refusal explained once, or null when there was none.
  *  Shared by the single push and the batch push summary. */
-function leaseRefusalNote(remoteUpdatedSinceCheckout: boolean, staleInfoRefs: string[]) {
+function leaseRefusalNote(
+  remoteUpdatedSinceCheckout: boolean,
+  leaseRefusedForRenamedTarget: boolean,
+  staleInfoRefs: string[]
+) {
   const notes = [
-    remoteUpdatedSinceCheckout ? leaseRefusedExplanation() : null,
+    remoteUpdatedSinceCheckout ? leaseRefusedExplanation(leaseRefusedForRenamedTarget) : null,
     staleInfoRefs.length > 0 ? leaseStaleInfoExplanation(staleInfoRefs) : null
   ].filter((note) => note !== null);
   return notes.length > 0 ? notes.join("<br>") : null;
@@ -9454,12 +9470,15 @@ function leaseRefusalNote(remoteUpdatedSinceCheckout: boolean, staleInfoRefs: st
 
 /** Why a Force with lease was refused for an unintegrated remote tip, and what
  *  to do about it, naming the Force option in the UI's own words. Shared by the
- *  single push and the batch push summary so the two never drift apart. */
-function leaseRefusedExplanation(): string {
-  return l10n.dialogPushForceLeaseRefused.replace(
-    "{0}",
-    "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>"
-  );
+ *  single push and the batch push summary so the two never drift apart.
+ *
+ *  For a target named other than the pushed branch the check can never pass
+ *  (#311), so that refusal skips "pull or rebase first" and points at Force. */
+function leaseRefusedExplanation(forRenamedTarget: boolean): string {
+  const template = forRenamedTarget
+    ? l10n.dialogPushForceLeaseRefusedRenamedTarget
+    : l10n.dialogPushForceLeaseRefused;
+  return template.replace("{0}", "<b>" + escapeHtml(l10n.dialogPushForceForce) + "</b>");
 }
 
 /** Why a Force with lease was refused for "(stale info)" — the tracking refs

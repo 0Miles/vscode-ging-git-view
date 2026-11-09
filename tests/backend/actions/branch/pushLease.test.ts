@@ -239,6 +239,8 @@ describe("pushBranch with force-with-lease to several remotes", () => {
     // Both classifications survive, each read off its own remote's refusal.
     expect(pushRefusalFacts(error)).toEqual({
       remoteUpdatedSinceCheckout: true,
+      // Pushed under its own name: a pull or rebase can clear this one (#311).
+      leaseRefusedForRenamedTarget: false,
       staleInfoRefs: ["backup/main"]
     });
     expect(remoteMain(world.remote)).toBe(matesTip);
@@ -256,6 +258,7 @@ describe("pushBranch with force-with-lease to several remotes", () => {
 
     expect(pushRefusalFacts(error)).toEqual({
       remoteUpdatedSinceCheckout: false,
+      leaseRefusedForRenamedTarget: false,
       staleInfoRefs: ["origin/main", "backup/main"]
     });
   });

@@ -84,8 +84,10 @@ export type BatchDeleteResult = BatchRefResult & { notFullyMerged: boolean };
 
 /** A batch push result, plus the facts a single push reports alongside its
  *  status (`ActionResponseExtras["pushBranch"]`), read off the raw git error
- *  the same way. */
-export type BatchPushResult = BatchRefResult & ActionResponseExtras["pushBranch"];
+ *  the same way. A batch pushes each branch under its own name, so it never
+ *  reports a refusal for a target of another name (#311). */
+export type BatchPushResult = BatchRefResult &
+  Omit<ActionResponseExtras["pushBranch"], "leaseRefusedForRenamedTarget">;
 
 /**
  * Batch actions. Unlike the actions above, each ref succeeds or fails on its
@@ -157,6 +159,12 @@ type ActionResponseExtras = {
      *  integrated into the local branch. A fact, not a claim that the remote
      *  has new commits — see `isRemoteUpdatedSinceCheckoutError`. */
     remoteUpdatedSinceCheckout: boolean;
+    /** That refusal was for a target branch named other than the pushed one
+     *  (#303). git's integration check then reads the reflog of a local branch
+     *  named like the target, usually absent, so no pull or rebase can clear
+     *  it: only Force overwrites (#311). Implies `remoteUpdatedSinceCheckout`
+     *  — see `leaseRefusedForRenamedTarget`. */
+    leaseRefusedForRenamedTarget: boolean;
     /** The tracking refs (`<remote>/<branch>`) git refused a force-with-lease
      *  push for with "(stale info)": missing locally, or out of date. One per
      *  remote refused that way, and empty for any other outcome — see

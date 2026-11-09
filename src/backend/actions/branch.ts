@@ -234,6 +234,8 @@ function pushArgs(
 class RemotePushError extends Error {
   constructor(
     readonly trackingRef: string,
+    /** The push named a target other than the branch's own name (#303). */
+    readonly renamedTarget: boolean,
     cause: unknown
   ) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
@@ -252,6 +254,19 @@ export function staleLeaseInfoRefs(error: unknown): string[] {
   );
 }
 
+/** Whether a force-with-lease push to a target of another name (#303) was
+ *  refused as unintegrated, by any remote. git reads that check off the reflog
+ *  of the *local* branch named like the target, which is usually not there, so
+ *  no pull or rebase of the pushed branch can satisfy it: only Force gets past
+ *  (#311). See `isRemoteUpdatedSinceCheckoutError`. */
+function leaseRefusedForRenamedTarget(error: unknown): boolean {
+  const failures =
+    error instanceof LabelledGitErrors ? error.failures.map((f) => f.error) : [error];
+  return failures.some(
+    (e) => e instanceof RemotePushError && e.renamedTarget && isRemoteUpdatedSinceCheckoutError(e)
+  );
+}
+
 type PushRefusalFacts = ActionResponseExtra<"pushBranch">;
 
 /** What a push reports beside its status, read off the raw error `pushBranch`
@@ -260,6 +275,7 @@ type PushRefusalFacts = ActionResponseExtra<"pushBranch">;
 export function pushRefusalFacts(error: unknown): PushRefusalFacts {
   return {
     remoteUpdatedSinceCheckout: isRemoteUpdatedSinceCheckoutError(error),
+    leaseRefusedForRenamedTarget: leaseRefusedForRenamedTarget(error),
     staleInfoRefs: staleLeaseInfoRefs(error)
   };
 }
@@ -274,11 +290,12 @@ export async function pushBranch(
   // The tracking ref is the destination's, so a stale lease on a named target
   // is explained as `<remote>/<target>`: the ref the lease actually protected.
   const remoteBranch = input.targetBranch ?? input.branchName;
+  const renamedTarget = remoteBranch !== input.branchName;
   await attemptOnEachRemote(input.remotes, (remote) =>
     git
       .raw(pushArgs(remote, input.branchName, input.forceMode, input.targetBranch))
       .catch((e: unknown) => {
-        throw new RemotePushError(`${remote}/${remoteBranch}`, e);
+        throw new RemotePushError(`${remote}/${remoteBranch}`, renamedTarget, e);
       })
   );
 }
