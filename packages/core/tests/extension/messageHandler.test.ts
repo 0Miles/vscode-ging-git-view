@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import type { BranchFilterChange } from "@ging/core/extension/branchFilter";
+import { createFetchService } from "@ging/core/extension/fetchService";
 import {
   type MessageHandlerDeps,
   registerMessageHandlers
@@ -51,6 +52,19 @@ function harness(depOverrides: Partial<MessageHandlerDeps> = {}) {
     },
     branchFacts: {} as never,
     branchCleanup: {} as never,
+    // The real service, with the hook its other callers run inside recorded:
+    // the dispatch has it in hand and must still never reach for it.
+    fetchService: createFetchService({
+      config: ports.config,
+      prompts: ports.prompts,
+      l10n: ports.l10n,
+      gitClientFor: (dir) => gitClientFactory(dir, "git").getInstance(),
+      currentRepo: () => repo,
+      runRepoMutation: async (dir, work) => {
+        calls.push(["runRepoMutation", dir]);
+        await work();
+      }
+    }),
     sequenceEditor: { stage: () => {}, wasApplied: () => true, discard: () => {} },
     onSelectRepo: (repo) => calls.push(["onSelectRepo", repo]),
     onDelegatedRan: (seq) => calls.push(["onDelegatedRan", seq]),
@@ -237,6 +251,57 @@ describe("actions", () => {
     } as RequestMessage);
 
     expect(h.posted).toEqual([{ command: "dropStash", status: null, movedSelector: null }]);
+  });
+});
+
+// The graph's two fetches arrive through the bridge, whose `mutatesRepo`
+// handler mutes the watcher and reports the mutation; the hook the service's
+// other callers run inside would nest a second mute in the first, and the
+// watcher's mute is a flag, not a count.
+describe("fetch", () => {
+  it("fetches inside the bridge's mute, not the service's hook", async () => {
+    const h = harness();
+    await h.send({ command: "selectRepo", repo });
+    h.calls.length = 0;
+    await h.send({ command: "fetch", repo });
+    expect(h.calls).toEqual([["mute"], ["unmute"], ["repoMutated"]]);
+    expect(h.posted).toEqual([{ command: "fetch", status: null }]);
+  });
+
+  it("answers a failure with git's error as the webview's status", async () => {
+    git(["remote", "add", "origin", path.join(repo, "no-such-remote")], repo);
+    const h = harness();
+    await h.send({ command: "selectRepo", repo });
+    h.calls.length = 0;
+    await h.send({ command: "fetch", repo });
+    expect(h.calls).toEqual([["mute"], ["unmute"], ["repoMutated"]]);
+    expect(h.posted).toEqual([{ command: "fetch", status: expect.stringMatching(/\S/) }]);
+  });
+
+  it("fetches first for the cleanup dialog, inside the bridge's mute too", async () => {
+    git(["remote", "add", "origin", path.join(repo, "no-such-remote")], repo);
+    const payload = { candidates: [] };
+    const h = harness({
+      branchCleanup: {
+        build: async (dir: string, opts: unknown) => {
+          h.calls.push(["build", dir, opts]);
+          return { payload, scannable: [] };
+        }
+      } as never
+    });
+    await h.send({ command: "selectRepo", repo });
+    h.calls.length = 0;
+    await h.send({ command: "branchCleanupOpen", repo, token: 7, fetch: true } as RequestMessage);
+    // A failed fetch is a flag on the answer: the pre-fetch list still comes.
+    expect(h.calls).toEqual([
+      ["mute"],
+      ["build", repo, { hard: true }],
+      ["unmute"],
+      ["repoMutated"]
+    ]);
+    expect(h.posted).toEqual([
+      { command: "branchCleanupOpen", token: 7, payload, fetchFailed: true }
+    ]);
   });
 });
 

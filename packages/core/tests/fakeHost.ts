@@ -64,6 +64,8 @@ export function fakePorts() {
       inactiveBranchAlwaysShow: () => [],
       fetchAndPrune: () => true,
       fetchAndPruneTags: () => false,
+      autoFetchEnabled: () => false,
+      autoFetchIntervalMinutes: () => 10,
       pullRequestProviders: () => [],
       showRemoteBranches: () => false,
       repoSettingDefaults: () => ({

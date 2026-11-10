@@ -17,8 +17,9 @@ import type { CommitDiffRequest, DiffSide } from "@ging/core/extension/commitDif
 import type { CommitOrdering, DateType } from "@ging/shared/backend/types";
 import type { GitRepoSet, GitRepoState, RepoScopeSettings } from "@ging/shared/types";
 
-/** The settings the dispatch reads, each read at the moment it is needed — a
- *  setting changed between two requests reaches the second. */
+/** The settings the dispatch and the core services beside it read, each read
+ *  at the moment it is needed — a setting changed between two requests reaches
+ *  the second. */
 export interface HostConfig {
   signTags(): boolean;
   signCommits(): boolean;
@@ -32,6 +33,12 @@ export interface HostConfig {
   inactiveBranchAlwaysShow(): string[];
   fetchAndPrune(): boolean;
   fetchAndPruneTags(): boolean;
+  /** Whether the current repository is fetched on a timer. Unlike the rest,
+   *  read only when the timer is armed: the host calls
+   *  `FetchService.restartAutoFetch` when either auto-fetch setting changes. */
+  autoFetchEnabled(): boolean;
+  /** How often, in minutes; clamped to 1–60 by the timer. */
+  autoFetchIntervalMinutes(): number;
   pullRequestProviders(): PullRequestProvider[];
   /** "Show remote branches" for a repo that has not overridden it. */
   showRemoteBranches(): boolean;
