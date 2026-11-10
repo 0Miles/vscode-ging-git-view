@@ -34,3 +34,7 @@ status: accepted
   它即使沒清到任何東西也會標記自己跑過,否則使用者日後**刻意**開啟 pruneTags 時會被第二輪靜默關掉。這段是過渡碼:等到不再有人跨過這次翻轉升級,整個模組連同旗標都可以刪掉。
 
 - **`prune: true, pruneTags: false` 現在是幾乎每一次 fetch 的組合。** [fetch.test.ts](../../packages/core/tests/actions/fetch/fetch.test.ts) 因此明確釘住這個組合會掃掉分支、留下 tag;`--prune-tags` 若哪天脫離閘門,那個測試會紅。
+
+## 補記(2026-11-11,#351)
+
+**正文第二段的「四條 fetch 路徑」現在收斂成一個 core 服務,路徑也不止四條。**[fetchService.ts](../../packages/core/src/extension/fetchService.ts) 是唯一組 `--prune` / `--prune-tags` 的地方,每次呼叫都即時讀設定,所以正文「沒有人快取它」的前提不變。經過它的有六處:graph 控制列的 Fetch、清理對話框開啟前的 fetch(兩者在 [messageHandler.ts](../../packages/core/src/extension/messageHandler.ts))、`ging-git-view.fetch` 命令、auto-fetch 定時器(現在也在 core)、Remotes 側檢視的單一 remote fetch,以及 `ging-git-view.fetchRemote` 命令的 git 呼叫。
