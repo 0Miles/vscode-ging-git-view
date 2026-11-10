@@ -57,6 +57,25 @@ export function createRepoWatcher(
   const changeEventPaths = pathQueue();
   let processCreateEventsTimeout: NodeJS.Timeout | null = null;
   let processChangeEventsTimeout: NodeJS.Timeout | null = null;
+  /** Batches and folder changes still running, for `flushPending` to await. */
+  const running = new Set<Promise<void>>();
+
+  function track(work: Promise<void>): void {
+    running.add(work);
+    // `finally`, not `then(done, done)`: a failed batch must still surface as
+    // the unhandled rejection it always was, not be swallowed here.
+    void work.finally(() => running.delete(work));
+  }
+
+  function runCreateBatch() {
+    processCreateEventsTimeout = null;
+    track(processCreateEvents());
+  }
+
+  function runChangeBatch() {
+    processChangeEventsTimeout = null;
+    track(processChangeEvents());
+  }
 
   async function processCreateEvents() {
     let path;
@@ -67,7 +86,6 @@ export function createRepoWatcher(
           changes = true;
       }
     }
-    processCreateEventsTimeout = null;
     if (changes) repoManager.sendRepos();
   }
 
@@ -79,7 +97,6 @@ export function createRepoWatcher(
         if (repoManager.removeReposWithinFolder(path)) changes = true;
       }
     }
-    processChangeEventsTimeout = null;
     if (changes) repoManager.sendRepos();
   }
 
@@ -90,7 +107,7 @@ export function createRepoWatcher(
     if (!createEventPaths.add(path)) return;
 
     if (processCreateEventsTimeout !== null) clearTimeout(processCreateEventsTimeout);
-    processCreateEventsTimeout = setTimeout(() => processCreateEvents(), debounceDelay);
+    processCreateEventsTimeout = setTimeout(runCreateBatch, debounceDelay);
   }
 
   function onWatcherChange(uri: vscode.Uri) {
@@ -100,7 +117,7 @@ export function createRepoWatcher(
     if (!changeEventPaths.add(path)) return;
 
     if (processChangeEventsTimeout !== null) clearTimeout(processChangeEventsTimeout);
-    processChangeEventsTimeout = setTimeout(() => processChangeEvents(), debounceDelay);
+    processChangeEventsTimeout = setTimeout(runChangeBatch, debounceDelay);
   }
 
   function onWatcherDelete(uri: vscode.Uri) {
@@ -123,7 +140,7 @@ export function createRepoWatcher(
     delete folderWatchers[path];
   }
 
-  const folderChangeHandler = workspace.onDidChangeWorkspaceFolders(async (e) => {
+  async function onFolderChange(e: vscode.WorkspaceFoldersChangeEvent) {
     if (e.added.length > 0) {
       let path: string;
       let changes = false;
@@ -145,7 +162,11 @@ export function createRepoWatcher(
       }
       if (changes) repoManager.sendRepos();
     }
-  });
+  }
+
+  const folderChangeHandler = workspace.onDidChangeWorkspaceFolders((e) =>
+    track(onFolderChange(e))
+  );
 
   return {
     startWatching() {
@@ -154,6 +175,33 @@ export function createRepoWatcher(
         for (let i = 0; i < rootFolders.length; i++) {
           startWatchingFolder(getPathFromUri(rootFolders[i].uri));
         }
+      }
+    },
+    /**
+     * Run any batch still waiting out its debounce now, and settle once every
+     * batch and workspace folder change has finished — including work they
+     * queued while running. Once it resolves, nothing already reported to the
+     * watcher can still reach the repo manager.
+     *
+     * For tests: the batches are timers over real file system checks, so a
+     * fixed sleep can only guess they are done, and cannot show that no
+     * further call is coming (#286).
+     */
+    async flushPending(): Promise<void> {
+      while (
+        processCreateEventsTimeout !== null ||
+        processChangeEventsTimeout !== null ||
+        running.size > 0
+      ) {
+        if (processCreateEventsTimeout !== null) {
+          clearTimeout(processCreateEventsTimeout);
+          runCreateBatch();
+        }
+        if (processChangeEventsTimeout !== null) {
+          clearTimeout(processChangeEventsTimeout);
+          runChangeBatch();
+        }
+        await Promise.allSettled(running);
       }
     },
     dispose() {
