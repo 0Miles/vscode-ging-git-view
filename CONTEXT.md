@@ -1,6 +1,6 @@
 # GING
 
-一個 VS Code 擴充功能,在編輯器內顯示 git commit 圖形,並整合原生的原始檔控制側邊欄。
+一個 VS Code 擴充功能,在編輯器內顯示 git commit 圖形,並整合原生的原始檔控制側邊欄。同一份程式碼也要產出一個獨立的桌面版 Git GUI([#291](https://github.com/0Miles/vscode-ging-git-view/issues/291)),所以 GING 會有兩個宿主:VS Code 與桌面版。以下的詞彙寫於只有 VS Code 宿主的時候,其中 focused repository、active repository 這類以 VS Code 為前提的概念,已註明只屬於 VS Code 宿主;桌面版的對應說法留到階段 B 再定。
 
 工作區裡常同時開著多個存放庫,而「目前是哪一個存放庫」這件事在 VS Code 和 GING 各有一套答案,兩者不一定一致。以下詞彙就是為了把它們釘開。
 
@@ -9,11 +9,11 @@
 ### 存放庫的身分
 
 **Focused repository**:
-使用者在原生「原始檔控制存放庫」清單中選取的那個存放庫。同一時間**至多一個** —— 該清單的多選改變的是哪些存放庫可見,不是誰被聚焦。VS Code 只在它**改變**時通報,重複選取同一個不會有任何訊號。
+使用者在原生「原始檔控制存放庫」清單中選取的那個存放庫。同一時間**至多一個** —— 該清單的多選改變的是哪些存放庫可見,不是誰被聚焦。VS Code 只在它**改變**時通報,重複選取同一個不會有任何訊號。這是 VS Code 宿主才有的概念。
 _Avoid_: selected repository, current repository
 
 **Active repository**:
-VS Code 整體認定的當前存放庫 —— 取 focused repository 與「作用中編輯器所屬存放庫」兩者中較晚變動的那一個。它決定狀態列、變更數徽章等原生 UI 顯示誰。擴充功能無法指定它。
+VS Code 整體認定的當前存放庫 —— 取 focused repository 與「作用中編輯器所屬存放庫」兩者中較晚變動的那一個。它決定狀態列、變更數徽章等原生 UI 顯示誰。擴充功能無法指定它。這是 VS Code 宿主才有的概念。
 _Avoid_: current repository, focused repository
 
 **Current repository**:
@@ -22,7 +22,7 @@ GING 正在處理的存放庫 —— 圖形顯示它,分支與 remote 側檢視�
 _Avoid_: graph repository, active repo, last active repo
 
 **Known repository**:
-GING 已探索並納入管理的存放庫。來源有二:工作區搜尋,以及內建 git 擴充功能已開啟的所有存放庫(含 submodule 與 worktree)。只有 known repository 能出現在存放庫選單中,但明確指名的路徑仍可繞過此集合直接開啟。
+GING 已探索並納入管理的存放庫。在 VS Code 宿主裡,來源有二:工作區搜尋,以及內建 git 擴充功能已開啟的所有存放庫(含 submodule 與 worktree)。只有 known repository 能出現在存放庫選單中,但明確指名的路徑仍可繞過此集合直接開啟。
 這個集合同樣是跨工作階段保存的,所以它也可能列著已經不存在的目錄 —— 集合成員的身分不等於路徑仍然可用,兩者一樣由 `resolveCurrentRepo` 那組判準來分。圖形開機時要落在哪一個存放庫,由 host 端的 `pickBootRepo` 決定後送給 webview;webview 不從這個集合裡自己挑,它拿不到檔案系統。
 編輯器內的 inline blame 跟著編輯器走,不跟著 current repository 走:檔案一律在包含它的最深 known repository 裡 blame(submodule 與 worktree 裡的檔案因此用它自己的存放庫),不屬於任何 known repository 的檔案就不顯示;圖形在那期間顯示哪一個存放庫都不影響它。
 _Avoid_: discovered repo, tracked repo
