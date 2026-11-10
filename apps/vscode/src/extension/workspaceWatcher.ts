@@ -149,25 +149,24 @@ export function createRepoWatcher(
   );
   const folderChanges = inFlightWork();
 
-  function onWatcherCreate(uri: vscode.Uri) {
-    let path = getPathFromUri(uri);
-    if (path.indexOf("/.git/") > -1) return;
-    if (path.endsWith("/.git")) path = path.slice(0, -5);
-    createdPaths.add(path);
+  /** The folder a watcher event is about — a repo's `.git` stands for the repo
+   *  itself — or `null` for an event inside a `.git` directory. */
+  function folderOf(uri: vscode.Uri): string | null {
+    const path = getPathFromUri(uri);
+    if (path.indexOf("/.git/") > -1) return null;
+    return path.endsWith("/.git") ? path.slice(0, -5) : path;
   }
 
-  function onWatcherChange(uri: vscode.Uri) {
-    let path = getPathFromUri(uri);
-    if (path.indexOf("/.git/") > -1) return;
-    if (path.endsWith("/.git")) path = path.slice(0, -5);
-    changedPaths.add(path);
-  }
+  const queueInto = (batch: ReturnType<typeof debouncedBatch>) => (uri: vscode.Uri) => {
+    const path = folderOf(uri);
+    if (path !== null) batch.add(path);
+  };
+  const onWatcherCreate = queueInto(createdPaths);
+  const onWatcherChange = queueInto(changedPaths);
 
   function onWatcherDelete(uri: vscode.Uri) {
-    let path = getPathFromUri(uri);
-    if (path.indexOf("/.git/") > -1) return;
-    if (path.endsWith("/.git")) path = path.slice(0, -5);
-    if (repoManager.removeReposWithinFolder(path)) repoManager.sendRepos();
+    const path = folderOf(uri);
+    if (path !== null && repoManager.removeReposWithinFolder(path)) repoManager.sendRepos();
   }
 
   function startWatchingFolder(path: string) {
