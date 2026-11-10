@@ -49,19 +49,16 @@ export async function resetFileToRevision(
   git: SimpleGit,
   input: ActionPayload<"resetFileToRevision">
 ): Promise<void> {
-  // In both commands the "--" disambiguates the path from a ref.
+  const source = fileChangeRevision(input.commitHash, input.origin);
+  // The "--" disambiguates the path from a ref.
   if (input.origin === "untracked") {
-    // A stash's untracked file: write the working tree only, so the file comes
-    // back untracked, as it was stashed, and whatever is already staged under
-    // its name stays staged. (`checkout` would stage it, and unstaging it after
-    // would throw away the user's own staging.) `restore` needs git 2.23+.
-    const source = fileChangeRevision(input.commitHash, input.origin);
+    // Worktree only: the file stays untracked and the user's staging survives,
+    // where `checkout` would stage it. `restore` needs git 2.23+.
     await git.raw(["restore", "--source=" + source, "--worktree", "--", input.filePath]);
     return;
   }
-  // Restore the working-tree (and index) copy of a single file to its content
-  // at the given commit.
-  await git.raw(["checkout", input.commitHash, "--", input.filePath]);
+  // The working-tree and index copy, as of the commit.
+  await git.raw(["checkout", source, "--", input.filePath]);
 }
 
 export async function resetToCommit(
