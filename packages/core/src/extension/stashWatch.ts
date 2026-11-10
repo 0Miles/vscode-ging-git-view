@@ -91,6 +91,8 @@ export const STASH_REFRESH_DEBOUNCE_MS = 750;
  * dies with the graph panel — so the view keeps up with the graph closed.
  *
  * - Becoming visible re-reads straight away: nothing watched while hidden.
+ *   Once the watch is up it counts as a change too, since the list was read
+ *   before anything watched the stash log.
  * - A new repository is re-read straight away when visible, and waits for the
  *   view to be shown otherwise.
  * - A change in the stash log is re-read once it has been quiet for
@@ -141,6 +143,9 @@ export function createStashViewWatch(deps: {
       (commonDir) => {
         if (started !== generation || commonDir === null) return;
         watch = deps.watchStashLog(commonDir, onChange);
+        // The list was read before anything watched it; a stash may have
+        // landed meanwhile.
+        onChange();
       },
       () => {}
     );

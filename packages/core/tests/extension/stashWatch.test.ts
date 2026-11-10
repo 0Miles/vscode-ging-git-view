@@ -206,6 +206,17 @@ describe("createStashViewWatch", () => {
     expect(t.watched()).toEqual(["/repo/.git"]);
   });
 
+  it("re-reads once its watch is up, for a stash made while it was starting", async () => {
+    vi.useFakeTimers();
+    const t = fakeView();
+    t.view.setRepo("/repo");
+    t.view.setVisible(true);
+    await t.resolveNext("/repo/.git");
+    expect(t.refreshes()).toBe(1);
+    vi.advanceTimersByTime(STASH_REFRESH_DEBOUNCE_MS);
+    expect(t.refreshes()).toBe(2);
+  });
+
   it("stops watching while hidden, and refreshes again when shown", async () => {
     const t = await watchingView();
     t.view.setVisible(false);
