@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.9.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.8.0...v0.9.0) (2026-11-10)
+
+
+### Features
+
+* **blame:** end-of-line blame annotation on the cursor line ([#306](https://github.com/0Miles/vscode-ging-git-view/issues/306)) ([63bf9b0](https://github.com/0Miles/vscode-ging-git-view/commit/63bf9b098867da453f5bf701e9be9a697bd007e5))
+* **blame:** follow unsaved edits, typing, commits and checkouts ([#307](https://github.com/0Miles/vscode-ging-git-view/issues/307)) ([f25648e](https://github.com/0Miles/vscode-ging-git-view/commit/f25648ee341b55a154aedcca50756a66fc05fc69))
+* **blame:** hover card on the inline blame annotation, with copyable SHAs ([#308](https://github.com/0Miles/vscode-ging-git-view/issues/308)) ([51073a1](https://github.com/0Miles/vscode-ging-git-view/commit/51073a1baf38bbdc1a3c593f8d8662893b28de09))
+* **blame:** inline git blame in the editor — annotation, hover card, line diff ([#305](https://github.com/0Miles/vscode-ging-git-view/issues/305)) ([55fb65e](https://github.com/0Miles/vscode-ging-git-view/commit/55fb65e925fb028edea917e196d59af44a40b6ec))
+* **blame:** let the graph select and scroll to a located commit ([#310](https://github.com/0Miles/vscode-ging-git-view/issues/310)) ([5f0dadf](https://github.com/0Miles/vscode-ging-git-view/commit/5f0dadf2c3dc6946d748af389ab4d5300b28c177))
+* **blame:** link the hover to the commit's place in the GING graph ([#310](https://github.com/0Miles/vscode-ging-git-view/issues/310)) ([a0db6cc](https://github.com/0Miles/vscode-ging-git-view/commit/a0db6ccf9ef10b7d072adccb6266fd293f5d2b55))
+* **blame:** locate the blamed commit in the GING graph ([#310](https://github.com/0Miles/vscode-ging-git-view/issues/310)) ([21bb971](https://github.com/0Miles/vscode-ging-git-view/commit/21bb971690bdec6f19eb080a8da7c860869faa92))
+* **blame:** measure a commit's position in the graph's history ([#310](https://github.com/0Miles/vscode-ging-git-view/issues/310)) ([8a00a09](https://github.com/0Miles/vscode-ging-git-view/commit/8a00a09f4d7c0a3a520157b27f82a35e2cf80a6b))
+* **blame:** open the blamed line's change in a diff editor from the hover ([#309](https://github.com/0Miles/vscode-ging-git-view/issues/309)) ([8a237f5](https://github.com/0Miles/vscode-ging-git-view/commit/8a237f5411240141381767732cd90778ceb43ab8))
+* **checkout:** pull the remote into the existing local branch ([#290](https://github.com/0Miles/vscode-ging-git-view/issues/290)) ([1ac71b9](https://github.com/0Miles/vscode-ging-git-view/commit/1ac71b9be1898b86a9ee0e39fbe531333647aefd))
+* **checkout:** pull the remote into the existing local branch ([#290](https://github.com/0Miles/vscode-ging-git-view/issues/290)) ([4249cd4](https://github.com/0Miles/vscode-ging-git-view/commit/4249cd4b86a3006236d1cd0c5cd0073729335648))
+* **push:** advanced options to push one branch to a chosen remote and target ([67fceb7](https://github.com/0Miles/vscode-ging-git-view/commit/67fceb7413af3e3324c3afe1e86bac891ff6d67a)), closes [#303](https://github.com/0Miles/vscode-ging-git-view/issues/303)
+* **push:** fold the remote ticks, target and preview under Advanced ([64b00a1](https://github.com/0Miles/vscode-ging-git-view/commit/64b00a1ede9996960b17fd0fecb118731ee2584e)), closes [#17](https://github.com/0Miles/vscode-ging-git-view/issues/17)
+* **push:** push dialog advanced options for remote and target branch ([c95c091](https://github.com/0Miles/vscode-ging-git-view/commit/c95c09115e9bfba6bea6dd6346c7258728b7138c))
+* **push:** show where a single-branch push goes before it is sent ([23c2785](https://github.com/0Miles/vscode-ging-git-view/commit/23c27859a369d5a80f9fdadc98cff4c51d0bb3ab)), closes [#304](https://github.com/0Miles/vscode-ging-git-view/issues/304)
+
+
+### Bug Fixes
+
+* **blame:** blame clean files with mixed line endings from disk ([#307](https://github.com/0Miles/vscode-ging-git-view/issues/307)) ([d03ea1c](https://github.com/0Miles/vscode-ging-git-view/commit/d03ea1cd7ca891fe05ff1f3d42fbadcbba4d6b52))
+* **blame:** bound what the hover keeps per change ([#308](https://github.com/0Miles/vscode-ging-git-view/issues/308)) ([4955786](https://github.com/0Miles/vscode-ging-git-view/commit/4955786b20ef9d7b9e20380f3aba435690d4b83e))
+* **blame:** clear the branch filter only when it hides the located commit ([#310](https://github.com/0Miles/vscode-ging-git-view/issues/310)) ([cc9d37b](https://github.com/0Miles/vscode-ging-git-view/commit/cc9d37b0682a120e297907e09ea6e11ee32a88aa))
+* **blame:** code-review round 1 for live updates ([#307](https://github.com/0Miles/vscode-ging-git-view/issues/307)) ([7714e1a](https://github.com/0Miles/vscode-ging-git-view/commit/7714e1a76aa782222402d24b54e7c46efa22908d))
+* **blame:** code-review round 1 for opening the line's change ([#309](https://github.com/0Miles/vscode-ging-git-view/issues/309)) ([e04e962](https://github.com/0Miles/vscode-ging-git-view/commit/e04e962c34cbff94c1a5b6964baa8d477b5a1b38))
+* **blame:** code-review round 1 for the blame hover ([#308](https://github.com/0Miles/vscode-ging-git-view/issues/308)) ([5a110f7](https://github.com/0Miles/vscode-ging-git-view/commit/5a110f71b176e18e2dad20ed98f6ea3734abc957))
+* **blame:** code-review round 1 for the cursor-line annotation ([#306](https://github.com/0Miles/vscode-ging-git-view/issues/306)) ([1edd657](https://github.com/0Miles/vscode-ging-git-view/commit/1edd657ed53f3b2bddf87f650896302145fab671))
+* **blame:** code-review round 2 — stale versions and dead PIDs ([#306](https://github.com/0Miles/vscode-ging-git-view/issues/306)) ([3d6cfd3](https://github.com/0Miles/vscode-ging-git-view/commit/3d6cfd338854b9c0fc52a6ef6ab339d9f9ac42fb))
+* **blame:** code-review round 2 for live updates ([#307](https://github.com/0Miles/vscode-ging-git-view/issues/307)) ([1d5dff2](https://github.com/0Miles/vscode-ging-git-view/commit/1d5dff29e3d9fd424e035d17196a685b3192a637))
+* **blame:** hold the whole lookup to 5 s and make the toggle flip what the user sees ([1441db5](https://github.com/0Miles/vscode-ging-git-view/commit/1441db57176da4c699d31bd4e33f84e24418cbb5))
+* **blame:** host review round 1 for locating the commit ([#310](https://github.com/0Miles/vscode-ging-git-view/issues/310)) ([5f2f4c1](https://github.com/0Miles/vscode-ging-git-view/commit/5f2f4c14e8306729d39ea23c4617ce362ecc6bea))
+* **blame:** host review round 1 for opening the line's change ([#309](https://github.com/0Miles/vscode-ging-git-view/issues/309)) ([3f93c41](https://github.com/0Miles/vscode-ging-git-view/commit/3f93c4160e18e6e677f2e7d292a1e7f312acf11b))
+* **blame:** host review round 1 for the blame hover ([#308](https://github.com/0Miles/vscode-ging-git-view/issues/308)) ([637715a](https://github.com/0Miles/vscode-ging-git-view/commit/637715a7a1a87b8e8219554724c6371c74af948e))
+* **blame:** host review round 2 for locating the commit ([#310](https://github.com/0Miles/vscode-ging-git-view/issues/310)) ([98f4336](https://github.com/0Miles/vscode-ging-git-view/commit/98f43362fc741dc69cb8c6f2b63c02ea4d2206c9))
+* **graph:** host review round 1 for delegated messages ([#325](https://github.com/0Miles/vscode-ging-git-view/issues/325)) ([06d23a6](https://github.com/0Miles/vscode-ging-git-view/commit/06d23a6fdf92465f7275739f36dd9f38e7a76693))
+* **graph:** queue delegated messages and scope Show All to its repo ([#325](https://github.com/0Miles/vscode-ging-git-view/issues/325)) ([4748ce6](https://github.com/0Miles/vscode-ging-git-view/commit/4748ce6816731390d4ef3f382888a670d938240d))
+* **graph:** queue delegated messages and scope Show All to its repo ([#325](https://github.com/0Miles/vscode-ging-git-view/issues/325)) ([7905870](https://github.com/0Miles/vscode-ging-git-view/commit/7905870ec227cc3785414eb54f90c513a834d1fc))
+* **l10n:** add the Find "open details" tooltip string ([#313](https://github.com/0Miles/vscode-ging-git-view/issues/313)) ([b9d6f1c](https://github.com/0Miles/vscode-ging-git-view/commit/b9d6f1c70de4619c1889ead1bfe24cd8c6eaa144))
+* **l10n:** add the Find "open details" tooltip string ([#313](https://github.com/0Miles/vscode-ging-git-view/issues/313)) ([1354c16](https://github.com/0Miles/vscode-ging-git-view/commit/1354c16d58587ce746b14654b445d9e3b79a623c))
+* **l10n:** say the Find details toggle works while navigating ([#313](https://github.com/0Miles/vscode-ging-git-view/issues/313)) ([05bffb4](https://github.com/0Miles/vscode-ging-git-view/commit/05bffb48858cf421401d85cce00bc40a47847785))
+* **push:** host review round 1 for the named-target lease hint ([#311](https://github.com/0Miles/vscode-ging-git-view/issues/311)) ([0e73271](https://github.com/0Miles/vscode-ging-git-view/commit/0e7327131d745a46764f80912ad7d2d6f8b92fe1))
+* **push:** point a lease refused on a named target at Force ([#311](https://github.com/0Miles/vscode-ging-git-view/issues/311)) ([c5d69d0](https://github.com/0Miles/vscode-ging-git-view/commit/c5d69d02b83d0bf914766443bc6b606eccee6b99))
+* **push:** point a lease refused on a renamed target at Force ([#311](https://github.com/0Miles/vscode-ging-git-view/issues/311)) ([b1f82a0](https://github.com/0Miles/vscode-ging-git-view/commit/b1f82a0d671b9de8282195f20796d0611cc05d20))
+* **push:** review round for the named-target lease hint ([#311](https://github.com/0Miles/vscode-ging-git-view/issues/311)) ([6aa9ce4](https://github.com/0Miles/vscode-ging-git-view/commit/6aa9ce44d3ea56189b83f9ad404b1232f32f1625))
+
 ## [0.8.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.7.0...v0.8.0) (2026-10-31)
 
 
