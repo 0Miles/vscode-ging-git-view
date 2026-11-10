@@ -3565,11 +3565,12 @@ class GitGraphView {
             }
           ],
           command === "popStash" ? l10n.stashPop : l10n.stashApply,
-          this.forStash(refName, (repo, values: string[]) => {
+          this.forStash(refName, (repo, expectedHash, values: string[]) => {
             sendMessage({
               command,
               repo,
               selector: refName,
+              expectedHash,
               reinstateIndex: values[0] === "checked"
             });
           }),
@@ -3589,8 +3590,8 @@ class GitGraphView {
           // dialogs' ({@link forStash}).
           showConfirmationDialog(
             fillTemplate(l10n.dialogStashDropConfirm, "<b><i>" + escapeHtml(refName) + "</i></b>"),
-            this.forStash(refName, (repo) => {
-              sendMessage({ command: "dropStash", repo, selector: refName });
+            this.forStash(refName, (repo, expectedHash) => {
+              sendMessage({ command: "dropStash", repo, selector: refName, expectedHash });
             }),
             sourceElem
           );
@@ -3599,8 +3600,8 @@ class GitGraphView {
           // Pre-fill with the stash's current displayed name (its commit
           // subject), taken from the loaded stash node for this ref.
           const currentMessage = this.stashNodeFor(refName)?.message ?? "";
-          const rename = this.forStash(refName, (repo, message: string) => {
-            sendMessage({ command: "renameStash", repo, selector: refName, message });
+          const rename = this.forStash(refName, (repo, expectedHash, message: string) => {
+            sendMessage({ command: "renameStash", repo, selector: refName, expectedHash, message });
           });
           showFormDialog(
             fillTemplate(l10n.dialogStashRenameTitle, "<b><i>" + escapeHtml(refName) + "</i></b>"),
@@ -5386,20 +5387,23 @@ class GitGraphView {
    * pop applies someone else's work before dropping it, so this is
    * {@link confirmForRepoAndHead}'s case rather than `confirmForRepo`'s — fail
    * safe, and say so.
+   *
+   * The bound hash also goes out as the action's `expectedHash`, for the
+   * host's own check (`StashTarget`, {@link handleStashResponse}).
    */
   private forStash<A extends unknown[]>(
     selector: string,
-    actioned: (repo: string, ...answer: A) => void
+    actioned: (repo: string, expectedHash: string, ...answer: A) => void
   ): (...answer: A) => void {
-    // Never undefined here — the menu was opened on a row this lookup's own
-    // list drew.
+    // Always set for a drawn row — the menu was opened on one this lookup's
+    // own list drew. Should it ever not be, refuse rather than send no hash.
     const stashHash = this.stashNodeFor(selector)?.hash;
     return this.forRepo((repo, ...answer: A) => {
-      if (this.stashNodeFor(selector)?.hash !== stashHash) {
+      if (stashHash === undefined || this.stashNodeFor(selector)?.hash !== stashHash) {
         showErrorDialog(fillTemplate(l10n.dialogStashMoved, escapeHtml(selector)), null, null);
         return;
       }
-      actioned(repo, ...answer);
+      actioned(repo, stashHash, ...answer);
     });
   }
 
@@ -9401,9 +9405,6 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "checkoutAndPullBranch":
     case "checkoutCommit":
     case "dropCommit":
-    case "applyStash":
-    case "popStash":
-    case "dropStash":
     case "resetUncommittedChanges":
     case "cleanUntrackedFiles":
     case "continueOperation":
@@ -9415,7 +9416,6 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "deleteRemoteBranch":
     case "deleteTag":
     case "fetchIntoLocalBranch":
-    case "renameStash":
     case "fastForwardBranch":
     case "mergeBranch":
     case "mergeCommit":
@@ -9437,6 +9437,12 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       // `refreshGraphOrDisplayError` is what closes the action's progress
       // dialog, so the omission strands the user behind it.
       refreshGraphOrDisplayError(msg.status, l10n[ACTION_FAILURE[msg.command]]);
+      break;
+    case "applyStash":
+    case "popStash":
+    case "dropStash":
+    case "renameStash":
+      handleStashResponse(msg.status, msg.movedSelector, l10n[ACTION_FAILURE[msg.command]]);
       break;
     case "operationState":
       gitGraph.showConflictBanner(msg.operation, msg.conflictedFiles);
@@ -9663,8 +9669,10 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
  *
  * `deleteBranch` and `pushBranch` are excluded because they do not belong
  * here: each reports a classification as well (`notFullyMerged`,
- * `remoteUpdatedSinceCheckout`) and has a response handler built on it. `fetch`
- * is included though it is not an action — its response carries
+ * `remoteUpdatedSinceCheckout`) and has a response handler built on it. The
+ * four stash actions stay in although {@link handleStashResponse} handles
+ * them: it reports every failure but a moved stash with the message here.
+ * `fetch` is included though it is not an action — its response carries
  * `status` and reports failure exactly the same way.
  *
  * The three rebases share one message deliberately: which of them ran was
@@ -9719,6 +9727,23 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
     // during the action, so this is what surfaces the conflict banner without a
     // manual refresh. (Harmless for non-operation failures — state is unchanged.)
     raiseAnswerError(errorMessage, status, () => gitGraph.refresh(false));
+  }
+}
+
+/** Handle a stash action's response. The host's moved-stash refusal
+ *  (`StashTarget`) reads as {@link GitGraphView.forStash}'s does, with no git
+ *  line beneath it, since git ran nothing; the graph refreshes on dismissal. */
+function handleStashResponse(
+  status: GitCommandStatus,
+  movedSelector: string | null,
+  failure: string
+) {
+  if (movedSelector !== null) {
+    raiseAnswerError(fillTemplate(l10n.dialogStashMoved, escapeHtml(movedSelector)), null, () =>
+      gitGraph.refresh(false)
+    );
+  } else {
+    refreshGraphOrDisplayError(status, failure);
   }
 }
 
