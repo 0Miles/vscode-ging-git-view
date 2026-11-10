@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { applyStash, dropStash, popStash, StashMovedError } from "@ging/core/backend/actions/stash";
 
-import { git, makeRepo, rejection, rev, rmrf } from "@ging/core/tests/helpers";
+import { git, makeRepo, pushTwoStashes, rejection, rev, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 
@@ -68,17 +68,9 @@ describe("stash actions", () => {
   });
 
   describe("when the stack has moved since the selector was read", () => {
-    /** Two stashes, `older` first: the one the caller read as `stash@{0}`,
-     *  before `newer` was pushed on top of it and took its number. */
     function pushTwo() {
       repo = makeRepo();
-      fs.writeFileSync(path.join(repo, "f"), "older");
-      git(["stash", "push", "-m", "older"], repo);
-      const older = rev(repo, "stash@{0}");
-      fs.writeFileSync(path.join(repo, "f"), "newer");
-      git(["stash", "push", "-m", "newer"], repo);
-      const newer = rev(repo, "stash@{0}");
-      return { older, newer };
+      return pushTwoStashes(repo);
     }
 
     /** The stack, top first, as commit SHAs. */

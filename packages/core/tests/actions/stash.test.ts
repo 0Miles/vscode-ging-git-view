@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { renameStash, StashMovedError } from "@ging/core/backend/actions/stash";
 import { loadStashes } from "@ging/core/backend/queries/loadStashes";
 
-import { git, makeRepo, rejection, rev, rmrf } from "@ging/core/tests/helpers";
+import { git, makeRepo, pushTwoStashes, rejection, rev, rmrf } from "@ging/core/tests/helpers";
 
 const repos: string[] = [];
 afterEach(() => {
@@ -43,11 +43,7 @@ describe("renameStash (real git)", () => {
   it("refuses to rename the stash that inherited the number, leaving the stack as it was", async () => {
     const repo = makeRepo();
     repos.push(repo);
-    fs.writeFileSync(path.join(repo, "f"), "older");
-    git(["stash", "push", "-m", "older"], repo);
-    const older = rev(repo, "stash@{0}");
-    fs.writeFileSync(path.join(repo, "f"), "newer");
-    git(["stash", "push", "-m", "newer"], repo);
+    const { older } = pushTwoStashes(repo);
 
     const error = await rejection(
       renameStash(simpleGit(repo), {

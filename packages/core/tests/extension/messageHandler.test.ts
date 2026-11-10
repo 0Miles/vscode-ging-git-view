@@ -13,7 +13,16 @@ import {
 import { webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { RequestMessage } from "@ging/shared/types";
 
-import { fakePorts, fakeWebview, git, makeRepo, rmrf, toRepoPath } from "@ging/core/tests/helpers";
+import {
+  fakePorts,
+  fakeWebview,
+  git,
+  makeRepo,
+  pushTwoStashes,
+  rev,
+  rmrf,
+  toRepoPath
+} from "@ging/core/tests/helpers";
 
 // The message dispatch, driven the way the webview drives it — a request in
 // over the channel, the responses out of it — with every host capability a
@@ -200,11 +209,7 @@ describe("actions", () => {
   });
 
   it("names the selector of a stash action refused because the stack moved", async () => {
-    fs.writeFileSync(path.join(repo, "f"), "older");
-    git(["stash", "push", "-m", "older"], repo);
-    const older = revParse(repo, "stash@{0}");
-    fs.writeFileSync(path.join(repo, "f"), "newer");
-    git(["stash", "push", "-m", "newer"], repo);
+    const { older } = pushTwoStashes(repo);
     const h = harness();
     await h.send({ command: "selectRepo", repo });
 
@@ -228,7 +233,7 @@ describe("actions", () => {
     await h.send({
       command: "dropStash",
       selector: "stash@{0}",
-      expectedHash: revParse(repo, "stash@{0}")
+      expectedHash: rev(repo, "stash@{0}")
     } as RequestMessage);
 
     expect(h.posted).toEqual([{ command: "dropStash", status: null, movedSelector: null }]);
@@ -508,6 +513,6 @@ describe("reportError", () => {
   });
 });
 
-function revParse(cwd: string, rev: string): string {
-  return cp.execFileSync("git", ["rev-parse", rev], { cwd }).toString().trim();
+function revParse(cwd: string, revision: string): string {
+  return cp.execFileSync("git", ["rev-parse", revision], { cwd }).toString().trim();
 }

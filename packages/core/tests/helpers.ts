@@ -154,6 +154,21 @@ export function makeRepo(): string {
 }
 
 /**
+ * Push two stashes onto `repo` (a `makeRepo()`), changing its file "f" for
+ * each, and return their SHAs. `older` is what a caller would have read as
+ * `stash@{0}` before `newer` was pushed on top of it and took its number. The
+ * working tree is left clean: "f" is "x" again.
+ */
+export function pushTwoStashes(repo: string): { older: string; newer: string } {
+  fs.writeFileSync(path.join(repo, "f"), "older");
+  git(["stash", "push", "-m", "older"], repo);
+  const older = rev(repo, "stash@{0}");
+  fs.writeFileSync(path.join(repo, "f"), "newer");
+  git(["stash", "push", "-m", "newer"], repo);
+  return { older, newer: rev(repo, "stash@{0}") };
+}
+
+/**
  * A temp repo copied from `seed` (a `makeRepo()` made once per suite), for hooks
  * whose budget is too tight for three spawns under load. One spawn instead,
  * about a quarter of `makeRepo()`'s time (#283).
