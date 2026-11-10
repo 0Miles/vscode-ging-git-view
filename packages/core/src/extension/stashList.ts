@@ -1,7 +1,13 @@
 import type { SimpleGit } from "simple-git";
 
-import { stashSelectorResolvesTo } from "@ging/core/backend/actions/stash";
+import {
+  dropStash,
+  renameStash,
+  StashMovedError,
+  stashSelectorResolvesTo
+} from "@ging/core/backend/actions/stash";
 import { commitDetails } from "@ging/core/backend/queries/commitDetails";
+import { formatGitError } from "@ging/core/backend/utils/gitError";
 import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
 import type { Clipboard, L10n, Prompts } from "@ging/core/host/ports";
 import type { GitFileChangeType, ScmStashEntry } from "@ging/shared/backend/types";
@@ -75,6 +81,96 @@ export async function copyStashName(
   }
   await deps.clipboard.writeText(shown.selector);
   return "copied";
+}
+
+/** What drop and rename on a listed stash need from the host: the `Asks`
+ *  they put to the user, and the two ways of reporting back. */
+type ListedStashDeps<Asks extends keyof Prompts> = {
+  git: SimpleGit;
+  prompts: Pick<Prompts, Asks | "showWarning" | "showError">;
+  l10n: Pick<L10n, "t">;
+  /** Re-read the list. */
+  refresh: () => void;
+};
+
+/** Everything any action on a listed stash needs from the host. */
+export type ListedStashHost = ListedStashDeps<"confirm" | "input"> & {
+  clipboard: Pick<Clipboard, "writeText">;
+};
+
+/**
+ * Run a stash action the user agreed to, then re-read the list whatever came
+ * of it — even a failed rename may have dropped the old entry. A stash that
+ * moved is refused by the action itself (`StashMovedError`, #334) and told
+ * apart from git failing: the user is warned, as `copyStashName` warns.
+ */
+async function runAgreed(
+  deps: ListedStashDeps<never>,
+  failureKey: string,
+  action: () => Promise<void>
+): Promise<"done" | "refused" | "failed"> {
+  try {
+    await action();
+    return "done";
+  } catch (error) {
+    if (error instanceof StashMovedError) {
+      deps.prompts.showWarning(deps.l10n.t("stashView.stashMovedNothingDone"));
+      return "refused";
+    }
+    void deps.prompts.showError(deps.l10n.t(failureKey) + ": " + formatGitError(error));
+    return "failed";
+  } finally {
+    deps.refresh();
+  }
+}
+
+/**
+ * Drop on a listed stash. The question names the selector the item shows, and
+ * that selector is what the answer agrees to: it is sent as shown, with the
+ * SHA the item was listed under, never looked up again. A stash that has moved
+ * since — before the menu opened or while the question was up — is refused
+ * by `dropStash`, not redirected (#333). Dismissing runs no git.
+ */
+export async function dropListedStash(
+  deps: ListedStashDeps<"confirm">,
+  shown: Pick<StashListItem, "hash" | "selector">
+): Promise<"dropped" | "cancelled" | "refused" | "failed"> {
+  const drop = deps.l10n.t("action.stashDrop");
+  const answer = await deps.prompts.confirm(
+    deps.l10n.t("dialog.stash.dropConfirm", shown.selector),
+    drop
+  );
+  if (answer !== drop) return "cancelled";
+  const outcome = await runAgreed(deps, "error.unableToDropStash", () =>
+    dropStash(deps.git, { selector: shown.selector, expectedHash: shown.hash })
+  );
+  return outcome === "done" ? "dropped" : outcome;
+}
+
+/**
+ * Rename on a listed stash: a new message for it, starting from the one it
+ * has, bound to the item the way `dropListedStash` is. An empty answer
+ * cancels, as the graph's rename does; so does an unchanged one, which would
+ * only move the stash to the top (`renameStash`) under the same name. No
+ * git runs for either.
+ */
+export async function renameListedStash(
+  deps: ListedStashDeps<"input">,
+  shown: Pick<StashListItem, "hash" | "selector" | "message">
+): Promise<"renamed" | "cancelled" | "refused" | "failed"> {
+  const message = (
+    await deps.prompts.input({
+      prompt: deps.l10n.t("dialog.stash.renameTitle", shown.selector),
+      placeholder: "",
+      password: false,
+      value: shown.message
+    })
+  )?.trim();
+  if (message === undefined || message === "" || message === shown.message) return "cancelled";
+  const outcome = await runAgreed(deps, "error.unableToRenameStash", () =>
+    renameStash(deps.git, { selector: shown.selector, expectedHash: shown.hash, message })
+  );
+  return outcome === "done" ? "renamed" : outcome;
 }
 
 /** One file of an expanded stash. */

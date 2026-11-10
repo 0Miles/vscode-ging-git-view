@@ -2,13 +2,15 @@ import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { simpleGit } from "simple-git";
+import { simpleGit, type SimpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { commitDiffView } from "@ging/core/extension/commitDiff";
 import {
   copyStashName,
+  dropListedStash,
   loadStashFiles,
+  renameListedStash,
   sameStashList,
   stashListItems
 } from "@ging/core/extension/stashList";
@@ -133,6 +135,221 @@ describe("copyStashName (real git)", () => {
       warnings: ["stashView.stashMoved"],
       refreshed: 1
     });
+  });
+});
+
+/** The stash list as `git stash list` has it now: each entry's SHA and subject,
+ *  newest first. */
+const stashList = (repo: string) =>
+  cp
+    .execFileSync("git", ["stash", "list", "--format=%H %s"], { cwd: repo, stdio: "pipe" })
+    .toString()
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => {
+      const [hash, ...subject] = line.split(" ");
+      return { hash, subject: subject.join(" ") };
+    });
+
+/**
+ * A git client that records every touch and does nothing, for proving a
+ * cancelled action never reached git. Recording rather than throwing: an
+ * action catching the throw would report a failure and hide the touch.
+ */
+function untouchableGit() {
+  const touched: string[] = [];
+  const client = new Proxy({} as SimpleGit, {
+    get: (_target, name) => {
+      touched.push(String(name));
+      return () => Promise.resolve("");
+    }
+  });
+  return { client, touched };
+}
+
+/** A listed-stash action's host, answering its one question with `answer`
+ *  (run first, so a test can change the repository while it is "open"). */
+function listedStashHost(gitClient: SimpleGit, answer: () => string | undefined) {
+  const calls: unknown[][] = [];
+  let refreshed = 0;
+  const deps = {
+    git: gitClient,
+    prompts: {
+      showWarning: (message: string) => void calls.push(["showWarning", message]),
+      showError: async (message: string) => {
+        calls.push(["showError", message]);
+        return undefined;
+      },
+      confirm: async (message: string, ...actions: string[]) => {
+        calls.push(["confirm", message, ...actions]);
+        return answer();
+      },
+      input: async (options: { prompt: string; value?: string }) => {
+        calls.push(["input", options.prompt, options.value]);
+        return answer();
+      }
+    },
+    l10n: { t: (key: string, ...args: unknown[]) => [key, ...args].join(" ") },
+    refresh: () => refreshed++
+  };
+  return { deps, calls, refreshed: () => refreshed };
+}
+
+describe("dropListedStash (real git)", () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmrf(repo);
+  });
+
+  it("asks with the shown selector, and drops that stash on Drop", async () => {
+    repo = makeRepo();
+    const { older, newer } = pushTwoStashes(repo);
+    const host = listedStashHost(simpleGit(repo), () => "action.stashDrop");
+
+    const outcome = await dropListedStash(host.deps, { hash: older, selector: "stash@{1}" });
+
+    expect(outcome).toBe("dropped");
+    expect(host.calls).toEqual([
+      ["confirm", "dialog.stash.dropConfirm stash@{1}", "action.stashDrop"]
+    ]);
+    expect(stashList(repo).map((s) => s.hash)).toEqual([newer]);
+    expect(host.refreshed()).toBe(1);
+  });
+
+  it("does not touch git when the question is dismissed", async () => {
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+    const { client: noGit, touched } = untouchableGit();
+    const host = listedStashHost(noGit, () => undefined);
+
+    const outcome = await dropListedStash(host.deps, { hash: older, selector: "stash@{1}" });
+
+    expect(outcome).toBe("cancelled");
+    expect(touched).toEqual([]);
+    expect(host.refreshed()).toBe(0);
+  });
+
+  it("refuses, dropping nothing, when the stash moved before the menu was opened", async () => {
+    repo = makeRepo();
+    // `older` was listed at stash@{0}, before `newer` was pushed on top of it:
+    // stash@{0} is now `newer`, which must survive.
+    const { older, newer } = pushTwoStashes(repo);
+    const host = listedStashHost(simpleGit(repo), () => "action.stashDrop");
+
+    const outcome = await dropListedStash(host.deps, { hash: older, selector: "stash@{0}" });
+
+    expect(outcome).toBe("refused");
+    expect(stashList(repo).map((s) => s.hash)).toEqual([newer, older]);
+    expect(host.calls.at(-1)).toEqual(["showWarning", "stashView.stashMovedNothingDone"]);
+    expect(host.refreshed()).toBe(1);
+  });
+
+  it("refuses, dropping nothing, when the stash moved while the question was open", async () => {
+    repo = makeRepo();
+    const { older, newer } = pushTwoStashes(repo);
+    let pushed = "";
+    // Shown at stash@{1}; a push lands while the user reads the question, so
+    // stash@{1} becomes `newer`. The selector the question named is the one
+    // consented to — it is not looked up again, nor redirected to `older`.
+    const host = listedStashHost(simpleGit(repo), () => {
+      fs.writeFileSync(path.join(repo, "f"), "newest");
+      git(["stash", "push", "-m", "newest"], repo);
+      pushed = rev(repo, "stash@{0}");
+      return "action.stashDrop";
+    });
+
+    const outcome = await dropListedStash(host.deps, { hash: older, selector: "stash@{1}" });
+
+    expect(outcome).toBe("refused");
+    expect(stashList(repo).map((s) => s.hash)).toEqual([pushed, newer, older]);
+  });
+
+  it("reports git's failure and refreshes, when the drop itself fails", async () => {
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+    // A lock git cannot take: the reflog rewrite the drop needs fails.
+    fs.writeFileSync(path.join(repo, ".git", "refs", "stash.lock"), "");
+    const host = listedStashHost(simpleGit(repo), () => "action.stashDrop");
+
+    const outcome = await dropListedStash(host.deps, { hash: older, selector: "stash@{1}" });
+
+    expect(outcome).toBe("failed");
+    const [kind, message] = host.calls.at(-1) as [string, string];
+    expect(kind).toBe("showError");
+    expect(message.startsWith("error.unableToDropStash: ")).toBe(true);
+    expect(host.refreshed()).toBe(1);
+  });
+});
+
+describe("renameListedStash (real git)", () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmrf(repo);
+  });
+
+  it("asks with the shown selector and message, and renames that stash", async () => {
+    repo = makeRepo();
+    const { older, newer } = pushTwoStashes(repo);
+    const host = listedStashHost(simpleGit(repo), () => "  renamed  ");
+
+    const outcome = await renameListedStash(host.deps, {
+      hash: older,
+      selector: "stash@{1}",
+      message: "On main: older"
+    });
+
+    expect(outcome).toBe("renamed");
+    expect(host.calls).toEqual([["input", "dialog.stash.renameTitle stash@{1}", "On main: older"]]);
+    // Rebuilt under a new SHA and stored on top (see `renameStash`); `newer`
+    // is untouched.
+    const list = stashList(repo);
+    expect(list.map((s) => s.subject)).toEqual(["renamed", "On main: newer"]);
+    expect(list[1].hash).toBe(newer);
+    expect(list[0].hash).not.toBe(older);
+    expect(host.refreshed()).toBe(1);
+  });
+
+  it.each([
+    ["dismissed", undefined],
+    ["left empty", "   "],
+    ["left as it was", "On main: older"]
+  ])("does not touch git when the message is %s", async (_case, answer) => {
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+    const { client: noGit, touched } = untouchableGit();
+    const host = listedStashHost(noGit, () => answer);
+
+    const outcome = await renameListedStash(host.deps, {
+      hash: older,
+      selector: "stash@{1}",
+      message: "On main: older"
+    });
+
+    expect(outcome).toBe("cancelled");
+    expect(touched).toEqual([]);
+    expect(host.refreshed()).toBe(0);
+  });
+
+  it("refuses, renaming nothing, once the stash has moved", async () => {
+    repo = makeRepo();
+    const { older, newer } = pushTwoStashes(repo);
+    const host = listedStashHost(simpleGit(repo), () => "renamed");
+
+    const outcome = await renameListedStash(host.deps, {
+      hash: older,
+      selector: "stash@{0}",
+      message: "On main: older"
+    });
+
+    expect(outcome).toBe("refused");
+    expect(stashList(repo)).toEqual([
+      { hash: newer, subject: "On main: newer" },
+      { hash: older, subject: "On main: older" }
+    ]);
+    expect(host.calls.at(-1)).toEqual(["showWarning", "stashView.stashMovedNothingDone"]);
+    expect(host.refreshed()).toBe(1);
   });
 });
 

@@ -41,6 +41,7 @@ import {
   CATALOGUE_REF_ACTIONS,
   isBatchAction
 } from "@ging/shared/backend/utils/refActionCatalogue";
+import { stashMenuContextKeys } from "@ging/shared/backend/utils/stashActionCatalogue";
 import type { BatchSkipped, RepoSettingField } from "@ging/shared/types";
 
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/uri";
@@ -260,15 +261,11 @@ export function activate(context: vscode.ExtensionContext) {
   followRepo(extensionState.getLastActiveRepo());
 
   // Mirror the graph's context-menu visibility settings onto when-clause
-  // context keys. Branch keys are projected from the action catalogue
-  // (ADR-0010), so a new one is declared there; the catalogue has no stash
-  // actions, so the stash key is spelled out.
+  // context keys. Both are projected from the action catalogues (ADR-0010),
+  // so a new key is declared there.
   const syncBranchMenuVisibility = () => {
     const cmv = config.contextMenuActionsVisibility();
-    const keys = {
-      ...branchMenuContextKeys(cmv),
-      "ging-git-view.cmv.stash.copyName": cmv.stash.copyName
-    };
+    const keys = { ...branchMenuContextKeys(cmv), ...stashMenuContextKeys(cmv) };
     for (const [key, value] of Object.entries(keys)) {
       void vscode.commands.executeCommand("setContext", key, value);
     }

@@ -66,6 +66,10 @@ export interface Prompts {
   showWarning(message: string): void;
   /** An error notification offering `actions`; resolves to the one chosen. */
   showError(message: string, ...actions: string[]): PromiseLike<string | undefined>;
+  /** A modal question offering `actions` — the host adds its own way to say
+   *  no, so `actions` lists only the ways to say yes; resolves to the one
+   *  chosen. Only buttons: no checkbox, since the VS Code host has none. */
+  confirm(message: string, ...actions: string[]): PromiseLike<string | undefined>;
   /** Where to write a file; resolves to the chosen path. */
   pickSaveLocation(options: {
     saveLabel: string;
@@ -75,12 +79,14 @@ export interface Prompts {
   }): PromiseLike<string | undefined>;
   /** A line of text. The prompt stays up until it is answered or dismissed —
    *  not lost to a focus change — because what asks may be blocked on it (git
-   *  waiting for a credential, today's only caller). */
+   *  waiting for a credential). */
   input(options: {
     prompt: string;
     placeholder: string;
     /** Mask what is typed. */
     password: boolean;
+    /** Text the answer starts from, e.g. the name being changed. */
+    value?: string;
   }): PromiseLike<string | undefined>;
 }
 

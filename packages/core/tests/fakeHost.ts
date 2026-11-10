@@ -81,6 +81,10 @@ export function fakePorts() {
         calls.push(["showError", ...args]);
         return answers.showError;
       },
+      confirm: async (...args) => {
+        calls.push(["confirm", ...args]);
+        return undefined;
+      },
       pickSaveLocation: async (options) => {
         calls.push(["pickSaveLocation", options]);
         return answers.saveLocation;
