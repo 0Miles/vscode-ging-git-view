@@ -10,7 +10,7 @@ export interface WebviewChannel {
 
 export function webviewBridgeFactory(
   webview: WebviewChannel,
-  repoFileWatcher: Pick<Watcher, "mute" | "unmute">,
+  watcher: Pick<Watcher, "mute" | "unmute">,
   /** Called after every repo-mutating handler. This — not the file watcher — is
    *  the reliable signal that refs changed: the watcher is muted across exactly
    *  these handlers and discards their own fs events, so hanging cache
@@ -37,7 +37,7 @@ export function webviewBridgeFactory(
     // operation (e.g. `git rebase`) is in progress the webview keeps sending
     // queries, and muting for each of them would swallow the very fs events
     // that signal the operation finished (issue #26).
-    if (entry.mutatesRepo) repoFileWatcher.mute();
+    if (entry.mutatesRepo) watcher.mute();
     try {
       await entry.handler(msg);
     } finally {
@@ -45,7 +45,7 @@ export function webviewBridgeFactory(
       // half-way (a batch delete that removed three of five branches) and the
       // refs it did change are still changed.
       if (entry.mutatesRepo) {
-        repoFileWatcher.unmute();
+        watcher.unmute();
         onRepoMutated();
       }
     }
