@@ -2,7 +2,7 @@
 status: accepted
 ---
 
-# monorepo 的內部套件只交出原始碼,由各 app 的 esbuild 打包
+# monorepo 的內部套件只交出原始碼,由各 app 的 esbuild 打包;擴充仍以 repo 根目錄發版,文件與 l10n 在打包時才複製進去
 
 這個 repo 是一個 pnpm workspace:`packages/shared`(`@ging/shared`)、`packages/core`(`@ging/core`)、`packages/webview`(`@ging/webview`)三個內部套件,加上 `apps/vscode`(擴充本體 `ging-git-view`);桌面版的 `apps/desktop` 留到階段 B 才建立([#291](https://github.com/0Miles/vscode-ging-git-view/issues/291))。內部套件一律是 **source-only**:`private`、版號 `0.0.0`,`exports` 直接指向原始碼與原始資產 —— `./src/*.ts`,以及 shared 的 `./l10n/*`、webview 的 `./media/*`,core 另外匯出測試用的 `./tests/helpers` —— 自己沒有 build、沒有 `out/`、不產生 `.d.ts`。把它們變成可執行檔案的只有 app —— `apps/vscode/esbuild.js` 從各套件的 `exports` 找到入口,打出 `out/extension.js`、webview 的 bundle,以及 askpass 與 sequence editor 兩支 helper,跟重構前的建置方式一模一樣。
 
