@@ -340,6 +340,7 @@
   "remotes.editUrl": "Edit URL",
   "remotes.rename": "Rename",
   "remotes.remove": "Remove",
+  "stashView.stashGone": "This stash no longer exists.",
   "remotes.actionPrompt": "Choose an action for remote {0}",
   "remotes.renamePrompt": "New name for the remote",
   "remotes.removeConfirm": "Remove the remote {0}? This also deletes its remote-tracking references.",
