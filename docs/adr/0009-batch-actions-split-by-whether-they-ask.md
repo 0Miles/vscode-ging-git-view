@@ -10,7 +10,7 @@ status: accepted
 
 `copyName` 的批次實作在 `apps/vscode/src/extension.ts`,`delete` 的批次實作在 `packages/webview/src/main.ts` —— 同一個右鍵選單上的兩個項目落在兩個不同的行程裡,看起來像是有人偷懶沒統一。
 
-分流的理由是**委派的正當性有邊界**。委派存在的唯一目的,是不要把圖內選單已經有的對話框再寫一份(見 `extension.ts` 的 `runRefActionInGraph` 註解)。對單一動作,這個理由成立。但批次對話框在圖內**根本不存在**,所以「沿用」對批次不成立;剩下的只有委派的成本:`openGraphView()` 會把圖形面板叫到前景,而 webview 隱藏時會掉訊息(沒開 `retainContextWhenHidden`),現有的 `pendingRefAction` + `seq` 雙路投遞就是為了補償這件事。對一個「連 UI 都不需要」的動作付這個成本是純虧。
+分流的理由是**委派的正當性有邊界**。委派存在的唯一目的,是不要把圖內選單已經有的對話框再寫一份(見 `packages/core/src/extension/branchActionDelegate.ts` 的 `run` 註解)。對單一動作,這個理由成立。但批次對話框在圖內**根本不存在**,所以「沿用」對批次不成立;剩下的只有委派的成本:`openGraphView()` 會把圖形面板叫到前景,而 webview 隱藏時會掉訊息(沒開 `retainContextWhenHidden`),現有的 `pendingRefAction` + `seq` 雙路投遞就是為了補償這件事。對一個「連 UI 都不需要」的動作付這個成本是純虧。
 
 界線畫在「**是否需要詢問**」,而不是「是否危險」或「是否有參數要選」:確認框本身就是 UI,一旦要 UI,就該和圖內的對話框長在同一個地方,共用同一套樣式與 `showActionRunningDialog` 的行為。fast-forward 在 git 語意上不可能造成損失(`git fetch . <upstream>:<branch>` 拒絕非 fast-forward 更新,要嘛成功要嘛報錯),但它有一個確認框,所以照樣走 webview。
 

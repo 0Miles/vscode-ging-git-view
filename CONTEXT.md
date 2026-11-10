@@ -1,19 +1,26 @@
 # GING
 
-一個 VS Code 擴充功能,在編輯器內顯示 git commit 圖形,並整合原生的原始檔控制側邊欄。
+一個 VS Code 擴充功能,在編輯器內顯示 git commit 圖形,並整合原生的原始檔控制側邊欄。同一份程式碼也用來產出獨立的桌面版 Git GUI,所以 VS Code 只是 GING 的宿主(**Host**)之一。以下標為 VS Code host 專屬的詞,桌面 host 的對應說法尚未定義([#291](https://github.com/0Miles/vscode-ging-git-view/issues/291))。
 
 工作區裡常同時開著多個存放庫,而「目前是哪一個存放庫」這件事在 VS Code 和 GING 各有一套答案,兩者不一定一致。以下詞彙就是為了把它們釘開。
 
 ## Language
 
+### GING 跑在哪裡
+
+**Host**:
+GING 執行在其中、並向它要設定、儲存、提示、開檔等能力的應用程式 —— 目前是 VS Code,另一個是桌面版。中文寫作「宿主」。GING 向它要的能力就是 host ports。
+這個檔裡另外兩種 host 不是它:單寫 host 或「host 端」時,指的是與 webview 相對、跑 git 的那一側(在 VS Code 裡是 extension host 行程);**Pull request provider** 裡的 host 是 remote 所在主機的名稱。
+_Avoid_: platform, 平台, 編輯器(桌面版不是編輯器);指這個意思時不單寫 host,寫「VS Code host」「桌面 host」或「宿主」
+
 ### 存放庫的身分
 
 **Focused repository**:
-使用者在原生「原始檔控制存放庫」清單中選取的那個存放庫。同一時間**至多一個** —— 該清單的多選改變的是哪些存放庫可見,不是誰被聚焦。VS Code 只在它**改變**時通報,重複選取同一個不會有任何訊號。
+使用者在原生「原始檔控制存放庫」清單中選取的那個存放庫。同一時間**至多一個** —— 該清單的多選改變的是哪些存放庫可見,不是誰被聚焦。VS Code 只在它**改變**時通報,重複選取同一個不會有任何訊號。VS Code host 專屬。
 _Avoid_: selected repository, current repository
 
 **Active repository**:
-VS Code 整體認定的當前存放庫 —— 取 focused repository 與「作用中編輯器所屬存放庫」兩者中較晚變動的那一個。它決定狀態列、變更數徽章等原生 UI 顯示誰。擴充功能無法指定它。
+VS Code 整體認定的當前存放庫 —— 取 focused repository 與「作用中編輯器所屬存放庫」兩者中較晚變動的那一個。它決定狀態列、變更數徽章等原生 UI 顯示誰。擴充功能無法指定它。VS Code host 專屬。
 _Avoid_: current repository, focused repository
 
 **Current repository**:
@@ -22,7 +29,7 @@ GING 正在處理的存放庫 —— 圖形顯示它,分支與 remote 側檢視�
 _Avoid_: graph repository, active repo, last active repo
 
 **Known repository**:
-GING 已探索並納入管理的存放庫。來源有二:工作區搜尋,以及內建 git 擴充功能已開啟的所有存放庫(含 submodule 與 worktree)。只有 known repository 能出現在存放庫選單中,但明確指名的路徑仍可繞過此集合直接開啟。
+GING 已探索並納入管理的存放庫。在 VS Code host 裡,來源有二:工作區搜尋,以及內建 git 擴充功能已開啟的所有存放庫(含 submodule 與 worktree)。只有 known repository 能出現在存放庫選單中,但明確指名的路徑仍可繞過此集合直接開啟。
 這個集合同樣是跨工作階段保存的,所以它也可能列著已經不存在的目錄 —— 集合成員的身分不等於路徑仍然可用,兩者一樣由 `resolveCurrentRepo` 那組判準來分。圖形開機時要落在哪一個存放庫,由 host 端的 `pickBootRepo` 決定後送給 webview;webview 不從這個集合裡自己挑,它拿不到檔案系統。
 編輯器內的 inline blame 跟著編輯器走,不跟著 current repository 走:檔案一律在包含它的最深 known repository 裡 blame(submodule 與 worktree 裡的檔案因此用它自己的存放庫),不屬於任何 known repository 的檔案就不顯示;圖形在那期間顯示哪一個存放庫都不影響它。
 _Avoid_: discovered repo, tracked repo
@@ -83,7 +90,7 @@ _Avoid_: PR host, git host, remote provider, PR 服務
 
 **Branch selection**:
 分支側檢視中被反白的 leaf 集合。folder 與 group 標題不計入 —— 它們是把 ref 依 `/` 切出來的顯示分組,在 git 裡不存在。空的選取集是使用者明確表達的「顯示全部」,不是「還沒選」。
-VS Code 從 TreeView 回報的原始選取集**含** folder 與 group 標題,因此不等於 branch selection:只反白 folder 時,原始集合非空而 branch selection 是空的。兩者之間的轉換由 `branchSelectionOf` 負責;問「有沒有選到分支」一律以它的結果為準,不是原始集合的大小。
+VS Code 從 TreeView 回報的原始選取集**含** folder 與 group 標題,因此不等於 branch selection:只反白 folder 時,原始集合非空而 branch selection 是空的。兩者之間的轉換由 `branchSelectionOf` 負責;問「有沒有選到分支」一律以它的結果為準,不是原始集合的大小。VS Code host 專屬:它講的是原生 TreeView 側檢視的選取。
 _Avoid_: 勾選, checked branches, 篩選器, selected refs
 
 **Action target**:
@@ -107,7 +114,7 @@ _Avoid_: 批次流程, batch flow, retry loop
 側檢視寫入 branch filter 的路有兩條。一般的那條從樹出發:使用者改了反白,VS Code 回報原始 tree selection,換算成 branch selection 之後寫進 filter —— filter 跟著選取走。另一條是樹表達不出來的時候走的:先寫 filter,再回頭把樹收拾乾淨。
 
 **Direct write**:
-側檢視不經 tree selection、直接寫入 branch filter 的一次寫入 —— 寫入的一方同時負責清掉樹的反白,不讓畫面留著一個與 filter 對不上的選取。它存在是因為擴充功能設定不了 TreeView 的選取:`reveal` 一次只選得了一個,清除選取也沒有 API(`clearSelection` 是替 leaf 換 id,讓 VS Code 自己丟掉選取),所以 filter 要變成樹表達不出來的集合時,只能繞過樹寫,再把反白整個清掉(ADR-0018)。呼叫端有兩個:多選搜尋確認了零個或多個分支 —— 只勾一個、且它還在樹裡時,改用 `reveal` 選取它,走一般路徑 —— 以及「Show All」(`branches.showAll`,側檢視標題列的按鈕、命令選擇區、圖形的篩選標示都走它;blame hover 的「在 GING 圖形中定位」查出要找的 commit 正是被 branch filter 藏起來時,也經由圖形的同一個請求走它;圖形的請求帶著它顯示的存放庫,側檢視若已經換到別的存放庫,就什麼都不清,因為那不是圖形要清的 filter)。兩者走同一套步驟,寫入的集合可以是空的,「Show All」的一律是空的;多選搜尋寫完之後另外把第一個分支捲進視野,但不選取它。
+側檢視不經 tree selection、直接寫入 branch filter 的一次寫入 —— 寫入的一方同時負責清掉樹的反白,不讓畫面留著一個與 filter 對不上的選取。它存在是因為擴充功能設定不了 TreeView 的選取:`reveal` 一次只選得了一個,清除選取也沒有 API(`clearSelection` 是替 leaf 換 id,讓 VS Code 自己丟掉選取),所以 filter 要變成樹表達不出來的集合時,只能繞過樹寫,再把反白整個清掉(ADR-0018)。VS Code host 專屬:成因是 TreeView 的這兩個限制。呼叫端有兩個:多選搜尋確認了零個或多個分支 —— 只勾一個、且它還在樹裡時,改用 `reveal` 選取它,走一般路徑 —— 以及「Show All」(`branches.showAll`,側檢視標題列的按鈕、命令選擇區、圖形的篩選標示都走它;blame hover 的「在 GING 圖形中定位」查出要找的 commit 正是被 branch filter 藏起來時,也經由圖形的同一個請求走它;圖形的請求帶著它顯示的存放庫,側檢視若已經換到別的存放庫,就什麼都不清,因為那不是圖形要清的 filter)。兩者走同一套步驟,寫入的集合可以是空的,「Show All」的一律是空的;多選搜尋寫完之後另外把第一個分支捲進視野,但不選取它。
 它與一般路徑有三處不同。一般路徑等選取事件停下來才寫(debounce,讓連續 Ctrl/Cmd 點選只重載一次圖形),direct write 當場寫,並丟掉還在等的那次寫入。一般路徑寫入後 filter 等於 branch selection;direct write 寫入後 branch selection 是空的,filter 卻不一定 —— branch filter 那份不對稱,多半從這裡來。而清掉反白本身會讓樹送出一個空的選取事件,照一般路徑讀,那就是使用者要「顯示全部」,會把剛寫進去的 filter 蓋掉;所以 direct write 先舉起一次性的抑制(`suppressEmptySelectionOnce`),吞掉接下來的第一個空選取事件。
 寫入本身當場完成:先舉起抑制、再寫 filter、最後才清反白,圖形只重載一次。留下來的只有那個抑制 —— 第一個空選取事件消耗它,非空的事件不消耗;真的換了存放庫就放棄它,因為等的那個事件已經不會來了,但把側檢視重新指向同一個存放庫不算。要不要舉起,量的是即將被清掉的 **branch selection**,不是原始 tree selection:清除只動 leaf,只反白 folder 時原始集合非空、branch selection 是空的,清除什麼都沒改、也不送事件 —— 照原始集合舉起的抑制會一直留著,吞掉使用者下一次真的「全部取消選取」(#42)。
 它與兩種選取不可互換:原始 tree selection 與 branch selection 的分別見 **Branch selection**,而 direct write 是**不經過**兩者的那一次 filter 寫入。branch filter 那份不對稱裡的其他情形(開場篩選、切換存放庫後還原的選集)都不是 direct write —— 它們不是側檢視的手勢,也不碰樹的反白。程式裡規則在 `onDirectWrite`,前後的步驟順序只在 `createDirectFilterWriter` 寫一次;呼叫端自己握著一份順序,正是讓 #42 與 #43 得以發生的條件。
