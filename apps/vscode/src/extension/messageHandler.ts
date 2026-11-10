@@ -122,6 +122,9 @@ export function registerMessageHandlers(
     /** Called when the webview switches repo, so the Branches side-view can
      *  follow the same repo. */
     onSelectRepo: (repo: string) => void;
+    /** Called when the webview takes a delegated message off its queue to run
+     *  it, so the host stops holding it for a reload. */
+    onDelegatedRan: (seq: number) => void;
   }
 ) {
   const {
@@ -137,7 +140,8 @@ export function registerMessageHandlers(
     resolveShowRemote,
     resolveRepoScope,
     logger,
-    onSelectRepo
+    onSelectRepo,
+    onDelegatedRan
   } = deps;
 
   let currentRepo: string | null = null;
@@ -341,6 +345,8 @@ export function registerMessageHandlers(
     },
     { mutatesRepo: false }
   );
+
+  bridge.onMessage("delegatedRan", (msg) => onDelegatedRan(msg.seq), { mutatesRepo: false });
 
   // A located commit the graph does not show (#310): said quietly, in a message
   // the user can ignore. The history leaving it out is no fault; a branch
@@ -853,9 +859,9 @@ export function registerMessageHandlers(
   // "its filter is on the way".
   bridge.onMessage(
     "clearBranchFilter",
-    () =>
+    ({ repo }) =>
       acknowledgeShowAll(
-        () => vscode.commands.executeCommand("ging-git-view.branches.showAll"),
+        () => vscode.commands.executeCommand("ging-git-view.branches.showAll", repo),
         (msg) => bridge.post(msg)
       ),
     { mutatesRepo: false }

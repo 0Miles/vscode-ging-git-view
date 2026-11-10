@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createBranchActionDelegate,
-  type BranchActionDelegateDeps,
-  type DelegatedMessage
+  type BranchActionDelegateDeps
 } from "@ging/core/extension/branchActionDelegate";
 import type {
   BranchActionTarget,
   BranchActionTargets
 } from "@ging/core/extension/branchActionTargets";
+import type { DelegatedMessage } from "@ging/shared/types";
 
 const REPO = "/repo";
 
@@ -61,11 +61,11 @@ describe("createBranchActionDelegate", () => {
     expect(posted).toHaveLength(1); // direct post, panel already live
 
     // A selectRepo for some other repo must not discard the pending action …
-    delegate.flushPendingRefAction("/elsewhere");
+    delegate.flushDelegated("/elsewhere");
     expect(posted).toHaveLength(1);
     // … its own repo's flush delivers it (the webview dedupes by seq), once.
-    delegate.flushPendingRefAction(REPO);
-    delegate.flushPendingRefAction(REPO);
+    delegate.flushDelegated(REPO);
+    delegate.flushDelegated(REPO);
     expect(posted).toHaveLength(2);
     expect(posted[1]).toBe(posted[0]);
     expect(deps.openGraphView).toHaveBeenCalledTimes(1);
@@ -145,10 +145,67 @@ describe("createBranchActionDelegate", () => {
     });
 
     // A panel that reloads for the repo gets it again from the flush.
-    delegate.flushPendingRefAction(REPO);
+    delegate.flushDelegated(REPO);
     expect(posted).toHaveLength(2);
-    delegate.flushPendingRefAction("/other");
+    delegate.flushDelegated("/other");
     expect(posted).toHaveLength(3);
     expect(posted.at(-1)).toMatchObject({ command: "locateCommit", seq: 2 });
+  });
+
+  // #325: the waiting message used to be one slot, so a second request made
+  // while the panel loaded quietly replaced the first. Both are for the repo
+  // the graph is opening on, so both are owed.
+  it("keeps every message for the repo the graph is opening on, and flushes them in order", async () => {
+    const { delegate, posted } = makeDelegate();
+    await delegate.run(local("feature/a"), "merge");
+    await delegate.locateCommit(REPO, "a".repeat(40));
+    posted.splice(0);
+
+    delegate.flushDelegated(REPO);
+    expect(posted.map((m) => [m.command, m.seq])).toEqual([
+      ["runRefAction", 1],
+      ["locateCommit", 2]
+    ]);
+    delegate.flushDelegated(REPO);
+    expect(posted).toHaveLength(2);
+  });
+
+  // A request for another repo takes the graph there, away from the repo the
+  // earlier one was waiting on: that one would otherwise run whenever the user
+  // next happened to open its repo, long after asking.
+  it("drops a waiting message once a later one takes the graph to another repo", async () => {
+    const { delegate, posted } = makeDelegate();
+    await delegate.run(local("feature/a"), "merge");
+    await delegate.locateCommit("/other", "a".repeat(40));
+    posted.splice(0);
+
+    delegate.flushDelegated(REPO);
+    expect(posted).toEqual([]);
+    delegate.flushDelegated("/other");
+    expect(posted.map((m) => m.seq)).toEqual([2]);
+  });
+
+  // A reloaded panel remembers no seq, so whatever the flush hands it runs: a
+  // message the webview has already run must not still be held for one.
+  it("stops holding a message once the webview has run it, with every one before it", async () => {
+    const { delegate, posted } = makeDelegate();
+    await delegate.run(local("feature/a"), "merge");
+    await delegate.locateCommit(REPO, "a".repeat(40));
+    await delegate.run(local("feature/a"), "rename");
+    posted.splice(0);
+
+    delegate.delegatedRan(2);
+    delegate.flushDelegated(REPO);
+    expect(posted.map((m) => m.seq)).toEqual([3]);
+  });
+
+  it("forgets what was waiting when the panel closes", async () => {
+    const { delegate, posted } = makeDelegate();
+    await delegate.run(local("feature/a"), "merge");
+    posted.splice(0);
+
+    delegate.forgetPending();
+    delegate.flushDelegated(REPO);
+    expect(posted).toEqual([]);
   });
 });

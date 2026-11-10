@@ -85,7 +85,8 @@ function makeDeps(overrides: DepOverrides = {}) {
     // No interactive rebase runs in this flow; a stager that reports its todo
     // as applied keeps the handler registration honest without touching disk.
     sequenceEditor: { stage: noop, wasApplied: () => true, discard: noop },
-    onSelectRepo: noop
+    onSelectRepo: noop,
+    onDelegatedRan: noop
   };
 }
 

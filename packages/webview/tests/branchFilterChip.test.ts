@@ -75,7 +75,7 @@ describe("the graph's branch-filter chip", () => {
     loadWithFilter(["main"]);
     mock.clearMessages();
     document.getElementById("branchFilterClear")!.dispatchEvent(new MouseEvent("click"));
-    expect(mock.sentMessages).toContainEqual({ command: "clearBranchFilter" });
+    expect(mock.sentMessages).toContainEqual({ command: "clearBranchFilter", repo: REPO_B });
     // The host owns the filter: the chip is still up until it answers.
     expect(chipShown()).toBe(true);
   });

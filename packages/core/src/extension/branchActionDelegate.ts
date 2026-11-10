@@ -18,32 +18,10 @@ import type {
   BatchAction,
   BatchSkipped,
   BranchCleanupPayload,
-  ResponseLocateCommit,
-  ResponseRunRefAction,
-  ResponseRunRefBatchAction,
-  ResponseShowBranchCleanup
+  DelegatedMessage
 } from "@ging/shared/types";
 
 import type { BranchActionTarget, BranchActionTargets } from "./branchActionTargets";
-
-/**
- * A message that must reach the graph webview once it is showing its repo with
- * no load in flight.
- *
- * The cleanup dialog rides here with the ref actions rather than getting its own
- * delivery path: the wait-for-load race, the two delivery routes and the `seq`
- * dedupe are the same problem for all three, and a second copy of that logic is
- * how one of them ends up subtly different. Sharing the counter also means a
- * cleanup message can never be mistaken for a ref action's retry. The blame
- * hover's "locate in the graph" (#310) rides here for the same reasons: it too
- * is sent straight after the graph is opened or switched, to a panel that may
- * still be loading.
- */
-export type DelegatedMessage =
-  | ResponseRunRefAction
-  | ResponseRunRefBatchAction
-  | ResponseShowBranchCleanup
-  | ResponseLocateCommit;
 
 export type BranchActionDelegateDeps = {
   /** The branch a single-selection command argument points at, or null when it
@@ -66,21 +44,45 @@ export type BranchActionDelegateDeps = {
 export type BranchActionDelegate = ReturnType<typeof createBranchActionDelegate>;
 
 export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
-  // The action waiting for the graph webview to (re)load. The webview dedupes
-  // the two delivery paths (direct post + selectRepo flush) by the message's
-  // monotonic seq, shared between single and batch so one can never be
-  // mistaken for the other's retry.
-  let pending: DelegatedMessage | null = null;
+  // The cleanup dialog rides here with the ref actions rather than getting its
+  // own delivery path: the wait-for-load race, the two delivery routes and the
+  // `seq` dedupe are the same problem for all three, and a second copy of that
+  // logic is how one of them ends up subtly different. The blame hover's
+  // "locate in the graph" (#310) rides here for the same reasons: it too is
+  // sent straight after the graph is opened or switched, to a panel that may
+  // still be loading.
+  //
+  // The messages waiting for the graph webview to (re)load, in seq order —
+  // every one of them, not just the latest (#325): two requests made while the
+  // panel loads are both owed. They share one repo, as each opens the graph on
+  // its own: one for another repo takes the graph away from those before it,
+  // which are dropped rather than left to run whenever the user next opens
+  // their repo. The webview dedupes the two delivery paths (direct post +
+  // selectRepo flush) by the messages' monotonic seq, shared by every kind so
+  // one can never be mistaken for another's retry.
+  let pending: DelegatedMessage[] = [];
   let seq = 0;
 
-  const flushPendingRefAction = (repo: string): void => {
-    if (pending === null) return;
+  const flushDelegated = (repo: string): void => {
     // A selectRepo for some other repo (e.g. the user clicked around while the
-    // panel opened) must not discard the action — its own repo's load is still
-    // coming, and that selectRepo will flush it.
-    if (pending.repo !== repo) return;
-    deps.post(pending);
-    pending = null;
+    // panel opened) must not discard the messages — their own repo's load is
+    // still coming, and that selectRepo will flush them.
+    if (pending.length === 0 || pending[0].repo !== repo) return;
+    for (const msg of pending) deps.post(msg);
+    pending = [];
+  };
+
+  /** The webview has taken `ranSeq` off its queue to run, and every message
+   *  before it with it: a later flush must not hand them to a reloaded panel,
+   *  which remembers no seq to refuse them by. */
+  const delegatedRan = (ranSeq: number): void => {
+    pending = pending.filter((msg) => msg.seq > ranSeq);
+  };
+
+  /** The panel is gone, and with it whatever the user was waiting on: a graph
+   *  opened later must not raise requests made of the one they closed. */
+  const forgetPending = (): void => {
+    pending = [];
   };
 
   const deliver = async (msg: DelegatedMessage): Promise<void> => {
@@ -88,7 +90,7 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     // the repo (same-repo setRepo doesn't reload, so no selectRepo would fire);
     // the selectRepo flush covers fresh panels and repo switches, whose
     // in-flight load would otherwise race the message.
-    pending = msg;
+    pending = pending.filter((p) => p.repo === msg.repo).concat(msg);
     await deps.openGraphView(msg.repo);
     deps.post(msg);
   };
@@ -172,5 +174,5 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     await deliver({ command: "locateCommit", repo, hash, seq: ++seq });
   };
 
-  return { run, runBatch, openCleanup, locateCommit, flushPendingRefAction };
+  return { run, runBatch, openCleanup, locateCommit, flushDelegated, delegatedRan, forgetPending };
 }
