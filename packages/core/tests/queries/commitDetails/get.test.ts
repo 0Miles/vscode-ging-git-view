@@ -255,6 +255,31 @@ describe("commitDetails", () => {
     }
   });
 
+  it("lists a file both tracked and untracked in a stash once, as the tracked change", async () => {
+    const r = makeRepo(); // commits "f"
+    try {
+      // Untracked when stashed, yet in the commit the stash was made on: the
+      // stash keeps it among its untracked files and among its tracked changes.
+      git(["rm", "--cached", "f"], r);
+      fs.writeFileSync(path.join(r, "f"), "now untracked\n");
+      git(["stash", "push", "-u", "-m", "wip"], r);
+      const stashHash = cp
+        .execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r })
+        .toString()
+        .trim();
+
+      const fileChanges = (await commitDetails(simpleGit(r), {
+        commitHash: stashHash,
+        useMailmap: false,
+        isStash: true
+      }))!.commitDetails!.fileChanges.filter((f) => f.newFilePath === "f");
+      expect(fileChanges).toHaveLength(1);
+      expect(fileChanges[0]).not.toHaveProperty("origin");
+    } finally {
+      rmrf(r);
+    }
+  });
+
   it("reports a stash's binary untracked file the way it reports a binary tracked one", async () => {
     const r = makeRepo();
     try {
