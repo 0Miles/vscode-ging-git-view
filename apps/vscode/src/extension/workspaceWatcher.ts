@@ -45,6 +45,74 @@ function pathQueue() {
   };
 }
 
+/** Work that has started and not yet settled, for a flush to wait out. */
+function inFlightWork() {
+  const running = new Set<Promise<void>>();
+  return {
+    track(work: Promise<void>): void {
+      running.add(work);
+      // `finally`, not `then(done, done)`: work that fails must still surface
+      // as the unhandled rejection it always was, not be swallowed here.
+      void work.finally(() => running.delete(work));
+    },
+    /** Settle once nothing tracked is running, including work tracked meanwhile. */
+    async settled(): Promise<void> {
+      while (running.size > 0) await Promise.allSettled(running);
+    }
+  };
+}
+
+/**
+ * Paths handled together once they stop arriving for `delay`: each is passed to
+ * `handle` in turn, including any queued while the batch runs, and `onChanged`
+ * is called once at the end if any of them reported a change.
+ */
+function debouncedBatch(
+  handle: (path: string) => Promise<boolean>,
+  onChanged: () => void,
+  delay: number
+) {
+  const paths = pathQueue();
+  const inFlight = inFlightWork();
+  let timeout: NodeJS.Timeout | null = null;
+
+  async function drain() {
+    let path;
+    let changes = false;
+    while ((path = paths.next())) {
+      if (await handle(path)) changes = true;
+    }
+    if (changes) onChanged();
+  }
+
+  function run() {
+    // Cleared when the timer fires, not when the drain ends: an event arriving
+    // mid-drain sets a new timer, and that handle must not be dropped.
+    timeout = null;
+    inFlight.track(drain());
+  }
+
+  return {
+    /** Queue the path and restart the debounce, unless it is already queued. */
+    add(path: string): void {
+      if (!paths.add(path)) return;
+      if (timeout !== null) clearTimeout(timeout);
+      timeout = setTimeout(run, delay);
+    },
+    /** Run the batch now if it is waiting out its debounce, and settle once no
+     *  batch is waiting or running. */
+    async flush(): Promise<void> {
+      do {
+        if (timeout !== null) {
+          clearTimeout(timeout);
+          run();
+        }
+        await inFlight.settled();
+      } while (timeout !== null);
+    }
+  };
+}
+
 export function createRepoWatcher(
   repoManager: RepoManager,
   config: Config,
@@ -53,71 +121,33 @@ export function createRepoWatcher(
   debounceDelay = 1000
 ) {
   const folderWatchers: { [workspace: string]: vscode.FileSystemWatcher } = {};
-  const createEventPaths = pathQueue();
-  const changeEventPaths = pathQueue();
-  let processCreateEventsTimeout: NodeJS.Timeout | null = null;
-  let processChangeEventsTimeout: NodeJS.Timeout | null = null;
-  /** Batches and folder changes still running, for `flushPending` to await. */
-  const inFlight = new Set<Promise<void>>();
+  const sendRepos = () => repoManager.sendRepos();
+  const createdPaths = debouncedBatch(
+    async (path) =>
+      (await isDirectory(path)) &&
+      (await repoSearch.searchDirectoryForRepos(path, config.maxDepthOfRepoSearch())),
+    sendRepos,
+    debounceDelay
+  );
+  const changedPaths = debouncedBatch(
+    async (path) => !(await doesPathExist(path)) && repoManager.removeReposWithinFolder(path),
+    sendRepos,
+    debounceDelay
+  );
+  const folderChanges = inFlightWork();
 
-  function track(work: Promise<void>): void {
-    inFlight.add(work);
-    // `finally`, not `then(done, done)`: a failed batch must still surface as
-    // the unhandled rejection it always was, not be swallowed here.
-    void work.finally(() => inFlight.delete(work));
-  }
-
-  function runCreateBatch() {
-    processCreateEventsTimeout = null;
-    track(processCreateEvents());
-  }
-
-  function runChangeBatch() {
-    processChangeEventsTimeout = null;
-    track(processChangeEvents());
-  }
-
-  async function processCreateEvents() {
-    let path;
-    let changes = false;
-    while ((path = createEventPaths.next())) {
-      if (await isDirectory(path)) {
-        if (await repoSearch.searchDirectoryForRepos(path, config.maxDepthOfRepoSearch()))
-          changes = true;
-      }
-    }
-    if (changes) repoManager.sendRepos();
-  }
-
-  async function processChangeEvents() {
-    let path;
-    let changes = false;
-    while ((path = changeEventPaths.next())) {
-      if (!(await doesPathExist(path))) {
-        if (repoManager.removeReposWithinFolder(path)) changes = true;
-      }
-    }
-    if (changes) repoManager.sendRepos();
-  }
-
-  async function onWatcherCreate(uri: vscode.Uri) {
+  function onWatcherCreate(uri: vscode.Uri) {
     let path = getPathFromUri(uri);
     if (path.indexOf("/.git/") > -1) return;
     if (path.endsWith("/.git")) path = path.slice(0, -5);
-    if (!createEventPaths.add(path)) return;
-
-    if (processCreateEventsTimeout !== null) clearTimeout(processCreateEventsTimeout);
-    processCreateEventsTimeout = setTimeout(runCreateBatch, debounceDelay);
+    createdPaths.add(path);
   }
 
   function onWatcherChange(uri: vscode.Uri) {
     let path = getPathFromUri(uri);
     if (path.indexOf("/.git/") > -1) return;
     if (path.endsWith("/.git")) path = path.slice(0, -5);
-    if (!changeEventPaths.add(path)) return;
-
-    if (processChangeEventsTimeout !== null) clearTimeout(processChangeEventsTimeout);
-    processChangeEventsTimeout = setTimeout(runChangeBatch, debounceDelay);
+    changedPaths.add(path);
   }
 
   function onWatcherDelete(uri: vscode.Uri) {
@@ -165,7 +195,7 @@ export function createRepoWatcher(
   }
 
   const folderChangeHandler = workspace.onDidChangeWorkspaceFolders((e) =>
-    track(onFolderChange(e))
+    folderChanges.track(onFolderChange(e))
   );
 
   return {
@@ -188,21 +218,7 @@ export function createRepoWatcher(
      * further call is coming (#286).
      */
     async flushPending(): Promise<void> {
-      while (
-        processCreateEventsTimeout !== null ||
-        processChangeEventsTimeout !== null ||
-        inFlight.size > 0
-      ) {
-        if (processCreateEventsTimeout !== null) {
-          clearTimeout(processCreateEventsTimeout);
-          runCreateBatch();
-        }
-        if (processChangeEventsTimeout !== null) {
-          clearTimeout(processChangeEventsTimeout);
-          runChangeBatch();
-        }
-        await Promise.allSettled(inFlight);
-      }
+      await Promise.all([createdPaths.flush(), changedPaths.flush(), folderChanges.settled()]);
     },
     dispose() {
       folderChangeHandler.dispose();
