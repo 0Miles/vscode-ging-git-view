@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import * as path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -8,8 +9,7 @@ import { describe, expect, it } from "vitest";
  * shipped file and assert the declarations that carry a decision are still in
  * it. Here rather than beside the behaviour it protects
  * (`packages/webview/tests/footerControls.test.ts`) for the same reason that one is:
- * this reads a file off disk and has no use for a DOM, and the webview project
- * runs under jsdom, where `import.meta.url` is not a file URL to resolve from.
+ * this reads a file off disk and has no use for a DOM.
  *
  * It exists because the decision has no other guard. Since #88 the footer's two
  * members of this class are real `<button>`s — and since #141 and #145 the
@@ -31,7 +31,7 @@ import { describe, expect, it } from "vitest";
  * only that nobody removed them without meeting this comment first.
  */
 
-const css = readFileSync(new URL("../../media/main.css", import.meta.url), "utf8");
+const css = readFileSync(path.resolve(__dirname, "../../media/main.css"), "utf8");
 
 /** The `prop: value` pairs of a rule, by exact selector text, in source order —
  *  empty when there is no such rule, so a missing one fails as a named test

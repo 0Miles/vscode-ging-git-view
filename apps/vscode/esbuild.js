@@ -120,16 +120,18 @@ async function main() {
   // folder is rebuilt from them whole, and a bundle removed there goes here too.
   const copyL10n = () => {
     fs.rmSync("l10n", { recursive: true, force: true });
-    fs.mkdirSync("l10n", { recursive: true });
-    for (const f of fs.readdirSync(l10nDir)) {
-      fs.copyFileSync(path.join(l10nDir, f), path.join("l10n", f));
-    }
+    fs.cpSync(l10nDir, "l10n", { recursive: true });
   };
 
-  if (watch) {
+  // Everything the extension serves from its own folder but does not compile.
+  const copyAssets = () => {
     copyAskpassScripts();
     copyWebviewCss();
     copyL10n();
+  };
+
+  if (watch) {
+    copyAssets();
     fs.watch(webviewCss, copyWebviewCss);
     fs.watch(l10nDir, copyL10n);
     await Promise.all([
@@ -147,9 +149,7 @@ async function main() {
     await askpass.dispose();
     await sequenceEditor.rebuild();
     await sequenceEditor.dispose();
-    copyAskpassScripts();
-    copyWebviewCss();
-    copyL10n();
+    copyAssets();
   }
 }
 

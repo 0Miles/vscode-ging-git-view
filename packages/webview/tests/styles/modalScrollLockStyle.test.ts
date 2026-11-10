@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import * as path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -19,7 +20,7 @@ import { describe, expect, it } from "vitest";
  * this comment first.
  */
 
-const css = readFileSync(new URL("../../media/main.css", import.meta.url), "utf8");
+const css = readFileSync(path.resolve(__dirname, "../../media/main.css"), "utf8");
 
 /** The declarations of a rule, by exact selector text, as `prop: value` with
  *  whitespace collapsed — empty when there is no such rule, so a missing one

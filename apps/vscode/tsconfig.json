@@ -3,9 +3,9 @@
   "compilerOptions": {
     "types": ["node"],
     // The extension is not importable under its own name (its manifest is the
-    // published one), so its modules reach each other through this alias, the
-    // way they reached each other through `@/` before. esbuild reads these
-    // paths itself; vitest.config.ts repeats the alias.
+    // published one), so its modules reach each other through this alias.
+    // esbuild and tests/tsconfig.json read these paths; vitest.config.ts
+    // repeats the alias.
     "paths": {
       "@ging/vscode/*": ["./src/*"]
     }

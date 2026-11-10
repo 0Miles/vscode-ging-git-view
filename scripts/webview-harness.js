@@ -237,9 +237,8 @@ const html = `<!DOCTYPE html>
 </body>
 </html>`;
 
-for (const f of ["main.css"]) {
-  fs.copyFileSync(path.join(ROOT, "packages", "webview", "media", f), path.join(OUT, f));
-}
+// Both come out of the extension's compile: the bundle and the stylesheet it serves.
+fs.copyFileSync(path.join(APP, "media", "main.css"), path.join(OUT, "main.css"));
 fs.copyFileSync(path.join(APP, "out", "web.min.js"), path.join(OUT, "web.min.js"));
 fs.writeFileSync(path.join(OUT, "index.html"), html);
 process.stdout.write(
