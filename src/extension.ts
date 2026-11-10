@@ -461,9 +461,10 @@ export function activate(context: vscode.ExtensionContext) {
         branchesView.setActiveRepo(repo);
         remotesView.setActiveRepo(repo);
         // The webview is alive and (re)loading this repo: deliver any waiting
-        // side-view action now (the webview holds it until the load lands).
-        branchActionDelegate.flushPendingRefAction(repo);
-      }
+        // delegated messages now (the webview holds them until the load lands).
+        branchActionDelegate.flushDelegated(repo);
+      },
+      onDelegatedRan: (seq) => branchActionDelegate.delegatedRan(seq)
     });
     currentPanel = createWebviewPanel({
       panel,
@@ -477,6 +478,7 @@ export function activate(context: vscode.ExtensionContext) {
       onDispose: () => {
         currentPanel = undefined;
         currentBridge = undefined;
+        branchActionDelegate.forgetPending();
         messageHandlers.dispose();
       },
       onPanelShown: messageHandlers.onPanelShown
@@ -790,7 +792,9 @@ export function activate(context: vscode.ExtensionContext) {
     ),
     // Both halves — the empty filter and the cleared highlight — belong to the
     // view; performing them from here was #43.
-    vscode.commands.registerCommand("ging-git-view.branches.showAll", () => branchesView.showAll()),
+    vscode.commands.registerCommand("ging-git-view.branches.showAll", (repo?: unknown) =>
+      branchesView.showAll(typeof repo === "string" ? repo : undefined)
+    ),
     // The title button shows whichever of these matches the current state.
     vscode.commands.registerCommand(
       "ging-git-view.branches.showRemoteBranches",

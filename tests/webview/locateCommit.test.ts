@@ -261,7 +261,9 @@ describe("locating a blamed commit in the graph", () => {
       receive(locate("side999"));
       answerDepth(null);
       answerDepth(4);
-      expect(mock.sentOf("clearBranchFilter")).toHaveLength(1);
+      expect(mock.sentOf("clearBranchFilter")).toEqual([
+        { command: "clearBranchFilter", repo: REPO }
+      ]);
       // Nothing loaded under the filter that hides it.
       expect(mock.sentOf("loadCommits")).toHaveLength(0);
 

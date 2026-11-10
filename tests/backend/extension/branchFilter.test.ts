@@ -4,7 +4,8 @@ import {
   branchFilterEquals,
   computeDefaultBranchFilter,
   pruneBranchFilter,
-  resolveBranchFilter
+  resolveBranchFilter,
+  showAllRepo
 } from "@/extension/branchFilter";
 
 describe("branchFilterEquals", () => {
@@ -84,5 +85,26 @@ describe("resolveBranchFilter", () => {
         showCurrentBranchByDefault: true
       })
     ).toEqual(["main"]);
+  });
+});
+
+// #325: the graph asks for Show All on the repo it shows. By the time the host
+// runs it the side-view may have followed the user to another repo, whose
+// filter is not the one the graph meant.
+describe("showAllRepo", () => {
+  it("clears the side-view's repo when the caller names none", () => {
+    expect(showAllRepo("/a", undefined)).toBe("/a");
+  });
+
+  it("clears the named repo while the side-view still shows it", () => {
+    expect(showAllRepo("/a", "/a")).toBe("/a");
+  });
+
+  it("clears nothing once the side-view has moved to another repo", () => {
+    expect(showAllRepo("/b", "/a")).toBeNull();
+  });
+
+  it("clears nothing with no repo in the side-view", () => {
+    expect(showAllRepo(null, undefined)).toBeNull();
   });
 });

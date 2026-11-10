@@ -142,7 +142,7 @@ function receiveDelegatedRename() {
  * The destruction route the ticket names, driven end to end.
  *
  * A delegated action that arrives while a load is in flight is held on
- * `pendingRefAction`, and `triggerLoadCommitsCallback` retries it after *every*
+ * `delegatedQueue`, and `triggerLoadCommitsCallback` retries it after *every*
  * commit load completes. So the dialog does not arrive at a moment anything in
  * the webview chose — it arrives the instant a background load lands, which is
  * what makes this ordinary rather than exotic.
@@ -150,7 +150,7 @@ function receiveDelegatedRename() {
 function delegatedActionLandsWithABackgroundLoad() {
   loadBranches(); // a background reload's branch half; its commit half follows
   receiveDelegatedRename(); // held: a load is in flight
-  loadCommits(); // lands -> triggerLoadCommitsCallback -> tryRunPendingRefAction
+  loadCommits(); // lands -> triggerLoadCommitsCallback -> runDelegatedQueue
 }
 
 /** Drive one batch delete as far as its retry offer: round 1 confirmed, and one
@@ -206,7 +206,7 @@ describe("a batch retry offer whose dialog is taken away", () => {
     delegatedActionLandsWithABackgroundLoad();
 
     // The offer is gone, and the delegated action holds the screen: the host
-    // has already taken it off `pendingRefAction`, so writing over it would
+    // has already taken it off `delegatedQueue`, so writing over it would
     // lose a request the user made outright.
     expect(dialogText()).not.toContain("not fully merged");
     expect(dialogText()).toContain(L.renameBranch);

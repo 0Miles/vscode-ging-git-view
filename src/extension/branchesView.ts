@@ -8,6 +8,7 @@ import { resolveActionTargets } from "./branchActionTargets";
 import { relativeAge } from "./branchActivity";
 import { resolveCleanupCandidates } from "./branchCleanup";
 import { type BranchFacts } from "./branchFacts";
+import { showAllRepo } from "./branchFilter";
 import { BranchFilterStore } from "./branchFilterStore";
 import {
   createBranchSelectionReconciler,
@@ -575,9 +576,10 @@ export function createBranchesView(deps: BranchesProviderDeps) {
   /** "Show All": the empty branch filter, plus the tree highlight going away so
    *  the two agree. Reached from the side-view title button, the command
    *  palette and the graph's filter chip. The emptiness of the set is all that
-   *  separates it from the multi-pick search, so it is the same direct write. */
-  const showAll = (): void => {
-    const repo = provider.getRepo();
+   *  separates it from the multi-pick search, so it is the same direct write.
+   *  The graph names the repo it means (see {@link showAllRepo}). */
+  const showAll = (requested?: string): void => {
+    const repo = showAllRepo(provider.getRepo(), requested);
     if (repo === null) return;
     directWrite(repo, []);
   };
