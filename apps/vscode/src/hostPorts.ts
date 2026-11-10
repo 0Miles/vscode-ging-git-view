@@ -80,7 +80,7 @@ export const vscodeClipboard: Clipboard = {
   writeText: (text) => vscode.env.clipboard.writeText(text)
 };
 
-export const vscodeL10n: L10n = { t: (key, ...args) => l10nModule.t(key, ...args) };
+export const vscodeL10n: L10n = { t: l10nModule.t };
 
 /** The extension's two Mementos, and its global storage folder. */
 export function vscodeStorage(context: vscode.ExtensionContext): HostStorage {
