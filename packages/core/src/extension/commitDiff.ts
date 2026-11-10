@@ -46,9 +46,12 @@ export type CommitDiffLabels = {
  * left it on the right, read from where `fileChangeRevision` says it is kept. A
  * side with no such file — the parent of an added file, or of a root commit;
  * the commit of a deleted one — reads as an empty document (see
- * `getCommitFileContent`). A stash's untracked file is such an added file: its
- * left side, the commit the stash was made on, cannot have it, or it would not
- * have been untracked.
+ * `getCommitFileContent`). A stash's untracked file is shown as such an added
+ * file, on the strength of `commitDetails`'s dedupe rather than of git: the
+ * commit the stash was made on can have a file that was untracked when the
+ * stash was pushed (`git rm --cached` leaves it so), but then the stash's
+ * tracked changes list it too, as deleted, and that row is the one the CDV
+ * keeps — so no untracked row reaches here with a file on its left.
  */
 export function commitDiffView(
   request: CommitDiffRequest,
