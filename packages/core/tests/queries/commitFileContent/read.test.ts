@@ -6,6 +6,7 @@ import { encode } from "iconv-lite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { getCommitFileContent } from "@ging/core/backend/queries/commitFileContent";
+import { commitDiffView, type DiffSide } from "@ging/core/extension/commitDiff";
 
 import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
@@ -31,6 +32,33 @@ describe("getCommitFileContent", () => {
     git(["commit", "-m", "add f"], r);
     const content = await getCommitFileContent("git", r, head(r), "f.txt", "utf8");
     expect(content).toBe("héllo wörld\n");
+  });
+
+  it("reads both sides of a stash's untracked file's diff: empty, then the stashed file", async () => {
+    const r = newRepo();
+    fs.mkdirSync(path.join(r, "sub"));
+    fs.writeFileSync(path.join(r, "sub", "untracked.txt"), "brand new untracked\n");
+    git(["stash", "push", "--include-untracked", "-m", "wip"], r);
+    const stash = cp.execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r }).toString().trim();
+
+    const { left, right } = commitDiffView(
+      {
+        repo: r,
+        commitHash: stash,
+        oldFilePath: "sub/untracked.txt",
+        newFilePath: "sub/untracked.txt",
+        type: "A",
+        origin: "untracked"
+      },
+      { addedIn: () => "", deletedIn: () => "" }
+    );
+    const read = ({ commit, filePath }: DiffSide) =>
+      getCommitFileContent("git", r, commit, filePath, "utf8");
+    expect(await read(left)).toBe("");
+    expect(await read(right)).toBe("brand new untracked\n");
+    // The stash's own tree does not have it: reading from there is what left
+    // the View File at Revision document blank.
+    expect(await read({ repo: r, filePath: "sub/untracked.txt", commit: stash })).toBe("");
   });
 
   it("decodes a file stored in a non-utf8 encoding (win1252)", async () => {
