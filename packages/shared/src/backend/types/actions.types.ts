@@ -1,4 +1,4 @@
-import type { GitResetMode } from "./git.types";
+import type { GitFileChangeOrigin, GitResetMode } from "./git.types";
 
 export type GitCommandStatus = string | null;
 
@@ -24,7 +24,13 @@ type ActionPayloads = {
   };
   createBranch: { commitHash: string; branchName: string; checkout: boolean; force: boolean };
   dropCommit: { commitHash: string };
-  resetFileToRevision: { commitHash: string; filePath: string };
+  resetFileToRevision: {
+    commitHash: string;
+    filePath: string;
+    /** The CDV file change's `origin`, handed back as the CDV got it: where in
+     *  the stash the file is restored from (see `fileChangeRevision`). */
+    origin?: GitFileChangeOrigin;
+  };
   applyStash: { selector: string; reinstateIndex: boolean };
   popStash: { selector: string; reinstateIndex: boolean };
   dropStash: { selector: string };

@@ -1,5 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
+import { fileChangeRevision } from "@ging/core/backend/utils/fileChangeRevision";
 import type { ActionPayload } from "@ging/shared/backend/types";
 
 export async function checkoutCommit(
@@ -48,9 +49,16 @@ export async function resetFileToRevision(
   git: SimpleGit,
   input: ActionPayload<"resetFileToRevision">
 ): Promise<void> {
-  // Restore the working-tree (and index) copy of a single file to its content
-  // at the given commit. The "--" disambiguates the path from a ref.
-  await git.raw(["checkout", input.commitHash, "--", input.filePath]);
+  const source = fileChangeRevision(input.commitHash, input.origin);
+  // The "--" disambiguates the path from a ref.
+  if (input.origin === "untracked") {
+    // Worktree only: the file stays untracked and the user's staging survives,
+    // where `checkout` would stage it. `restore` needs git 2.23+.
+    await git.raw(["restore", "--source=" + source, "--worktree", "--", input.filePath]);
+    return;
+  }
+  // The working-tree and index copy, as of the commit.
+  await git.raw(["checkout", source, "--", input.filePath]);
 }
 
 export async function resetToCommit(
