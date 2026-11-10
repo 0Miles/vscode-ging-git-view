@@ -47,3 +47,7 @@ status: accepted
 成因也跟著放寬。正文說這條路存在,是因為 `reveal` 只能選單一元素;「Show All」缺的是另一半 —— TreeView 也沒有清除選取的 API,`clearSelection` 是替 leaf 換 id,讓 VS Code 自己丟掉選取。兩者是同一個限制:擴充功能設定不了樹的選取。
 
 至於「後果」最後一條的到期條件:#43 之前,「Show All」其實**就是**第二條 direct-write 路徑 —— 它在 `extension.ts` 裡自己寫 filter store、自己呼叫 `clearSelection()`,沒有知會 reconciler,於是清除送出的空事件被讀成一次新的「顯示全部」,同一筆寫入又排了一次;只因 filter store 忽略相同的值,才沒有使用者看得見的後果。#43 的修法正是這篇要的那一種:沒有替接線建 harness,而是把整段步驟順序抽成 vscode-free 的 `createDirectFilterWriter`,由 backend 測試釘住;`branchesView.ts` 只綁定一次,兩個呼叫端各自只呼叫一次 `directWrite`。所以那條條件該讀作「接線裡出現第二份自己的寫入順序」,不是「出現第二個呼叫端」。以現狀來說,它沒有觸發。
+
+## 補記(2026-11-11,#295)
+
+**「為什麼未來的讀者會困惑」第二段舉的 `webviewBridge.test.ts` 已經不再 mock vscode。**#295 把 webview bridge 連同訊息分派一起搬進 `packages/core`,它不再 import `vscode`,那支測試也跟著搬到 `packages/core/tests/extension/`,空樁 `vi.mock("vscode", () => ({}))` 隨之刪除。正文的論證不受影響 —— 它要說的是「工具一直都在」,而 `repoFileWatcher.test.ts` 的功能性樁仍然在原處。

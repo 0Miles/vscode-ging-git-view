@@ -9,6 +9,10 @@
  * test project.
  */
 
+/** A change to a repo's branch filter. `branches` is the new selection; an
+ *  empty array means "show all branches". */
+export type BranchFilterChange = { repo: string; branches: string[] };
+
 /** Order-insensitive equality of two branch-filter selections. */
 export function branchFilterEquals(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;

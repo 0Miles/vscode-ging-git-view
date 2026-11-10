@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
 
 import { getNonce } from "@ging/core/backend/utils/nonce";
+import { ExtensionState } from "@ging/core/extensionState";
 import { GitGraphViewState } from "@ging/shared/types";
 import { buildExtensionUri } from "@ging/vscode/backend/utils/uri";
 import { Config } from "@ging/vscode/config";
-import { ExtensionState } from "@ging/vscode/extensionState";
 import * as l10n from "@ging/vscode/l10n";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";

@@ -6,7 +6,7 @@ status: accepted
 
 `ging-git-view.fetch.prune` 的預設值是 **true**,`ging-git-view.fetch.pruneTags` 維持 **false**。所以開箱狀態下,擴充功能送出的每一次 fetch 都帶 `--prune`、都不帶 `--prune-tags`。
 
-四條 fetch 路徑都各自即時讀 `config.fetchAndPrune()`,沒有人快取它,所以這個預設一翻,四條路徑同時生效:graph 控制列的 Fetch([messageHandler.ts](../../apps/vscode/src/extension/messageHandler.ts))、`ging-git-view.fetch` 命令、單一 remote 的 fetch,以及 auto-fetch 定時器(後三者都在 [extension.ts](../../apps/vscode/src/extension.ts))。
+四條 fetch 路徑都各自即時讀 `config.fetchAndPrune()`,沒有人快取它,所以這個預設一翻,四條路徑同時生效:graph 控制列的 Fetch([messageHandler.ts](../../packages/core/src/extension/messageHandler.ts))、`ging-git-view.fetch` 命令、單一 remote 的 fetch,以及 auto-fetch 定時器(後三者都在 [extension.ts](../../apps/vscode/src/extension.ts))。
 
 ## 為什麼未來的讀者會困惑
 

@@ -1,11 +1,16 @@
-import * as vscode from "vscode";
-
+import type { Watcher } from "@ging/core/host/ports";
 import { RequestMessage, ResponseMessage } from "@ging/shared/types";
-import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
+
+/** The message channel to the graph's webview — a VS Code `Webview` is one as
+ *  it is. */
+export interface WebviewChannel {
+  onDidReceiveMessage(listener: (msg: RequestMessage) => void | Promise<void>): unknown;
+  postMessage(msg: ResponseMessage): PromiseLike<boolean>;
+}
 
 export function webviewBridgeFactory(
-  webview: vscode.Webview,
-  repoFileWatcher: RepoFileWatcher,
+  webview: WebviewChannel,
+  watcher: Pick<Watcher, "mute" | "unmute">,
   /** Called after every repo-mutating handler. This — not the file watcher — is
    *  the reliable signal that refs changed: the watcher is muted across exactly
    *  these handlers and discards their own fs events, so hanging cache
@@ -32,7 +37,7 @@ export function webviewBridgeFactory(
     // operation (e.g. `git rebase`) is in progress the webview keeps sending
     // queries, and muting for each of them would swallow the very fs events
     // that signal the operation finished (issue #26).
-    if (entry.mutatesRepo) repoFileWatcher.mute();
+    if (entry.mutatesRepo) watcher.mute();
     try {
       await entry.handler(msg);
     } finally {
@@ -40,7 +45,7 @@ export function webviewBridgeFactory(
       // half-way (a batch delete that removed three of five branches) and the
       // refs it did change are still changed.
       if (entry.mutatesRepo) {
-        repoFileWatcher.unmute();
+        watcher.unmute();
         onRepoMutated();
       }
     }
