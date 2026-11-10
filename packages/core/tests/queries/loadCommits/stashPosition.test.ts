@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { loadCommits } from "@ging/core/backend/queries/loadCommits";
 
-import { makeRepo, rmrf } from "@ging/core/tests/helpers";
+import { makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
 
 /**
  * Where a stash's row lands, and — the point of this suite — that it does not
@@ -75,10 +75,6 @@ function stashAt(repo: string, message: string, date: string, file: string) {
     env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }
   });
   return rev(repo, "stash@{0}");
-}
-
-function rev(repo: string, revision: string): string {
-  return cp.execFileSync("git", ["rev-parse", revision], { cwd: repo }).toString().trim();
 }
 
 /** Re-date the repo's root commit, which `makeRepo` writes at the current time. */

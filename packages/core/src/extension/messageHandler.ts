@@ -59,6 +59,7 @@ import { operationState } from "@ging/core/backend/queries/operationState";
 import { predictConflicts } from "@ging/core/backend/queries/predictConflicts";
 import { getNewPathOfRenamedFile } from "@ging/core/backend/queries/renamedFilePath";
 import { tagDetails } from "@ging/core/backend/queries/tagDetails";
+import { fileChangeRevision } from "@ging/core/backend/utils/fileChangeRevision";
 import { formatGitError, isNotFullyMergedError } from "@ging/core/backend/utils/gitError";
 import { parseRemoteUrl, pullRequestCreateUrl } from "@ging/core/backend/utils/pullRequest";
 import { abbrevCommit, isCommitHash } from "@ging/core/backend/utils/string";
@@ -923,7 +924,11 @@ export function registerMessageHandlers(
           l10n.t("diff.workingTreeSep") +
           ")";
         await opener.diffWithWorking(
-          { repo: msg.repo, filePath: msg.filePath, commit: msg.commitHash },
+          {
+            repo: msg.repo,
+            filePath: msg.filePath,
+            commit: fileChangeRevision(msg.commitHash, msg.origin)
+          },
           `${msg.repo}/${workingFilePath}`,
           title
         );
@@ -944,7 +949,7 @@ export function registerMessageHandlers(
         await opener.openFileAtRevision({
           repo: msg.repo,
           filePath: msg.filePath,
-          commit: msg.commitHash
+          commit: fileChangeRevision(msg.commitHash, msg.origin)
         });
       } catch {
         success = false;
@@ -965,7 +970,8 @@ export function registerMessageHandlers(
           oldFilePath: msg.oldFilePath,
           newFilePath: msg.newFilePath,
           type: msg.type,
-          fromHash: msg.fromHash
+          fromHash: msg.fromHash,
+          origin: msg.origin
         })
       });
     },

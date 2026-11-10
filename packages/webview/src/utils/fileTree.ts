@@ -1,4 +1,4 @@
-import type { GitFileChange } from "@ging/shared/backend/types";
+import type { GitFileChange, GitFileChangeOrigin } from "@ging/shared/backend/types";
 
 import { escapeHtml } from "./html";
 import { svgIcons } from "./icons";
@@ -186,6 +186,7 @@ function renderGitFileRow(
     '" data-type="' +
     gitFile.type +
     '"' +
+    (gitFile.origin !== undefined ? ' data-origin="' + gitFile.origin + '"' : "") +
     (gitFile.additions === null || gitFile.deletions === null
       ? ' title="' + l10n.tooltipBinaryFile + '"'
       : "") +
@@ -274,6 +275,14 @@ export function generateGitFileListHtml(
 /* The rendered tree. A folder row is the `.gitFolder` span heading its `<li>`,
    whose `.gitFolderContents` list follows it; a file row is a `.gitFile` `<li>`.
    The root folder renders no row of its own, only its list. */
+
+/** The `origin` the host gave the change of the rendered file row `elem` is
+ *  (or sits in, such as one of the row's hover buttons), to hand back with
+ *  every request that reads the file: where it is kept is the host's to work
+ *  out (see `GitFileChange.origin`). */
+export function gitFileRowOrigin(elem: Element): GitFileChangeOrigin | undefined {
+  return <GitFileChangeOrigin | undefined>elem.closest<HTMLElement>(".gitFile")?.dataset.origin;
+}
 
 /** Whether a rendered folder row is open. */
 export function isGitFolderOpen(folderRow: HTMLElement): boolean {

@@ -347,6 +347,54 @@ describe("opening things", () => {
     expect(h.posted).toEqual([{ command: "viewFileAtRevision", success: true }]);
   });
 
+  it("reads a stash's untracked file from where the stash keeps it", async () => {
+    const h = harness();
+    await h.send({
+      command: "viewFileAtRevision",
+      repo,
+      filePath: "u",
+      commitHash: HASH,
+      origin: "untracked"
+    });
+    await h.send({
+      command: "viewDiffWithWorking",
+      repo,
+      filePath: "u",
+      commitHash: HASH,
+      origin: "untracked"
+    });
+    await h.send({
+      command: "viewDiff",
+      repo,
+      commitHash: HASH,
+      oldFilePath: "u",
+      newFilePath: "u",
+      type: "A",
+      origin: "untracked"
+    });
+    expect(h.calls).toEqual([
+      ["openFileAtRevision", { repo, filePath: "u", commit: `${HASH}^3` }],
+      [
+        "diffWithWorking",
+        { repo, filePath: "u", commit: `${HASH}^3` },
+        `${repo}/u`,
+        "u (01234567diff.workingTreeSep)"
+      ],
+      [
+        "openCommitDiff",
+        {
+          repo,
+          commitHash: HASH,
+          oldFilePath: "u",
+          newFilePath: "u",
+          type: "A",
+          fromHash: undefined,
+          origin: "untracked"
+        }
+      ]
+    ]);
+  });
+
   it("reports a failure when the opener could not open it", async () => {
     const h = harness();
     h.answers.openRejects = true;

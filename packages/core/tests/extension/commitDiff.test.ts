@@ -68,4 +68,13 @@ describe("commitDiffView", () => {
     expect(view({ revealLine: 1 }).reveal).toBe(0);
     expect(view({ revealLine: 42 }).reveal).toBe(41);
   });
+
+  it("reads a stash's untracked file from the stash's untracked-files commit", () => {
+    const { left, right, title } = view({ type: "A", origin: "untracked" });
+    // The left side is the commit the stash was made on, where an untracked
+    // file is not tracked: it reads as an empty document.
+    expect(left).toEqual({ repo: "/repo", filePath: "src/a.ts", commit: `${SHA}^` });
+    expect(right).toEqual({ repo: "/repo", filePath: "src/a.ts", commit: `${SHA}^3` });
+    expect(title).toBe("a.ts (Added in aaaaaaaa)");
+  });
 });

@@ -48,6 +48,7 @@ import {
   generateGitFileListHtml,
   generateGitFileTree,
   generateGitFileTreeHtml,
+  gitFileRowOrigin,
   isGitFolderOpen,
   parentGitFolderRow,
   serializeGitFileTree,
@@ -7847,15 +7848,16 @@ class GitGraphView {
         return;
       }
       if (!sourceElem.classList.contains("gitDiffPossible")) return;
-      const newFilePath = decodeURIComponent(sourceElem.dataset.newfilepath!);
+      const { repo, commitHash, filePath, origin } = this.cdvFileRef(sourceElem);
       sendMessage({
         command: "viewDiff",
-        repo: this.currentRepo!,
-        commitHash: this.cdvHash,
+        repo,
+        commitHash,
         fromHash: this.cdvFromHash,
         oldFilePath: decodeURIComponent(sourceElem.dataset.oldfilepath!),
-        newFilePath,
-        type: <GitFileChangeType>sourceElem.dataset.type
+        newFilePath: filePath,
+        type: <GitFileChangeType>sourceElem.dataset.type,
+        origin
       });
     });
     this.addCdvListenerToClass("gitFileCopyPath", "click", (e) => {
@@ -7871,9 +7873,9 @@ class GitGraphView {
       e.stopPropagation();
       if (this.expandedCommit === null) return;
       const sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFile")!;
-      const filePath = decodeURIComponent(sourceElem.dataset.newfilepath!);
+      const file = this.cdvFileRef(sourceElem);
+      const { commitHash, filePath } = file;
       const fileType = sourceElem.dataset.type;
-      const commitHash = this.cdvHash;
       const fromHash = this.cdvFromHash;
       const oldFilePath = decodeURIComponent(sourceElem.dataset.oldfilepath!);
       const notDeleted = fileType !== "D";
@@ -7888,12 +7890,13 @@ class GitGraphView {
           onClick: () =>
             sendMessage({
               command: "viewDiff",
-              repo: this.currentRepo!,
+              repo: file.repo,
               commitHash,
               fromHash,
               oldFilePath,
               newFilePath: filePath,
-              type: <GitFileChangeType>fileType
+              type: <GitFileChangeType>fileType,
+              origin: file.origin
             })
         });
       }
@@ -7903,26 +7906,14 @@ class GitGraphView {
         menu.push({
           title: l10n.viewFileAtRevision,
           icon: "viewRevision",
-          onClick: () =>
-            sendMessage({
-              command: "viewFileAtRevision",
-              repo: this.currentRepo!,
-              commitHash,
-              filePath
-            })
+          onClick: () => sendMessage({ command: "viewFileAtRevision", ...file })
         });
       }
       if (notDeleted && v.viewDiffWithWorkingFile) {
         menu.push({
           title: l10n.viewDiffWithWorking,
           icon: "compare",
-          onClick: () =>
-            sendMessage({
-              command: "viewDiffWithWorking",
-              repo: this.currentRepo!,
-              commitHash,
-              filePath
-            })
+          onClick: () => sendMessage({ command: "viewDiffWithWorking", ...file })
         });
       }
       if (notDeleted && v.openFile) {
@@ -7982,25 +7973,25 @@ class GitGraphView {
     this.addCdvListenerToClass("gitFileViewRev", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       if (this.expandedCommit === null) return;
-      let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileViewRev")!;
-      sendMessage({
-        command: "viewFileAtRevision",
-        repo: this.currentRepo!,
-        commitHash: this.cdvHash,
-        filePath: decodeURIComponent(sourceElem.dataset.filepath!)
-      });
+      sendMessage({ command: "viewFileAtRevision", ...this.cdvFileRef(<Element>e.target) });
     });
     this.addCdvListenerToClass("gitFileDiffWorking", "click", (e) => {
       e.stopPropagation(); // don't also trigger the file's view-diff click
       if (this.expandedCommit === null) return;
-      let sourceElem = <HTMLElement>(<Element>e.target).closest(".gitFileDiffWorking")!;
-      sendMessage({
-        command: "viewDiffWithWorking",
-        repo: this.currentRepo!,
-        commitHash: this.cdvHash,
-        filePath: decodeURIComponent(sourceElem.dataset.filepath!)
-      });
+      sendMessage({ command: "viewDiffWithWorking", ...this.cdvFileRef(<Element>e.target) });
     });
+  }
+
+  /** The CDV file whose row `elem` is or sits in (as one of its hover buttons
+   *  does), as the requests that read it name it. */
+  private cdvFileRef(elem: Element): GG.CommitFileRef {
+    const row = elem.closest<HTMLElement>(".gitFile")!;
+    return {
+      repo: this.currentRepo!,
+      commitHash: this.cdvHash,
+      filePath: decodeURIComponent(row.dataset.newfilepath!),
+      origin: gitFileRowOrigin(row)
+    };
   }
 
   /** The Commit Details View file layout: the per-repo choice when one has

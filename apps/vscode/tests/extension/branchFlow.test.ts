@@ -1,6 +1,9 @@
 import * as assert from "node:assert";
 import * as cp from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
+
+import * as vscode from "vscode";
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
@@ -13,8 +16,9 @@ import type { WebviewBridge } from "@ging/core/extension/webviewBridge";
 import type { HostPorts, RepoSource } from "@ging/core/host/ports";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import { config } from "@ging/vscode/config";
+import { createVscodeOpener } from "@ging/vscode/hostPorts";
 
-import { fakePorts } from "@ging/core/tests/helpers";
+import { fakePorts, git, makeRepo, rev, rmrf, SEED_TIMEOUT_MS } from "@ging/core/tests/helpers";
 
 import { useSharedRepo } from "./helpers";
 
@@ -321,5 +325,122 @@ suite("branchFlow (integration)", () => {
         "an empty path is not a repo to drop, just one to refuse"
       );
     });
+  });
+});
+
+/** A stash's untracked file read the whole way through (#332): the real
+ *  dispatch, the real VS Code opener, and the extension's own diff document
+ *  provider reading git. The stash's tree does not have the file, so each reader
+ *  that read it from there drew a blank document. Every side is read back from
+ *  the editor VS Code actually opened, so a reader that never got the revision
+ *  the host worked out shows here as an empty string. */
+suite("a stash's untracked file opens with its contents (integration)", () => {
+  const STASHED = "brand new untracked\n";
+  const WORKING = "edited in the worktree\n";
+  let repo: string;
+  let stash: string;
+
+  suiteSetup(async function () {
+    this.timeout(SEED_TIMEOUT_MS);
+    // The diff document provider is the extension's: activate it.
+    await vscode.extensions.getExtension("0miles.ging-git-view")!.activate();
+    repo = makeRepo();
+    fs.mkdirSync(path.join(repo, "sub"));
+    fs.writeFileSync(path.join(repo, "sub", "untracked.txt"), STASHED);
+    git(["stash", "push", "--include-untracked", "-m", "wip"], repo);
+    stash = rev(repo, "stash@{0}");
+    // The stash took the file, and its folder, away; View Diff with Working
+    // needs one to compare.
+    fs.mkdirSync(path.join(repo, "sub"));
+    fs.writeFileSync(path.join(repo, "sub", "untracked.txt"), WORKING);
+  });
+
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    rmrf(repo);
+  });
+
+  async function dispatch() {
+    const { handlers, posted, bridge } = makeBridge();
+    const [ports, deps] = makeDeps();
+    registerMessageHandlers(bridge, { ...ports, opener: createVscodeOpener(config) }, deps);
+    await handlers.get("selectRepo")!({ command: "selectRepo", repo } as RequestMessage);
+    const send = async (m: RequestMessage) => {
+      posted.length = 0;
+      await handlers.get(m.command)!(m);
+      return posted;
+    };
+    return send;
+  }
+
+  const activeInput = () => vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  const textOf = async (uri: vscode.Uri) =>
+    (await vscode.workspace.openTextDocument(uri)).getText();
+
+  test("each reader of the CDV row reads the stashed file", async () => {
+    const send = await dispatch();
+
+    const [details] = await send({
+      command: "commitDetails",
+      repo,
+      commitHash: stash,
+      isStash: true
+    } as RequestMessage);
+    const row = (
+      details as Extract<ResponseMessage, { command: "commitDetails" }>
+    ).commitDetails!.fileChanges.find((f) => f.newFilePath === "sub/untracked.txt");
+    assert.deepStrictEqual(row, {
+      oldFilePath: "sub/untracked.txt",
+      newFilePath: "sub/untracked.txt",
+      type: "A",
+      additions: 1,
+      deletions: 0,
+      origin: "untracked"
+    });
+    const read = { repo, commitHash: stash, origin: row!.origin };
+
+    // View Diff: nothing on the left, the stashed file on the right.
+    assert.deepStrictEqual(
+      await send({
+        command: "viewDiff",
+        ...read,
+        oldFilePath: row!.oldFilePath,
+        newFilePath: row!.newFilePath,
+        type: row!.type
+      } as RequestMessage),
+      [{ command: "viewDiff", success: true }]
+    );
+    let input = activeInput();
+    assert.ok(input instanceof vscode.TabInputTextDiff, "View Diff opens a diff editor");
+    assert.strictEqual(await textOf(input.original), "");
+    assert.strictEqual(await textOf(input.modified), STASHED);
+
+    // View File at Revision: the stashed file.
+    assert.deepStrictEqual(
+      await send({
+        command: "viewFileAtRevision",
+        ...read,
+        filePath: row!.newFilePath
+      } as RequestMessage),
+      [{ command: "viewFileAtRevision", success: true }]
+    );
+    input = activeInput();
+    assert.ok(input instanceof vscode.TabInputText, "View File at Revision opens an editor");
+    assert.strictEqual(await textOf(input.uri), STASHED);
+
+    // View Diff with Working: the stashed file against the one in the worktree.
+    assert.deepStrictEqual(
+      await send({
+        command: "viewDiffWithWorking",
+        ...read,
+        filePath: row!.newFilePath
+      } as RequestMessage),
+      [{ command: "viewDiffWithWorking", success: true }]
+    );
+    input = activeInput();
+    assert.ok(input instanceof vscode.TabInputTextDiff, "View Diff with Working opens a diff");
+    assert.strictEqual(await textOf(input.original), STASHED);
+    assert.strictEqual(input.modified.scheme, "file");
+    assert.strictEqual(await textOf(input.modified), WORKING);
   });
 });

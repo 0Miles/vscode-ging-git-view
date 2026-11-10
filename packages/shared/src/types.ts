@@ -4,6 +4,7 @@ import {
   BatchActionRequest,
   BatchActionResponse,
   CommitOrdering,
+  GitFileChangeOrigin,
   GitFileChangeType,
   GitResetMode,
   QueryRequest,
@@ -278,6 +279,15 @@ export type ResponseCopyToClipboard = {
   success: boolean;
 };
 
+/** A CDV file to read: `filePath` as of `commitHash`. */
+export type CommitFileRef = {
+  repo: string;
+  commitHash: string;
+  filePath: string;
+  /** The file change's `origin`, handed back as the CDV got it. */
+  origin?: GitFileChangeOrigin;
+};
+
 export type RequestViewDiff = {
   command: "viewDiff";
   repo: string;
@@ -288,6 +298,8 @@ export type RequestViewDiff = {
   /** When comparing two commits, the base commit to diff against instead
    *  of `commitHash`'s first parent. */
   fromHash?: string;
+  /** The file change's `origin`, handed back as the CDV got it. */
+  origin?: GitFileChangeOrigin;
 };
 export type ResponseViewDiff = {
   command: "viewDiff";
@@ -360,23 +372,13 @@ export type RequestClearBranchFilter = {
  *  waiting for a navigation that is not coming. */
 export type ResponseBranchFilterCleared = { command: "branchFilterCleared" };
 
-export type RequestViewFileAtRevision = {
-  command: "viewFileAtRevision";
-  repo: string;
-  commitHash: string;
-  filePath: string;
-};
+export type RequestViewFileAtRevision = { command: "viewFileAtRevision" } & CommitFileRef;
 export type ResponseViewFileAtRevision = {
   command: "viewFileAtRevision";
   success: boolean;
 };
 
-export type RequestViewDiffWithWorking = {
-  command: "viewDiffWithWorking";
-  repo: string;
-  commitHash: string;
-  filePath: string;
-};
+export type RequestViewDiffWithWorking = { command: "viewDiffWithWorking" } & CommitFileRef;
 export type ResponseViewDiffWithWorking = {
   command: "viewDiffWithWorking";
   success: boolean;
