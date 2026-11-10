@@ -12,10 +12,7 @@
 
 import type { SimpleGit } from "simple-git";
 
-import {
-  fetchFromRemotes,
-  fetchRemote as gitFetchRemote
-} from "@ging/core/backend/actions/fetch";
+import { fetchFromRemotes, fetchRemote as gitFetchRemote } from "@ging/core/backend/actions/fetch";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import type { HostConfig, L10n, Prompts } from "@ging/core/host/ports";
 
