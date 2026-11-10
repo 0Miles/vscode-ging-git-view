@@ -11,7 +11,7 @@ status: accepted
 同一個對話框裡有兩種安全性,而 UI 上分不出來:
 
 - **本地**的 redundant 分支第一輪必定失敗(`git branch -d` 擋下未完全合併的),被收集起來,由 batch run 用一個對話框問要不要強制刪除。git 自己把「有保證」和「需要強制」分開了。
-- **遠端**沒有這回事。`deleteRemoteBranch` 是 `git push <remote> --delete <branch>`(`src/backend/actions/branch.ts`),**沒有任何 not-fully-merged 的把關**,叫下去就沒了。
+- **遠端**沒有這回事。`deleteRemoteBranch` 是 `git push <remote> --delete <branch>`(`packages/core/src/backend/actions/branch.ts`),**沒有任何 not-fully-merged 的把關**,叫下去就沒了。
 
 於是「預設勾選裡含 redundant」這件事,對本地是「會再問你一次」,對遠端是「直接生效」。讀者看到這個落差,很容易以為遠端那條路漏了一道檢查沒寫。
 
