@@ -51,8 +51,8 @@ function inFlightWork() {
   return {
     track(work: Promise<void>): void {
       running.add(work);
-      // `finally`, not `then(done, done)`: work that fails must still surface
-      // as the unhandled rejection it always was, not be swallowed here.
+      // A failure leaves the set and still surfaces as an unhandled rejection:
+      // `finally` passes it on to a promise nothing handles.
       void work.finally(() => running.delete(work));
     },
     /** Settle once nothing tracked is running, including work tracked meanwhile. */
@@ -66,6 +66,10 @@ function inFlightWork() {
  * Paths handled together once they stop arriving for `delay`: each is passed to
  * `handle` in turn, including any queued while the batch runs, and `onChanged`
  * is called once at the end if any of them reported a change.
+ *
+ * Drains never overlap: each is chained after the one before it, so a timer
+ * that fires mid-drain queues the next drain rather than starting a second one
+ * on the same queue.
  */
 function debouncedBatch(
   handle: (path: string) => Promise<boolean>,
@@ -73,8 +77,9 @@ function debouncedBatch(
   delay: number
 ) {
   const paths = pathQueue();
-  const inFlight = inFlightWork();
   let timeout: NodeJS.Timeout | null = null;
+  /** The last drain started; it settles, never rejects, once that drain ends. */
+  let running: Promise<void> = Promise.resolve();
 
   async function drain() {
     let path;
@@ -86,10 +91,14 @@ function debouncedBatch(
   }
 
   function run() {
-    // Cleared when the timer fires, not when the drain ends: an event arriving
-    // mid-drain sets a new timer, and that handle must not be dropped.
+    // `timeout` only ever holds a timer still waiting to fire, so a path queued
+    // mid-drain sets a fresh timer instead of being left behind a spent one.
     timeout = null;
-    inFlight.track(drain());
+    const drained = running.then(drain);
+    // The next drain waits for this one however it ends. A failure still
+    // surfaces as an unhandled rejection — `finally` passes it on to a promise
+    // nothing handles — while the chain itself carries on.
+    running = new Promise((resolve) => void drained.finally(() => resolve()));
   }
 
   return {
@@ -102,13 +111,17 @@ function debouncedBatch(
     /** Run the batch now if it is waiting out its debounce, and settle once no
      *  batch is waiting or running. */
     async flush(): Promise<void> {
+      let awaited: Promise<void>;
       do {
         if (timeout !== null) {
           clearTimeout(timeout);
           run();
         }
-        await inFlight.settled();
-      } while (timeout !== null);
+        awaited = running;
+        await awaited;
+        // A path queued meanwhile has set a timer, or one that already fired
+        // has chained another drain.
+      } while (timeout !== null || running !== awaited);
     }
   };
 }
