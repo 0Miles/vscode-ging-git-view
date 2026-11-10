@@ -8,16 +8,21 @@ export type GitCommandStatus = string | null;
  * — the terminal, the SCM view, a `pull --autostash` — renumbers what is below
  * the top, so the number a caller read can name another stash by the time git
  * runs. The request therefore also carries `expectedHash`, the commit SHA the
- * caller saw at that position. Required, so no caller can send a selector
- * alone.
+ * caller saw at that position, in full — `%H`, the form `rev-parse` prints.
+ * Required, so no caller can send a selector alone.
+ *
+ * The two play different roles. The SHA is the stash's identity: what git
+ * acts on and what is compared. The number is the scope of consent: once
+ * `selector` no longer resolves to `expectedHash`, the action is refused.
  *
  * Two checks stand on it. The graph re-reads its loaded stash at consent
  * (`forStash`), answering with no round trip; the host re-resolves the
  * selector just before git runs and refuses with `StashMovedError`, touching
  * nothing, which covers what the graph has not reloaded for and callers with
  * no graph at all. Both refuse rather than redirect to wherever the hash sits
- * now: the number is what the user was shown and agreed to. The host check
- * narrows the window without closing it — see `verifyStashSelector`.
+ * now: the number is what the user was shown and agreed to. How much of the
+ * window between the host check and git is left differs per action — see
+ * `verifyStashSelector`.
  */
 type StashTarget = { selector: string; expectedHash: string };
 
