@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { debouncedBatch, inFlightWork } from "@ging/core/extension/debouncedBatch";
 
@@ -53,7 +53,8 @@ function answeredByHand() {
   };
 }
 
-let restoreRejectionListeners: (() => void) | undefined;
+/** A `handle` for which no path is a change; a fresh mock per test. */
+const noChange = () => vi.fn(async (_path: string) => false);
 
 /**
  * Collect the unhandled rejections raised from here on, instead of letting
@@ -65,10 +66,10 @@ function catchUnhandledRejections(): unknown[] {
   const theirs = process.listeners("unhandledRejection");
   process.removeAllListeners("unhandledRejection");
   process.on("unhandledRejection", listener);
-  restoreRejectionListeners = () => {
+  onTestFinished(() => {
     process.off("unhandledRejection", listener);
     for (const l of theirs) process.on("unhandledRejection", l);
-  };
+  });
   return reasons;
 }
 
@@ -77,14 +78,12 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  restoreRejectionListeners?.();
-  restoreRejectionListeners = undefined;
   vi.useRealTimers();
 });
 
 describe("debouncedBatch", () => {
   it("handles the queued paths once they stop arriving for the delay", async () => {
-    const handle = vi.fn(async (_path: string) => false);
+    const handle = noChange();
     const batch = debouncedBatch(handle, () => {}, DELAY);
 
     batch.add("/a");
@@ -98,7 +97,7 @@ describe("debouncedBatch", () => {
   });
 
   it("queues a path already waiting only once, without restarting the debounce", async () => {
-    const handle = vi.fn(async (_path: string) => false);
+    const handle = noChange();
     const batch = debouncedBatch(handle, () => {}, DELAY);
 
     batch.add("/a");
@@ -169,7 +168,7 @@ describe("debouncedBatch", () => {
 
   it("does not call onChanged when no path reported a change", async () => {
     const onChanged = vi.fn();
-    const batch = debouncedBatch(async () => false, onChanged, DELAY);
+    const batch = debouncedBatch(noChange(), onChanged, DELAY);
 
     batch.add("/a");
     batch.add("/b");
@@ -238,11 +237,7 @@ describe("debouncedBatch", () => {
     });
 
     it("settles at once when nothing is waiting or running", async () => {
-      const batch = debouncedBatch(
-        async () => false,
-        () => {},
-        DELAY
-      );
+      const batch = debouncedBatch(noChange(), () => {}, DELAY);
 
       const flushed = watch(batch.flush());
       await settle();

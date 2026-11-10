@@ -2,14 +2,11 @@
  * A queue of paths waiting for the debounce to fire, deduplicated while they
  * wait.
  *
- * Both halves are needed. The array is the queue because the drain is ordered
- * and re-entrant — each path is awaited, so more events arrive mid-drain — and
- * the Set is membership only. Membership used to be `indexOf`, which is fine
- * for the handful of events a hand edit produces and quadratic for the tens of
- * thousands that a branch switch, a build, or an `npm install` produces: every
- * event scans everything still queued, and the debounce is reset by each one,
- * so nothing drains while they pile up. That scan runs on the extension host's
- * shared thread, where it is not this extension it stalls.
+ * The array keeps the order, because the drain is ordered and re-entrant —
+ * each path is awaited, so more events arrive mid-drain. The Set answers
+ * membership in O(1): a branch switch, a build or an `npm install` reports tens
+ * of thousands of paths, each one a membership check on the host's shared
+ * thread.
  */
 export function pathQueue() {
   const queue: string[] = [];
@@ -77,7 +74,7 @@ export function debouncedBatch(
     let path;
     let changes = false;
     while ((path = paths.next())) {
-      if (await handle(path)) changes = true; // eslint-disable-line no-await-in-loop -- ordered
+      if (await handle(path)) changes = true; // eslint-disable-line no-await-in-loop -- ordered drain, one path at a time
     }
     if (changes) onChanged();
   }
@@ -88,8 +85,8 @@ export function debouncedBatch(
     timeout = null;
     const drained = running.then(drain);
     // The next drain waits for this one however it ends. A failure still
-    // surfaces as an unhandled rejection — `finally` passes it on to a promise
-    // nothing handles — while the chain itself carries on.
+    // surfaces as an unhandled rejection (see `inFlightWork().track` for how),
+    // while the chain itself carries on.
     running = new Promise((resolve) => void drained.finally(() => resolve()));
   }
 
@@ -110,7 +107,7 @@ export function debouncedBatch(
           run();
         }
         awaited = running;
-        await awaited; // eslint-disable-line no-await-in-loop -- see below
+        await awaited; // eslint-disable-line no-await-in-loop -- each wait re-checks for later drains
         // A path queued meanwhile has set a timer, or one that already fired
         // has chained another drain.
       } while (timeout !== null || running !== awaited);
