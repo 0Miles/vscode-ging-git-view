@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import * as path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -19,7 +20,7 @@ import { describe, expect, it } from "vitest";
  * numbers do.
  */
 
-const css = readFileSync(new URL("../../media/main.css", import.meta.url), "utf8");
+const css = readFileSync(path.resolve(__dirname, "../../media/main.css"), "utf8");
 
 /** Every rule carrying a `z-index`, as [selector with whitespace collapsed,
  *  value as written], in source order. Innermost blocks only, so a rule inside

@@ -32,7 +32,7 @@ const ROOT = path.resolve(process.argv[2] ?? path.join(__dirname, ".."));
 /** Named once: it is also how a file is recognised as an ADR further down. */
 const ADR_DIR_NAME = "docs/adr";
 const ADR_DIR = path.join(ROOT, ADR_DIR_NAME);
-const SEARCH_ROOTS = ["docs", "src", "tests", "scripts", "packages", "apps"];
+const SEARCH_ROOTS = ["docs", "scripts", "packages", "apps"];
 /**
  * Directories never walked: installed dependencies (every workspace package has
  * its own node_modules), build output, and the VS Code that the extension tests

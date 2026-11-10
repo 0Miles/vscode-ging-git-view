@@ -96,9 +96,11 @@ describe("check-adr", () => {
   });
 
   it("reports a path-form reference that `grep ADR-` would never surface", () => {
-    const { status, output } = run(makeFixture({ files: { "src/thing.ts": body("path-only") } }));
+    const { status, output } = run(
+      makeFixture({ files: { "packages/x/src/thing.ts": body("path-only") } })
+    );
 
-    expect(output).toContain("src/thing.ts:2");
+    expect(output).toContain("packages/x/src/thing.ts:2");
     expect(status).toBe(1);
   });
 
@@ -189,7 +191,7 @@ describe("check-adr", () => {
   // first pass, so both get said.
   it("also says when a path-form reference names an ADR that does not exist", () => {
     const { status, output } = run(
-      makeFixture({ files: { "src/thing.ts": body("path-to-missing-adr") } })
+      makeFixture({ files: { "packages/x/src/thing.ts": body("path-to-missing-adr") } })
     );
 
     expect(output).toContain("0099 is cited but no such ADR exists");

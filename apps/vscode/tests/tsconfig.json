@@ -1,10 +1,7 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../tsconfig.json",
   "compilerOptions": {
-    "types": ["node", "mocha"],
-    "paths": {
-      "@ging/vscode/*": ["../src/*"]
-    }
+    "types": ["node", "mocha"]
   },
   "include": ["./**/*.ts"],
   "exclude": ["out"]

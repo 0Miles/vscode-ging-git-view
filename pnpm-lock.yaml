@@ -44,9 +44,6 @@ importers:
 
   apps/vscode:
     dependencies:
-      iconv-lite:
-        specifier: ^0.7.2
-        version: 0.7.2
       simple-git:
         specifier: ^3.36.0
         version: 3.36.0
