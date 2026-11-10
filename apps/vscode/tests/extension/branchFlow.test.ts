@@ -2,8 +2,6 @@ import * as assert from "node:assert";
 import * as cp from "node:child_process";
 import * as path from "node:path";
 
-import * as vscode from "vscode";
-
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
@@ -13,11 +11,16 @@ import { config } from "@ging/vscode/config";
 import { registerMessageHandlers } from "@ging/vscode/extension/messageHandler";
 import type { WebviewBridge } from "@ging/vscode/extension/webviewBridge";
 
-// End-to-end exercise of the extension-side branch flow against the real repo
-// (the test workspace is this repo). Drives the real registerMessageHandlers
-// with a real git client + real config through a fake bridge, mimicking the
-// webview's selectRepo -> loadBranches handshake. Expectations are derived
-// from git itself: CI checkouts only have the branch being built, never main.
+import { useSeededRepo } from "./helpers";
+
+// End-to-end exercise of the extension-side branch flow against a real repo.
+// Drives the real registerMessageHandlers with a real git client + real config
+// through a fake bridge, mimicking the webview's selectRepo -> loadBranches
+// handshake. Each test gets its own copy of a seeded repo (`useSeededRepo`)
+// rather than the workspace these tests run in: none of the assertions depend
+// on how big the repo is, but the run time did, growing with every branch and
+// worktree of whoever ran it, so no timing measured on one machine held on
+// another (#286). Expectations are still read from git, not written in.
 const noop = () => {};
 
 const resolveShowRemote = () => true;
@@ -91,9 +94,12 @@ function makeDeps(overrides: DepOverrides = {}) {
 }
 
 suite("branch loading flow (integration)", () => {
-  test("selectRepo then loadBranches posts the repo's branches", async () => {
-    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
+  let repoPath: string;
+  useSeededRepo((repo) => {
+    repoPath = repo;
+  });
 
+  test("selectRepo then loadBranches posts the repo's branches", async () => {
     const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
     const posted: ResponseMessage[] = [];
     const bridge = {
@@ -139,7 +145,6 @@ suite("branch loading flow (integration)", () => {
   });
 
   test("selectRepo then commitDetails posts non-null details for HEAD", async () => {
-    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const head = cp.execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoPath }).toString().trim();
 
     const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
@@ -181,6 +186,11 @@ suite("branch loading flow (integration)", () => {
  *  Non-zero tokens throughout, and different ones per case: a hard-coded `0`,
  *  or one handler's token reaching the other, would pass against zeros. */
 suite("navigation token echo (integration)", () => {
+  let repoPath: string;
+  useSeededRepo((repo) => {
+    repoPath = repo;
+  });
+
   function makeBridge() {
     const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
     const posted: ResponseMessage[] = [];
@@ -193,7 +203,6 @@ suite("navigation token echo (integration)", () => {
   }
 
   test("loadBranches echoes the request's token verbatim", async () => {
-    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const { handlers, posted, bridge } = makeBridge();
     registerMessageHandlers(bridge, makeDeps());
 
@@ -212,7 +221,6 @@ suite("navigation token echo (integration)", () => {
   });
 
   test("loadCommits echoes the request's token verbatim", async () => {
-    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const { handlers, posted, bridge } = makeBridge();
     registerMessageHandlers(bridge, makeDeps());
 
@@ -240,9 +248,13 @@ suite("navigation token echo (integration)", () => {
  *  answer themselves, so only this can show the host writes it, and writes the
  *  repo's resolved setting rather than a constant. */
 suite("first-parent mode rides with the commits (integration)", () => {
+  let repoPath: string;
+  useSeededRepo((repo) => {
+    repoPath = repo;
+  });
+
   for (const onlyFollowFirstParent of [true, false]) {
     test(`loadCommits answers onlyFollowFirstParent: ${onlyFollowFirstParent} when the repo resolves to it`, async () => {
-      const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
       const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
       const posted: ResponseMessage[] = [];
       const bridge = {
@@ -290,6 +302,11 @@ suite("first-parent mode rides with the commits (integration)", () => {
  *  because the load responses carry a navigation token and no repo, so nothing
  *  downstream can notice the disagreement. */
 suite("selectRepo failures (integration)", () => {
+  let repoPath: string;
+  useSeededRepo((repo) => {
+    repoPath = repo;
+  });
+
   function makeBridge() {
     const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
     const posted: ResponseMessage[] = [];
@@ -302,7 +319,6 @@ suite("selectRepo failures (integration)", () => {
   }
 
   test("a repository that is gone is dropped, not half-selected", async () => {
-    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const gone = path.join(repoPath, `no-such-repo-${process.pid}`);
     const removed: string[] = [];
     let broadcasts = 0;
@@ -353,7 +369,6 @@ suite("selectRepo failures (integration)", () => {
     // `process.cwd()` — no throw, so nothing downstream would notice. It reads
     // as a repository whenever VS Code was started from one, which is how an
     // unrelated repository's history ends up drawn under an empty title.
-    const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const persisted: (string | null)[] = [];
     const removed: string[] = [];
 
