@@ -1,21 +1,10 @@
 import type { SimpleGit } from "simple-git";
 
-import type { ActionPayload, ActionResponseExtra } from "@ging/shared/backend/types";
+import type { ActionPayload, StashRefusalFacts } from "@ging/shared/backend/types";
 
-/**
- * A stash action refused because its selector no longer names the stash the
- * request was about: `selector` resolves to another commit than
- * `expectedHash`, or to nothing at all. Thrown before any stash command is
- * spawned, so the stack is exactly as it was.
- *
- * `stash@{n}` is a position, and every `git stash push` — the terminal, the
- * SCM view, a `pull --autostash` — renumbers everything below the top. The
- * graph already refuses this at consent (`forStash` in the webview); this is
- * the host's half of the same rule, for the time between the request leaving
- * the caller and git running, and for callers with no loaded graph to check
- * against. Refused, not redirected to wherever `expectedHash` sits now: the
- * selector is what the user was shown and agreed to.
- */
+/** A stash action refused before any stash command ran: its selector resolves
+ *  to another commit than `expectedHash`, or to nothing. Why — see
+ *  `StashTarget`. */
 export class StashMovedError extends Error {
   constructor(
     readonly selector: string,
@@ -32,10 +21,9 @@ export class StashMovedError extends Error {
   }
 }
 
-/** The selector a refused stash action could not act through — see
- *  `StashMovedError` — or null when `error` is anything else (or nothing).
- *  What a stash action reports beside its status. */
-export function stashRefusalFacts(error: unknown): ActionResponseExtra<"applyStash"> {
+/** What a stash action reports beside its status, read off the error it threw
+ *  (null when it succeeded). */
+export function stashRefusalFacts(error: unknown): StashRefusalFacts {
   return { movedSelector: error instanceof StashMovedError ? error.selector : null };
 }
 
@@ -43,31 +31,27 @@ export function stashRefusalFacts(error: unknown): ActionResponseExtra<"applySta
  * Refuse with `StashMovedError` unless `selector` still resolves to
  * `expectedHash`; return that SHA when it does.
  *
- * This narrows the window, it does not close it. The `rev-parse` here and the
- * `git stash apply/pop/drop` after it are two spawns, and git has no
- * compare-and-swap for stash entries — `stash drop` takes only a `stash@{n}`,
- * never a SHA — so a push landing between the two still renumbers the stack
- * under the second one. What is gone is the long window: from the moment the
- * caller read the selector to the moment the action reached the host.
+ * This narrows the window `StashTarget` describes, it does not close it. The
+ * `rev-parse` here and the stash command after it are two spawns, and git has
+ * no compare-and-swap for stash entries — `stash drop` takes only a
+ * `stash@{n}`, never a SHA — so a push landing between the two still
+ * renumbers the stack under the second one. What is gone is the long window:
+ * from the moment the caller read the selector to the moment the action
+ * reached the host.
  */
 async function verifyStashSelector(
   git: SimpleGit,
   selector: string,
   expectedHash: string
 ): Promise<string> {
-  let actualHash: string | null;
-  try {
-    // `--verify --quiet`: a selector past the end of the stack prints nothing
-    // and fails, rather than echoing the argument back.
-    const out = (await git.raw(["rev-parse", "--verify", "--quiet", selector])).trim();
-    actualHash = out === "" ? null : out;
-  } catch {
-    actualHash = null;
-  }
+  // `--verify --quiet`: a selector that names nothing — past the end of the
+  // stack — exits 1 with no output, which simple-git resolves as "". Any other
+  // failure (not a repository, git missing) rejects, and is git's to report.
+  const actualHash = (await git.raw(["rev-parse", "--verify", "--quiet", selector])).trim() || null;
   if (actualHash !== expectedHash) {
     throw new StashMovedError(selector, expectedHash, actualHash);
   }
-  return actualHash;
+  return expectedHash;
 }
 
 /** Apply a stash to the working tree, keeping it in the stash list. With
@@ -111,11 +95,7 @@ export async function renameStash(
   git: SimpleGit,
   input: ActionPayload<"renameStash">
 ): Promise<void> {
-  // The rev-parse the rebuild needs anyway is the one the selector is checked
-  // with, so the commit rebuilt is the commit the caller named. The window
-  // left open is wider than the other actions' though: three more spawns
-  // (tree, parents, commit-tree) stand between this check and the drop below,
-  // which still goes by the selector.
+  // A wider window than apply/pop/drop: three more spawns sit between this and the drop.
   const sha = await verifyStashSelector(git, input.selector, input.expectedHash);
   const tree = (await git.raw(["rev-parse", `${sha}^{tree}`])).trim();
   // `rev-list --parents -n 1 <sha>` → "<sha> <parent>...": drop the commit's

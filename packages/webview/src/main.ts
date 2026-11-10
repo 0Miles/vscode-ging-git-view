@@ -5388,19 +5388,15 @@ class GitGraphView {
    * {@link confirmForRepoAndHead}'s case rather than `confirmForRepo`'s — fail
    * safe, and say so.
    *
-   * The bound hash is handed on to `actioned` too, to send as the action's
-   * `expectedHash`: this check can only see the graph's last reload, so the
-   * host re-checks the selector against the same hash just before git runs and
-   * refuses with the same message ({@link handleStashResponse}). This half
-   * answers at consent, with no round trip; that half covers a push the graph
-   * has not reloaded for yet.
+   * The bound hash also goes out as the action's `expectedHash`, for the
+   * host's own check (`StashTarget`, {@link handleStashResponse}).
    */
   private forStash<A extends unknown[]>(
     selector: string,
     actioned: (repo: string, expectedHash: string, ...answer: A) => void
   ): (...answer: A) => void {
-    // Never undefined here — the menu was opened on a row this lookup's own
-    // list drew.
+    // Always set for a drawn row — the menu was opened on one this lookup's
+    // own list drew. Should it ever not be, refuse rather than send no hash.
     const stashHash = this.stashNodeFor(selector)?.hash;
     return this.forRepo((repo, ...answer: A) => {
       if (stashHash === undefined || this.stashNodeFor(selector)?.hash !== stashHash) {
@@ -9674,11 +9670,10 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
  * `deleteBranch` and `pushBranch` are excluded because they do not belong
  * here: each reports a classification as well (`notFullyMerged`,
  * `remoteUpdatedSinceCheckout`) and has a response handler built on it. The
- * four stash actions report one too (`movedSelector`) and have their own arm,
- * {@link handleStashResponse}, but stay in: any failure other than that one is
- * reported with the message here. `fetch` is included though it is not an
- * action — its response carries `status` and reports failure exactly the same
- * way.
+ * four stash actions stay in although {@link handleStashResponse} handles
+ * them: it reports every failure but a moved stash with the message here.
+ * `fetch` is included though it is not an action — its response carries
+ * `status` and reports failure exactly the same way.
  *
  * The three rebases share one message deliberately: which of them ran was
  * decided by the dialog's ticks, not by the user, so they are one operation to
@@ -9735,12 +9730,9 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
   }
 }
 
-/** Handle a stash action's response. A refusal because the selector no longer
- *  named the stash the user agreed to — the host's re-check of `expectedHash`,
- *  see `StashMovedError` — reads exactly as {@link GitGraphView.forStash}'s
- *  refusal at consent does: it is the same rule, caught later. git ran nothing,
- *  so there is no git error to show beneath it. The graph is refreshed once
- *  it is dismissed, as for any failure: the stack it drew is the stale one. */
+/** Handle a stash action's response. The host's moved-stash refusal
+ *  (`StashTarget`) reads as {@link GitGraphView.forStash}'s does, with no git
+ *  line beneath it, since git ran nothing; the graph refreshes on dismissal. */
 function handleStashResponse(
   status: GitCommandStatus,
   movedSelector: string | null,

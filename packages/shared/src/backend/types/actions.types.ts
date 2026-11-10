@@ -5,10 +5,19 @@ export type GitCommandStatus = string | null;
 /**
  * The stash a stash action is about. `selector` (`stash@{n}`) is what git
  * takes, but it is a position on the stack, not a name: every `git stash push`
- * renumbers what is below it. So the request also carries `expectedHash`, the
- * commit SHA the caller saw at that position, and the host refuses — before
- * spawning any stash command — when the selector no longer resolves to it
- * (`StashMovedError`). Required, so no caller can send a selector alone.
+ * — the terminal, the SCM view, a `pull --autostash` — renumbers what is below
+ * the top, so the number a caller read can name another stash by the time git
+ * runs. The request therefore also carries `expectedHash`, the commit SHA the
+ * caller saw at that position. Required, so no caller can send a selector
+ * alone.
+ *
+ * Two checks stand on it. The graph re-reads its loaded stash at consent
+ * (`forStash`), answering with no round trip; the host re-resolves the
+ * selector just before git runs and refuses with `StashMovedError`, touching
+ * nothing, which covers what the graph has not reloaded for and callers with
+ * no graph at all. Both refuse rather than redirect to wherever the hash sits
+ * now: the number is what the user was shown and agreed to. The host check
+ * narrows the window without closing it — see `verifyStashSelector`.
  */
 type StashTarget = { selector: string; expectedHash: string };
 
@@ -195,11 +204,10 @@ type ActionResponseExtras = {
 };
 
 /** What a stash action reports beside its status. */
-type StashRefusalFacts = {
-  /** The selector the host refused to act through because it no longer
-   *  resolved to the request's `expectedHash` — the stack moved under the
-   *  request — or null for any other outcome. Carried so the refusal can name
-   *  the selector the user agreed to. See `StashMovedError`. */
+export type StashRefusalFacts = {
+  /** The selector refused because it no longer resolved to `expectedHash`
+   *  (`StashMovedError`), or null for any other outcome. Carried so the
+   *  refusal can name the selector the user agreed to. */
   movedSelector: string | null;
 };
 

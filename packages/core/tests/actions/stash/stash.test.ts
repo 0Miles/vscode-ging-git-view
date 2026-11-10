@@ -1,5 +1,6 @@
 import * as cp from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import { simpleGit } from "simple-git";
@@ -141,5 +142,16 @@ describe("stash actions", () => {
       dropStash(simpleGit(repo), { selector: "stash@{9}", expectedHash: rev(repo, "HEAD") })
     );
     expect(error).toBeInstanceOf(StashMovedError);
+  });
+
+  it("reports a git failure as git's, not as a stash that moved", async () => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "ging-not-a-repo-"));
+
+    const error = await rejection(
+      dropStash(simpleGit(repo), { selector: "stash@{0}", expectedHash: "0".repeat(40) })
+    );
+
+    expect(error).not.toBeInstanceOf(StashMovedError);
+    expect(String(error)).toMatch(/not a git repository/);
   });
 });
