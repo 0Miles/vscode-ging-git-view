@@ -919,7 +919,7 @@ export function registerMessageHandlers(
           l10n.t("diff.workingTreeSep") +
           ")";
         await opener.diffWithWorking(
-          { repo: msg.repo, filePath: msg.filePath, commitHash: msg.commitHash },
+          { repo: msg.repo, filePath: msg.filePath, commit: msg.commitHash },
           `${msg.repo}/${workingFilePath}`,
           title
         );
@@ -940,7 +940,7 @@ export function registerMessageHandlers(
         await opener.openFileAtRevision({
           repo: msg.repo,
           filePath: msg.filePath,
-          commitHash: msg.commitHash
+          commit: msg.commitHash
         });
       } catch {
         success = false;

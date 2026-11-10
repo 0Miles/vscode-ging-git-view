@@ -1,13 +1,7 @@
 import * as vscode from "vscode";
 
-import type {
-  Clipboard,
-  FileAtRevision,
-  HostStorage,
-  L10n,
-  Opener,
-  Prompts
-} from "@ging/core/host/ports";
+import type { DiffSide } from "@ging/core/extension/commitDiff";
+import type { Clipboard, HostStorage, L10n, Opener, Prompts } from "@ging/core/host/ports";
 import type { Config } from "@ging/vscode/config";
 import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
 import { openCommitDiff } from "@ging/vscode/extension/openCommitDiff";
@@ -45,8 +39,8 @@ export const vscodePrompts: Prompts = {
 export function createVscodeOpener(settings: Pick<Config, "openNewTabEditorGroup">): Opener {
   // Through the diff document provider, which resolves to
   // `git show <commit>:<path>`.
-  const revisionUri = ({ repo, filePath, commitHash }: FileAtRevision) =>
-    encodeDiffDocUri(repo, filePath, commitHash);
+  const revisionUri = ({ repo, filePath, commit }: DiffSide) =>
+    encodeDiffDocUri(repo, filePath, commit);
   const openPreview = (uri: vscode.Uri) =>
     vscode.commands.executeCommand("vscode.open", uri, { preview: true });
   return {

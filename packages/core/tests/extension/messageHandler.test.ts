@@ -437,7 +437,7 @@ describe("opening things", () => {
     expect(h.calls).toEqual([
       [
         "diffWithWorking",
-        { repo, filePath: "f", commitHash: HASH },
+        { repo, filePath: "f", commit: HASH },
         `${repo}/f`,
         "f (01234567diff.workingTreeSep)"
       ]
@@ -448,7 +448,7 @@ describe("opening things", () => {
   it("opens a file as of a revision", async () => {
     const h = harness();
     await h.send({ command: "viewFileAtRevision", repo, filePath: "f", commitHash: HASH });
-    expect(h.calls).toEqual([["openFileAtRevision", { repo, filePath: "f", commitHash: HASH }]]);
+    expect(h.calls).toEqual([["openFileAtRevision", { repo, filePath: "f", commit: HASH }]]);
     expect(h.posted).toEqual([{ command: "viewFileAtRevision", success: true }]);
   });
 

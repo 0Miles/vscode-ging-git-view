@@ -13,7 +13,7 @@
 
 import type { SquashMessageFormat } from "@ging/core/backend/actions/merge";
 import type { PullRequestProvider } from "@ging/core/backend/utils/pullRequest";
-import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
+import type { CommitDiffRequest, DiffSide } from "@ging/core/extension/commitDiff";
 import type { CommitOrdering, DateType } from "@ging/shared/backend/types";
 import type { GitRepoSet, GitRepoState } from "@ging/shared/types";
 
@@ -80,19 +80,16 @@ export interface Prompts {
   }): PromiseLike<string | undefined>;
 }
 
-/** A file's contents at a commit. */
-export type FileAtRevision = { repo: string; filePath: string; commitHash: string };
-
 /** Opening things in the host: editors, diffs, a terminal, a browser, a view. */
 export interface Opener {
   /** Open a working-tree file. Rejects when it could not be opened. */
   openFile(path: string): PromiseLike<unknown>;
   /** Open a file's contents as of a commit, read-only. Rejects when it could
    *  not be opened. */
-  openFileAtRevision(file: FileAtRevision): PromiseLike<unknown>;
+  openFileAtRevision(file: DiffSide): PromiseLike<unknown>;
   /** A diff of a file at a commit (left) against a working-tree file (right).
    *  Rejects when it could not be opened. */
-  diffWithWorking(left: FileAtRevision, workingPath: string, title: string): PromiseLike<unknown>;
+  diffWithWorking(left: DiffSide, workingPath: string, title: string): PromiseLike<unknown>;
   /** A commit's change to a file in a diff editor (see `commitDiffView`);
    *  resolves to whether it opened. */
   openCommitDiff(request: CommitDiffRequest): PromiseLike<boolean>;
