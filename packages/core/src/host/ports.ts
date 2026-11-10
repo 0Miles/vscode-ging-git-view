@@ -2,15 +2,13 @@
  * The host ports: what the message dispatch (and the core services built
  * beside it) asks of whatever editor or app is hosting GING.
  *
- * Each port is one host capability, and carries only the methods the moved
- * code calls today — a port grows when a caller needs it to, not ahead of a
- * host that might. They are plain structural interfaces, in the shape of
- * `AvatarConfig`/`AvatarStore`: the VS Code implementations are mostly the
- * existing objects passed as they are, or one-line forwards, so the shape of a
- * port is the shape of what is already there.
+ * Each port is one host capability, and carries only the methods the dispatch
+ * calls. They are plain structural interfaces, in the shape of
+ * `AvatarConfig`/`AvatarStore`, so a host can often hand over an object it
+ * already has.
  *
- * Types are host-neutral (paths are strings, not URIs), and every prompt
- * answers `undefined` for a cancel, the way VS Code's own do.
+ * Types are host-neutral: paths are strings, not URIs, and a cancelled prompt
+ * answers `undefined`.
  */
 
 import type { SquashMessageFormat } from "@ging/core/backend/actions/merge";
