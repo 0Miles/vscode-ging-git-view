@@ -1,6 +1,9 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 
-import type { WatchPath } from "@ging/core/backend/queries/gitDirs";
+import type { GitCommandHandler } from "@ging/core/backend/gitClient";
+import { findGitDirs, type WatchPath } from "@ging/core/backend/queries/gitDirs";
+import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths";
 
 /** The stash's reflog, under the common dir: `git stash list` reads it, and
  *  every push, drop, pop and clear rewrites or removes it. */
@@ -8,10 +11,8 @@ const STASH_LOG = ["logs", "refs", "stash"];
 
 /**
  * The one non-recursive watch that leads to `<commonDir>/logs/refs/stash`: the
- * deepest of its folders that exists, watched for the next name on the way.
- * Until `logs/refs` exists — a fresh `git init` has neither folder — the watch
- * sits higher up and waits for the next folder to appear. Null when the common
- * dir itself is gone.
+ * deepest of its folders that exists, waiting for the next name on the way (a
+ * fresh `git init` has no `logs` yet). Null when the common dir itself is gone.
  */
 export function stashLogWatchTarget(
   commonDir: string,
@@ -30,38 +31,33 @@ export function stashLogWatchTarget(
 /** Something to let go of: a watch, a watcher. */
 export type Disposable = { dispose(): void };
 
+/** Watch `target.glob` directly inside `target.base`, not recursively, calling
+ *  `onEvent` whenever it is created, changed or deleted. */
+export type WatchOne = (target: WatchPath, onEvent: () => void) => Disposable;
+
+const watchKey = (target: WatchPath | null) =>
+  target === null ? null : target.base + "\0" + target.glob;
+
 /**
- * Watch the stash log of the repository whose common dir is `commonDir`, from
- * wherever `stashLogWatchTarget` says to, and report every event there as a
- * change. An event is also when the watch moves: the target is worked out
- * again, and a new one replaces the old — deeper once a folder on the way has
- * appeared, higher up if one has gone. A folder's appearance is reported too:
- * git creates the stash log along with its folders, possibly before the deeper
- * watch is up to see it.
+ * Watch the stash log under `commonDir`, moving the watch on every event as
+ * folders on the way appear or go. Every event is reported, a folder's too:
+ * git may write the log before the deeper watch is up.
  */
 export function createStashLogWatch(deps: {
   commonDir: string;
   isDirectory: (dir: string) => boolean;
-  /** Watch `target.glob` directly inside `target.base`, not recursively,
-   *  calling `onEvent` whenever it is created, changed or deleted. */
-  watch: (target: WatchPath, onEvent: () => void) => Disposable;
+  watch: WatchOne;
   onChange: () => void;
 }): Disposable {
-  let current: { target: WatchPath; watch: Disposable } | null = null;
+  let current: { key: string; watch: Disposable } | null = null;
   let disposed = false;
 
   const attach = () => {
     const target = stashLogWatchTarget(deps.commonDir, deps.isDirectory);
-    if (
-      current !== null &&
-      target !== null &&
-      current.target.base === target.base &&
-      current.target.glob === target.glob
-    ) {
-      return;
-    }
+    const key = watchKey(target);
+    if (current !== null && current.key === key) return;
     current?.watch.dispose();
-    current = target === null ? null : { target, watch: deps.watch(target, onEvent) };
+    current = target === null ? null : { key: key!, watch: deps.watch(target, onEvent) };
   };
 
   function onEvent() {
@@ -80,44 +76,60 @@ export function createStashLogWatch(deps: {
   };
 }
 
-/** How long the Stash side-view waits for its stash log to go quiet before it
- *  re-reads the list: the graph's own watcher's debounce (`RepoFileWatcher`). */
-export const STASH_REFRESH_DEBOUNCE_MS = 750;
+/** How the Stash side-view runs git. */
+export type StashViewGit = {
+  gitPath: () => string;
+  gitEnv?: () => NodeJS.ProcessEnv;
+  onCommand?: GitCommandHandler;
+};
+
+const isDirectoryOnDisk = (dir: string): boolean => {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+};
 
 /**
- * When the Stash side-view re-reads its list, and what it watches to know: the
- * stash log of its repository (the current repository), and only while the
- * view is visible. It is the view's own watch — the graph's watcher lives and
- * dies with the graph panel — so the view keeps up with the graph closed.
- *
- * - Becoming visible re-reads straight away: nothing watched while hidden.
- *   Once the watch is up it counts as a change too, since the list was read
- *   before anything watched the stash log.
- * - A new repository is re-read straight away when visible, and waits for the
- *   view to be shown otherwise.
- * - A change in the stash log is re-read once it has been quiet for
- *   `debounceMs`.
- * - Finding where the stash log lives takes a git run, so the watch starts
- *   asynchronously; one whose repository or visibility changed meanwhile is
- *   never started. A repository whose common dir can't be found is not
- *   watched until the view is next shown.
+ * When the Stash side-view re-reads its list. It watches its repository's stash
+ * log itself, only while visible, because the graph's watcher lives and dies
+ * with the graph panel. Showing it, or a new repository while shown, re-reads
+ * at once and again once the watch is up (a stash may land before it is);
+ * stash-log events re-read after they go quiet.
  */
 export function createStashViewWatch(deps: {
-  /** The common dir of `repo` (`findGitDirs`); null when git can't say. */
-  findCommonDir: (repo: string) => Promise<string | null>;
-  /** Watch the stash log under `commonDir` (`createStashLogWatch`). */
-  watchStashLog: (commonDir: string, onChange: () => void) => Disposable;
+  git: StashViewGit;
+  watch: WatchOne;
   /** Re-read the list now. */
   refresh: () => void;
+  /** Where `repo`'s common dir is; null when git can't say. Defaults to
+   *  asking git (`findGitDirs`). */
+  findCommonDir?: (repo: string) => Promise<string | null>;
+  isDirectory?: (dir: string) => boolean;
   debounceMs?: number;
 }) {
-  const debounceMs = deps.debounceMs ?? STASH_REFRESH_DEBOUNCE_MS;
+  const debounceMs = deps.debounceMs ?? REPO_CHANGE_DEBOUNCE_MS;
+  const isDirectory = deps.isDirectory ?? isDirectoryOnDisk;
+  const findCommonDir =
+    deps.findCommonDir ??
+    (async (repo: string) =>
+      (
+        await findGitDirs({
+          gitPath: deps.git.gitPath(),
+          repoPath: repo,
+          gitEnv: deps.git.gitEnv?.(),
+          onCommand: deps.git.onCommand
+        })
+      )?.commonDir ?? null);
+  // A repository's common dir doesn't move, so it is asked for once.
+  const commonDirs = new Map<string, string>();
   let repo: string | null = null;
   let visible = false;
   let watch: Disposable | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  /** Bumped whenever what should be watched changes, so a lookup that was
-   *  started for something else is dropped when it arrives. */
+  /** Bumped whenever what should be watched changes, so a lookup started for
+   *  something else is dropped when it arrives. */
   let generation = 0;
 
   const stop = () => {
@@ -136,15 +148,24 @@ export function createStashViewWatch(deps: {
     }, debounceMs);
   };
 
-  const start = () => {
-    if (repo === null) return;
+  const commonDirOf = async (of: string): Promise<string | null> => {
+    const known = commonDirs.get(of);
+    if (known !== undefined) return known;
+    const found = await findCommonDir(of);
+    if (found !== null) commonDirs.set(of, found);
+    return found;
+  };
+
+  /** Drop what was watched; when shown on a repository, re-read and watch it. */
+  const restart = () => {
+    stop();
+    if (!visible || repo === null) return;
+    deps.refresh();
     const started = generation;
-    void deps.findCommonDir(repo).then(
+    void commonDirOf(repo).then(
       (commonDir) => {
         if (started !== generation || commonDir === null) return;
-        watch = deps.watchStashLog(commonDir, onChange);
-        // The list was read before anything watched it; a stash may have
-        // landed meanwhile.
+        watch = createStashLogWatch({ commonDir, isDirectory, watch: deps.watch, onChange });
         onChange();
       },
       () => {}
@@ -156,18 +177,12 @@ export function createStashViewWatch(deps: {
     setRepo(next: string | null) {
       if (next === repo) return;
       repo = next;
-      if (!visible) return;
-      stop();
-      deps.refresh();
-      start();
+      if (visible) restart();
     },
     setVisible(next: boolean) {
       if (next === visible) return;
       visible = next;
-      stop();
-      if (!visible) return;
-      deps.refresh();
-      start();
+      restart();
     },
     dispose() {
       visible = false;

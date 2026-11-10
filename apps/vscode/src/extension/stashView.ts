@@ -1,23 +1,22 @@
-import * as fs from "node:fs";
-
 import * as vscode from "vscode";
 
-import { type GitCommandHandler } from "@ging/core/backend/gitClient";
-import { findGitDirs } from "@ging/core/backend/queries/gitDirs";
 import { listStashes } from "@ging/core/backend/queries/listStashes";
 import type { RepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
-  loadStashFiles,
   copyStashName,
+  loadStashFiles,
+  sameStashList,
   type StashFile,
   type StashListItem,
   stashListItems
 } from "@ging/core/extension/stashList";
-import { createStashLogWatch, createStashViewWatch } from "@ging/core/extension/stashWatch";
+import { createStashViewWatch, type StashViewGit } from "@ging/core/extension/stashWatch";
 import type { EditorGroup } from "@ging/vscode/config";
+import { vscodeClipboard, vscodeL10n, vscodePrompts } from "@ging/vscode/hostPorts";
 import * as l10n from "@ging/vscode/l10n";
 
 import { openCommitDiff } from "./openCommitDiff";
+import { watchPaths } from "./watchPaths";
 
 const VIEW_ID = "ging-git-view.stash";
 const OPEN_FILE_DIFF_COMMAND = "ging-git-view.stash.openFileDiff";
@@ -40,62 +39,7 @@ type FileNode = { kind: "file"; parentId: string; file: StashFile };
 type Node = StashNode | FileNode;
 
 const stashNodeId = (node: StashNode) => node.repo + "::stash::" + node.stash.id;
-
-/**
- * Watch the stash log under `commonDir` with VS Code's file watcher, one
- * non-recursive watch at a time (see `createStashLogWatch`). Non-recursive, so
- * `files.watcherExclude` — often set to `**\/.git/**` — can't silence it.
- */
-export function watchStashLog(commonDir: string, onChange: () => void): vscode.Disposable {
-  const watch = createStashLogWatch({
-    commonDir,
-    isDirectory: (dir) => {
-      try {
-        return fs.statSync(dir).isDirectory();
-      } catch {
-        return false;
-      }
-    },
-    watch: ({ base, glob }, onEvent) => {
-      const watcher = vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(vscode.Uri.file(base), glob)
-      );
-      return vscode.Disposable.from(
-        watcher.onDidCreate(onEvent),
-        watcher.onDidChange(onEvent),
-        watcher.onDidDelete(onEvent),
-        watcher
-      );
-    },
-    onChange
-  });
-  return new vscode.Disposable(() => watch.dispose());
-}
-
-/** How the Stash side-view runs git outside of `simple-git`. */
-export type StashGitDeps = {
-  gitPath: () => string;
-  gitEnv?: () => NodeJS.ProcessEnv;
-  onCommand?: GitCommandHandler;
-};
-
-/** The Stash side-view's watch (`createStashViewWatch`), wired to git and to
- *  VS Code's file watcher. */
-export function createStashRefreshWatch(deps: StashGitDeps & { refresh: () => void }) {
-  return createStashViewWatch({
-    findCommonDir: async (repo) =>
-      (
-        await findGitDirs({
-          gitPath: deps.gitPath(),
-          repoPath: repo,
-          gitEnv: deps.gitEnv?.(),
-          onCommand: deps.onCommand
-        })
-      )?.commonDir ?? null,
-    watchStashLog,
-    refresh: deps.refresh
-  });
-}
+const filesKey = (repo: string, hash: string) => repo + "\0" + hash;
 
 class StashProvider implements vscode.TreeDataProvider<Node> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<Node | undefined | void>();
@@ -104,6 +48,9 @@ class StashProvider implements vscode.TreeDataProvider<Node> {
   private repo: string | null = null;
   // Guards against an in-flight read being overwritten by a slower earlier one.
   private fetchId = 0;
+  /** Each expanded stash's files, by repo and SHA: a stash never changes
+   *  under its SHA. Kept for the stashes still listed. */
+  private readonly files = new Map<string, Promise<StashFile[] | null>>();
 
   constructor(private readonly gitClients: RepoGitClients) {}
 
@@ -130,7 +77,17 @@ class StashProvider implements vscode.TreeDataProvider<Node> {
     const repo = this.repo;
     const stashes = repo === null ? [] : await listStashes(this.gitClients.gitClientFor(repo));
     if (id !== this.fetchId) return; // superseded by a newer read
-    this.stashes = stashListItems(stashes).map((stash) => ({ kind: "stash", repo: repo!, stash }));
+    const items = stashListItems(stashes);
+    const listed = new Set(items.map((stash) => filesKey(repo!, stash.hash)));
+    for (const key of this.files.keys()) if (!listed.has(key)) this.files.delete(key);
+    if (
+      sameStashList(
+        items,
+        this.stashes.map((node) => node.stash)
+      )
+    )
+      return;
+    this.stashes = items.map((stash) => ({ kind: "stash", repo: repo!, stash }));
     this._onDidChangeTreeData.fire();
   }
 
@@ -175,11 +132,15 @@ class StashProvider implements vscode.TreeDataProvider<Node> {
   async getChildren(node?: Node): Promise<Node[]> {
     if (node === undefined) return this.stashes;
     if (node.kind === "file") return [];
-    const files = await loadStashFiles(
-      this.gitClients.gitClientFor(node.repo),
-      node.repo,
-      node.stash.hash
-    );
+    const key = filesKey(node.repo, node.stash.hash);
+    let load = this.files.get(key);
+    if (load === undefined) {
+      load = loadStashFiles(this.gitClients.gitClientFor(node.repo), node.repo, node.stash.hash);
+      this.files.set(key, load);
+    }
+    const files = await load;
+    // A stash that couldn't be read is read again next time.
+    if (files === null && this.files.get(key) === load) this.files.delete(key);
     const parentId = stashNodeId(node);
     return (files ?? []).map((file) => ({ kind: "file", parentId, file }));
   }
@@ -192,22 +153,24 @@ class StashProvider implements vscode.TreeDataProvider<Node> {
 export type StashView = ReturnType<typeof createStashView>;
 
 /**
- * Create and wire the Stash side-view: the current repository's stashes,
- * newest first, each expanding into the files it changed, a click on one
- * opening its diff. Read-only but for copying a stash's name. It keeps itself
- * current with its own watch over the stash log while visible (see
- * `createStashViewWatch`), whether or not the graph panel is open.
+ * The Stash side-view: the current repository's stashes, each expanding into
+ * its files, a click opening the diff. It keeps itself current through
+ * `createStashViewWatch`, graph panel open or not.
  */
-export function createStashView(
-  deps: StashGitDeps & {
-    gitClients: RepoGitClients;
-    /** The editor group diffs open in. */
-    editorGroup: () => EditorGroup;
-  }
-) {
+export function createStashView(deps: {
+  git: StashViewGit;
+  gitClients: RepoGitClients;
+  /** The editor group diffs open in. */
+  editorGroup: () => EditorGroup;
+}) {
   const provider = new StashProvider(deps.gitClients);
   const treeView = vscode.window.createTreeView<Node>(VIEW_ID, { treeDataProvider: provider });
-  const watch = createStashRefreshWatch({ ...deps, refresh: () => void provider.reload() });
+  const watch = createStashViewWatch({
+    git: deps.git,
+    // One non-recursive watch, which `files.watcherExclude` can't silence.
+    watch: (target, onEvent) => watchPaths([target], onEvent),
+    refresh: () => void provider.reload()
+  });
   watch.setVisible(treeView.visible);
 
   const subscriptions = [
@@ -234,9 +197,10 @@ export function createStashView(
       isStashNode(node)
         ? copyStashName(
             {
-              listStashes: () => listStashes(deps.gitClients.gitClientFor(node.repo)),
-              writeClipboard: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
-              warn: () => void vscode.window.showWarningMessage(l10n.t("stashView.stashMoved")),
+              git: deps.gitClients.gitClientFor(node.repo),
+              clipboard: vscodeClipboard,
+              prompts: vscodePrompts,
+              l10n: vscodeL10n,
               refresh: () => void provider.reload()
             },
             node.stash

@@ -6,10 +6,15 @@ import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { commitDiffView } from "@ging/core/extension/commitDiff";
-import { copyStashName, loadStashFiles, stashListItems } from "@ging/core/extension/stashList";
+import {
+  copyStashName,
+  loadStashFiles,
+  sameStashList,
+  stashListItems
+} from "@ging/core/extension/stashList";
 import type { ScmStashEntry } from "@ging/shared/backend/types";
 
-import { git, makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
+import { git, makeRepo, pushTwoStashes, rev, rmrf } from "@ging/core/tests/helpers";
 
 const entry = (hash: string, index: number, message = "On main: wip"): ScmStashEntry => ({
   hash,
@@ -51,44 +56,81 @@ describe("stashListItems", () => {
   });
 });
 
-describe("copyStashName", () => {
-  /** Copy Name on the item showing `shown`, with git now listing `now`. */
-  async function copy(now: ScmStashEntry[], shown: { hash: string; selector: string }) {
+describe("sameStashList", () => {
+  const list = (...hashes: string[]) => stashListItems(hashes.map((h, i) => entry(h, i)));
+
+  it("holds for the same stashes at the same places", () => {
+    expect(sameStashList(list("aaa", "bbb"), list("aaa", "bbb"))).toBe(true);
+  });
+
+  it("fails once a stash was pushed, dropped or moved", () => {
+    expect(sameStashList(list("aaa", "bbb"), list("ccc", "aaa", "bbb"))).toBe(false);
+    expect(sameStashList(list("aaa", "bbb"), list("bbb"))).toBe(false);
+    expect(sameStashList(list("aaa", "bbb"), list("bbb", "aaa"))).toBe(false);
+  });
+});
+
+describe("copyStashName (real git)", () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmrf(repo);
+  });
+
+  /** Copy Name on the item that shows `shown`. */
+  async function copy(shown: { hash: string; selector: string }) {
     const copied: string[] = [];
-    const calls = { warned: 0, refreshed: 0 };
+    const warnings: string[] = [];
+    let refreshed = 0;
     const outcome = await copyStashName(
       {
-        listStashes: () => Promise.resolve(now),
-        writeClipboard: (text) => {
-          copied.push(text);
-          return Promise.resolve();
+        git: simpleGit(repo),
+        clipboard: {
+          writeText: (text) => {
+            copied.push(text);
+            return Promise.resolve();
+          }
         },
-        warn: () => calls.warned++,
-        refresh: () => calls.refreshed++
+        prompts: { showWarning: (message) => warnings.push(message) },
+        l10n: { t: (key) => key },
+        refresh: () => refreshed++
       },
       shown
     );
-    return { outcome, copied, ...calls };
+    return { outcome, copied, warnings, refreshed };
   }
 
   it("copies the shown selector while the stash still sits there", async () => {
-    expect(
-      await copy([entry("aaa", 0), entry("bbb", 1)], { hash: "bbb", selector: "stash@{1}" })
-    ).toEqual({ outcome: "copied", copied: ["stash@{1}"], warned: 0, refreshed: 0 });
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+    expect(await copy({ hash: older, selector: "stash@{1}" })).toEqual({
+      outcome: "copied",
+      copied: ["stash@{1}"],
+      warnings: [],
+      refreshed: 0
+    });
   });
 
   it("refuses, copying nothing, once the stash has moved", async () => {
-    // A newer push moved bbb from stash@{0} to stash@{1} after the list was read.
-    expect(
-      await copy([entry("ccc", 0), entry("bbb", 1)], { hash: "bbb", selector: "stash@{0}" })
-    ).toEqual({ outcome: "refused", copied: [], warned: 1, refreshed: 1 });
+    repo = makeRepo();
+    // `older` was listed at stash@{0}, before `newer` was pushed on top of it.
+    const { older } = pushTwoStashes(repo);
+    expect(await copy({ hash: older, selector: "stash@{0}" })).toEqual({
+      outcome: "refused",
+      copied: [],
+      warnings: ["stashView.stashMoved"],
+      refreshed: 1
+    });
   });
 
   it("refuses, copying nothing, once the stash is gone", async () => {
-    expect(await copy([entry("aaa", 0)], { hash: "bbb", selector: "stash@{0}" })).toEqual({
+    repo = makeRepo();
+    const { newer } = pushTwoStashes(repo);
+    git(["stash", "clear"], repo);
+    expect(await copy({ hash: newer, selector: "stash@{0}" })).toEqual({
       outcome: "refused",
       copied: [],
-      warned: 1,
+      warnings: ["stashView.stashMoved"],
       refreshed: 1
     });
   });

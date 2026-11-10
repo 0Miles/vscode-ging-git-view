@@ -227,7 +227,6 @@ export function activate(context: vscode.ExtensionContext) {
     // would spawn git for the basis date on every reload.
     resolveExemptPatterns: config.inactiveBranchAlwaysShow
   });
-  branchesView.setActiveRepo(extensionState.getLastActiveRepo());
   context.subscriptions.push(branchesView, branchFilterStore);
   // The side-view draws itself from three repo-state fields, and more than one
   // thing writes them: its own toggles, and the graph's Repository Settings
@@ -243,30 +242,27 @@ export function activate(context: vscode.ExtensionContext) {
   // Branches view's data service and repo-following behaviour. Mutations are
   // registered as commands below.
   const remotesView = createRemotesView(repoGitClients);
-  remotesView.setActiveRepo(extensionState.getLastActiveRepo());
   context.subscriptions.push(remotesView);
 
-  // Stash side-view: the current repository's stashes, read-only. Unlike the
-  // other two it is not refreshed by the graph's file watcher, which lives and
-  // dies with the panel; it watches the stash log itself while visible.
+  // Stash side-view: watches the stash log itself, since the graph's watcher
+  // lives and dies with the panel.
   const stashView = createStashView({
+    git: { gitPath: config.gitPath, gitEnv, onCommand: logger.logCmd },
     gitClients: repoGitClients,
-    gitPath: config.gitPath,
-    gitEnv,
-    onCommand: logger.logCmd,
     editorGroup: config.openNewTabEditorGroup
   });
-  stashView.setActiveRepo(extensionState.getLastActiveRepo());
   context.subscriptions.push(stashView);
 
+  /** Point every side-view at the current repository. */
+  const followRepo = (repo: string | null): void => {
+    for (const view of [branchesView, remotesView, stashView]) view.setActiveRepo(repo);
+  };
+  followRepo(extensionState.getLastActiveRepo());
+
   // Mirror the graph's context-menu visibility settings onto when-clause
-  // context keys, so the side-views' menus show the same items. The branch key
-  // set and each key's value are projected from the action catalogue's cmvKey
-  // declarations (ADR-0010) — for branches this is only the pipe to setContext,
-  // so a new branch visibility key is picked up by declaring it there, not by
-  // editing here. The catalogue holds branch actions only; the Stash
-  // side-view's one gated action (copy name) has no entry in it, so its key is
-  // spelled out here.
+  // context keys. Branch keys are projected from the action catalogue
+  // (ADR-0010), so a new one is declared there; the catalogue has no stash
+  // actions, so the stash key is spelled out.
   const syncBranchMenuVisibility = () => {
     const cmv = config.contextMenuActionsVisibility();
     const keys = {
@@ -495,9 +491,7 @@ export function activate(context: vscode.ExtensionContext) {
         branchCleanup,
         sequenceEditor,
         onSelectRepo: (repo) => {
-          branchesView.setActiveRepo(repo);
-          remotesView.setActiveRepo(repo);
-          stashView.setActiveRepo(repo);
+          followRepo(repo);
           // The webview is alive and (re)loading this repo: deliver any waiting
           // delegated messages now (the webview holds them until the load lands).
           branchActionDelegate.flushDelegated(repo);
@@ -559,9 +553,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Persist first so a freshly-created panel reads the right repo during its
     // initial `loadRepos` handshake — avoids racing the webview boot.
     if (repoToOpen) extensionState.setLastActiveRepo(repoToOpen);
-    branchesView.setActiveRepo(repoToOpen ?? extensionState.getLastActiveRepo());
-    remotesView.setActiveRepo(repoToOpen ?? extensionState.getLastActiveRepo());
-    stashView.setActiveRepo(repoToOpen ?? extensionState.getLastActiveRepo());
+    followRepo(repoToOpen ?? extensionState.getLastActiveRepo());
 
     const hadPanel = currentPanel !== undefined;
     if (currentPanel) {
@@ -742,9 +734,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (!config.followSourceControlSelection()) return;
       const selected = toKnownRepos(selectedPaths);
       if (selected.length === 0) return;
-      branchesView.setActiveRepo(selected[0]);
-      remotesView.setActiveRepo(selected[0]);
-      stashView.setActiveRepo(selected[0]);
+      followRepo(selected[0]);
       if (!currentPanel) {
         // Following may open the graph, and an empty window is no place to open
         // one uninvited — the built-in git extension finds repos there too.

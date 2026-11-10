@@ -3,10 +3,10 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { WatchPath } from "@ging/core/backend/queries/gitDirs";
+import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths";
 import {
   createStashLogWatch,
   createStashViewWatch,
-  STASH_REFRESH_DEBOUNCE_MS,
   stashLogWatchTarget
 } from "@ging/core/extension/stashWatch";
 
@@ -138,13 +138,18 @@ describe("createStashLogWatch", () => {
   });
 });
 
-/** A Stash side-view's watch over fakes: common dirs resolve when the test
- *  says, and the test fires changes in the live watch. */
+/** Where the stash-log watch sits in a common dir whose folders all exist. */
+const logRefs = (commonDir: string) => path.join(commonDir, "logs", "refs");
+
+/** A Stash side-view's watch over fakes: every folder exists, common dirs
+ *  resolve when the test says, and the test fires changes in the live watch. */
 function fakeView() {
   const pending: { repo: string; resolve: (dir: string | null) => Promise<void> }[] = [];
   const live = new Map<string, () => void>();
   let refreshes = 0;
   const view = createStashViewWatch({
+    git: { gitPath: () => "git" },
+    isDirectory: () => true,
     findCommonDir: (repo) =>
       new Promise((resolve) => {
         pending.push({
@@ -155,9 +160,9 @@ function fakeView() {
           }
         });
       }),
-    watchStashLog: (commonDir, onChange) => {
-      live.set(commonDir, onChange);
-      return { dispose: () => live.delete(commonDir) };
+    watch: ({ base }, onEvent) => {
+      live.set(base, onEvent);
+      return { dispose: () => live.delete(base) };
     },
     refresh: () => refreshes++
   });
@@ -166,8 +171,10 @@ function fakeView() {
     pending,
     /** Resolve the oldest outstanding common-dir lookup. */
     resolveNext: (dir: string | null) => pending.shift()!.resolve(dir),
+    /** The folders watched. */
     watched: () => [...live.keys()],
-    fire: (commonDir: string) => live.get(commonDir)!(),
+    /** Report the stash log under `commonDir` changed. */
+    fire: (commonDir: string) => live.get(logRefs(commonDir))!(),
     refreshes: () => refreshes
   };
 }
@@ -203,7 +210,7 @@ describe("createStashViewWatch", () => {
     expect(t.refreshes()).toBe(1);
     expect(t.pending.map((p) => p.repo)).toEqual(["/repo"]);
     await t.resolveNext("/repo/.git");
-    expect(t.watched()).toEqual(["/repo/.git"]);
+    expect(t.watched()).toEqual([logRefs("/repo/.git")]);
   });
 
   it("re-reads once its watch is up, for a stash made while it was starting", async () => {
@@ -213,7 +220,7 @@ describe("createStashViewWatch", () => {
     t.view.setVisible(true);
     await t.resolveNext("/repo/.git");
     expect(t.refreshes()).toBe(1);
-    vi.advanceTimersByTime(STASH_REFRESH_DEBOUNCE_MS);
+    vi.advanceTimersByTime(REPO_CHANGE_DEBOUNCE_MS);
     expect(t.refreshes()).toBe(2);
   });
 
@@ -224,17 +231,29 @@ describe("createStashViewWatch", () => {
 
     t.view.setVisible(true);
     expect(t.refreshes()).toBe(2);
-    await t.resolveNext("/repo/.git");
-    expect(t.watched()).toEqual(["/repo/.git"]);
+    await settle();
+    expect(t.watched()).toEqual([logRefs("/repo/.git")]);
+  });
+
+  it("asks git for a repository's git dir once, across shows and repository switches", async () => {
+    const t = await watchingView();
+    t.view.setVisible(false);
+    t.view.setVisible(true);
+    t.view.setRepo("/other");
+    await t.resolveNext("/other/.git");
+    t.view.setRepo("/repo");
+    await settle();
+    expect(t.pending).toEqual([]);
+    expect(t.watched()).toEqual([logRefs("/repo/.git")]);
   });
 
   it("refreshes once the stash log has been quiet for the debounce", async () => {
     vi.useFakeTimers();
     const t = await watchingView();
     t.fire("/repo/.git");
-    vi.advanceTimersByTime(STASH_REFRESH_DEBOUNCE_MS - 1);
+    vi.advanceTimersByTime(REPO_CHANGE_DEBOUNCE_MS - 1);
     t.fire("/repo/.git");
-    vi.advanceTimersByTime(STASH_REFRESH_DEBOUNCE_MS - 1);
+    vi.advanceTimersByTime(REPO_CHANGE_DEBOUNCE_MS - 1);
     expect(t.refreshes()).toBe(1);
     vi.advanceTimersByTime(1);
     expect(t.refreshes()).toBe(2);
@@ -245,7 +264,7 @@ describe("createStashViewWatch", () => {
     const t = await watchingView();
     t.fire("/repo/.git");
     t.view.setVisible(false);
-    vi.advanceTimersByTime(STASH_REFRESH_DEBOUNCE_MS);
+    vi.advanceTimersByTime(REPO_CHANGE_DEBOUNCE_MS);
     expect(t.refreshes()).toBe(1);
   });
 
@@ -255,7 +274,7 @@ describe("createStashViewWatch", () => {
     expect(t.refreshes()).toBe(2);
     expect(t.watched()).toEqual([]);
     await t.resolveNext("/other/.git");
-    expect(t.watched()).toEqual(["/other/.git"]);
+    expect(t.watched()).toEqual([logRefs("/other/.git")]);
   });
 
   it("waits until shown to read a repository chosen while hidden", async () => {
@@ -277,7 +296,7 @@ describe("createStashViewWatch", () => {
     await t.resolveNext("/repo/.git");
     expect(t.watched()).toEqual([]);
     await t.resolveNext("/other/.git");
-    expect(t.watched()).toEqual(["/other/.git"]);
+    expect(t.watched()).toEqual([logRefs("/other/.git")]);
   });
 
   it("never starts a watch for a view hidden while finding its git dir", async () => {
@@ -289,19 +308,22 @@ describe("createStashViewWatch", () => {
     expect(t.watched()).toEqual([]);
   });
 
-  it("with no repository, refreshes (to show the no-repository text) and watches nothing", () => {
+  it("with no repository, reads and watches nothing", () => {
     const t = fakeView();
     t.view.setVisible(true);
-    expect(t.refreshes()).toBe(1);
+    expect(t.refreshes()).toBe(0);
     expect(t.pending).toEqual([]);
   });
 
-  it("watches nothing when git can't say where the repository's git dir is", async () => {
+  it("watches nothing when git can't say where the repository's git dir is, and asks again next time", async () => {
     const t = fakeView();
     t.view.setRepo("/gone");
     t.view.setVisible(true);
     await t.resolveNext(null);
     expect(t.watched()).toEqual([]);
+    t.view.setVisible(false);
+    t.view.setVisible(true);
+    expect(t.pending.map((p) => p.repo)).toEqual(["/gone"]);
   });
 
   it("lets go of everything on dispose", async () => {
@@ -310,7 +332,7 @@ describe("createStashViewWatch", () => {
     t.fire("/repo/.git");
     t.view.dispose();
     expect(t.watched()).toEqual([]);
-    vi.advanceTimersByTime(STASH_REFRESH_DEBOUNCE_MS);
+    vi.advanceTimersByTime(REPO_CHANGE_DEBOUNCE_MS);
     expect(t.refreshes()).toBe(1);
   });
 });
