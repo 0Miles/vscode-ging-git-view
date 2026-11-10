@@ -1028,6 +1028,7 @@ export function activate(context: vscode.ExtensionContext) {
                 placeHolder: l10n.t("fetch.pickRemote")
               });
         if (remote === undefined) return; // cancelled
+        // Not yet inside `runRepoMutation` like the other fetches: S2 (#352) moves this flow.
         await fetchService.fetchRemote(git, remote);
         currentBridge?.post({ command: "refresh" });
       } catch (e: unknown) {

@@ -10,9 +10,8 @@ import type { Watcher } from "@ging/core/host/ports";
  *
  * Kept free of `vscode` so that is pinned by a unit test (ADR-0018).
  *
- * Not the bridge's mutation hook, and not merged with it: that hook runs after
- * every graph mutation, and this refresh redraws the Remotes view too, which a
- * graph mutation has no reason to.
+ * Not merged with the bridge's mutation hook: that one runs after every graph
+ * mutation, and this refresh redraws the Remotes view too.
  */
 export function createRunRepoMutation(deps: {
   /** The open graph's file watcher; `undefined` with no graph open. */
@@ -26,6 +25,13 @@ export function createRunRepoMutation(deps: {
     // The watcher muted is the one unmuted, even if the graph closes or is
     // replaced while the work runs.
     const watcher = deps.watcher();
+    // The mute is a flag, not a count: whichever unmute comes first lifts it.
+    // So this must never wrap work the bridge's `mutatesRepo` already mutes
+    // around — the dispatch's fetches take the git call alone for that reason —
+    // and two of these overlapping lift each other's mute early. The auto-fetch
+    // timer skips a tick while its last fetch runs; a timed fetch overlapping a
+    // graph mutation can still refresh once more than needed, which is accepted
+    // (#351).
     watcher?.mute();
     try {
       await work();

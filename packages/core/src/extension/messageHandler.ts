@@ -110,9 +110,9 @@ export type MessageHandlerDeps = {
   /** Builds the cleanup dialog's payload. Shared with the side-view command,
    *  which opens the same dialog from the other direction (ADR-0017). */
   branchCleanup: BranchCleanup;
-  /** The fetch, prune flags and all. The dispatch takes the git call alone:
-   *  its handlers already run inside the bridge's `mutatesRepo`, and the
-   *  service's hooked entry points would nest a second mute inside it. */
+  /** The fetch, prune flags and all. The git call alone: these handlers are
+   *  already `mutatesRepo` (why not both: the VS Code host's
+   *  `createRunRepoMutation`). */
   fetchService: Pick<FetchService, "fetchAll">;
   /** Called when the webview switches repo, so the Branches side-view can
    *  follow the same repo. */
