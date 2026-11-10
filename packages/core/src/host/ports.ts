@@ -2,22 +2,20 @@
  * The host ports: what the message dispatch (and the core services built
  * beside it) asks of whatever editor or app is hosting GING.
  *
- * Each port is one host capability, and carries only the methods the moved
- * code calls today — a port grows when a caller needs it to, not ahead of a
- * host that might. They are plain structural interfaces, in the shape of
- * `AvatarConfig`/`AvatarStore`: the VS Code implementations are mostly the
- * existing objects passed as they are, or one-line forwards, so the shape of a
- * port is the shape of what is already there.
+ * Each port is one host capability, and carries only the methods the dispatch
+ * calls. They are plain structural interfaces, in the shape of
+ * `AvatarConfig`/`AvatarStore`, so a host can often hand over an object it
+ * already has.
  *
- * Types are host-neutral (paths are strings, not URIs), and every prompt
- * answers `undefined` for a cancel, the way VS Code's own do.
+ * Types are host-neutral: paths are strings, not URIs, and a cancelled prompt
+ * answers `undefined`.
  */
 
 import type { SquashMessageFormat } from "@ging/core/backend/actions/merge";
 import type { PullRequestProvider } from "@ging/core/backend/utils/pullRequest";
-import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
+import type { CommitDiffRequest, DiffSide } from "@ging/core/extension/commitDiff";
 import type { CommitOrdering, DateType } from "@ging/shared/backend/types";
-import type { GitRepoSet, GitRepoState } from "@ging/shared/types";
+import type { GitRepoSet, GitRepoState, RepoScopeSettings } from "@ging/shared/types";
 
 /** The settings the dispatch reads, each read at the moment it is needed — a
  *  setting changed between two requests reaches the second. */
@@ -35,6 +33,10 @@ export interface HostConfig {
   fetchAndPrune(): boolean;
   fetchAndPruneTags(): boolean;
   pullRequestProviders(): PullRequestProvider[];
+  /** "Show remote branches" for a repo that has not overridden it. */
+  showRemoteBranches(): boolean;
+  /** The load scope of a repo that has not overridden it. */
+  repoSettingDefaults(): RepoScopeSettings;
 }
 
 /** One tier of persisted key-value state. Writes are not awaited by anyone: a
@@ -82,19 +84,16 @@ export interface Prompts {
   }): PromiseLike<string | undefined>;
 }
 
-/** A file's contents at a commit. */
-export type FileAtRevision = { repo: string; filePath: string; commitHash: string };
-
-/** Opening things in the host: editors, diffs, a terminal, a browser, a view. */
+/** Opening things in the host: editors, diffs, a terminal, a browser. */
 export interface Opener {
   /** Open a working-tree file. Rejects when it could not be opened. */
   openFile(path: string): PromiseLike<unknown>;
   /** Open a file's contents as of a commit, read-only. Rejects when it could
    *  not be opened. */
-  openFileAtRevision(file: FileAtRevision): PromiseLike<unknown>;
+  openFileAtRevision(file: DiffSide): PromiseLike<unknown>;
   /** A diff of a file at a commit (left) against a working-tree file (right).
    *  Rejects when it could not be opened. */
-  diffWithWorking(left: FileAtRevision, workingPath: string, title: string): PromiseLike<unknown>;
+  diffWithWorking(left: DiffSide, workingPath: string, title: string): PromiseLike<unknown>;
   /** A commit's change to a file in a diff editor (see `commitDiffView`);
    *  resolves to whether it opened. */
   openCommitDiff(request: CommitDiffRequest): PromiseLike<boolean>;
@@ -104,8 +103,6 @@ export interface Opener {
   /** A terminal in `cwd`, titled `name`, brought into view. */
   openTerminal(cwd: string, name: string): void;
   openExternalUrl(url: string): void;
-  /** The host's own source-control view. */
-  openScmView(): void;
 }
 
 export interface Clipboard {
@@ -141,9 +138,8 @@ export interface RepoSource {
   /** Drop the repos that are gone, broadcasting the set when any were;
    *  resolves to whether any were. */
   checkReposExist(): PromiseLike<boolean>;
-  removeRepo(repo: string): void;
-  /** Broadcast the set to everything showing it. */
-  sendRepos(): void;
+  /** Remove `repo` and broadcast the set without it to everything showing it. */
+  dropRepo(repo: string): void;
   setRepoState(repo: string, state: GitRepoState): void;
 }
 

@@ -27,13 +27,14 @@ import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
-  resolveRepoScope,
+  resolveShowRemoteBranches,
   type SideViewField,
   sideViewStateChanged
 } from "@ging/core/extension/repoSettings";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { type WebviewBridge, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import { ExtensionState } from "@ging/core/extensionState";
+import type { HostPorts } from "@ging/core/host/ports";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
   branchMenuContextKeys,
@@ -145,7 +146,16 @@ export function activate(context: vscode.ExtensionContext) {
   const repoSearch = createRepoSearch(repoManager, config);
   const repoWatcher = createRepoWatcher(repoManager, config, repoSearch);
   const scmRepoTracker = createScmRepoTracker();
-  const opener = createVscodeOpener(config);
+  // Every port but the watcher, which is the panel's own (see `adoptPanel`).
+  const hostPorts: Omit<HostPorts, "watcher"> = {
+    config,
+    prompts: vscodePrompts,
+    opener: createVscodeOpener(config),
+    clipboard: vscodeClipboard,
+    l10n: vscodeL10n,
+    repoSource: repoManager,
+    logger
+  };
   let currentPanel: WebviewPanel | undefined;
   let currentBridge: WebviewBridge | undefined;
 
@@ -167,7 +177,7 @@ export function activate(context: vscode.ExtensionContext) {
   // fall back to the global default. The side-view's toggle is now the sole
   // control for it (the graph's checkbox was removed).
   const resolveShowRemote = (repo: string): boolean =>
-    repoManager.getRepos()[repo]?.showRemoteBranches ?? config.showRemoteBranches();
+    resolveShowRemoteBranches(repoManager.getRepos()[repo], config.showRemoteBranches());
   // "Show inactive branches" is likewise a per-repo toggle, falling back to the
   // global default. Branches idle beyond `inactiveBranchThresholdDays` are
   // hidden unless this is on (or they're exempt — head/selected/always-show).
@@ -454,16 +464,7 @@ export function activate(context: vscode.ExtensionContext) {
     avatarManager.registerBridge(bridge.post.bind(bridge));
     const messageHandlers = registerMessageHandlers(
       bridge,
-      {
-        config,
-        prompts: vscodePrompts,
-        opener,
-        clipboard: vscodeClipboard,
-        watcher: repoFileWatcher,
-        l10n: vscodeL10n,
-        repoSource: repoManager,
-        logger
-      },
+      { ...hostPorts, watcher: repoFileWatcher },
       {
         gitClient,
         extensionState,
@@ -471,9 +472,6 @@ export function activate(context: vscode.ExtensionContext) {
         branchFilterStore,
         branchFacts,
         branchCleanup,
-        resolveShowRemote,
-        resolveRepoScope: (repo) =>
-          resolveRepoScope(repoManager.getRepos()[repo], config.repoSettingDefaults()),
         sequenceEditor,
         onSelectRepo: (repo) => {
           branchesView.setActiveRepo(repo);
@@ -487,7 +485,8 @@ export function activate(context: vscode.ExtensionContext) {
         showAllBranches: (repo) =>
           vscode.commands.executeCommand("ging-git-view.branches.showAll", repo),
         configurePullRequestProvider: (host) =>
-          void vscode.commands.executeCommand("ging-git-view.managePullRequestProviders", host)
+          void vscode.commands.executeCommand("ging-git-view.managePullRequestProviders", host),
+        openScmView: () => void vscode.commands.executeCommand("workbench.view.scm")
       }
     );
     currentPanel = createWebviewPanel({

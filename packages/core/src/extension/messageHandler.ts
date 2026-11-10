@@ -67,6 +67,7 @@ import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
 import { type BranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { type BranchFacts } from "@ging/core/extension/branchFacts";
 import { type BranchFilterChange } from "@ging/core/extension/branchFilter";
+import { resolveRepoScope, resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { type WebviewBridge } from "@ging/core/extension/webviewBridge";
 import { createWebviewErrorSink } from "@ging/core/extension/webviewErrorSink";
 import type { ExtensionState } from "@ging/core/extensionState";
@@ -78,7 +79,7 @@ import type {
   BranchSearchEntry,
   CommitOrdering
 } from "@ging/shared/backend/types";
-import { RepoScopeSettings, RequestMessage, ResponseMessage } from "@ging/shared/types";
+import { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 /** What the dispatch needs besides the host ports: the core services it shares
  *  with the rest of the host, and the hooks back into the host's other
@@ -102,13 +103,6 @@ export type MessageHandlerDeps = {
   /** Builds the cleanup dialog's payload. Shared with the side-view command,
    *  which opens the same dialog from the other direction (ADR-0017). */
   branchCleanup: BranchCleanup;
-  /** The repo's "show remote branches" state. The webview no longer sends its
-   *  own copy: it was a one-way echo of this and could only be staler. */
-  resolveShowRemote: (repo: string) => boolean;
-  /** The repo's load scope — first-parent, reflog, stashes, tag-only commits,
-   *  remote heads — with its per-repo overrides applied. Resolved here rather
-   *  than sent by the webview, for the same reason as `resolveShowRemote`. */
-  resolveRepoScope: (repo: string) => RepoScopeSettings;
   /** Called when the webview switches repo, so the Branches side-view can
    *  follow the same repo. */
   onSelectRepo: (repo: string) => void;
@@ -120,6 +114,8 @@ export type MessageHandlerDeps = {
   showAllBranches: (repo: string) => PromiseLike<unknown>;
   /** Offer to configure the pull request provider of `host`. */
   configurePullRequestProvider: (host: string) => void;
+  /** The host's own source-control view. */
+  openScmView: () => void;
 };
 
 /**
@@ -141,15 +137,24 @@ export function registerMessageHandlers(
     branchFilterStore,
     branchFacts,
     branchCleanup,
-    resolveShowRemote,
-    resolveRepoScope,
     onSelectRepo,
     onDelegatedRan,
     showAllBranches,
-    configurePullRequestProvider
+    configurePullRequestProvider,
+    openScmView
   } = deps;
 
   let currentRepo: string | null = null;
+
+  /** The repo's "show remote branches" state. The webview no longer sends its
+   *  own copy: it was a one-way echo of this and could only be staler. */
+  const resolveShowRemote = (repo: string) =>
+    resolveShowRemoteBranches(repoSource.getRepos()[repo], config.showRemoteBranches());
+  /** The repo's load scope — first-parent, reflog, stashes, tag-only commits,
+   *  remote heads — with its per-repo overrides applied. Resolved here rather
+   *  than sent by the webview, for the same reason as `resolveShowRemote`. */
+  const resolveScope = (repo: string) =>
+    resolveRepoScope(repoSource.getRepos()[repo], config.repoSettingDefaults());
 
   // Push filter changes (from the side-view / "Show All") into the graph, but
   // only those for the repo this panel is showing.
@@ -293,7 +298,7 @@ export function registerMessageHandlers(
     commitOrder?: CommitOrdering;
     hiddenRemotes?: string[];
   }) {
-    const scope = resolveRepoScope(currentRepo!);
+    const scope = resolveScope(currentRepo!);
     return {
       branchNames: msg.branchNames,
       showRemoteBranches: resolveShowRemote(currentRepo!),
@@ -376,7 +381,7 @@ export function registerMessageHandlers(
       // Read before the first await, as everything else here is: a
       // `saveRepoState` the webview sent ahead of this request has been
       // applied by now, and one it sends after must not leak into it.
-      const scope = resolveRepoScope(currentRepo!);
+      const scope = resolveScope(currentRepo!);
       bridge.post({
         command: "loadCommits",
         ...(await loadCommits(gitClient.getInstance(), {
@@ -715,8 +720,7 @@ export function registerMessageHandlers(
         // later. Saying it out loud matters as much as the pruning — this line
         // is the only record that a repo the user picked was not there.
         logger.log(`Cannot open a repository that is gone, dropping it: ${msg.repo}`);
-        repoSource.removeRepo(msg.repo);
-        repoSource.sendRepos();
+        repoSource.dropRepo(msg.repo);
         return;
       }
       currentRepo = msg.repo;
@@ -844,7 +848,7 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "openScmView",
     () => {
-      opener.openScmView();
+      openScmView();
     },
     { mutatesRepo: false }
   );
@@ -919,7 +923,7 @@ export function registerMessageHandlers(
           l10n.t("diff.workingTreeSep") +
           ")";
         await opener.diffWithWorking(
-          { repo: msg.repo, filePath: msg.filePath, commitHash: msg.commitHash },
+          { repo: msg.repo, filePath: msg.filePath, commit: msg.commitHash },
           `${msg.repo}/${workingFilePath}`,
           title
         );
@@ -940,7 +944,7 @@ export function registerMessageHandlers(
         await opener.openFileAtRevision({
           repo: msg.repo,
           filePath: msg.filePath,
-          commitHash: msg.commitHash
+          commit: msg.commitHash
         });
       } catch {
         success = false;

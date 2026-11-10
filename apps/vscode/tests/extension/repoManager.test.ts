@@ -64,6 +64,23 @@ suite("repoManager", () => {
     });
   });
 
+  suite("dropRepo", () => {
+    test("removes the repo, then broadcasts the set without it", () => {
+      const { manager, store, getSaveCount } = makeManager({
+        "/ws/a": { columnWidths: null },
+        "/ws/b": { columnWidths: null }
+      });
+      let broadcast: GitRepoSet | null = null;
+      manager.registerViewCallback((r) => {
+        broadcast = r;
+      });
+      manager.dropRepo("/ws/a");
+      assert.strictEqual(store.repos["/ws/a"], undefined);
+      assert.strictEqual(getSaveCount(), 1);
+      assert.deepStrictEqual(Object.keys(broadcast!), ["/ws/b"]);
+    });
+  });
+
   suite("setRepoState", () => {
     test("updates the state of an existing repo", () => {
       const { manager, store } = makeManager({ "/ws/a": { columnWidths: null } });

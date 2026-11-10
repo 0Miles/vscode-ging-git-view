@@ -11,15 +11,16 @@ import {
   type MessageHandlerDeps,
   registerMessageHandlers
 } from "@ging/core/extension/messageHandler";
-import { resolveRepoScope } from "@ging/core/extension/repoSettings";
 import type { WebviewBridge } from "@ging/core/extension/webviewBridge";
-import type { HostPorts } from "@ging/core/host/ports";
-import type { RepoScopeSettings, RequestMessage, ResponseMessage } from "@ging/shared/types";
+import type { HostPorts, RepoSource } from "@ging/core/host/ports";
+import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import { config } from "@ging/vscode/config";
+
+import { fakePorts } from "@ging/core/tests/helpers";
 
 // End-to-end exercise of the extension-side branch flow against the real repo
 // (the test workspace is this repo). Drives the real registerMessageHandlers
-// with a real git client + real config through a fake bridge and inert ports, mimicking the
+// with a real git client + real config through a fake bridge and fake ports, mimicking the
 // webview's selectRepo -> loadBranches handshake. Expectations are derived
 // from git itself: CI checkouts only have the branch being built, never main.
 const noop = () => {};
@@ -27,18 +28,17 @@ const noop = () => {};
 const resolveShowRemote = () => true;
 
 /** Dependency slices a test may want to *observe* or steer rather than take
- *  as wired below: the first two are inert stubs there, `resolveRepoScope`
- *  the global settings. */
+ *  as wired below, where both are fakes (and no repo the dispatch reads
+ *  overrides a setting). What is given replaces the fake's members. */
 type DepOverrides = {
-  repoSource?: unknown;
-  extensionState?: unknown;
-  resolveRepoScope?: (repo: string) => RepoScopeSettings;
+  repoSource?: Partial<RepoSource>;
+  extensionState?: Partial<MessageHandlerDeps["extensionState"]>;
 };
 
 /** The real handler dependencies, wired the way extension.ts wires them: a real
  *  git client, real config, and a real BranchFacts over both — so the flow this
  *  suite exercises is the production one, not a stub of it. The ports other
- *  than `config` are inert: nothing here opens, prompts or watches anything. */
+ *  than `config` are fakes: nothing here opens, prompts or watches anything. */
 function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps] {
   // Inject an askpass-style env like the real extension. simple-git
   // (>=3.36) rejects GIT_ASKPASS in an explicitly-passed env unless we opt in
@@ -57,22 +57,19 @@ function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps]
     resolveShowCurrentBranchByDefault: config.showCurrentBranchByDefault,
     nowMs: () => Date.now()
   });
+  const fake = fakePorts().ports;
   const ports: HostPorts = {
+    ...fake,
     config,
-    prompts: {} as never,
-    opener: {} as never,
-    clipboard: {} as never,
-    watcher: { start: noop, mute: noop, unmute: noop },
-    l10n: { t: (key) => key },
-    repoSource: (overrides.repoSource ?? { getRepos: () => ({}), setRepoState: noop }) as never,
-    logger: { log: noop, logError: noop, reveal: noop }
+    repoSource: { ...fake.repoSource, ...overrides.repoSource }
   };
   const deps: MessageHandlerDeps = {
     gitClient,
-    extensionState: (overrides.extensionState ?? {
+    extensionState: {
       setLastActiveRepo: noop,
-      saveDialogMemory: noop
-    }) as never,
+      saveDialogMemory: noop,
+      ...overrides.extensionState
+    },
     avatarManager: { fetchAvatarImage: noop },
     branchFilterStore: { onDidChangeFilter: () => ({ dispose: noop }) },
     branchFacts,
@@ -83,17 +80,14 @@ function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps]
       resolveExemptPatterns: config.inactiveBranchAlwaysShow,
       dateType: config.dateType
     }),
-    resolveShowRemote,
-    resolveRepoScope:
-      overrides.resolveRepoScope ??
-      (() => resolveRepoScope(undefined, config.repoSettingDefaults())),
     // No interactive rebase runs in this flow; a stager that reports its todo
     // as applied keeps the handler registration honest without touching disk.
     sequenceEditor: { stage: noop, wasApplied: () => true, discard: noop },
     onSelectRepo: noop,
     onDelegatedRan: noop,
     showAllBranches: async () => {},
-    configurePullRequestProvider: noop
+    configurePullRequestProvider: noop,
+    openScmView: noop
   };
   return [ports, deps];
 }
@@ -261,10 +255,9 @@ suite("first-parent mode rides with the commits (integration)", () => {
       registerMessageHandlers(
         bridge,
         ...makeDeps({
-          resolveRepoScope: () => ({
-            ...resolveRepoScope(undefined, config.repoSettingDefaults()),
-            onlyFollowFirstParent
-          })
+          repoSource: {
+            getRepos: () => ({ [repoPath]: { columnWidths: null, onlyFollowFirstParent } })
+          }
         })
       );
 
@@ -312,24 +305,15 @@ suite("selectRepo failures (integration)", () => {
   test("a repository that is gone is dropped, not half-selected", async () => {
     const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const gone = path.join(repoPath, `no-such-repo-${process.pid}`);
-    const removed: string[] = [];
-    let broadcasts = 0;
+    const dropped: string[] = [];
     const persisted: (string | null)[] = [];
 
     const { handlers, posted, bridge } = makeBridge();
     registerMessageHandlers(
       bridge,
       ...makeDeps({
-        repoSource: {
-          getRepos: () => ({}),
-          setRepoState: noop,
-          removeRepo: (r: string) => removed.push(r),
-          sendRepos: () => broadcasts++
-        },
-        extensionState: {
-          setLastActiveRepo: (r: string | null) => persisted.push(r),
-          saveDialogMemory: noop
-        }
+        repoSource: { dropRepo: (r) => dropped.push(r) },
+        extensionState: { setLastActiveRepo: (r) => persisted.push(r) }
       })
     );
 
@@ -338,8 +322,8 @@ suite("selectRepo failures (integration)", () => {
     // unhandled one and the webview is told nothing at all.
     await handlers.get("selectRepo")!({ command: "selectRepo", repo: gone } as RequestMessage);
 
-    assert.deepStrictEqual(removed, [gone], "the repo that is gone should be dropped from the set");
-    assert.strictEqual(broadcasts, 1, "the panel should be re-seeded so it can move off it");
+    // Dropping it also re-seeds the panel, so it can move off it.
+    assert.deepStrictEqual(dropped, [gone], "the repo that is gone should be dropped from the set");
     assert.deepStrictEqual(persisted, [repoPath], "the dead repo must not become the stored one");
 
     // And the host is still on the repo it had — answering for it, rather than
@@ -363,22 +347,14 @@ suite("selectRepo failures (integration)", () => {
     // unrelated repository's history ends up drawn under an empty title.
     const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const persisted: (string | null)[] = [];
-    const removed: string[] = [];
+    const dropped: string[] = [];
 
     const { handlers, bridge } = makeBridge();
     registerMessageHandlers(
       bridge,
       ...makeDeps({
-        repoSource: {
-          getRepos: () => ({}),
-          setRepoState: noop,
-          removeRepo: (r: string) => removed.push(r),
-          sendRepos: noop
-        },
-        extensionState: {
-          setLastActiveRepo: (r: string | null) => persisted.push(r),
-          saveDialogMemory: noop
-        }
+        repoSource: { dropRepo: (r) => dropped.push(r) },
+        extensionState: { setLastActiveRepo: (r) => persisted.push(r) }
       })
     );
 
@@ -386,6 +362,6 @@ suite("selectRepo failures (integration)", () => {
     await handlers.get("selectRepo")!({ command: "selectRepo", repo: "" } as RequestMessage);
 
     assert.deepStrictEqual(persisted, [repoPath], "an empty path must not be stored");
-    assert.deepStrictEqual(removed, [], "an empty path is not a repo to drop, just one to refuse");
+    assert.deepStrictEqual(dropped, [], "an empty path is not a repo to drop, just one to refuse");
   });
 });

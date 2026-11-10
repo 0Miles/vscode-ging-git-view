@@ -3,25 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import { webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { RequestMessage } from "@ging/shared/types";
 
+import { fakeWebview } from "@ging/core/tests/helpers";
+
 function makeHarness() {
-  let receive!: (msg: RequestMessage) => void | Promise<void>;
-  const webview = {
-    onDidReceiveMessage: (h: (msg: RequestMessage) => void | Promise<void>) => {
-      receive = h;
-    },
-    postMessage: vi.fn(async () => true)
-  };
+  const { webview, receive } = fakeWebview();
   const watcher = { mute: vi.fn(), unmute: vi.fn() };
   const onRepoMutated = vi.fn();
   const bridge = webviewBridgeFactory(webview, watcher, onRepoMutated);
-  return {
-    bridge,
-    watcher,
-    onRepoMutated,
-    receive: async (msg: RequestMessage) => {
-      await receive(msg);
-    }
-  };
+  return { bridge, watcher, onRepoMutated, receive };
 }
 
 describe("webviewBridge watcher muting", () => {

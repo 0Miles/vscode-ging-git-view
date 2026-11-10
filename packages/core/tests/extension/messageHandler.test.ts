@@ -11,10 +11,9 @@ import {
   registerMessageHandlers
 } from "@ging/core/extension/messageHandler";
 import { webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
-import type { HostPorts } from "@ging/core/host/ports";
-import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import type { RequestMessage } from "@ging/shared/types";
 
-import { git, makeRepo, rmrf, toRepoPath } from "@ging/core/tests/helpers";
+import { fakePorts, fakeWebview, git, makeRepo, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 // The message dispatch, driven the way the webview drives it — a request in
 // over the channel, the responses out of it — with every host capability a
@@ -23,110 +22,10 @@ import { git, makeRepo, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 const HASH = "0123456789abcdef0123456789abcdef01234567";
 
-/** Every port, recording what it was asked in one ordered log. Answers the
- *  prompts and the clipboard can be steered per test. */
-function fakePorts() {
-  const calls: unknown[][] = [];
-  const record =
-    (name: string) =>
-    (...args: unknown[]) => {
-      calls.push([name, ...args]);
-    };
-  const answers = {
-    showError: undefined as string | undefined,
-    saveLocation: undefined as string | undefined,
-    clipboard: Promise.resolve() as Promise<void>,
-    reposChanged: false,
-    commitDiffOpened: true,
-    /** Whether opening a file or diff fails, as VS Code's open command does
-     *  for a document it cannot show. */
-    openRejects: false
-  };
-  const opened = (call: unknown[]) => {
-    calls.push(call);
-    if (answers.openRejects) throw new Error("cannot open");
-  };
-  const ports: HostPorts = {
-    config: {
-      signTags: () => false,
-      signCommits: () => false,
-      squashMergeMessageFormat: () => "Default",
-      commitOrder: () => "date",
-      dateType: () => "Author Date",
-      showUncommittedChanges: () => false,
-      showSignatureStatus: () => false,
-      useMailmap: () => false,
-      inactiveBranchAlwaysShow: () => [],
-      fetchAndPrune: () => true,
-      fetchAndPruneTags: () => false,
-      pullRequestProviders: () => []
-    },
-    prompts: {
-      showInformation: record("showInformation"),
-      showWarning: record("showWarning"),
-      showError: async (...args) => {
-        calls.push(["showError", ...args]);
-        return answers.showError;
-      },
-      pickSaveLocation: async (options) => {
-        calls.push(["pickSaveLocation", options]);
-        return answers.saveLocation;
-      },
-      input: async () => undefined
-    },
-    opener: {
-      openFile: async (...args) => opened(["openFile", ...args]),
-      openFileAtRevision: async (...args) => opened(["openFileAtRevision", ...args]),
-      diffWithWorking: async (...args) => opened(["diffWithWorking", ...args]),
-      openCommitDiff: async (...args) => {
-        calls.push(["openCommitDiff", ...args]);
-        return answers.commitDiffOpened;
-      },
-      openMergeEditor: record("openMergeEditor"),
-      openTerminal: record("openTerminal"),
-      openExternalUrl: record("openExternalUrl"),
-      openScmView: record("openScmView")
-    },
-    clipboard: {
-      writeText: (text) => {
-        calls.push(["writeText", text]);
-        return answers.clipboard;
-      }
-    },
-    watcher: { start: record("watcher.start"), mute: record("mute"), unmute: record("unmute") },
-    // Not the real bundles: the key and its arguments, so a test can see which
-    // string was asked for without depending on its wording.
-    l10n: { t: (key, ...args) => [key, ...args].join("|") },
-    repoSource: {
-      getRepos: () => ({ "/a": { columnWidths: null } }),
-      getBootRepo: () => "/a",
-      checkReposExist: async () => answers.reposChanged,
-      removeRepo: record("removeRepo"),
-      sendRepos: record("sendRepos"),
-      setRepoState: record("setRepoState")
-    },
-    logger: { log: record("log"), logError: record("logError"), reveal: record("reveal") }
-  };
-  return { ports, calls, answers };
-}
-
 function harness(depOverrides: Partial<MessageHandlerDeps> = {}) {
   const { ports, calls, answers } = fakePorts();
-  let receive!: (msg: RequestMessage) => void | Promise<void>;
-  const posted: ResponseMessage[] = [];
-  const bridge = webviewBridgeFactory(
-    {
-      onDidReceiveMessage: (listener) => {
-        receive = listener;
-      },
-      postMessage: async (msg) => {
-        posted.push(msg);
-        return true;
-      }
-    },
-    ports.watcher,
-    () => calls.push(["repoMutated"])
-  );
+  const { webview, posted, receive } = fakeWebview();
+  const bridge = webviewBridgeFactory(webview, ports.watcher, () => calls.push(["repoMutated"]));
   const filterListeners: ((change: BranchFilterChange) => void)[] = [];
   const deps: MessageHandlerDeps = {
     gitClient: gitClientFactory("", "git"),
@@ -144,12 +43,11 @@ function harness(depOverrides: Partial<MessageHandlerDeps> = {}) {
     branchFacts: {} as never,
     branchCleanup: {} as never,
     sequenceEditor: { stage: () => {}, wasApplied: () => true, discard: () => {} },
-    resolveShowRemote: () => false,
-    resolveRepoScope: () => ({}) as never,
     onSelectRepo: (repo) => calls.push(["onSelectRepo", repo]),
     onDelegatedRan: (seq) => calls.push(["onDelegatedRan", seq]),
     showAllBranches: async (repo) => calls.push(["showAllBranches", repo]),
     configurePullRequestProvider: (host) => calls.push(["configurePullRequestProvider", host]),
+    openScmView: () => calls.push(["openScmView"]),
     ...depOverrides
   };
   const handlers = registerMessageHandlers(bridge, ports, deps);
@@ -159,9 +57,7 @@ function harness(depOverrides: Partial<MessageHandlerDeps> = {}) {
     posted,
     handlers,
     fireFilterChange: (change: BranchFilterChange) => filterListeners.forEach((l) => l(change)),
-    send: async (msg: RequestMessage) => {
-      await receive(msg);
-    }
+    send: receive
   };
 }
 
@@ -202,8 +98,7 @@ describe("selectRepo", () => {
     await h.send({ command: "selectRepo", repo: gone });
     expect(h.calls).toEqual([
       ["log", `Cannot open a repository that is gone, dropping it: ${gone}`],
-      ["removeRepo", gone],
-      ["sendRepos"]
+      ["dropRepo", gone]
     ]);
   });
 });
@@ -437,7 +332,7 @@ describe("opening things", () => {
     expect(h.calls).toEqual([
       [
         "diffWithWorking",
-        { repo, filePath: "f", commitHash: HASH },
+        { repo, filePath: "f", commit: HASH },
         `${repo}/f`,
         "f (01234567diff.workingTreeSep)"
       ]
@@ -448,7 +343,7 @@ describe("opening things", () => {
   it("opens a file as of a revision", async () => {
     const h = harness();
     await h.send({ command: "viewFileAtRevision", repo, filePath: "f", commitHash: HASH });
-    expect(h.calls).toEqual([["openFileAtRevision", { repo, filePath: "f", commitHash: HASH }]]);
+    expect(h.calls).toEqual([["openFileAtRevision", { repo, filePath: "f", commit: HASH }]]);
     expect(h.posted).toEqual([{ command: "viewFileAtRevision", success: true }]);
   });
 
