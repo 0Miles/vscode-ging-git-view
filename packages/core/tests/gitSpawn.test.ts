@@ -13,13 +13,17 @@ import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 // the second marker gets written. Each test kills only once `started` is there,
 // so the shell already exists when `taskkill` looks for the tree, and checks a
 // second after the sleep would have ended. `killTree` does not wait for
-// `taskkill`, so the sleep is all the time the tree gets to die in: under load
-// `taskkill` has been measured at up to ~5 s, and a shell has taken up to ~4.4 s
-// to start (#343).
+// `taskkill`, so the sleep is all the time the tree gets to die in (timings in
+// #343).
+// Waiting for `started` deliberately keeps these tests off #361: a kill while
+// the tree is still being born (or before `sleep` itself is up) can leave a
+// child running. Once #361 is fixed, add a test that kills right after spawn.
 const slowAlias = (sleepSeconds: number) =>
   `alias.nggslow=!echo > started && sleep ${sleepSeconds} && echo done > survived`;
 const hasStarted = (dir: string) => fs.existsSync(path.join(dir, "started"));
 const START_TIMEOUT_MS = 10_000;
+/** How long the tree is given to die once `killTree` runs. */
+const TASKKILL_WINDOW_MS = 5000;
 
 /** Resolves with the time the alias's shell was first seen to have started. */
 async function waitForStart(dir: string): Promise<number> {
@@ -94,10 +98,9 @@ describe("spawnGit (real git)", () => {
   // the `cmd\git.exe` wrapper, and the real git and the shell under it live on.
   it("kills the whole process tree under the timed-out git", async () => {
     // The timer runs from the spawn, so it must not fire before the shell has
-    // started (up to ~4.4 s under load), and the sleep must then still leave
-    // `taskkill` at least sleepSeconds - timeoutMs = 5 s.
+    // started, and the sleep must then still leave `taskkill` its window.
     const timeoutMs = 5000;
-    const sleepSeconds = 10;
+    const sleepSeconds = (timeoutMs + TASKKILL_WINDOW_MS) / 1000;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-kill-"));
     try {
       // Checked the moment the timeout settles, i.e. as `killTree` runs.
@@ -123,7 +126,7 @@ describe("spawnGit (real git)", () => {
   // Aborting must take the processes down too, not just drop the result: a
   // lookup nobody wants any more would otherwise run on to its deadline.
   it("kills the whole process tree when aborted, and reports the abort", async () => {
-    const sleepSeconds = 5;
+    const sleepSeconds = TASKKILL_WINDOW_MS / 1000;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-abort-"));
     try {
       const abort = new AbortController();
