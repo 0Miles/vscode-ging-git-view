@@ -2,7 +2,7 @@ import type { SimpleGit } from "simple-git";
 
 import type { GitCommitDetails, QueryResult } from "@ging/shared/backend/types";
 
-import { parseDiffFileChanges, toPath, unquoteGitPath } from "./diffFileChanges";
+import { parseDiffFileChanges } from "./diffFileChanges";
 
 const eolRegex = /\r\n|\r|\n/g;
 const gitLogSeparator = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
@@ -91,28 +91,22 @@ export async function commitDetails(
     details.fileChanges.push(...parseDiffFileChanges(nameStatusLines, numStatLines, firstFileLine));
 
     // A stash created with --include-untracked stores those files in a third
-    // parent (<stash>^3); list them so the stash's details include them.
+    // parent (<stash>^3), a root commit holding only them; list them so the
+    // stash's details include them. Diffing it as a root commit adds every
+    // file, counted like any other added file (a binary one included), and
+    // `origin` tells the readers to look there rather than in the stash's own
+    // tree (see `fileChangeRevision`).
     if (input.isStash) {
+      const untrackedCommit = input.commitHash + "^3";
       try {
-        const stdout = await git.raw([
-          "-c",
-          "core.quotePath=false",
-          "ls-tree",
-          "-r",
-          "--name-only",
-          input.commitHash + "^3"
+        const [untrackedNameStatus, untrackedNumStat] = await Promise.all([
+          fetchDiff(git, untrackedCommit, false, "--name-status"),
+          fetchDiff(git, untrackedCommit, false, "--numstat")
         ]);
-        for (const line of stdout.split(eolRegex)) {
-          if (line === "") continue;
-          const filePath = toPath(unquoteGitPath(line));
-          if (details.fileChanges.some((fc) => fc.newFilePath === filePath)) continue; // already listed
-          details.fileChanges.push({
-            oldFilePath: filePath,
-            newFilePath: filePath,
-            type: "A",
-            additions: null,
-            deletions: null
-          });
+        for (const fileChange of parseDiffFileChanges(untrackedNameStatus, untrackedNumStat, 1)) {
+          // Already listed as a change to a tracked file.
+          if (details.fileChanges.some((fc) => fc.newFilePath === fileChange.newFilePath)) continue;
+          details.fileChanges.push({ ...fileChange, origin: "untracked" });
         }
       } catch {
         // No ^3 (stash had no untracked files) — nothing to add.

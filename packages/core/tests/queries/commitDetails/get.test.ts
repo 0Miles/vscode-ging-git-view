@@ -199,6 +199,70 @@ describe("commitDetails", () => {
     }
   });
 
+  it("counts a stash's untracked files and marks them as untracked", async () => {
+    const r = makeRepo();
+    try {
+      fs.writeFileSync(path.join(r, "f"), "changed\n"); // tracked change
+      fs.mkdirSync(path.join(r, "sub"));
+      fs.writeFileSync(path.join(r, "sub", "untracked.txt"), "one\ntwo\nthree\n");
+      git(["stash", "push", "--include-untracked", "-m", "wip"], r);
+      const stashHash = cp
+        .execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r })
+        .toString()
+        .trim();
+
+      const result = await commitDetails(simpleGit(r), {
+        commitHash: stashHash,
+        useMailmap: false,
+        isStash: true
+      });
+      const fileChanges = result.commitDetails!.fileChanges;
+      expect(fileChanges.find((f) => f.newFilePath === "sub/untracked.txt")).toEqual({
+        oldFilePath: "sub/untracked.txt",
+        newFilePath: "sub/untracked.txt",
+        type: "A",
+        additions: 3,
+        deletions: 0,
+        origin: "untracked"
+      });
+      // The stash's tracked change carries no origin: it is read from the stash itself.
+      expect(fileChanges.find((f) => f.newFilePath === "f")).not.toHaveProperty("origin");
+    } finally {
+      rmrf(r);
+    }
+  });
+
+  it("reports a stash's binary untracked file the way it reports a binary tracked one", async () => {
+    const r = makeRepo();
+    try {
+      fs.writeFileSync(path.join(r, "tracked.bin"), Buffer.from([0, 1, 2]));
+      git(["add", "."], r);
+      git(["commit", "-m", "binary"], r);
+      fs.writeFileSync(path.join(r, "tracked.bin"), Buffer.from([0, 3, 4])); // tracked change
+      fs.writeFileSync(path.join(r, "untracked.bin"), Buffer.from([0, 5, 6]));
+      git(["stash", "push", "-u", "-m", "wip"], r);
+      const stashHash = cp
+        .execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r })
+        .toString()
+        .trim();
+
+      const fileChanges = (await commitDetails(simpleGit(r), {
+        commitHash: stashHash,
+        useMailmap: false,
+        isStash: true
+      }))!.commitDetails!.fileChanges;
+      const tracked = fileChanges.find((f) => f.newFilePath === "tracked.bin")!;
+      const untracked = fileChanges.find((f) => f.newFilePath === "untracked.bin")!;
+      expect(untracked.origin).toBe("untracked");
+      expect([untracked.additions, untracked.deletions]).toEqual([
+        tracked.additions,
+        tracked.deletions
+      ]);
+    } finally {
+      rmrf(r);
+    }
+  });
+
   it("shows a merge commit's files relative to its first parent", async () => {
     const r = makeRepo(); // root commit adds "f"
     try {

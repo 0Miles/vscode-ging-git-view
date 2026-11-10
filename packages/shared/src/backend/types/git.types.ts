@@ -76,7 +76,17 @@ export type GitFileChange = {
   type: GitFileChangeType;
   additions: number | null;
   deletions: number | null;
+  /** Where the file's contents are kept, when not in the commit itself (see
+   *  `GitFileChangeOrigin`). */
+  origin?: GitFileChangeOrigin;
 };
+
+/** Where a file change's contents are kept when not in its commit's tree.
+ *  `untracked`: a stash's untracked file, which `git stash push
+ *  --include-untracked` keeps in a commit of its own beside the stash. Which
+ *  revision that is, is the host's to say (`fileChangeRevision`); the webview
+ *  only hands this back. */
+export type GitFileChangeOrigin = "untracked";
 
 export type GitCommitDetails = {
   hash: string;
