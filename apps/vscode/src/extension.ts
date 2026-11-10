@@ -19,6 +19,7 @@ import { loadDanglingCommits, loadReflog } from "@ging/core/backend/queries/load
 import { loadStatistics } from "@ging/core/backend/queries/loadStatistics";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import { repoContainingPath, resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
+import { AskpassManager } from "@ging/core/extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "@ging/core/extension/branchActionDelegate";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
@@ -29,6 +30,7 @@ import {
   type SideViewField,
   sideViewStateChanged
 } from "@ging/core/extension/repoSettings";
+import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { ExtensionState } from "@ging/core/extensionState";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
@@ -41,7 +43,6 @@ import type { BatchSkipped, RepoSettingField } from "@ging/shared/types";
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/uri";
 import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
-import { AskpassManager } from "./extension/askpass/askpassManager";
 import {
   createBlameController,
   registerBlameCopySha,
@@ -66,13 +67,12 @@ import {
 } from "./extension/remotesView";
 import { createRepoManager } from "./extension/repoManager";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
-import { SequenceEditorManager } from "./extension/sequenceEditor/sequenceEditorManager";
 import { showStatistics } from "./extension/statisticsPanel";
 import { WebviewBridge, webviewBridgeFactory } from "./extension/webviewBridge";
 import { createWebviewPanel, WebviewPanel } from "./extension/webviewPanel";
 import { createRepoSearch } from "./extension/workspaceSearch";
 import { createRepoWatcher } from "./extension/workspaceWatcher";
-import { vscodeStorage } from "./hostPorts";
+import { vscodePrompts, vscodeStorage } from "./hostPorts";
 import * as l10n from "./l10n";
 import { initL10n } from "./l10n";
 import { RepoFileWatcher } from "./repoFileWatcher";
@@ -122,10 +122,11 @@ export function activate(context: vscode.ExtensionContext) {
   const statusBarItem = new StatusBarItem(context, config);
   // Prompt for remote credentials when git asks: the askpass env is
   // passed only to this client's git children, never onto the shared host env.
-  const askpassManager = new AskpassManager();
+  // The helpers ship beside this bundle, in out/.
+  const askpassManager = new AskpassManager(vscodePrompts, __dirname);
   context.subscriptions.push(askpassManager);
   // Lets a rebase run a todo the extension wrote — see sequenceEditorManager.
-  const sequenceEditor = new SequenceEditorManager();
+  const sequenceEditor = new SequenceEditorManager(__dirname);
   context.subscriptions.push(sequenceEditor);
   const gitEnv = () => ({ ...askpassManager.getEnv(), ...sequenceEditor.getEnv() });
   const gitClient = gitClientFactory(

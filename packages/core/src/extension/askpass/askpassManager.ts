@@ -9,9 +9,8 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import * as vscode from "vscode";
-
 import { getNonce } from "@ging/core/backend/utils/nonce";
+import type { Prompts } from "@ging/core/host/ports";
 
 export interface AskpassEnvironment {
   // Index signature so this is a valid env dict (assignable to NodeJS.ProcessEnv
@@ -30,15 +29,20 @@ interface AskpassRequest {
 }
 
 /** Runs a small IPC server that git's GIT_ASKPASS helper connects to; each
- *  request is surfaced as a VS Code input box and the entered value is returned
- *  to git. When the server can't start, getEnv falls back to a no-op
+ *  request is put to the user through `Prompts.input` and the entered value is
+ *  returned to git. When the server can't start, getEnv falls back to a no-op
  *  helper so git's own prompting is left untouched. */
-export class AskpassManager implements vscode.Disposable {
+export class AskpassManager {
   private readonly ipcHandlePath: string;
   private readonly server: http.Server;
+  private readonly prompts: Pick<Prompts, "input">;
+  /** The folder the helper scripts and `askpassMain.js` are shipped in. */
+  private readonly helperDir: string;
   private enabled = true;
 
-  constructor() {
+  constructor(prompts: Pick<Prompts, "input">, helperDir: string) {
+    this.prompts = prompts;
+    this.helperDir = helperDir;
     this.ipcHandlePath = getIPCHandlePath(getNonce());
     this.server = http.createServer((req, res) => this.onRequest(req, res));
     try {
@@ -47,8 +51,8 @@ export class AskpassManager implements vscode.Disposable {
     } catch {
       this.enabled = false;
     }
-    fs.chmod(path.join(__dirname, "askpass.sh"), "755", () => {});
-    fs.chmod(path.join(__dirname, "askpass-empty.sh"), "755", () => {});
+    fs.chmod(path.join(this.helperDir, "askpass.sh"), "755", () => {});
+    fs.chmod(path.join(this.helperDir, "askpass-empty.sh"), "755", () => {});
   }
 
   public dispose() {
@@ -66,12 +70,11 @@ export class AskpassManager implements vscode.Disposable {
     req.on("data", (d) => (reqData += d));
     req.on("end", () => {
       const data = JSON.parse(reqData) as AskpassRequest;
-      vscode.window
-        .showInputBox({
-          placeHolder: data.request,
+      this.prompts
+        .input({
+          placeholder: data.request,
           prompt: "GING: " + data.host,
-          password: /password/i.test(data.request),
-          ignoreFocusOut: true
+          password: /password/i.test(data.request)
         })
         .then(
           (result) => {
@@ -90,13 +93,13 @@ export class AskpassManager implements vscode.Disposable {
     return this.enabled
       ? {
           ELECTRON_RUN_AS_NODE: "1",
-          GIT_ASKPASS: path.join(__dirname, "askpass.sh"),
+          GIT_ASKPASS: path.join(this.helperDir, "askpass.sh"),
           NEO_GIT_GRAPH_ASKPASS_NODE: process.execPath,
-          NEO_GIT_GRAPH_ASKPASS_MAIN: path.join(__dirname, "askpassMain.js"),
+          NEO_GIT_GRAPH_ASKPASS_MAIN: path.join(this.helperDir, "askpassMain.js"),
           NEO_GIT_GRAPH_ASKPASS_HANDLE: this.ipcHandlePath
         }
       : {
-          GIT_ASKPASS: path.join(__dirname, "askpass-empty.sh")
+          GIT_ASKPASS: path.join(this.helperDir, "askpass-empty.sh")
         };
   }
 }
