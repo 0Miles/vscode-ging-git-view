@@ -29,3 +29,11 @@ status: accepted
 - **`flushPendingRefAction` 仍是 caller 要接的線。** 「caller 只剩 `run` / `runBatch`」有一個刻意的例外:selectRepo 事件只有 extension.ts 的 message handler 聽得到,而 delegate 保持 vscode-free,所以「webview (re)load 時 flush」由 caller 在 `onSelectRepo` 裡呼叫 `flushPendingRefAction(repo)` 接上。契約的內容(何者該 flush、repo 不符不丟棄)在 delegate 裡並有測試;caller 承擔的只剩「把事件接到這個方法」一行。
 - **單選 remote ref 的 `delete` 從靜默 no-op 變成可執行**(依前綴路由到 remote 刪除流程)。這是 `refKinds: "both"` 的直接後果,不是意外:選單對 remote 提供的措辭是 `deleteRemote`,所以這條路徑觸發不到;但「刪除」作為動作對兩種 ref 都成立,補完表沒有留 no-op 格。若未來想禁止,改 catalogue 為 `"local"` 並給批次 delete 另立欄位 —— 代價是 skip 推導失去單一出處。
 - **`needsRemotes` 是唯一留在 webview 的靜默守門,刻意不走「顯式錯誤」策略。** throw 針對的是接錯線的程式錯誤;「repo 沒有 remote」是 runtime 的 git 狀態,只有 webview 知道(remotes 清單住在它那側),而且與圖內選單一致 —— 選單在無 remote 時根本不顯示這些項目,靜默正是選單語意。
+
+## 補記(2026-11-11,#297)
+
+**「後果」裡說 selectRepo 事件只有 `extension.ts` 的 message handler 聽得到,這在 #295 之後不再是字面上的事實;決定不變。**
+
+#295 把 message dispatch 搬進 `packages/core`(`registerMessageHandlers`),它不再住在 `extension.ts`。宿主現在是透過 `MessageHandlerDeps` 的 `onSelectRepo` hook 聽到 selectRepo,而 `extension.ts` 仍然在那個 hook 裡接上 flush —— 方法今天叫 `flushDelegated`(#325 改名)。所以「caller 承擔的只剩把事件接到這個方法一行」照舊成立,只是那一行接的是 hook,不是 handler 本身。為什麼 dispatch 的宿主相依部分走 hook、不走 port,見 ADR-0027。
+
+catalogue 本身也搬了家,在 `packages/shared`(正文的路徑已經改過):host 與 webview 都要讀它,而 webview 不能依賴 core,shared 是唯一兩邊都能 import 的地方(ADR-0026)。
