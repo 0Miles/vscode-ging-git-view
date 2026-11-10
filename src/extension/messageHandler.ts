@@ -846,9 +846,9 @@ export function registerMessageHandlers(
   // "its filter is on the way".
   bridge.onMessage(
     "clearBranchFilter",
-    () =>
+    ({ repo }) =>
       acknowledgeShowAll(
-        () => vscode.commands.executeCommand("ging-git-view.branches.showAll"),
+        () => vscode.commands.executeCommand("ging-git-view.branches.showAll", repo),
         (msg) => bridge.post(msg)
       ),
     { mutatesRepo: false }

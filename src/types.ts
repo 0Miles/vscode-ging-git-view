@@ -343,11 +343,14 @@ export type RequestOpenScmView = {
   command: "openScmView";
 };
 
-/** Clear the branch filter from the graph's filter chip. Carries no repo: the
- *  host answers it with the Branches side-view's own "show all" command, which
- *  resolves the repo itself. */
+/** Clear the branch filter on `repo`, the repo the graph shows — from its
+ *  filter chip, or for a locate the filter hides. The host answers it with the
+ *  Branches side-view's own "show all" command, which clears nothing once the
+ *  side-view has moved to another repo: that repo's filter is not the one the
+ *  graph meant (#325). */
 export type RequestClearBranchFilter = {
   command: "clearBranchFilter";
+  repo: string;
 };
 
 /** Show All has run for a `clearBranchFilter`. Any filter it changed reached
@@ -556,6 +559,16 @@ export type ResponseLocateCommit = {
   hash: string;
   seq: number;
 };
+
+/** A message the host delegates to the graph webview: sent right after the
+ *  graph is opened or switched to `repo`, over two paths, and held by the
+ *  webview until it shows that repo with nothing loading. One `seq` counter
+ *  runs across all of them. */
+export type DelegatedMessage =
+  | ResponseRunRefAction
+  | ResponseRunRefBatchAction
+  | ResponseShowBranchCleanup
+  | ResponseLocateCommit;
 
 /** Tell the user, quietly, that a commit asked to be located is not in the
  *  graph at all — its settings leave it out (first parent only, a hidden

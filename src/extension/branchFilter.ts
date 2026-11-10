@@ -66,3 +66,15 @@ export function resolveBranchFilter(
   }
   return computeDefaultBranchFilter(branches, head, opts);
 }
+
+/** The repo whose filter Show All clears: the Branches side-view's, unless the
+ *  caller names another. The graph names the repo it shows, and by the time its
+ *  request runs the side-view may have followed the user elsewhere — that
+ *  repo's filter is not the one the graph meant, so nothing is cleared (#325). */
+export function showAllRepo(
+  activeRepo: string | null,
+  requested: string | undefined
+): string | null {
+  if (activeRepo === null) return null;
+  return requested === undefined || requested === activeRepo ? activeRepo : null;
+}

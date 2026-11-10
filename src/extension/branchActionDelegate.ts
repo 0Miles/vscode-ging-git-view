@@ -14,21 +14,13 @@ import {
   type CatalogueRefAction,
   type HostRefAction
 } from "@/backend/utils/refActionCatalogue";
-import type {
-  BatchAction,
-  BatchSkipped,
-  BranchCleanupPayload,
-  ResponseLocateCommit,
-  ResponseRunRefAction,
-  ResponseRunRefBatchAction,
-  ResponseShowBranchCleanup
-} from "@/types";
+import type { BatchAction, BatchSkipped, BranchCleanupPayload, DelegatedMessage } from "@/types";
 
 import type { BranchActionTarget, BranchActionTargets } from "./branchesView";
 
 /**
- * A message that must reach the graph webview once it is showing its repo with
- * no load in flight.
+ * The messages this delegate gets to the graph webview, which holds them until
+ * it shows their repo with no load in flight.
  *
  * The cleanup dialog rides here with the ref actions rather than getting its own
  * delivery path: the wait-for-load race, the two delivery routes and the `seq`
@@ -39,11 +31,7 @@ import type { BranchActionTarget, BranchActionTargets } from "./branchesView";
  * is sent straight after the graph is opened or switched, to a panel that may
  * still be loading.
  */
-export type DelegatedMessage =
-  | ResponseRunRefAction
-  | ResponseRunRefBatchAction
-  | ResponseShowBranchCleanup
-  | ResponseLocateCommit;
+export type { DelegatedMessage };
 
 export type BranchActionDelegateDeps = {
   /** The branch a single-selection command argument points at, or null when it
@@ -66,21 +54,24 @@ export type BranchActionDelegateDeps = {
 export type BranchActionDelegate = ReturnType<typeof createBranchActionDelegate>;
 
 export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
-  // The action waiting for the graph webview to (re)load. The webview dedupes
-  // the two delivery paths (direct post + selectRepo flush) by the message's
-  // monotonic seq, shared between single and batch so one can never be
-  // mistaken for the other's retry.
-  let pending: DelegatedMessage | null = null;
+  // The messages waiting for the graph webview to (re)load, in seq order —
+  // every one of them, not just the latest (#325): two requests made while the
+  // panel loads are both owed. They share one repo, as each opens the graph on
+  // its own: one for another repo takes the graph away from those before it,
+  // which are dropped rather than left to run whenever the user next opens
+  // their repo. The webview dedupes the two delivery paths (direct post +
+  // selectRepo flush) by the messages' monotonic seq, shared by every kind so
+  // one can never be mistaken for another's retry.
+  let pending: DelegatedMessage[] = [];
   let seq = 0;
 
-  const flushPendingRefAction = (repo: string): void => {
-    if (pending === null) return;
+  const flushDelegated = (repo: string): void => {
     // A selectRepo for some other repo (e.g. the user clicked around while the
-    // panel opened) must not discard the action — its own repo's load is still
-    // coming, and that selectRepo will flush it.
-    if (pending.repo !== repo) return;
-    deps.post(pending);
-    pending = null;
+    // panel opened) must not discard the messages — their own repo's load is
+    // still coming, and that selectRepo will flush them.
+    if (pending.length === 0 || pending[0].repo !== repo) return;
+    for (const msg of pending) deps.post(msg);
+    pending = [];
   };
 
   const deliver = async (msg: DelegatedMessage): Promise<void> => {
@@ -88,7 +79,7 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     // the repo (same-repo setRepo doesn't reload, so no selectRepo would fire);
     // the selectRepo flush covers fresh panels and repo switches, whose
     // in-flight load would otherwise race the message.
-    pending = msg;
+    pending = pending.filter((p) => p.repo === msg.repo).concat(msg);
     await deps.openGraphView(msg.repo);
     deps.post(msg);
   };
@@ -172,5 +163,5 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     await deliver({ command: "locateCommit", repo, hash, seq: ++seq });
   };
 
-  return { run, runBatch, openCleanup, locateCommit, flushPendingRefAction };
+  return { run, runBatch, openCleanup, locateCommit, flushDelegated };
 }

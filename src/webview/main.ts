@@ -522,16 +522,12 @@ class GitGraphView {
     branchName: string;
     deleteOnRemotes: boolean;
   } | null = null;
-  // A branch action delegated by the Branches side-view, held until this view
-  // shows the right repo with its data loaded. lastRefActionSeq dedupes the
-  // host's two delivery paths (direct post + post-reload flush).
-  private pendingRefAction:
-    | GG.ResponseRunRefAction
-    | GG.ResponseRunRefBatchAction
-    | GG.ResponseShowBranchCleanup
-    | GG.ResponseLocateCommit
-    | null = null;
-  private lastRefActionSeq = 0;
+  // Messages the host delegates here — side-view ref actions, the cleanup
+  // dialog, the blame hover's locate — held in seq order until this view shows
+  // their repo with its data loaded (#325). lastDelegatedSeq dedupes the host's
+  // two delivery paths (direct post + post-reload flush).
+  private delegatedQueue: GG.DelegatedMessage[] = [];
+  private lastDelegatedSeq = 0;
   /** The blame hover's locate (#310) once it has started — see
    *  {@link startLocate}. `navigation` is the {@link loadToken} it started
    *  under: a navigation since (ADR-0024) abandons it. `logDepth` is undefined
@@ -765,7 +761,9 @@ class GitGraphView {
       // The host owns the filter, so this only asks. The chip disappears when
       // the resulting `setBranchFilter` comes back — no optimistic clear, which
       // would show "all branches" over a graph still rendering the subset.
-      filterClear.addEventListener("click", () => sendMessage({ command: "clearBranchFilter" }));
+      filterClear.addEventListener("click", () =>
+        sendMessage({ command: "clearBranchFilter", repo: this.currentRepo })
+      );
     }
     const findInput = <HTMLInputElement | null>document.getElementById("findInput");
     if (findInput) {
@@ -1811,7 +1809,7 @@ class GitGraphView {
     } finally {
       // A side-view-delegated action may have been waiting for this load, and
       // it goes on waiting for nothing if a throwing close-out skips this.
-      this.tryRunPendingRefAction();
+      this.runDelegatedQueue();
       // So may a locate that found this load in flight, or one waiting on the
       // reload Show All brings.
       this.continueLocate();
@@ -2201,7 +2199,7 @@ class GitGraphView {
     // nothing can raise another — the Fetch button is guarded on the repo, the
     // graph has no rows to open a context menu on, and a delegated ref action
     // will not run for a repo that is not the current one
-    // ({@link tryRunPendingRefAction}). Paying it here anyway would be a line
+    // ({@link runDelegatedQueue}). Paying it here anyway would be a line
     // no test could ever turn red. If a dialog source that survives this state
     // is added, this is where it comes back.
     if (!this.currentRepo) return;
@@ -4577,28 +4575,44 @@ class GitGraphView {
   public locateCommit(msg: GG.ResponseLocateCommit) {
     this.queueDelegated(msg);
   }
-  /** Hold a delegated message for {@link tryRunPendingRefAction}, unless its seq
-   *  has run already — the host delivers over two paths. */
-  private queueDelegated(msg: NonNullable<typeof this.pendingRefAction>) {
-    if (msg.seq <= this.lastRefActionSeq) return; // duplicate delivery
-    this.pendingRefAction = msg;
-    this.tryRunPendingRefAction();
+  /** Queue a delegated message for {@link runDelegatedQueue}, unless its seq has
+   *  run or is queued already — the host delivers over two paths.
+   *
+   *  Every message opens the graph on its own repo, so one for another repo
+   *  means the graph has left the repo of those asked for before it: they are
+   *  dropped, as is a late delivery of one that a later request overtook. Kept,
+   *  they would run whenever the user next opened their repo, long after asking.
+   *  The queue therefore only ever holds one repo's messages, as the host's
+   *  does. */
+  private queueDelegated(msg: GG.DelegatedMessage) {
+    if (msg.seq <= this.lastDelegatedSeq) return;
+    if (this.delegatedQueue.some((q) => q.seq === msg.seq)) return;
+    if (this.delegatedQueue.some((q) => q.seq > msg.seq && q.repo !== msg.repo)) return;
+    this.delegatedQueue = this.delegatedQueue
+      .filter((q) => q.repo === msg.repo)
+      .concat(msg)
+      .toSorted((a, b) => a.seq - b.seq);
+    this.runDelegatedQueue();
   }
-  /** Run the pending delegated action once this view shows its repo with no
-   *  load in flight (a fresh panel / repo switch reloads branches+commits; the
-   *  remotes for that repo arrive before them, as requests are handled in
-   *  order). Re-tried after each load completes. */
-  private tryRunPendingRefAction() {
-    const pending = this.pendingRefAction;
-    if (pending === null || pending.repo !== this.currentRepo) return;
-    if (this.branchLoadInFlight || this.commitLoadInFlight) return;
-    this.pendingRefAction = null;
-    this.lastRefActionSeq = pending.seq;
-    if (pending.command === "runRefBatchAction") this.dispatchRefBatchAction(pending);
-    else if (pending.command === "showBranchCleanup") {
-      openCleanupDialog(pending.repo, pending.payload);
-    } else if (pending.command === "locateCommit") this.startLocate(pending.hash);
-    else this.dispatchRefAction(pending);
+  /** Run the queued delegated messages, in seq order, while this view shows
+   *  their repo with no load in flight (a fresh panel / repo switch reloads
+   *  branches+commits; the remotes for that repo arrive before them, as
+   *  requests are handled in order). One that starts a load — a locate paging
+   *  for its commit — holds the rest until it lands, as it would have held the
+   *  user. Re-tried after each load completes. */
+  private runDelegatedQueue() {
+    for (;;) {
+      const next = this.delegatedQueue[0];
+      if (next === undefined || next.repo !== this.currentRepo) return;
+      if (this.branchLoadInFlight || this.commitLoadInFlight) return;
+      this.delegatedQueue.shift();
+      this.lastDelegatedSeq = next.seq;
+      if (next.command === "runRefBatchAction") this.dispatchRefBatchAction(next);
+      else if (next.command === "showBranchCleanup") {
+        openCleanupDialog(next.repo, next.payload);
+      } else if (next.command === "locateCommit") this.startLocate(next.hash);
+      else this.dispatchRefAction(next);
+    }
   }
 
   /** Select `hash` and bring it into view — at once when it is drawn, or once
@@ -4698,7 +4712,7 @@ class GitGraphView {
         arriving: false,
         navigation: null
       };
-      sendMessage({ command: "clearBranchFilter" });
+      sendMessage({ command: "clearBranchFilter", repo: this.currentRepo });
       return;
     }
     locate.logDepth = logDepth;
@@ -5106,8 +5120,8 @@ class GitGraphView {
    *
    *  The summary is *owed*, not shown. The dialog arriving over the offer (or
    *  standing where the offer would have gone) keeps the screen, because the
-   *  route this exists for is `tryRunPendingRefAction`, which has already taken
-   *  its delegated action off `pendingRefAction` before
+   *  route this exists for is `runDelegatedQueue`, which has already taken
+   *  its delegated action off `delegatedQueue` before
    *  dispatching it — writing over that confirmation would lose a request the
    *  user made outright, the same harm this ticket is about pointed the other
    *  way. But a summary shown into a slot that is about to be overwritten is a
