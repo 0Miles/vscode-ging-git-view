@@ -116,7 +116,7 @@ export type GitSpawnOptions = {
  * `taskkill /T` takes the tree, but only best-effort; three gaps let a process
  * escape and run its next command (#361, diagnosed in #343):
  *   1. a child born after `taskkill` snapshots the tree and before its parent
- *      dies is not on the list (the real git under the wrapper, a fresh `sh`);
+ *      dies is not on the list (e.g. the real git under the wrapper);
  *   2. `taskkill` ends the leaves first, and MSYS `sh` reads a terminated child
  *      as exit 0, so `a && b` goes on to run `b` before the shell's turn comes;
  *   3. a program an MSYS shell execs loses its Windows parent once the fork

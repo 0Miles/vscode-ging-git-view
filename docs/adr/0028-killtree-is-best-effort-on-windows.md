@@ -12,7 +12,7 @@ best-effort 的意思是有三個已知缺口,git 底下的行程可以從中逃
 2. **從葉子往上殺**:MSYS `sh` 把被終止的子行程當成 exit 0,所以 `a && b` 會接著跑 `b`,搶在輪到 shell 之前。
 3. **MSYS exec 出來的程式**:fork stub 結束後它就沒有 Windows parent,`/T` 碰不到它。
 
-這篇決定**現在不修,只把它寫清楚**:`killTree` 的註解列出這三個缺口,`spawnGit` 與 `createLatestLoads` 的註解改說「送出 kill」而不是「殺掉」。POSIX 上「git 收到信號會收拾自己的子行程」沒有量測過,註解照實標成未量測。
+這篇決定**現在不修,只把它寫清楚**:`killTree` 的註解列出這三個缺口,`spawnGit`、`createLatestLoads` 與 `GitRunOptions.signal` 的註解改說「送出 kill」而不是「殺掉」。POSIX 上「git 收到信號會收拾自己的子行程」沒有量測過,註解照實標成未量測。
 
 ## 為什麼未來的讀者會困惑
 
@@ -28,7 +28,7 @@ best-effort 的意思是有三個已知缺口,git 底下的行程可以從中逃
 
 ## 後果
 
-- **註解就是契約。** `killTree` 的註解列出三個缺口並引用這篇;`spawnGit` 與 `createLatestLoads` 的註解保證「立刻 settle、送出 kill」,不保證行程結束。之後改這幾個地方的人,不要把「殺掉」寫回去。
+- **註解就是契約。** `killTree` 的註解列出三個缺口並引用這篇;`spawnGit`、`createLatestLoads` 與 `GitRunOptions.signal` 的註解保證「立刻 settle、送出 kill」,不保證行程結束。之後改這幾個地方的人,不要把「殺掉」寫回去。
 - **`spawnGit` 的註解帶著範圍觸發條件**,所以新增 kill 路徑的人在呼叫端就會看到它,不必先知道有這篇。
 - **重新評估的觸發條件**,碰到任何一條就重開這個決定:
   1. **有實際傷害**:真實回報、可以用 GING 實際會跑的指令(不是 alias)重現,而且逃掉的行程擋住了使用者的操作(改名、刪除、checkout、`index.lock`),或在該次查詢的期限(5 s,`BLAME_TIMEOUT_MS` / `FIND_TIMEOUT_MS`)之後還在跑。

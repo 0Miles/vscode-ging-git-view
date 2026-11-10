@@ -9,7 +9,8 @@ export type GitRunOptions = {
   deadline?: number;
   onCommand?: GitCommandHandler;
   gitEnv?: NodeJS.ProcessEnv;
-  /** Ends every run of the lookup at once, its processes killed. */
+  /** Ends every run of the lookup at once, its processes sent a kill
+   *  (best-effort, see `killTree` in `gitSpawn.ts`). */
   signal?: AbortSignal;
 };
 
