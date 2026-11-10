@@ -17,7 +17,8 @@ import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 // #343).
 // Waiting for `started` deliberately keeps these tests off #361: a kill while
 // the tree is still being born (or before `sleep` itself is up) can leave a
-// child running. Once #361 is fixed, add a test that kills right after spawn.
+// child running. That is a known gap (ADR-0028), not tested on purpose — a test
+// expecting survivors would race either way; one comes with any future fix.
 const slowAlias = (sleepSeconds: number) =>
   `alias.nggslow=!echo > started && sleep ${sleepSeconds} && echo done > survived`;
 const hasStarted = (dir: string) => fs.existsSync(path.join(dir, "started"));

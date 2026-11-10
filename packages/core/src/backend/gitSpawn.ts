@@ -109,11 +109,20 @@ export type GitSpawnOptions = {
 };
 
 /**
- * Kill `child` and everything it started. On Windows `child.kill()` ends only
- * the direct child — and the `git` found on PATH is usually Git for Windows'
- * `cmd\git.exe` wrapper, so the real git (and any shell it runs) would carry on
- * working. `taskkill /T` takes the whole tree. Elsewhere git cleans up the
- * children it started when it is signalled.
+ * Kill `child` and, as far as it can, everything it started — without waiting
+ * for any of it to go. On Windows `child.kill()` ends only the direct child —
+ * and the `git` found on PATH is usually Git for Windows' `cmd\git.exe`
+ * wrapper, so the real git (and any shell it runs) would carry on working.
+ * `taskkill /T` takes the tree, but only best-effort; three gaps let a process
+ * escape and run its next command (#361, diagnosed in #343):
+ *   1. a child born after `taskkill` snapshots the tree and before its parent
+ *      dies is not on the list (the real git under the wrapper, a fresh `sh`);
+ *   2. `taskkill` ends the leaves first, and MSYS `sh` reads a terminated child
+ *      as exit 0, so `a && b` goes on to run `b` before the shell's turn comes;
+ *   3. a program an MSYS shell execs loses its Windows parent once the fork
+ *      stub exits, so `/T` never reaches it.
+ * Accepted as is, not fixed: see ADR-0028. Elsewhere git is expected to clean
+ * up the children it started when it is signalled; that is unmeasured.
  */
 function killTree(child: cp.ChildProcess) {
   // A child that has already exited may have had its PID handed to an
@@ -143,9 +152,14 @@ export type GitSpawnResult =
  * environment, the same `-c` overrides, the same command log.
  *
  * Never rejects: a git that can't start is an `error`, a non-zero exit is an
- * `ok` with its exit code, and a child past `timeoutMs` is killed — with every
- * process under it — and reported as `timeout` without waiting for it to go;
- * one whose `signal` aborts, likewise, as `aborted`.
+ * `ok` with its exit code, and a child past `timeoutMs` is sent a kill — for
+ * it and every process under it, best-effort (see `killTree`) — and reported
+ * as `timeout` at once, without waiting for it to go; one whose `signal`
+ * aborts, likewise, as `aborted`. Nothing a settled run prints is used.
+ *
+ * Best-effort is acceptable only while every caller with a kill path runs
+ * read-only, local commands; one that writes, runs hooks or goes to the
+ * network reopens ADR-0028.
  */
 export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
   const { signal } = options;
