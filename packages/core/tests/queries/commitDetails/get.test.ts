@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { commitDetails } from "@ging/core/backend/queries/commitDetails";
 
-import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
+import { git, makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 let commitHash: string;
@@ -173,10 +173,7 @@ describe("commitDetails", () => {
       fs.writeFileSync(path.join(r, "f"), "changed"); // tracked change
       fs.writeFileSync(path.join(r, "untracked.txt"), "u"); // untracked
       git(["stash", "push", "-u", "-m", "wip"], r);
-      const stashHash = cp
-        .execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r })
-        .toString()
-        .trim();
+      const stashHash = rev(r, "stash@{0}");
 
       const withStash = await commitDetails(simpleGit(r), {
         commitHash: stashHash,
@@ -204,10 +201,7 @@ describe("commitDetails", () => {
     try {
       fs.writeFileSync(path.join(r, "f"), "changed\n");
       git(["stash", "push", "-m", "wip"], r);
-      const stashHash = cp
-        .execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r })
-        .toString()
-        .trim();
+      const stashHash = rev(r, "stash@{0}");
 
       const result = await commitDetails(simpleGit(r), {
         commitHash: stashHash,
@@ -229,10 +223,7 @@ describe("commitDetails", () => {
       fs.mkdirSync(path.join(r, "sub"));
       fs.writeFileSync(path.join(r, "sub", "untracked.txt"), "one\ntwo\nthree\n");
       git(["stash", "push", "--include-untracked", "-m", "wip"], r);
-      const stashHash = cp
-        .execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r })
-        .toString()
-        .trim();
+      const stashHash = rev(r, "stash@{0}");
 
       const result = await commitDetails(simpleGit(r), {
         commitHash: stashHash,
@@ -263,10 +254,7 @@ describe("commitDetails", () => {
       git(["rm", "--cached", "f"], r);
       fs.writeFileSync(path.join(r, "f"), "now untracked\n");
       git(["stash", "push", "-u", "-m", "wip"], r);
-      const stashHash = cp
-        .execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r })
-        .toString()
-        .trim();
+      const stashHash = rev(r, "stash@{0}");
 
       const fileChanges = (await commitDetails(simpleGit(r), {
         commitHash: stashHash,
@@ -289,10 +277,7 @@ describe("commitDetails", () => {
       fs.writeFileSync(path.join(r, "tracked.bin"), Buffer.from([0, 3, 4])); // tracked change
       fs.writeFileSync(path.join(r, "untracked.bin"), Buffer.from([0, 5, 6]));
       git(["stash", "push", "-u", "-m", "wip"], r);
-      const stashHash = cp
-        .execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r })
-        .toString()
-        .trim();
+      const stashHash = rev(r, "stash@{0}");
 
       const fileChanges = (await commitDetails(simpleGit(r), {
         commitHash: stashHash,
