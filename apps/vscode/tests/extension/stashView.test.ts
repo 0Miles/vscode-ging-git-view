@@ -8,6 +8,7 @@ import { simpleGit } from "simple-git";
 import * as vscode from "vscode";
 
 import { listStashes } from "@ging/core/backend/queries/listStashes";
+import { loadStashFiles } from "@ging/core/extension/stashList";
 import { STASH_REFRESH_DEBOUNCE_MS } from "@ging/core/extension/stashWatch";
 import { config } from "@ging/vscode/config";
 import { findGraphTabs } from "@ging/vscode/extension/graphPanelWindow";
@@ -153,5 +154,63 @@ suite("Stash side-view watch (graph panel closed)", function () {
     git(["stash", "push", "-m", "from the worktree"], worktree);
 
     await untilListed(view, ["On side: from the worktree"]);
+  });
+});
+
+// What a click on an expanded stash's file, and Copy Stash Name, do through the
+// commands the activated extension registers for the view.
+suite("Stash side-view commands (integration)", function () {
+  this.timeout(30_000);
+  let repo: string;
+  let stash: string;
+
+  suiteSetup(async () => {
+    // The commands and the diff document provider are the extension's.
+    await vscode.extensions.getExtension("0miles.ging-git-view")!.activate();
+    repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "f"), "changed");
+    fs.writeFileSync(path.join(repo, "new.txt"), "untracked");
+    git(["stash", "push", "--include-untracked", "-m", "both"], repo);
+    stash = cp.execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: repo }).toString().trim();
+  });
+
+  suiteTeardown(async () => {
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    rmrf(repo);
+  });
+
+  /** Open `file`'s diff as a click on it does; the two sides' text. */
+  async function openDiff(file: string) {
+    const files = await loadStashFiles(simpleGit(repo), repo, stash);
+    const entry = files!.find((f) => f.diff.newFilePath === file)!;
+    await vscode.commands.executeCommand("ging-git-view.stash.openFileDiff", entry.diff);
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    assert.ok(input instanceof vscode.TabInputTextDiff, "a diff editor opened");
+    const textOf = async (uri: vscode.Uri) =>
+      (await vscode.workspace.openTextDocument(uri)).getText();
+    return { left: await textOf(input.original), right: await textOf(input.modified) };
+  }
+
+  test("a tracked file diffs the stash's base against the stash", async () => {
+    assert.deepStrictEqual(await openDiff("f"), { left: "x", right: "changed" });
+  });
+
+  test("an untracked file diffs nothing against the stashed file", async () => {
+    assert.deepStrictEqual(await openDiff("new.txt"), { left: "", right: "untracked" });
+  });
+
+  test("Copy Stash Name copies where the stash sits now, found by its SHA", async () => {
+    const node = {
+      kind: "stash",
+      repo,
+      stash: { id: stash, hash: stash, selector: "stash@{0}", message: "On main: both", date: 0 }
+    };
+    // A newer stash pushes this one down after the list was read.
+    fs.writeFileSync(path.join(repo, "f"), "again");
+    git(["stash", "push", "-m", "newer"], repo);
+
+    await vscode.commands.executeCommand("ging-git-view.stash.copyName", node);
+
+    assert.strictEqual(await vscode.env.clipboard.readText(), "stash@{1}");
   });
 });
