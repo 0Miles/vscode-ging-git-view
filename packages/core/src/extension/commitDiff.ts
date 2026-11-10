@@ -1,5 +1,5 @@
 import { abbrevCommit } from "@ging/core/backend/utils/string";
-import type { GitFileChangeType } from "@ging/shared/backend/types";
+import type { GitFileChangeOrigin, GitFileChangeType } from "@ging/shared/backend/types";
 
 /** A file change of a commit to open in a diff editor. */
 export type CommitDiffRequest = {
@@ -15,7 +15,25 @@ export type CommitDiffRequest = {
   /** A 1-based line of `newFilePath` in `commitHash` to reveal and put the
    *  cursor on. */
   revealLine?: number;
+  /** Where the file is kept, when not in `commitHash` itself (see
+   *  `fileChangeRevision`). */
+  origin?: GitFileChangeOrigin;
 };
+
+/**
+ * The revision a commit's file change is read from: the commit itself, or, for
+ * a stash's untracked file, the stash's third parent — the commit `git stash
+ * push --include-untracked` keeps those files in, since the stash's own tree
+ * has only its tracked files. The one place a file change's `origin` becomes a
+ * revision: every reader of a CDV file (View Diff, View File at Revision, View
+ * Diff with Working) asks here, and the webview never names the revision itself.
+ */
+export function fileChangeRevision(
+  commitHash: string,
+  origin: GitFileChangeOrigin | undefined
+): string {
+  return origin === "untracked" ? commitHash + "^3" : commitHash;
+}
 
 /** One side of a diff editor: a file's contents at a commit. */
 export type DiffSide = { repo: string; filePath: string; commit: string };
@@ -39,15 +57,19 @@ export type CommitDiffLabels = {
 /**
  * The diff editor of a commit's change to a file: the file before (`oldFilePath`
  * at `fromHash`, or at the commit's first parent) on the left, and as the commit
- * left it on the right. A side with no such file — the parent of an added file,
- * or of a root commit; the commit of a deleted one — reads as an empty document
- * (see `getCommitFileContent`).
+ * left it on the right, read from where `fileChangeRevision` says it is kept. A
+ * side with no such file — the parent of an added file, or of a root commit;
+ * the commit of a deleted one — reads as an empty document (see
+ * `getCommitFileContent`). A stash's untracked file is such an added file: its
+ * left side, the commit the stash was made on, cannot have it, or it would not
+ * have been untracked.
  */
 export function commitDiffView(
   request: CommitDiffRequest,
   labels: CommitDiffLabels
 ): CommitDiffView {
-  const { repo, commitHash, oldFilePath, newFilePath, type, fromHash, revealLine } = request;
+  const { repo, commitHash, oldFilePath, newFilePath, type, fromHash, revealLine, origin } =
+    request;
   const abbrevHash = abbrevCommit(commitHash);
   const leftRev = fromHash !== undefined ? fromHash : commitHash + "^";
   const fileName = newFilePath.split("/").at(-1);
@@ -59,7 +81,7 @@ export function commitDiffView(
         : (fromHash !== undefined ? abbrevCommit(fromHash) : abbrevHash + "^") + " ↔ " + abbrevHash;
   return {
     left: { repo, filePath: oldFilePath, commit: leftRev },
-    right: { repo, filePath: newFilePath, commit: commitHash },
+    right: { repo, filePath: newFilePath, commit: fileChangeRevision(commitHash, origin) },
     title: `${fileName} (${change})`,
     reveal: revealLine === undefined ? null : revealLine - 1
   };

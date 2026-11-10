@@ -4,6 +4,7 @@ import {
   BatchActionRequest,
   BatchActionResponse,
   CommitOrdering,
+  GitFileChangeOrigin,
   GitFileChangeType,
   GitResetMode,
   QueryRequest,
@@ -288,6 +289,8 @@ export type RequestViewDiff = {
   /** When comparing two commits, the base commit to diff against instead
    *  of `commitHash`'s first parent. */
   fromHash?: string;
+  /** The file change's `origin`, handed back as the CDV got it. */
+  origin?: GitFileChangeOrigin;
 };
 export type ResponseViewDiff = {
   command: "viewDiff";
@@ -365,6 +368,8 @@ export type RequestViewFileAtRevision = {
   repo: string;
   commitHash: string;
   filePath: string;
+  /** The file change's `origin`, handed back as the CDV got it. */
+  origin?: GitFileChangeOrigin;
 };
 export type ResponseViewFileAtRevision = {
   command: "viewFileAtRevision";
@@ -376,6 +381,8 @@ export type RequestViewDiffWithWorking = {
   repo: string;
   commitHash: string;
   filePath: string;
+  /** The file change's `origin`, handed back as the CDV got it. */
+  origin?: GitFileChangeOrigin;
 };
 export type ResponseViewDiffWithWorking = {
   command: "viewDiffWithWorking";
