@@ -69,6 +69,7 @@ import {
 } from "./extension/remotesView";
 import { createRepoManager } from "./extension/repoManager";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
+import { createStashView } from "./extension/stashView";
 import { showStatistics } from "./extension/statisticsPanel";
 import { createWebviewPanel, WebviewPanel } from "./extension/webviewPanel";
 import { createRepoSearch } from "./extension/workspaceSearch";
@@ -245,13 +246,33 @@ export function activate(context: vscode.ExtensionContext) {
   remotesView.setActiveRepo(extensionState.getLastActiveRepo());
   context.subscriptions.push(remotesView);
 
+  // Stash side-view: the current repository's stashes, read-only. Unlike the
+  // other two it is not refreshed by the graph's file watcher, which lives and
+  // dies with the panel; it watches the stash log itself while visible.
+  const stashView = createStashView({
+    gitClients: repoGitClients,
+    gitPath: config.gitPath,
+    gitEnv,
+    onCommand: logger.logCmd,
+    editorGroup: config.openNewTabEditorGroup
+  });
+  stashView.setActiveRepo(extensionState.getLastActiveRepo());
+  context.subscriptions.push(stashView);
+
   // Mirror the graph's context-menu visibility settings onto when-clause
-  // context keys, so the side-view's branch menu shows the same items. The key
+  // context keys, so the side-views' menus show the same items. The branch key
   // set and each key's value are projected from the action catalogue's cmvKey
-  // declarations (ADR-0010) — this is only the pipe to setContext, so a new
-  // visibility key is picked up by declaring it, not by editing here.
+  // declarations (ADR-0010) — for branches this is only the pipe to setContext,
+  // so a new branch visibility key is picked up by declaring it there, not by
+  // editing here. The catalogue holds branch actions only; the Stash
+  // side-view's one gated action (copy name) has no entry in it, so its key is
+  // spelled out here.
   const syncBranchMenuVisibility = () => {
-    const keys = branchMenuContextKeys(config.contextMenuActionsVisibility());
+    const cmv = config.contextMenuActionsVisibility();
+    const keys = {
+      ...branchMenuContextKeys(cmv),
+      "ging-git-view.cmv.stash.copyName": cmv.stash.copyName
+    };
     for (const [key, value] of Object.entries(keys)) {
       void vscode.commands.executeCommand("setContext", key, value);
     }
@@ -476,6 +497,7 @@ export function activate(context: vscode.ExtensionContext) {
         onSelectRepo: (repo) => {
           branchesView.setActiveRepo(repo);
           remotesView.setActiveRepo(repo);
+          stashView.setActiveRepo(repo);
           // The webview is alive and (re)loading this repo: deliver any waiting
           // delegated messages now (the webview holds them until the load lands).
           branchActionDelegate.flushDelegated(repo);
@@ -539,6 +561,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (repoToOpen) extensionState.setLastActiveRepo(repoToOpen);
     branchesView.setActiveRepo(repoToOpen ?? extensionState.getLastActiveRepo());
     remotesView.setActiveRepo(repoToOpen ?? extensionState.getLastActiveRepo());
+    stashView.setActiveRepo(repoToOpen ?? extensionState.getLastActiveRepo());
 
     const hadPanel = currentPanel !== undefined;
     if (currentPanel) {
@@ -721,6 +744,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (selected.length === 0) return;
       branchesView.setActiveRepo(selected[0]);
       remotesView.setActiveRepo(selected[0]);
+      stashView.setActiveRepo(selected[0]);
       if (!currentPanel) {
         // Following may open the graph, and an empty window is no place to open
         // one uninvited — the built-in git extension finds repos there too.
@@ -1316,7 +1340,7 @@ export function activate(context: vscode.ExtensionContext) {
         // side-view's inactive branches.
         branchesView.refresh();
       } else if (e.affectsConfiguration("ging-git-view.contextMenuActions")) {
-        // Keep the side-view's branch menu in step with the graph's menu.
+        // Keep the side-views' branch and stash menus in step with the graph's.
         syncBranchMenuVisibility();
       }
     }),
