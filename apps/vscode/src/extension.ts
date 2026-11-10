@@ -27,7 +27,7 @@ import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
-  resolveRepoScope,
+  resolveShowRemoteBranches,
   type SideViewField,
   sideViewStateChanged
 } from "@ging/core/extension/repoSettings";
@@ -177,7 +177,7 @@ export function activate(context: vscode.ExtensionContext) {
   // fall back to the global default. The side-view's toggle is now the sole
   // control for it (the graph's checkbox was removed).
   const resolveShowRemote = (repo: string): boolean =>
-    repoManager.getRepos()[repo]?.showRemoteBranches ?? config.showRemoteBranches();
+    resolveShowRemoteBranches(repoManager.getRepos()[repo], config.showRemoteBranches());
   // "Show inactive branches" is likewise a per-repo toggle, falling back to the
   // global default. Branches idle beyond `inactiveBranchThresholdDays` are
   // hidden unless this is on (or they're exempt — head/selected/always-show).
@@ -472,9 +472,6 @@ export function activate(context: vscode.ExtensionContext) {
         branchFilterStore,
         branchFacts,
         branchCleanup,
-        resolveShowRemote,
-        resolveRepoScope: (repo) =>
-          resolveRepoScope(repoManager.getRepos()[repo], config.repoSettingDefaults()),
         sequenceEditor,
         onSelectRepo: (repo) => {
           branchesView.setActiveRepo(repo);

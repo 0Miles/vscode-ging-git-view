@@ -15,7 +15,7 @@ import type { SquashMessageFormat } from "@ging/core/backend/actions/merge";
 import type { PullRequestProvider } from "@ging/core/backend/utils/pullRequest";
 import type { CommitDiffRequest, DiffSide } from "@ging/core/extension/commitDiff";
 import type { CommitOrdering, DateType } from "@ging/shared/backend/types";
-import type { GitRepoSet, GitRepoState } from "@ging/shared/types";
+import type { GitRepoSet, GitRepoState, RepoScopeSettings } from "@ging/shared/types";
 
 /** The settings the dispatch reads, each read at the moment it is needed — a
  *  setting changed between two requests reaches the second. */
@@ -33,6 +33,10 @@ export interface HostConfig {
   fetchAndPrune(): boolean;
   fetchAndPruneTags(): boolean;
   pullRequestProviders(): PullRequestProvider[];
+  /** "Show remote branches" for a repo that has not overridden it. */
+  showRemoteBranches(): boolean;
+  /** The load scope of a repo that has not overridden it. */
+  repoSettingDefaults(): RepoScopeSettings;
 }
 
 /** One tier of persisted key-value state. Writes are not awaited by anyone: a

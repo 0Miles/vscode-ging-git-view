@@ -59,7 +59,15 @@ function fakePorts() {
       inactiveBranchAlwaysShow: () => [],
       fetchAndPrune: () => true,
       fetchAndPruneTags: () => false,
-      pullRequestProviders: () => []
+      pullRequestProviders: () => [],
+      showRemoteBranches: () => false,
+      repoSettingDefaults: () => ({
+        onlyFollowFirstParent: false,
+        includeReflogCommits: false,
+        showStashes: false,
+        showTagOnlyCommits: false,
+        showRemoteHeads: false
+      })
     },
     prompts: {
       showInformation: record("showInformation"),
@@ -142,8 +150,6 @@ function harness(depOverrides: Partial<MessageHandlerDeps> = {}) {
     branchFacts: {} as never,
     branchCleanup: {} as never,
     sequenceEditor: { stage: () => {}, wasApplied: () => true, discard: () => {} },
-    resolveShowRemote: () => false,
-    resolveRepoScope: () => ({}) as never,
     onSelectRepo: (repo) => calls.push(["onSelectRepo", repo]),
     onDelegatedRan: (seq) => calls.push(["onDelegatedRan", seq]),
     showAllBranches: async (repo) => calls.push(["showAllBranches", repo]),

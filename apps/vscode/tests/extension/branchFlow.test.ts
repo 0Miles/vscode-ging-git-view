@@ -11,10 +11,9 @@ import {
   type MessageHandlerDeps,
   registerMessageHandlers
 } from "@ging/core/extension/messageHandler";
-import { resolveRepoScope } from "@ging/core/extension/repoSettings";
 import type { WebviewBridge } from "@ging/core/extension/webviewBridge";
 import type { HostPorts } from "@ging/core/host/ports";
-import type { RepoScopeSettings, RequestMessage, ResponseMessage } from "@ging/shared/types";
+import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import { config } from "@ging/vscode/config";
 
 // End-to-end exercise of the extension-side branch flow against the real repo
@@ -27,12 +26,11 @@ const noop = () => {};
 const resolveShowRemote = () => true;
 
 /** Dependency slices a test may want to *observe* or steer rather than take
- *  as wired below: the first two are inert stubs there, `resolveRepoScope`
- *  the global settings. */
+ *  as wired below, where both are inert stubs (and no repo overrides a
+ *  setting). */
 type DepOverrides = {
   repoSource?: unknown;
   extensionState?: unknown;
-  resolveRepoScope?: (repo: string) => RepoScopeSettings;
 };
 
 /** The real handler dependencies, wired the way extension.ts wires them: a real
@@ -83,10 +81,6 @@ function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps]
       resolveExemptPatterns: config.inactiveBranchAlwaysShow,
       dateType: config.dateType
     }),
-    resolveShowRemote,
-    resolveRepoScope:
-      overrides.resolveRepoScope ??
-      (() => resolveRepoScope(undefined, config.repoSettingDefaults())),
     // No interactive rebase runs in this flow; a stager that reports its todo
     // as applied keeps the handler registration honest without touching disk.
     sequenceEditor: { stage: noop, wasApplied: () => true, discard: noop },
@@ -262,10 +256,10 @@ suite("first-parent mode rides with the commits (integration)", () => {
       registerMessageHandlers(
         bridge,
         ...makeDeps({
-          resolveRepoScope: () => ({
-            ...resolveRepoScope(undefined, config.repoSettingDefaults()),
-            onlyFollowFirstParent
-          })
+          repoSource: {
+            getRepos: () => ({ [repoPath]: { columnWidths: null, onlyFollowFirstParent } }),
+            setRepoState: noop
+          }
         })
       );
 
