@@ -107,7 +107,7 @@ _Avoid_: 批次流程, batch flow, retry loop
 側檢視寫入 branch filter 的路有兩條。一般的那條從樹出發:使用者改了反白,VS Code 回報原始 tree selection,換算成 branch selection 之後寫進 filter —— filter 跟著選取走。另一條是樹表達不出來的時候走的:先寫 filter,再回頭把樹收拾乾淨。
 
 **Direct write**:
-側檢視不經 tree selection、直接寫入 branch filter 的一次寫入 —— 寫入的一方同時負責清掉樹的反白,不讓畫面留著一個與 filter 對不上的選取。它存在是因為擴充功能設定不了 TreeView 的選取:`reveal` 一次只選得了一個,清除選取也沒有 API(`clearSelection` 是替 leaf 換 id,讓 VS Code 自己丟掉選取),所以 filter 要變成樹表達不出來的集合時,只能繞過樹寫,再把反白整個清掉(ADR-0018)。呼叫端有兩個:多選搜尋確認了零個或多個分支 —— 只勾一個、且它還在樹裡時,改用 `reveal` 選取它,走一般路徑 —— 以及「Show All」(`branches.showAll`,側檢視標題列的按鈕、命令選擇區、圖形的篩選標示都走它)。兩者走同一套步驟,寫入的集合可以是空的,「Show All」的一律是空的;多選搜尋寫完之後另外把第一個分支捲進視野,但不選取它。
+側檢視不經 tree selection、直接寫入 branch filter 的一次寫入 —— 寫入的一方同時負責清掉樹的反白,不讓畫面留著一個與 filter 對不上的選取。它存在是因為擴充功能設定不了 TreeView 的選取:`reveal` 一次只選得了一個,清除選取也沒有 API(`clearSelection` 是替 leaf 換 id,讓 VS Code 自己丟掉選取),所以 filter 要變成樹表達不出來的集合時,只能繞過樹寫,再把反白整個清掉(ADR-0018)。呼叫端有兩個:多選搜尋確認了零個或多個分支 —— 只勾一個、且它還在樹裡時,改用 `reveal` 選取它,走一般路徑 —— 以及「Show All」(`branches.showAll`,側檢視標題列的按鈕、命令選擇區、圖形的篩選標示都走它;blame hover 的「在 GING 圖形中定位」查出要找的 commit 正是被 branch filter 藏起來時,也經由圖形的同一個請求走它)。兩者走同一套步驟,寫入的集合可以是空的,「Show All」的一律是空的;多選搜尋寫完之後另外把第一個分支捲進視野,但不選取它。
 它與一般路徑有三處不同。一般路徑等選取事件停下來才寫(debounce,讓連續 Ctrl/Cmd 點選只重載一次圖形),direct write 當場寫,並丟掉還在等的那次寫入。一般路徑寫入後 filter 等於 branch selection;direct write 寫入後 branch selection 是空的,filter 卻不一定 —— branch filter 那份不對稱,多半從這裡來。而清掉反白本身會讓樹送出一個空的選取事件,照一般路徑讀,那就是使用者要「顯示全部」,會把剛寫進去的 filter 蓋掉;所以 direct write 先舉起一次性的抑制(`suppressEmptySelectionOnce`),吞掉接下來的第一個空選取事件。
 寫入本身當場完成:先舉起抑制、再寫 filter、最後才清反白,圖形只重載一次。留下來的只有那個抑制 —— 第一個空選取事件消耗它,非空的事件不消耗;真的換了存放庫就放棄它,因為等的那個事件已經不會來了,但把側檢視重新指向同一個存放庫不算。要不要舉起,量的是即將被清掉的 **branch selection**,不是原始 tree selection:清除只動 leaf,只反白 folder 時原始集合非空、branch selection 是空的,清除什麼都沒改、也不送事件 —— 照原始集合舉起的抑制會一直留著,吞掉使用者下一次真的「全部取消選取」(#42)。
 它與兩種選取不可互換:原始 tree selection 與 branch selection 的分別見 **Branch selection**,而 direct write 是**不經過**兩者的那一次 filter 寫入。branch filter 那份不對稱裡的其他情形(開場篩選、切換存放庫後還原的選集)都不是 direct write —— 它們不是側檢視的手勢,也不碰樹的反白。程式裡規則在 `onDirectWrite`,前後的步驟順序只在 `createDirectFilterWriter` 寫一次;呼叫端自己握著一份順序,正是讓 #42 與 #43 得以發生的條件。
@@ -122,7 +122,7 @@ _Avoid_: programmatic selection, 程式設定的選取, filter override
 _Avoid_: 切換, 重新載入, reload, repo switch
 
 **Loaded commit window**:
-圖形當下向後端索取的 commit 筆數上限。它只會因為明確的請求而變大 —— 按下載入更多、或搜尋為了觸及匹配的 commit 而擴大 —— 只會整個彈回開場筆數而變小,不會停在中間值。縮回有兩條路:圖形頁尾那個唯一為此而設的重設入口,以及那些為了別的目的而做、順帶把視窗清掉的導覽。**分界是抵達的路,不是導覽的種類** —— 由面板自己呼叫的那些(換存放庫、換分支篩選、切換遠端分支顯示、從欄位標題選單改 commit 排序、從 Repository Settings 抽屜改載入範圍)清;由 host 改寫 repo state 後靠比對認出來的那些,以及 host 送來的 Repository Setting 預設值變更,不清。commit 排序兩條路都走得到,所以它從選單改會清、從面板外抵達不會清,這是同一個欄位的兩條路,不是矛盾。不清的理由也在路上而不在欄位上:那條路會為使用者沒動手的變更觸發(可分享的設定檔、第二個圖形面板),收掉他撐大的圖形是他無從歸因的損失 —— 預設值那一條使用者是動了手,但改的是每個沒覆寫的存放庫共用的值,不是對眼前這張圖形下的指令;而且「導覽,不縮」是這個泛化唯一安全的預設值 —— 反過來的話,以後每個被加進比較的欄位都自動繼承一個破壞性副作用(ADR-0024)。它跨面板重載保存,而面板每次重新變得可見就是一次重載,所以撐大的視窗會一路跟著使用者回來;正因如此,它一超過開場筆數,頁尾就顯示它當下的數值與一個把它縮回去的控制項,停在開場筆數時則什麼都不顯示。
+圖形當下向後端索取的 commit 筆數上限。它只會因為明確的請求而變大 —— 按下載入更多、搜尋為了觸及匹配的 commit 而擴大,或是 blame hover 的「在 GING 圖形中定位」為了畫出那個 commit 而擴大(和搜尋一樣,依它在 `git log` 中的位置一次撐到剛好的長度)—— 只會整個彈回開場筆數而變小,不會停在中間值。縮回有兩條路:圖形頁尾那個唯一為此而設的重設入口,以及那些為了別的目的而做、順帶把視窗清掉的導覽。**分界是抵達的路,不是導覽的種類** —— 由面板自己呼叫的那些(換存放庫、換分支篩選、切換遠端分支顯示、從欄位標題選單改 commit 排序、從 Repository Settings 抽屜改載入範圍)清;由 host 改寫 repo state 後靠比對認出來的那些,以及 host 送來的 Repository Setting 預設值變更,不清。commit 排序兩條路都走得到,所以它從選單改會清、從面板外抵達不會清,這是同一個欄位的兩條路,不是矛盾。不清的理由也在路上而不在欄位上:那條路會為使用者沒動手的變更觸發(可分享的設定檔、第二個圖形面板),收掉他撐大的圖形是他無從歸因的損失 —— 預設值那一條使用者是動了手,但改的是每個沒覆寫的存放庫共用的值,不是對眼前這張圖形下的指令;而且「導覽,不縮」是這個泛化唯一安全的預設值 —— 反過來的話,以後每個被加進比較的欄位都自動繼承一個破壞性副作用(ADR-0024)。它跨面板重載保存,而面板每次重新變得可見就是一次重載,所以撐大的視窗會一路跟著使用者回來;正因如此,它一超過開場筆數,頁尾就顯示它當下的數值與一個把它縮回去的控制項,停在開場筆數時則什麼都不顯示。
 _Avoid_: page, 分頁, commit 快取, maxCommits(那是實作名)
 
 ### Find 的位置與步進
@@ -149,7 +149,7 @@ Refresh 按鈕上的轉動標示 —— 圖形留在畫面上、背後正在重�
 _Avoid_: loading flag, spinner, refreshing state
 
 **Busy claim**:
-一次載入對 busy indicator 的認領。載入開始時舉起(`beginBusyLoad`),並在它可能結束的**每一條**路上恰好放下一次(`endBusyLoad`)—— 包括請求被丟棄、根本沒有載入發生的那些路,請求在送出途中就拋錯的那些,以及被導覽作廢的那些。`busyLoads` 是當下還沒放下的 claim 數,indicator 只隨最後一個熄滅。來源有五:分支與 commit 整套的重新載入(refresh,以及走同一條路的開機與導覽)、branch filter 變更後的重新載入、需要翻頁的 Find step、從 Repository Settings 抽屜改了一個要重載 commit 的設定(`applyRepoSettings`),以及從欄位標題選單改 commit 排序。抽屜會為好幾個欄位重載 commit,`commitOrdering` 只是其中之一,而選單改的正是這一個;兩條路重載的都是整張圖形,所以認領的方式一樣。
+一次載入對 busy indicator 的認領。載入開始時舉起(`beginBusyLoad`),並在它可能結束的**每一條**路上恰好放下一次(`endBusyLoad`)—— 包括請求被丟棄、根本沒有載入發生的那些路,請求在送出途中就拋錯的那些,以及被導覽作廢的那些。`busyLoads` 是當下還沒放下的 claim 數,indicator 只隨最後一個熄滅。來源有六:分支與 commit 整套的重新載入(refresh,以及走同一條路的開機與導覽)、branch filter 變更後的重新載入、需要翻頁的 Find step、需要翻頁的定位(blame hover 的「在 GING 圖形中定位」)、從 Repository Settings 抽屜改了一個要重載 commit 的設定(`applyRepoSettings`),以及從欄位標題選單改 commit 排序。抽屜會為好幾個欄位重載 commit,`commitOrdering` 只是其中之一,而選單改的正是這一個;兩條路重載的都是整張圖形,所以認領的方式一樣。
 它是計數而不是旗標,因為這些來源會重疊 —— 一次 refresh 的分支半段出去之後、commit 半段還不存在時,第二次 refresh 就能開始。用設定 / 取消,先結束的那個會替還在跑的那個宣告閒置。舉起而沒放下,按鈕就轉到面板關掉為止;放下兩次,就帶走了別人的 claim。
 _Avoid_: busy flag, loading state, refreshing
 

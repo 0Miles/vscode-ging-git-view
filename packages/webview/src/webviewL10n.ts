@@ -47,6 +47,8 @@ export function getWebviewLocalizedStrings(t: Translate) {
     filterPlaceholder: t("ui.filterPlaceholder"),
     noResultsFound: t("ui.noResultsFound"),
     unableToSearchBranches: t("error.unableToSearchBranches"),
+    // The host says the same when the hover's link cannot be followed.
+    unableToLocateCommit: t("blame.locate.failed"),
     description: t("ui.description"),
     date: t("ui.date"),
     author: t("ui.author"),
@@ -335,6 +337,7 @@ export function getWebviewLocalizedStrings(t: Translate) {
     dialogPushForceForce: t("dialog.pushForce.force"),
     dialogPushForceLease: t("dialog.pushForce.lease"),
     dialogPushForceLeaseRefused: t("dialog.pushForce.leaseRefused"),
+    dialogPushForceLeaseRefusedNamedTarget: t("dialog.pushForce.leaseRefusedNamedTarget"),
     dialogPushForceLeaseStaleInfo: t("dialog.pushForce.leaseStaleInfo"),
     dialogPushRemote: t("dialog.pushRemote"),
     dialogPullConfirm: t("dialog.pull.confirm"),

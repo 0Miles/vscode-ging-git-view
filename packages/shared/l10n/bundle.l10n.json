@@ -419,6 +419,7 @@
   "ui.findPrevious": "Previous match",
   "ui.findNext": "Next match",
   "ui.findClose": "Close",
+  "ui.findOpenCommitDetails": "Open Commit Details View while navigating matches",
   "ui.findCount": "{0} of {1}",
   "dialog.find.loadMoreConfirm": "Locating this branch requires loading {0} additional commits. Continue?",
   "dialog.addTag.pushToRemote": "Push to remote after creating",
@@ -428,6 +429,7 @@
   "dialog.pushForce.force": "Force",
   "dialog.pushForce.lease": "Force with lease",
   "dialog.pushForce.leaseRefused": "Git couldn't confirm you've integrated the remote's current version — usually because a fetch or auto-fetch brought in commits you haven't integrated yet. Pull or rebase first, then push again. To overwrite anyway, choose {0}.",
+  "dialog.pushForce.leaseRefusedNamedTarget": "The target branch has a different name, so Git can't confirm through the branch you're pushing that you've integrated the remote's current version of the target — pulling or rebasing the branch you're pushing won't help. To overwrite the target, choose {0}.",
   "dialog.pushForce.leaseStaleInfo": "Git has no up-to-date state of {0} — there is no remote-tracking reference for it here, or it is out of date. Fetch the remote and integrate its commits (pull or rebase), then push again. To overwrite anyway, choose {1}.",
   "detail.commitDate": "Commit Date: ",
   "detail.comparingCommits": "Displaying all changes from {0} to {1}.",
@@ -469,5 +471,9 @@
   "blame.hover.openLineChange": "Open this line's change",
   "blame.copiedHash": "Copied commit hash {0}",
   "blame.workspaceKeepsOff": "Inline blame is now on in your user settings, but this workspace's settings still turn it off.",
-  "blame.workspaceKeepsOn": "Inline blame is now off in your user settings, but this workspace's settings still turn it on."
+  "blame.workspaceKeepsOn": "Inline blame is now off in your user settings, but this workspace's settings still turn it on.",
+  "blame.hover.locateCommit": "Locate in the GING graph",
+  "blame.locate.notInGraph": "Commit {0} isn't shown in the GING graph. Settings such as following only the first parent or hiding a remote can leave commits out.",
+  "blame.locate.failed": "Unable to locate the commit in the GING graph",
+  "blame.locate.filterNotCleared": "Commit {0} is hidden by the branch filter, which couldn't be cleared. Show all branches, then try again."
 }

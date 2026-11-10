@@ -419,6 +419,7 @@
   "ui.findPrevious": "上一个匹配",
   "ui.findNext": "下一个匹配",
   "ui.findClose": "关闭",
+  "ui.findOpenCommitDetails": "浏览各个匹配时打开 commit 详情视图",
   "ui.findCount": "第 {0} 个，共 {1} 个",
   "dialog.find.loadMoreConfirm": "定位此 branch 需要额外加载 {0} 个 commits。要继续吗？",
   "dialog.addTag.pushToRemote": "创建后 push 到 remote",
@@ -428,6 +429,7 @@
   "dialog.pushForce.force": "强制",
   "dialog.pushForce.lease": "带租约强制（force with lease）",
   "dialog.pushForce.leaseRefused": "Git 无法确认你已整合 remote 当前的版本 —— 通常是 fetch 或 auto-fetch 带进了你还没整合的 commit。请先 pull 或 rebase，再重新 push。确定要覆盖的话，请改选 {0}。",
+  "dialog.pushForce.leaseRefusedNamedTarget": "目标 branch 与要 push 的 branch 不同名，Git 无法通过你要 push 的 branch 确认你已整合 remote 上目标当前的版本 —— pull 或 rebase 你要 push 的 branch 也没有用。确定要覆盖目标的话，请改选 {0}。",
   "dialog.pushForce.leaseStaleInfo": "Git 没有 {0} 的最新状态 —— 本地没有它的 remote 跟踪引用，或已经过时。请先 fetch 该 remote 并整合它的 commit（pull 或 rebase），再重新 push。确定要覆盖的话，请改选 {1}。",
   "detail.commitDate": "Commit 日期：",
   "detail.comparingCommits": "正在显示从 {0} 到 {1} 的所有更改。",
@@ -469,5 +471,9 @@
   "blame.hover.openLineChange": "打开这一行在这个 commit 的更改",
   "blame.copiedHash": "已复制 commit hash {0}",
   "blame.workspaceKeepsOff": "已在用户设置中开启 inline blame，但这个工作区的设置仍然将它关闭。",
-  "blame.workspaceKeepsOn": "已在用户设置中关闭 inline blame，但这个工作区的设置仍然将它开启。"
+  "blame.workspaceKeepsOn": "已在用户设置中关闭 inline blame，但这个工作区的设置仍然将它开启。",
+  "blame.hover.locateCommit": "在 GING 图形中定位",
+  "blame.locate.notInGraph": "commit {0} 没有显示在 GING 图形中。只跟随第一个父 commit、隐藏某个 remote 这类设置，可能让 commit 不被显示。",
+  "blame.locate.failed": "无法在 GING 图形中定位这个 commit",
+  "blame.locate.filterNotCleared": "commit {0} 被 branch filter 过滤掉了，而筛选没能清除。请先显示所有分支，再试一次。"
 }

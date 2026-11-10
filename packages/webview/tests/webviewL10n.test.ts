@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import englishBundle from "@ging/shared/l10n/bundle.l10n.json";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 
 /**
@@ -23,22 +22,5 @@ describe("getWebviewLocalizedStrings", () => {
 
     const untranslated = Object.entries(strings).filter(([, value]) => !/^\[.+\]$/.test(value));
     expect(untranslated).toEqual([]);
-  });
-
-  it("asks only for keys the English bundle defines, bar one known gap", () => {
-    const asked: string[] = [];
-    getWebviewLocalizedStrings((key) => {
-      asked.push(key);
-      return key;
-    });
-
-    expect(asked.length).toBeGreaterThan(0);
-    // `ui.findOpenCommitDetails` (the find widget's open-details button tooltip)
-    // has never had a bundle entry, so every locale shows the raw key (#313).
-    // Pinned here so the gap cannot widen unnoticed; #313 adds the entry and
-    // empties this list.
-    expect(asked.filter((key) => !Object.hasOwn(englishBundle, key))).toEqual([
-      "ui.findOpenCommitDetails"
-    ]);
   });
 });

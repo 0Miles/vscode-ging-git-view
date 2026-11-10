@@ -38,6 +38,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: GIT_LINE,
       remoteUpdatedSinceCheckout: true,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: []
     });
 
@@ -52,12 +53,57 @@ describe("a refused push", () => {
     expect(document.getElementById("dialogAction"), "no one-click force").toBeNull();
   });
 
+  // Pushed to an existing target named other than the branch (#303), git
+  // checks integration against a local branch of the target's name, which is
+  // usually absent: no pull or rebase clears that refusal, only Force (#311).
+  it("points a lease refused for a target of another name at Force, not at pulling", () => {
+    const line = "[rejected]        main -> review (remote ref updated since checkout)";
+    receive({
+      command: "pushBranch",
+      status: line,
+      remoteUpdatedSinceCheckout: true,
+      leaseRefusedForNamedTarget: true,
+      staleInfoRefs: []
+    });
+
+    const text = dialogText();
+    expect(text).toContain(L.unableToPushBranch);
+    expect(text).toContain("can't confirm through the branch you're pushing");
+    expect(text).toContain("pulling or rebasing the branch you're pushing won't help");
+    expect(text).toContain(`To overwrite the target, choose ${L.dialogPushForceForce}.`);
+    expect(text).not.toContain("Pull or rebase first");
+    expect(text).not.toMatch(/\{\d\}/);
+    expect(text, "git's own line is kept alongside the explanation").toContain(line);
+    expect(document.getElementById("dialogAction"), "no one-click force").toBeNull();
+    const bold = Array.from(document.querySelectorAll("#dialog b"), (b) => b.textContent);
+    expect(bold, "the Force option named in the UI's own words").toContain(L.dialogPushForceForce);
+  });
+
+  it("explains a target of another name refused on one remote and stale on another", () => {
+    receive({
+      command: "pushBranch",
+      status: [
+        "origin: [rejected]        main -> review (remote ref updated since checkout)",
+        "backup: [rejected]        main -> review (stale info)"
+      ].join("\n"),
+      remoteUpdatedSinceCheckout: true,
+      leaseRefusedForNamedTarget: true,
+      staleInfoRefs: ["backup/review"]
+    });
+
+    const text = dialogText();
+    expect(text).toContain("can't confirm through the branch you're pushing");
+    expect(text).toContain("Git has no up-to-date state of backup/review");
+    expect(text).not.toContain("Pull or rebase first");
+  });
+
   it("shows any other push failure the way it always has", () => {
     const nonFastForward = "[rejected]        main -> main (non-fast-forward)";
     receive({
       command: "pushBranch",
       status: nonFastForward,
       remoteUpdatedSinceCheckout: false,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: []
     });
 
@@ -76,6 +122,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: staleLine,
       remoteUpdatedSinceCheckout: false,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: ["origin/main"]
     });
 
@@ -98,6 +145,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: "[rejected]        x -> x (stale info)",
       remoteUpdatedSinceCheckout: false,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: ["origin/<i>x</i>"]
     });
 
@@ -117,6 +165,7 @@ describe("a refused push", () => {
       command: "pushBranch",
       status: lines.join("\n"),
       remoteUpdatedSinceCheckout: true,
+      leaseRefusedForNamedTarget: false,
       staleInfoRefs: ["backup/main", "mirror/main"]
     });
 
