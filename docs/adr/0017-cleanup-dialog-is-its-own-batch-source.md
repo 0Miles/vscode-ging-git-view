@@ -10,7 +10,7 @@ status: accepted
 
 ADR-0008 立的規矩是「側檢視的選取集同時是圖形篩選器與批次動作的目標」,ADR-0009 的後果段又明寫「issue #12 的待決問題要照這條 ADR 重新回答」。讀者會合理預期清理功能就是「幫使用者把候選選起來,再讓他右鍵批次刪除」—— 那也正是 issue #12 留言裡的設想。結果程式碼裡有**兩個**批次來源,看起來像是有人繞過了既有設計。
 
-繞不開的是一個 API 事實:**`TreeView` 沒有任何辦法程式化地做出多選**。`TreeView.selection` 是唯讀,`reveal` 一次只選一個(見 `src/extension/branchesView.ts` 的模組註解與 `searchBranch` 註解)。既有的多選搜尋就是為此繞路的 —— 它不去選樹,而是直接寫 branch filter 再把視覺選取清掉。而批次刪除的 target 來自 VS Code 傳進來的 tree selection,不是 filter。所以「把候選選起來讓使用者右鍵刪除」這條路在現有 API 下**根本走不通**:寫了 filter,圖形會只剩候選,但右鍵選單連 `listMultiSelection` 都不會成立。
+繞不開的是一個 API 事實:**`TreeView` 沒有任何辦法程式化地做出多選**。`TreeView.selection` 是唯讀,`reveal` 一次只選一個(見 `apps/vscode/src/extension/branchesView.ts` 的模組註解與 `searchBranch` 註解)。既有的多選搜尋就是為此繞路的 —— 它不去選樹,而是直接寫 branch filter 再把視覺選取清掉。而批次刪除的 target 來自 VS Code 傳進來的 tree selection,不是 filter。所以「把候選選起來讓使用者右鍵刪除」這條路在現有 API 下**根本走不通**:寫了 filter,圖形會只剩候選,但右鍵選單連 `listMultiSelection` 都不會成立。
 
 `runRefBatchAction` 訊息帶的本來就是明確的 `targets: string[]`,接縫已經在了。用它就是承認來源不只一個,而不是假裝選取能被程式化寫入。
 
