@@ -8,6 +8,7 @@ import * as vscode from "vscode";
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
+import { createFetchService } from "@ging/core/extension/fetchService";
 import {
   type MessageHandlerDeps,
   registerMessageHandlers
@@ -86,6 +87,16 @@ function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps]
       resolveShowRemote,
       resolveExemptPatterns: config.inactiveBranchAlwaysShow,
       dateType: config.dateType
+    }),
+    // Only the git call is reachable from the dispatch; the hook around the
+    // service's other callers has nothing to do here.
+    fetchService: createFetchService({
+      config,
+      prompts: fake.prompts,
+      l10n: fake.l10n,
+      gitClientFor,
+      currentRepo: () => null,
+      runRepoMutation: (_repo, work) => work()
     }),
     // No interactive rebase runs in this flow; a stager that reports its todo
     // as applied keeps the handler registration honest without touching disk.
