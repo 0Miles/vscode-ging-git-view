@@ -165,6 +165,10 @@ export type BatchResultOf<T extends keyof BatchActionPayloads> =
  * sent as its own field.
  */
 type ActionResponseExtras = {
+  applyStash: StashRefusalFacts;
+  popStash: StashRefusalFacts;
+  dropStash: StashRefusalFacts;
+  renameStash: StashRefusalFacts;
   deleteBranch: {
     /** git refused the delete only because the branch is not fully merged, so
      *  the webview can offer a force delete. See `isNotFullyMergedError`. */
@@ -188,6 +192,15 @@ type ActionResponseExtras = {
      *  `staleLeaseInfoRefs`. */
     staleInfoRefs: string[];
   };
+};
+
+/** What a stash action reports beside its status. */
+type StashRefusalFacts = {
+  /** The selector the host refused to act through because it no longer
+   *  resolved to the request's `expectedHash` — the stack moved under the
+   *  request — or null for any other outcome. Carried so the refusal can name
+   *  the selector the user agreed to. See `StashMovedError`. */
+  movedSelector: string | null;
 };
 
 /** The extra response fields action `T` carries — `never` for the actions that

@@ -198,6 +198,41 @@ describe("actions", () => {
     } as RequestMessage);
     expect(h.posted).toEqual([{ command: "createBranch", status: null }]);
   });
+
+  it("names the selector of a stash action refused because the stack moved", async () => {
+    fs.writeFileSync(path.join(repo, "f"), "older");
+    git(["stash", "push", "-m", "older"], repo);
+    const older = revParse(repo, "stash@{0}");
+    fs.writeFileSync(path.join(repo, "f"), "newer");
+    git(["stash", "push", "-m", "newer"], repo);
+    const h = harness();
+    await h.send({ command: "selectRepo", repo });
+
+    await h.send({
+      command: "dropStash",
+      selector: "stash@{0}",
+      expectedHash: older
+    } as RequestMessage);
+
+    expect(h.posted).toEqual([
+      { command: "dropStash", status: expect.any(String), movedSelector: "stash@{0}" }
+    ]);
+  });
+
+  it("names no selector for a stash action that went through", async () => {
+    fs.writeFileSync(path.join(repo, "f"), "changed");
+    git(["stash", "push", "-m", "wip"], repo);
+    const h = harness();
+    await h.send({ command: "selectRepo", repo });
+
+    await h.send({
+      command: "dropStash",
+      selector: "stash@{0}",
+      expectedHash: revParse(repo, "stash@{0}")
+    } as RequestMessage);
+
+    expect(h.posted).toEqual([{ command: "dropStash", status: null, movedSelector: null }]);
+  });
 });
 
 describe("createArchive", () => {

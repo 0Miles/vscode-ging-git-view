@@ -167,6 +167,48 @@ describe("dropping the stash the dialog named", () => {
   });
 });
 
+// The check above can only see the graph's last reload. A push the file watcher
+// has not delivered yet gets past it, so the host checks again just before git
+// runs (`expectedHash`), and its refusal reads the same as this one.
+describe("when the host refuses because the stack moved after consent", () => {
+  beforeAll(async () => {
+    vi.resetModules();
+    mock = createVscodeMock();
+    setupHtml(viewState);
+    await import("@ging/webview/main");
+    receive(branchesResponse);
+    receive(commitsResponse(before));
+  });
+
+  it.each([
+    ["applyStash", L.unableToApplyStash],
+    ["popStash", L.unableToPopStash],
+    ["dropStash", L.unableToDropStash],
+    ["renameStash", L.unableToRenameStash]
+  ] as const)("says %s did nothing because the stash moved", (command, failure) => {
+    receive({
+      command,
+      status: "stash@{0} no longer refers to stash sA (it is now sNEW)",
+      movedSelector: "stash@{0}"
+    });
+
+    const text = document.getElementById("dialog")!.textContent;
+    expect(text).toContain(L.dialogStashMoved.replace("{0}", "stash@{0}"));
+    // Not "unable to drop": nothing was attempted, and git said nothing.
+    expect(text).not.toContain(failure);
+    clickId("dialogDismiss");
+  });
+
+  it("still reports any other failure as git's", () => {
+    receive({ command: "dropStash", status: "fatal: something else", movedSelector: null });
+
+    const text = document.getElementById("dialog")!.textContent;
+    expect(text).toContain(L.unableToDropStash);
+    expect(text).toContain("fatal: something else");
+    clickId("dialogDismiss");
+  });
+});
+
 // Apply, pop and rename send the same positional selector, so they stand on the
 // same premise — and a pop that lands on the wrong stash does two things the
 // user never agreed to: it applies someone else's work over theirs, and then

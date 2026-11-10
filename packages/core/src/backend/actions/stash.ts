@@ -32,6 +32,13 @@ export class StashMovedError extends Error {
   }
 }
 
+/** The selector a refused stash action could not act through — see
+ *  `StashMovedError` — or null when `error` is anything else (or nothing).
+ *  What a stash action reports beside its status. */
+export function stashRefusalFacts(error: unknown): { movedSelector: string | null } {
+  return { movedSelector: error instanceof StashMovedError ? error.selector : null };
+}
+
 /**
  * Resolve `selector` and return its commit SHA, refusing with
  * `StashMovedError` unless it is `expectedHash`.
