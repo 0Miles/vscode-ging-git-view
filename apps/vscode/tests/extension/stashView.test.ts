@@ -8,13 +8,14 @@ import { simpleGit } from "simple-git";
 import * as vscode from "vscode";
 
 import { listStashes } from "@ging/core/backend/queries/listStashes";
+import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths";
 import { loadStashFiles } from "@ging/core/extension/stashList";
-import { STASH_REFRESH_DEBOUNCE_MS } from "@ging/core/extension/stashWatch";
+import { createStashViewWatch } from "@ging/core/extension/stashWatch";
 import { config } from "@ging/vscode/config";
 import { findGraphTabs } from "@ging/vscode/extension/graphPanelWindow";
-import { createStashRefreshWatch } from "@ging/vscode/extension/stashView";
+import { watchPaths } from "@ging/vscode/extension/watchPaths";
 
-import { makeRepo, rmrf } from "@ging/core/tests/helpers";
+import { makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
 
 /** Run git in `cwd` as a committer every test repo can use, whether or not
  *  it was made by `makeRepo` (a bare `git init` has no identity). */
@@ -34,14 +35,14 @@ const WATCH_UP_MS = 1500;
 
 /** How long a change may take to reach the list: the debounce, plus room for
  *  the file watcher's own latency and the git run that re-reads. */
-const REACH_MS = STASH_REFRESH_DEBOUNCE_MS + 4000;
+const REACH_MS = REPO_CHANGE_DEBOUNCE_MS + 4000;
 
 // The Stash side-view's own watch over real repositories, with the graph panel
-// closed: the view is refreshed by `createStashRefreshWatch` alone — the very
-// wiring `createStashView` uses — and never by the graph's `RepoFileWatcher`,
-// which only exists while a graph panel does. Each refresh re-reads the stash
-// list the way the view does, and each scenario waits for that list to show
-// what git did.
+// closed: the view is refreshed by `createStashViewWatch` over `watchPaths`
+// alone — the wiring `createStashView` uses — and never by the graph's
+// `RepoFileWatcher`, which only exists while a graph panel does. Each refresh
+// re-reads the stash list the way the view does, and each scenario waits for
+// that list to show what git did.
 suite("Stash side-view watch (graph panel closed)", function () {
   this.timeout(30_000);
 
@@ -65,8 +66,9 @@ suite("Stash side-view watch (graph panel closed)", function () {
    *  stash list as its last refresh read it. */
   async function visibleViewOn(repo: string) {
     const state = { refreshes: 0, messages: null as string[] | null };
-    const watch = createStashRefreshWatch({
-      gitPath: config.gitPath,
+    const watch = createStashViewWatch({
+      git: { gitPath: config.gitPath },
+      watch: (target, onEvent) => watchPaths([target], onEvent),
       refresh: () => {
         state.refreshes++;
         void listStashes(simpleGit(repo)).then((stashes) => {
@@ -171,7 +173,7 @@ suite("Stash side-view commands (integration)", function () {
     fs.writeFileSync(path.join(repo, "f"), "changed");
     fs.writeFileSync(path.join(repo, "new.txt"), "untracked");
     git(["stash", "push", "--include-untracked", "-m", "both"], repo);
-    stash = cp.execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: repo }).toString().trim();
+    stash = rev(repo, "stash@{0}");
   });
 
   suiteTeardown(async () => {

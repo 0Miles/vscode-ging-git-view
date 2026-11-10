@@ -1,7 +1,9 @@
 import type { SimpleGit } from "simple-git";
 
+import { stashSelectorResolvesTo } from "@ging/core/backend/actions/stash";
 import { commitDetails } from "@ging/core/backend/queries/commitDetails";
 import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
+import type { Clipboard, L10n, Prompts } from "@ging/core/host/ports";
 import type { GitFileChangeType, ScmStashEntry } from "@ging/shared/backend/types";
 
 /** One stash as the Stash side-view lists it. */
@@ -40,31 +42,38 @@ export function stashListItems(stashes: ScmStashEntry[]): StashListItem[] {
   });
 }
 
+/** Whether two reads list the same stashes at the same places, so the view has
+ *  nothing to redraw. */
+export function sameStashList(a: StashListItem[], b: StashListItem[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((item, i) => item.id === b[i].id && item.selector === b[i].selector)
+  );
+}
+
 /**
- * Copy Name on a listed stash: the selector the item shows, copied only while
- * the stash with that SHA still sits there. #333: a stash whose position has
- * changed is refused, not redirected — so a stash that moved or is gone copies
- * nothing; the user is warned and the list re-read to show where things are
- * now.
+ * Copy Name on a listed stash: the selector it shows, held to the same identity
+ * rule as every stash action (`stashSelectorResolvesTo`). #333: a stash whose
+ * position changed is refused, not redirected — it copies nothing, and the
+ * user is warned and shown the list as it is now.
  */
 export async function copyStashName(
   deps: {
-    listStashes: () => Promise<ScmStashEntry[]>;
-    writeClipboard: (text: string) => Promise<void>;
-    /** Tell the user the stash has moved or is gone. */
-    warn: () => void;
+    git: SimpleGit;
+    clipboard: Pick<Clipboard, "writeText">;
+    prompts: Pick<Prompts, "showWarning">;
+    l10n: Pick<L10n, "t">;
     /** Re-read the list. */
     refresh: () => void;
   },
   shown: { hash: string; selector: string }
 ): Promise<"copied" | "refused"> {
-  const stashes = await deps.listStashes();
-  if (!stashes.some(({ hash, ref }) => hash === shown.hash && ref === shown.selector)) {
-    deps.warn();
+  if (!(await stashSelectorResolvesTo(deps.git, shown.selector, shown.hash))) {
+    deps.prompts.showWarning(deps.l10n.t("stashView.stashMoved"));
     deps.refresh();
     return "refused";
   }
-  await deps.writeClipboard(shown.selector);
+  await deps.clipboard.writeText(shown.selector);
   return "copied";
 }
 
