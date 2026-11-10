@@ -1,11 +1,16 @@
-import * as vscode from "vscode";
-
+import type { Watcher } from "@ging/core/host/ports";
 import { RequestMessage, ResponseMessage } from "@ging/shared/types";
-import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
+
+/** The message channel to the graph's webview — a VS Code `Webview` is one as
+ *  it is. */
+export interface WebviewChannel {
+  onDidReceiveMessage(listener: (msg: RequestMessage) => void | Promise<void>): unknown;
+  postMessage(msg: ResponseMessage): PromiseLike<boolean>;
+}
 
 export function webviewBridgeFactory(
-  webview: vscode.Webview,
-  repoFileWatcher: RepoFileWatcher,
+  webview: WebviewChannel,
+  repoFileWatcher: Pick<Watcher, "mute" | "unmute">,
   /** Called after every repo-mutating handler. This — not the file watcher — is
    *  the reliable signal that refs changed: the watcher is muted across exactly
    *  these handlers and discards their own fs events, so hanging cache

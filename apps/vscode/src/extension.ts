@@ -23,6 +23,7 @@ import { AskpassManager } from "@ging/core/extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "@ging/core/extension/branchActionDelegate";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
+import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
@@ -31,6 +32,7 @@ import {
   sideViewStateChanged
 } from "@ging/core/extension/repoSettings";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
+import { type WebviewBridge, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import { ExtensionState } from "@ging/core/extensionState";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
@@ -58,7 +60,6 @@ import {
   mayOpenGraphUnprompted
 } from "./extension/graphPanelWindow";
 import { createLogger } from "./extension/logger";
-import { registerMessageHandlers } from "./extension/messageHandler";
 import { managePullRequestProviders } from "./extension/pullRequestProviders";
 import {
   createRemotesView,
@@ -68,11 +69,16 @@ import {
 import { createRepoManager } from "./extension/repoManager";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
 import { showStatistics } from "./extension/statisticsPanel";
-import { WebviewBridge, webviewBridgeFactory } from "./extension/webviewBridge";
 import { createWebviewPanel, WebviewPanel } from "./extension/webviewPanel";
 import { createRepoSearch } from "./extension/workspaceSearch";
 import { createRepoWatcher } from "./extension/workspaceWatcher";
-import { vscodePrompts, vscodeStorage } from "./hostPorts";
+import {
+  createVscodeOpener,
+  vscodeClipboard,
+  vscodeL10n,
+  vscodePrompts,
+  vscodeStorage
+} from "./hostPorts";
 import * as l10n from "./l10n";
 import { initL10n } from "./l10n";
 import { RepoFileWatcher } from "./repoFileWatcher";
@@ -139,6 +145,7 @@ export function activate(context: vscode.ExtensionContext) {
   const repoSearch = createRepoSearch(repoManager, config);
   const repoWatcher = createRepoWatcher(repoManager, config, repoSearch);
   const scmRepoTracker = createScmRepoTracker();
+  const opener = createVscodeOpener(config);
   let currentPanel: WebviewPanel | undefined;
   let currentBridge: WebviewBridge | undefined;
 
@@ -445,30 +452,44 @@ export function activate(context: vscode.ExtensionContext) {
     });
     currentBridge = bridge;
     avatarManager.registerBridge(bridge.post.bind(bridge));
-    const messageHandlers = registerMessageHandlers(bridge, {
-      config,
-      gitClient,
-      repoManager,
-      extensionState,
-      avatarManager,
-      repoFileWatcher,
-      branchFilterStore,
-      branchFacts,
-      branchCleanup,
-      resolveShowRemote,
-      resolveRepoScope: (repo) =>
-        resolveRepoScope(repoManager.getRepos()[repo], config.repoSettingDefaults()),
-      logger,
-      sequenceEditor,
-      onSelectRepo: (repo) => {
-        branchesView.setActiveRepo(repo);
-        remotesView.setActiveRepo(repo);
-        // The webview is alive and (re)loading this repo: deliver any waiting
-        // delegated messages now (the webview holds them until the load lands).
-        branchActionDelegate.flushDelegated(repo);
+    const messageHandlers = registerMessageHandlers(
+      bridge,
+      {
+        config,
+        prompts: vscodePrompts,
+        opener,
+        clipboard: vscodeClipboard,
+        watcher: repoFileWatcher,
+        l10n: vscodeL10n,
+        repoSource: repoManager,
+        logger
       },
-      onDelegatedRan: (seq) => branchActionDelegate.delegatedRan(seq)
-    });
+      {
+        gitClient,
+        extensionState,
+        avatarManager,
+        branchFilterStore,
+        branchFacts,
+        branchCleanup,
+        resolveShowRemote,
+        resolveRepoScope: (repo) =>
+          resolveRepoScope(repoManager.getRepos()[repo], config.repoSettingDefaults()),
+        sequenceEditor,
+        onSelectRepo: (repo) => {
+          branchesView.setActiveRepo(repo);
+          remotesView.setActiveRepo(repo);
+          // The webview is alive and (re)loading this repo: deliver any waiting
+          // delegated messages now (the webview holds them until the load lands).
+          branchActionDelegate.flushDelegated(repo);
+        },
+        onDelegatedRan: (seq) => branchActionDelegate.delegatedRan(seq),
+        // The very command the Branches side-view's title button runs.
+        showAllBranches: (repo) =>
+          vscode.commands.executeCommand("ging-git-view.branches.showAll", repo),
+        configurePullRequestProvider: (host) =>
+          void vscode.commands.executeCommand("ging-git-view.managePullRequestProviders", host)
+      }
+    );
     currentPanel = createWebviewPanel({
       panel,
       bridge,
