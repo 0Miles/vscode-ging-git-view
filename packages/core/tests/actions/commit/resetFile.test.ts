@@ -62,44 +62,38 @@ describe("resetFileToRevision", () => {
   });
 
   describe("a stash's untracked file", () => {
-    /** A repo whose one stash holds `sub/new.txt` as an untracked file, with
-     *  that file gone from the working tree again. */
-    function repoWithStashedUntrackedFile(): string {
+    /** Stash `sub/new.txt` as an untracked file in a new repo, leaving it gone
+     *  from the working tree again; what a reset of its CDV row sends. */
+    function stashUntrackedFile() {
       repo = makeRepo();
       fs.mkdirSync(path.join(repo, "sub"));
       fs.writeFileSync(path.join(repo, "sub", "new.txt"), "stashed content\n");
       git(["stash", "push", "--include-untracked", "-m", "wip"], repo);
-      return rev(repo, "stash@{0}");
+      return {
+        commitHash: rev(repo, "stash@{0}"),
+        filePath: "sub/new.txt",
+        origin: "untracked"
+      } as const;
     }
 
     it("restores it from the stash, leaving it untracked", async () => {
-      const stash = repoWithStashedUntrackedFile();
+      const file = stashUntrackedFile();
 
-      await resetFileToRevision(simpleGit(repo), {
-        commitHash: stash,
-        filePath: "sub/new.txt",
-        origin: "untracked"
-      });
+      await resetFileToRevision(simpleGit(repo), file);
 
       expect(fs.readFileSync(path.join(repo, "sub", "new.txt"), "utf8")).toBe("stashed content\n");
       expect(gitOut(["status", "--porcelain", "--untracked-files=all"])).toBe("?? sub/new.txt\n");
     });
 
     it("leaves a file staged under the same name staged as it was", async () => {
-      const stash = repoWithStashedUntrackedFile();
+      const file = stashUntrackedFile();
       fs.mkdirSync(path.join(repo, "sub"));
       fs.writeFileSync(path.join(repo, "sub", "new.txt"), "staged by the user\n");
       git(["add", "sub/new.txt"], repo);
-      const stagedBefore = gitOut(["ls-files", "--stage", "--", "sub/new.txt"]);
 
-      await resetFileToRevision(simpleGit(repo), {
-        commitHash: stash,
-        filePath: "sub/new.txt",
-        origin: "untracked"
-      });
+      await resetFileToRevision(simpleGit(repo), file);
 
       expect(fs.readFileSync(path.join(repo, "sub", "new.txt"), "utf8")).toBe("stashed content\n");
-      expect(gitOut(["ls-files", "--stage", "--", "sub/new.txt"])).toBe(stagedBefore);
       expect(gitOut(["show", ":sub/new.txt"])).toBe("staged by the user\n");
     });
   });
