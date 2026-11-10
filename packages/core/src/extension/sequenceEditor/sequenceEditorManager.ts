@@ -27,11 +27,11 @@ export interface SequenceEditorEnvironment {
 
 export class SequenceEditorManager {
   private readonly todoPath: string;
-  /** The folder the helper script and `sequenceEditorMain.js` are shipped in. */
-  private readonly helperDir: string;
 
-  constructor(helperDir: string) {
-    this.helperDir = helperDir;
+  constructor(
+    /** The folder the helper script and `sequenceEditorMain.js` are shipped in. */
+    private readonly helperDir: string
+  ) {
     this.todoPath = path.join(os.tmpdir(), `ging-rebase-todo-${getNonce()}`);
     fs.chmod(path.join(this.helperDir, "sequenceEditor.sh"), "755", () => {});
   }

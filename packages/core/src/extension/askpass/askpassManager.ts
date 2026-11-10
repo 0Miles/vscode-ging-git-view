@@ -35,14 +35,13 @@ interface AskpassRequest {
 export class AskpassManager {
   private readonly ipcHandlePath: string;
   private readonly server: http.Server;
-  private readonly prompts: Pick<Prompts, "input">;
-  /** The folder the helper scripts and `askpassMain.js` are shipped in. */
-  private readonly helperDir: string;
   private enabled = true;
 
-  constructor(prompts: Pick<Prompts, "input">, helperDir: string) {
-    this.prompts = prompts;
-    this.helperDir = helperDir;
+  constructor(
+    private readonly prompts: Pick<Prompts, "input">,
+    /** The folder the helper scripts and `askpassMain.js` are shipped in. */
+    private readonly helperDir: string
+  ) {
     this.ipcHandlePath = getIPCHandlePath(getNonce());
     this.server = http.createServer((req, res) => this.onRequest(req, res));
     try {
