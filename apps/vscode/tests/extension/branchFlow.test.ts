@@ -11,7 +11,7 @@ import { config } from "@ging/vscode/config";
 import { registerMessageHandlers } from "@ging/vscode/extension/messageHandler";
 import type { WebviewBridge } from "@ging/vscode/extension/webviewBridge";
 
-import { makeRepo, rmrf, SEED_TIMEOUT_MS } from "@ging/core/tests/helpers";
+import { useSharedRepo } from "./helpers";
 
 // End-to-end exercise of the extension-side branch flow against a real repo.
 // Drives the real registerMessageHandlers with a real git client + real config
@@ -93,22 +93,13 @@ function makeDeps(overrides: DepOverrides = {}) {
   };
 }
 
-/** One repo for the whole file, made once. Every test here only reads it, so a
- *  fresh copy per test (`useSeededRepo`) would isolate nothing, and each copy
- *  costs a git spawn and a removal; across these suites they came to about 4s
- *  of hooks per run (#286). */
+/** One repo for every test in the file: they only read it, so a fresh copy
+ *  per test (`useSeededRepo`) would isolate nothing and cost a git spawn and a
+ *  removal each. */
 suite("branchFlow (integration)", () => {
   let repoPath: string;
-
-  suiteSetup(function () {
-    this.timeout(SEED_TIMEOUT_MS);
-    repoPath = makeRepo();
-  });
-
-  // rmrf, not rmSync: a bare rmSync cannot delete git's read-only objects in the
-  // extension host. See `rmrf`.
-  suiteTeardown(() => {
-    rmrf(repoPath);
+  useSharedRepo((repo) => {
+    repoPath = repo;
   });
 
   suite("branch loading flow (integration)", () => {
