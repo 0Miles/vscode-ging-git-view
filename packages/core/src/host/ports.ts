@@ -9,9 +9,8 @@
  * existing objects passed as they are, or one-line forwards, so the shape of a
  * port is the shape of what is already there.
  *
- * Types are host-neutral (paths are strings, not URIs; a pick is a string, not
- * a `QuickPickItem`), and every prompt answers `undefined` for a cancel, the
- * way VS Code's own do.
+ * Types are host-neutral (paths are strings, not URIs), and every prompt
+ * answers `undefined` for a cancel, the way VS Code's own do.
  */
 
 import type { SquashMessageFormat } from "@ging/core/backend/actions/merge";
