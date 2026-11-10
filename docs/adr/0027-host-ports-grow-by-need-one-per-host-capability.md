@@ -4,7 +4,7 @@ status: accepted
 
 # host ports 依需要長出來、按宿主能力分組,只放 dispatch 今天會呼叫的方法
 
-圖形的 message dispatch(`registerMessageHandlers`)與 webview bridge 已經搬進 `packages/core`,不 import `vscode`。它向宿主要的東西,全部透過 [ports.ts](../../packages/core/src/host/ports.ts) 裡的 9 個 port:`HostConfig`、`HostStorage`、`Prompts`、`Opener`、`Clipboard`、`Watcher`、`L10n`、`RepoSource`、`HostLogger`。dispatch 直接收的是其中 8 個,包成 `HostPorts`;`HostStorage` 不在裡面,它餵的是 core 的 `ExtensionState`,dispatch 再透過 `MessageHandlerDeps` 拿到 `ExtensionState`(見下)。
+圖形的 message dispatch(`registerMessageHandlers`)與 webview bridge 已經搬進 `packages/core`,不 import `vscode`。它向宿主(`CONTEXT.md` 的 **Host**:VS Code,之後還有桌面版)要的東西,全部透過 [ports.ts](../../packages/core/src/host/ports.ts) 裡的 9 個 port:`HostConfig`、`HostStorage`、`Prompts`、`Opener`、`Clipboard`、`Watcher`、`L10n`、`RepoSource`、`HostLogger`。dispatch 直接收的是其中 8 個,包成 `HostPorts`;`HostStorage` 不在裡面,它餵的是 core 的 `ExtensionState`,dispatch 再透過 `MessageHandlerDeps` 拿到 `ExtensionState`(見下)。
 
 切法有三條規則:**依需要長出來**(先有呼叫端,才有方法)、**按宿主能力分組**(一個 port 是宿主的一種能力,不是一個方法,也不是整個宿主)、**只放 dispatch 與它旁邊的 core 服務今天真的會呼叫的方法**。port 是結構式的 interface,形狀比照 #294 的 `AvatarConfig` / `AvatarStore`,所以宿主常常能直接交出現成的物件:VS Code 這邊的 `HostConfig` 就是既有的 `Config`,`RepoSource` 就是 `RepoManager`。型別一律宿主中立 —— 路徑是字串不是 URI,被取消的詢問回答 `undefined`。VS Code 的實作在 [hostPorts.ts](../../apps/vscode/src/hostPorts.ts),每個方法只轉呼叫一次 VS Code API;`HostPorts` 在 activation 時建一次,只有 `Watcher` 跟著各個圖形面板。
 
