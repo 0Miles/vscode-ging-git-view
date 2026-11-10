@@ -34,6 +34,7 @@ import {
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { type WebviewBridge, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import { ExtensionState } from "@ging/core/extensionState";
+import type { HostPorts } from "@ging/core/host/ports";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
   branchMenuContextKeys,
@@ -145,7 +146,16 @@ export function activate(context: vscode.ExtensionContext) {
   const repoSearch = createRepoSearch(repoManager, config);
   const repoWatcher = createRepoWatcher(repoManager, config, repoSearch);
   const scmRepoTracker = createScmRepoTracker();
-  const opener = createVscodeOpener(config);
+  // Every port but the watcher, which is the panel's own (see `adoptPanel`).
+  const hostPorts: Omit<HostPorts, "watcher"> = {
+    config,
+    prompts: vscodePrompts,
+    opener: createVscodeOpener(config),
+    clipboard: vscodeClipboard,
+    l10n: vscodeL10n,
+    repoSource: repoManager,
+    logger
+  };
   let currentPanel: WebviewPanel | undefined;
   let currentBridge: WebviewBridge | undefined;
 
@@ -454,16 +464,7 @@ export function activate(context: vscode.ExtensionContext) {
     avatarManager.registerBridge(bridge.post.bind(bridge));
     const messageHandlers = registerMessageHandlers(
       bridge,
-      {
-        config,
-        prompts: vscodePrompts,
-        opener,
-        clipboard: vscodeClipboard,
-        watcher: repoFileWatcher,
-        l10n: vscodeL10n,
-        repoSource: repoManager,
-        logger
-      },
+      { ...hostPorts, watcher: repoFileWatcher },
       {
         gitClient,
         extensionState,
