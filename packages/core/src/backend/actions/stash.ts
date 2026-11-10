@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-import type { ActionPayload } from "@ging/shared/backend/types";
+import type { ActionPayload, ActionResponseExtra } from "@ging/shared/backend/types";
 
 /**
  * A stash action refused because its selector no longer names the stash the
@@ -35,13 +35,13 @@ export class StashMovedError extends Error {
 /** The selector a refused stash action could not act through — see
  *  `StashMovedError` — or null when `error` is anything else (or nothing).
  *  What a stash action reports beside its status. */
-export function stashRefusalFacts(error: unknown): { movedSelector: string | null } {
+export function stashRefusalFacts(error: unknown): ActionResponseExtra<"applyStash"> {
   return { movedSelector: error instanceof StashMovedError ? error.selector : null };
 }
 
 /**
- * Resolve `selector` and return its commit SHA, refusing with
- * `StashMovedError` unless it is `expectedHash`.
+ * Refuse with `StashMovedError` unless `selector` still resolves to
+ * `expectedHash`; return that SHA when it does.
  *
  * This narrows the window, it does not close it. The `rev-parse` here and the
  * `git stash apply/pop/drop` after it are two spawns, and git has no
@@ -50,7 +50,7 @@ export function stashRefusalFacts(error: unknown): { movedSelector: string | nul
  * under the second one. What is gone is the long window: from the moment the
  * caller read the selector to the moment the action reached the host.
  */
-async function resolveStash(
+async function verifyStashSelector(
   git: SimpleGit,
   selector: string,
   expectedHash: string
@@ -76,7 +76,7 @@ export async function applyStash(
   git: SimpleGit,
   input: ActionPayload<"applyStash">
 ): Promise<void> {
-  await resolveStash(git, input.selector, input.expectedHash);
+  await verifyStashSelector(git, input.selector, input.expectedHash);
   const args = ["stash", "apply"];
   if (input.reinstateIndex) args.push("--index");
   args.push(input.selector);
@@ -85,7 +85,7 @@ export async function applyStash(
 
 /** Apply a stash and drop it from the stash list on success. */
 export async function popStash(git: SimpleGit, input: ActionPayload<"popStash">): Promise<void> {
-  await resolveStash(git, input.selector, input.expectedHash);
+  await verifyStashSelector(git, input.selector, input.expectedHash);
   const args = ["stash", "pop"];
   if (input.reinstateIndex) args.push("--index");
   args.push(input.selector);
@@ -94,7 +94,7 @@ export async function popStash(git: SimpleGit, input: ActionPayload<"popStash">)
 
 /** Delete a stash from the stash list. */
 export async function dropStash(git: SimpleGit, input: ActionPayload<"dropStash">): Promise<void> {
-  await resolveStash(git, input.selector, input.expectedHash);
+  await verifyStashSelector(git, input.selector, input.expectedHash);
   await git.raw(["stash", "drop", input.selector]);
 }
 
@@ -112,8 +112,11 @@ export async function renameStash(
   input: ActionPayload<"renameStash">
 ): Promise<void> {
   // The rev-parse the rebuild needs anyway is the one the selector is checked
-  // with, so the commit rebuilt is the commit the caller named.
-  const sha = await resolveStash(git, input.selector, input.expectedHash);
+  // with, so the commit rebuilt is the commit the caller named. The window
+  // left open is wider than the other actions' though: three more spawns
+  // (tree, parents, commit-tree) stand between this check and the drop below,
+  // which still goes by the selector.
+  const sha = await verifyStashSelector(git, input.selector, input.expectedHash);
   const tree = (await git.raw(["rev-parse", `${sha}^{tree}`])).trim();
   // `rev-list --parents -n 1 <sha>` → "<sha> <parent>...": drop the commit's
   // own sha, keep its parents (a stash has base + index [+ untracked]).
