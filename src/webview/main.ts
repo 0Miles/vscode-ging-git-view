@@ -4580,10 +4580,9 @@ class GitGraphView {
    *
    *  Every message opens the graph on its own repo, so one for another repo
    *  means the graph has left the repo of those asked for before it: they are
-   *  dropped, as is a late delivery of one that a later request overtook. Kept,
-   *  they would run whenever the user next opened their repo, long after asking.
-   *  The queue therefore only ever holds one repo's messages, as the host's
-   *  does. */
+   *  dropped, as is a late delivery of one that a later request overtook: kept,
+   *  they could run long after the user moved on. The queue therefore only ever
+   *  holds one repo's messages, as the host's does. */
   private queueDelegated(msg: GG.DelegatedMessage) {
     if (msg.seq <= this.lastDelegatedSeq) return;
     if (this.delegatedQueue.some((q) => q.seq === msg.seq)) return;
@@ -4597,9 +4596,7 @@ class GitGraphView {
   /** Run the queued delegated messages, in seq order, while this view shows
    *  their repo with no load in flight (a fresh panel / repo switch reloads
    *  branches+commits; the remotes for that repo arrive before them, as
-   *  requests are handled in order). One that starts a load — a locate paging
-   *  for its commit — holds the rest until it lands, as it would have held the
-   *  user. Re-tried after each load completes. */
+   *  requests are handled in order). Re-tried after each load completes. */
   private runDelegatedQueue() {
     for (;;) {
       const next = this.delegatedQueue[0];
@@ -4607,6 +4604,9 @@ class GitGraphView {
       if (this.branchLoadInFlight || this.commitLoadInFlight) return;
       this.delegatedQueue.shift();
       this.lastDelegatedSeq = next.seq;
+      // Said before it runs: one that throws has still been tried, and a
+      // reload must not bring it round again.
+      sendMessage({ command: "delegatedRan", seq: next.seq });
       if (next.command === "runRefBatchAction") this.dispatchRefBatchAction(next);
       else if (next.command === "showBranchCleanup") {
         openCleanupDialog(next.repo, next.payload);

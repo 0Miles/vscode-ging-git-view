@@ -90,9 +90,11 @@ function blur() {
 }
 
 describe("messages delegated to a graph that is still loading", () => {
+  let mock: ReturnType<typeof createVscodeMock>;
+
   beforeAll(async () => {
     vi.resetModules();
-    createVscodeMock();
+    mock = createVscodeMock();
     setupHtml(viewState);
     Element.prototype.scrollIntoView = () => {};
     await import("@/webview/main");
@@ -105,10 +107,16 @@ describe("messages delegated to a graph that is still loading", () => {
 
     load();
 
-    // The merge dialog is up, and the locate ran after it rather than over it.
+    // Both ran, merge first: its dialog is up, and the locate then selected
+    // the commit — just as the two clicks would have on a loaded panel.
     expect(dialogShown()).toBe(true);
     expect(document.getElementById("dialogInput2")).not.toBeNull();
     expect(focusedHash()).toBe("bbb222");
+    // Each reported as run, so the host stops holding it for a reload.
+    expect(mock.sentOf("delegatedRan")).toEqual([
+      { command: "delegatedRan", seq: 1 },
+      { command: "delegatedRan", seq: 2 }
+    ]);
     dismissDialog();
   });
 

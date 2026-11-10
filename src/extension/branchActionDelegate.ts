@@ -18,21 +18,6 @@ import type { BatchAction, BatchSkipped, BranchCleanupPayload, DelegatedMessage 
 
 import type { BranchActionTarget, BranchActionTargets } from "./branchesView";
 
-/**
- * The messages this delegate gets to the graph webview, which holds them until
- * it shows their repo with no load in flight.
- *
- * The cleanup dialog rides here with the ref actions rather than getting its own
- * delivery path: the wait-for-load race, the two delivery routes and the `seq`
- * dedupe are the same problem for all three, and a second copy of that logic is
- * how one of them ends up subtly different. Sharing the counter also means a
- * cleanup message can never be mistaken for a ref action's retry. The blame
- * hover's "locate in the graph" (#310) rides here for the same reasons: it too
- * is sent straight after the graph is opened or switched, to a panel that may
- * still be loading.
- */
-export type { DelegatedMessage };
-
 export type BranchActionDelegateDeps = {
   /** The branch a single-selection command argument points at, or null when it
    *  isn't a branch leaf ({@link branchActionTarget}). */
@@ -54,6 +39,14 @@ export type BranchActionDelegateDeps = {
 export type BranchActionDelegate = ReturnType<typeof createBranchActionDelegate>;
 
 export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
+  // The cleanup dialog rides here with the ref actions rather than getting its
+  // own delivery path: the wait-for-load race, the two delivery routes and the
+  // `seq` dedupe are the same problem for all three, and a second copy of that
+  // logic is how one of them ends up subtly different. The blame hover's
+  // "locate in the graph" (#310) rides here for the same reasons: it too is
+  // sent straight after the graph is opened or switched, to a panel that may
+  // still be loading.
+  //
   // The messages waiting for the graph webview to (re)load, in seq order —
   // every one of them, not just the latest (#325): two requests made while the
   // panel loads are both owed. They share one repo, as each opens the graph on
@@ -71,6 +64,19 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     // still coming, and that selectRepo will flush them.
     if (pending.length === 0 || pending[0].repo !== repo) return;
     for (const msg of pending) deps.post(msg);
+    pending = [];
+  };
+
+  /** The webview has taken `ranSeq` off its queue to run, and every message
+   *  before it with it: a later flush must not hand them to a reloaded panel,
+   *  which remembers no seq to refuse them by. */
+  const delegatedRan = (ranSeq: number): void => {
+    pending = pending.filter((msg) => msg.seq > ranSeq);
+  };
+
+  /** The panel is gone, and with it whatever the user was waiting on: a graph
+   *  opened later must not raise requests made of the one they closed. */
+  const forgetPending = (): void => {
     pending = [];
   };
 
@@ -163,5 +169,5 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     await deliver({ command: "locateCommit", repo, hash, seq: ++seq });
   };
 
-  return { run, runBatch, openCleanup, locateCommit, flushDelegated };
+  return { run, runBatch, openCleanup, locateCommit, flushDelegated, delegatedRan, forgetPending };
 }

@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createBranchActionDelegate,
-  type BranchActionDelegateDeps,
-  type DelegatedMessage
+  type BranchActionDelegateDeps
 } from "@/extension/branchActionDelegate";
 import type { BranchActionTarget, BranchActionTargets } from "@/extension/branchesView";
+import type { DelegatedMessage } from "@/types";
 
 const REPO = "/repo";
 
@@ -180,5 +180,29 @@ describe("createBranchActionDelegate", () => {
     expect(posted).toEqual([]);
     delegate.flushDelegated("/other");
     expect(posted.map((m) => m.seq)).toEqual([2]);
+  });
+
+  // A reloaded panel remembers no seq, so whatever the flush hands it runs: a
+  // message the webview has already run must not still be held for one.
+  it("stops holding a message once the webview has run it, with every one before it", async () => {
+    const { delegate, posted } = makeDelegate();
+    await delegate.run(local("feature/a"), "merge");
+    await delegate.locateCommit(REPO, "a".repeat(40));
+    await delegate.run(local("feature/a"), "rename");
+    posted.splice(0);
+
+    delegate.delegatedRan(2);
+    delegate.flushDelegated(REPO);
+    expect(posted.map((m) => m.seq)).toEqual([3]);
+  });
+
+  it("forgets what was waiting when the panel closes", async () => {
+    const { delegate, posted } = makeDelegate();
+    await delegate.run(local("feature/a"), "merge");
+    posted.splice(0);
+
+    delegate.forgetPending();
+    delegate.flushDelegated(REPO);
+    expect(posted).toEqual([]);
   });
 });

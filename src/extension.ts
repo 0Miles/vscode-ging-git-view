@@ -463,7 +463,8 @@ export function activate(context: vscode.ExtensionContext) {
         // The webview is alive and (re)loading this repo: deliver any waiting
         // delegated messages now (the webview holds them until the load lands).
         branchActionDelegate.flushDelegated(repo);
-      }
+      },
+      onDelegatedRan: (seq) => branchActionDelegate.delegatedRan(seq)
     });
     currentPanel = createWebviewPanel({
       panel,
@@ -477,6 +478,7 @@ export function activate(context: vscode.ExtensionContext) {
       onDispose: () => {
         currentPanel = undefined;
         currentBridge = undefined;
+        branchActionDelegate.forgetPending();
         messageHandlers.dispose();
       },
       onPanelShown: messageHandlers.onPanelShown

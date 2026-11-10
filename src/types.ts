@@ -570,6 +570,15 @@ export type DelegatedMessage =
   | ResponseShowBranchCleanup
   | ResponseLocateCommit;
 
+/** A delegated message has been taken off the webview's queue to run. The
+ *  host stops holding it for the post-reload flush, which would otherwise hand
+ *  a reloaded panel — one that remembers no seq — a dialog the user already
+ *  answered, or a locate already done (#325). */
+export type RequestDelegatedRan = {
+  command: "delegatedRan";
+  seq: number;
+};
+
 /** Tell the user, quietly, that a commit asked to be located is not in the
  *  graph at all — its settings leave it out (first parent only, a hidden
  *  remote, …). Shown by the host because only it has a non-modal message. */
@@ -685,6 +694,7 @@ export type RequestMessage =
   | RequestBranchCleanupScanCancel
   | RequestBranchCleanupOpen
   | RequestLocateCommitNotInGraph
+  | RequestDelegatedRan
   | RequestReportError;
 
 export type ResponseMessage =
