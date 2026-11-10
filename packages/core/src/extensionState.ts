@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 
 import { getPathFromStr } from "@ging/core/backend/utils/path";
 import { isUsableRepoPath, resolveCurrentRepo } from "@ging/core/backend/utils/repoPath";
-import type { StateStore, Storage } from "@ging/core/host/ports";
+import type { HostStorage, StateStore } from "@ging/core/host/ports";
 import { Avatar, AvatarCache, DialogMemoryStore, GitRepoSet } from "@ging/shared/types";
 
 const AVATAR_STORAGE_FOLDER = "/avatars";
@@ -19,7 +19,7 @@ export class ExtensionState {
   private avatarStorageAvailable: boolean = false;
   private currentRepo: string | null = null;
 
-  constructor(storage: Storage) {
+  constructor(storage: HostStorage) {
     this.globalState = storage.global;
     this.workspaceState = storage.workspace;
     this.resolveCurrentRepo();

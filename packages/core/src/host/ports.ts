@@ -22,7 +22,7 @@ import type { GitRepoSet, GitRepoState } from "@ging/shared/types";
 
 /** The settings the dispatch reads, each read at the moment it is needed — a
  *  setting changed between two requests reaches the second. */
-export interface Config {
+export interface HostConfig {
   signTags(): boolean;
   signCommits(): boolean;
   squashMergeMessageFormat(): SquashMessageFormat;
@@ -50,7 +50,7 @@ export interface StateStore {
  *  user everywhere (dialog memory, avatars), plus the folder the global tier
  *  keeps its files in. Consumed by `ExtensionState`, which is what the
  *  dispatch talks to. */
-export interface Storage {
+export interface HostStorage {
   workspace: StateStore;
   global: StateStore;
   globalStoragePath: string;
@@ -149,7 +149,7 @@ export interface RepoSource {
 }
 
 /** The GING log — the Output Channel, in VS Code. */
-export interface Logger {
+export interface HostLogger {
   log(message: string): void;
   logError(message: string): void;
   /** Bring the log into view. */
@@ -158,12 +158,12 @@ export interface Logger {
 
 /** Every port the message dispatch is handed. */
 export interface HostPorts {
-  config: Config;
+  config: HostConfig;
   prompts: Prompts;
   opener: Opener;
   clipboard: Clipboard;
   watcher: Watcher;
   l10n: L10n;
   repoSource: RepoSource;
-  logger: Logger;
+  logger: HostLogger;
 }

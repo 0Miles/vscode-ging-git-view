@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import type { Clipboard, L10n, Opener, Prompts, Storage } from "@ging/core/host/ports";
+import type { Clipboard, HostStorage, L10n, Opener, Prompts } from "@ging/core/host/ports";
 import type { Config } from "@ging/vscode/config";
 import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
 import { openCommitDiff } from "@ging/vscode/extension/openCommitDiff";
@@ -76,7 +76,7 @@ export const vscodeClipboard: Clipboard = {
 export const vscodeL10n: L10n = { t: (key, ...args) => l10nModule.t(key, ...args) };
 
 /** The extension's two Mementos, and its global storage folder. */
-export function vscodeStorage(context: vscode.ExtensionContext): Storage {
+export function vscodeStorage(context: vscode.ExtensionContext): HostStorage {
   return {
     workspace: context.workspaceState,
     global: context.globalState,
