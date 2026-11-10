@@ -2,12 +2,74 @@ import type { SimpleGit } from "simple-git";
 
 import type { ActionPayload } from "@ging/shared/backend/types";
 
+/**
+ * A stash action refused because its selector no longer names the stash the
+ * request was about: `selector` resolves to another commit than
+ * `expectedHash`, or to nothing at all. Thrown before any stash command is
+ * spawned, so the stack is exactly as it was.
+ *
+ * `stash@{n}` is a position, and every `git stash push` — the terminal, the
+ * SCM view, a `pull --autostash` — renumbers everything below the top. The
+ * graph already refuses this at consent (`forStash` in the webview); this is
+ * the host's half of the same rule, for the time between the request leaving
+ * the caller and git running, and for callers with no loaded graph to check
+ * against. Refused, not redirected to wherever `expectedHash` sits now: the
+ * selector is what the user was shown and agreed to.
+ */
+export class StashMovedError extends Error {
+  constructor(
+    readonly selector: string,
+    readonly expectedHash: string,
+    /** What `selector` resolved to instead, or null when it resolved to
+     *  nothing — the stack is shorter than it was. */
+    readonly actualHash: string | null
+  ) {
+    super(
+      `${selector} no longer refers to stash ${expectedHash}` +
+        (actualHash === null ? " (it no longer exists)" : ` (it is now ${actualHash})`)
+    );
+    this.name = "StashMovedError";
+  }
+}
+
+/**
+ * Resolve `selector` and return its commit SHA, refusing with
+ * `StashMovedError` unless it is `expectedHash`.
+ *
+ * This narrows the window, it does not close it. The `rev-parse` here and the
+ * `git stash apply/pop/drop` after it are two spawns, and git has no
+ * compare-and-swap for stash entries — `stash drop` takes only a `stash@{n}`,
+ * never a SHA — so a push landing between the two still renumbers the stack
+ * under the second one. What is gone is the long window: from the moment the
+ * caller read the selector to the moment the action reached the host.
+ */
+async function resolveStash(
+  git: SimpleGit,
+  selector: string,
+  expectedHash: string
+): Promise<string> {
+  let actualHash: string | null;
+  try {
+    // `--verify --quiet`: a selector past the end of the stack prints nothing
+    // and fails, rather than echoing the argument back.
+    const out = (await git.raw(["rev-parse", "--verify", "--quiet", selector])).trim();
+    actualHash = out === "" ? null : out;
+  } catch {
+    actualHash = null;
+  }
+  if (actualHash !== expectedHash) {
+    throw new StashMovedError(selector, expectedHash, actualHash);
+  }
+  return actualHash;
+}
+
 /** Apply a stash to the working tree, keeping it in the stash list. With
  *  `reinstateIndex`, the stash's staged changes are restored to the index too. */
 export async function applyStash(
   git: SimpleGit,
   input: ActionPayload<"applyStash">
 ): Promise<void> {
+  await resolveStash(git, input.selector, input.expectedHash);
   const args = ["stash", "apply"];
   if (input.reinstateIndex) args.push("--index");
   args.push(input.selector);
@@ -16,6 +78,7 @@ export async function applyStash(
 
 /** Apply a stash and drop it from the stash list on success. */
 export async function popStash(git: SimpleGit, input: ActionPayload<"popStash">): Promise<void> {
+  await resolveStash(git, input.selector, input.expectedHash);
   const args = ["stash", "pop"];
   if (input.reinstateIndex) args.push("--index");
   args.push(input.selector);
@@ -24,6 +87,7 @@ export async function popStash(git: SimpleGit, input: ActionPayload<"popStash">)
 
 /** Delete a stash from the stash list. */
 export async function dropStash(git: SimpleGit, input: ActionPayload<"dropStash">): Promise<void> {
+  await resolveStash(git, input.selector, input.expectedHash);
   await git.raw(["stash", "drop", input.selector]);
 }
 
@@ -40,7 +104,9 @@ export async function renameStash(
   git: SimpleGit,
   input: ActionPayload<"renameStash">
 ): Promise<void> {
-  const sha = (await git.raw(["rev-parse", input.selector])).trim();
+  // The rev-parse the rebuild needs anyway is the one the selector is checked
+  // with, so the commit rebuilt is the commit the caller named.
+  const sha = await resolveStash(git, input.selector, input.expectedHash);
   const tree = (await git.raw(["rev-parse", `${sha}^{tree}`])).trim();
   // `rev-list --parents -n 1 <sha>` → "<sha> <parent>...": drop the commit's
   // own sha, keep its parents (a stash has base + index [+ untracked]).

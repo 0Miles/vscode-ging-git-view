@@ -3565,11 +3565,12 @@ class GitGraphView {
             }
           ],
           command === "popStash" ? l10n.stashPop : l10n.stashApply,
-          this.forStash(refName, (repo, values: string[]) => {
+          this.forStash(refName, (repo, expectedHash, values: string[]) => {
             sendMessage({
               command,
               repo,
               selector: refName,
+              expectedHash,
               reinstateIndex: values[0] === "checked"
             });
           }),
@@ -3589,8 +3590,8 @@ class GitGraphView {
           // dialogs' ({@link forStash}).
           showConfirmationDialog(
             fillTemplate(l10n.dialogStashDropConfirm, "<b><i>" + escapeHtml(refName) + "</i></b>"),
-            this.forStash(refName, (repo) => {
-              sendMessage({ command: "dropStash", repo, selector: refName });
+            this.forStash(refName, (repo, expectedHash) => {
+              sendMessage({ command: "dropStash", repo, selector: refName, expectedHash });
             }),
             sourceElem
           );
@@ -3599,8 +3600,8 @@ class GitGraphView {
           // Pre-fill with the stash's current displayed name (its commit
           // subject), taken from the loaded stash node for this ref.
           const currentMessage = this.stashNodeFor(refName)?.message ?? "";
-          const rename = this.forStash(refName, (repo, message: string) => {
-            sendMessage({ command: "renameStash", repo, selector: refName, message });
+          const rename = this.forStash(refName, (repo, expectedHash, message: string) => {
+            sendMessage({ command: "renameStash", repo, selector: refName, expectedHash, message });
           });
           showFormDialog(
             fillTemplate(l10n.dialogStashRenameTitle, "<b><i>" + escapeHtml(refName) + "</i></b>"),
@@ -5386,20 +5387,26 @@ class GitGraphView {
    * pop applies someone else's work before dropping it, so this is
    * {@link confirmForRepoAndHead}'s case rather than `confirmForRepo`'s — fail
    * safe, and say so.
+   *
+   * The bound hash is handed on to `actioned` too, to send as the action's
+   * `expectedHash`: this check can only see the graph's last reload, so the
+   * host re-checks the selector against the same hash just before git runs and
+   * refuses too. This half answers at consent, with no round trip; that half
+   * covers a push the graph has not reloaded for yet.
    */
   private forStash<A extends unknown[]>(
     selector: string,
-    actioned: (repo: string, ...answer: A) => void
+    actioned: (repo: string, expectedHash: string, ...answer: A) => void
   ): (...answer: A) => void {
     // Never undefined here — the menu was opened on a row this lookup's own
     // list drew.
     const stashHash = this.stashNodeFor(selector)?.hash;
     return this.forRepo((repo, ...answer: A) => {
-      if (this.stashNodeFor(selector)?.hash !== stashHash) {
+      if (stashHash === undefined || this.stashNodeFor(selector)?.hash !== stashHash) {
         showErrorDialog(fillTemplate(l10n.dialogStashMoved, escapeHtml(selector)), null, null);
         return;
       }
-      actioned(repo, ...answer);
+      actioned(repo, stashHash, ...answer);
     });
   }
 

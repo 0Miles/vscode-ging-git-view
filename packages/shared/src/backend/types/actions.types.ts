@@ -2,6 +2,16 @@ import type { GitFileChangeOrigin, GitResetMode } from "./git.types";
 
 export type GitCommandStatus = string | null;
 
+/**
+ * The stash a stash action is about. `selector` (`stash@{n}`) is what git
+ * takes, but it is a position on the stack, not a name: every `git stash push`
+ * renumbers what is below it. So the request also carries `expectedHash`, the
+ * commit SHA the caller saw at that position, and the host refuses — before
+ * spawning any stash command — when the selector no longer resolves to it
+ * (`StashMovedError`). Required, so no caller can send a selector alone.
+ */
+type StashTarget = { selector: string; expectedHash: string };
+
 type ActionPayloads = {
   addTag: {
     tagName: string;
@@ -31,10 +41,10 @@ type ActionPayloads = {
      *  the stash the file is restored from (see `fileChangeRevision`). */
     origin?: GitFileChangeOrigin;
   };
-  applyStash: { selector: string; reinstateIndex: boolean };
-  popStash: { selector: string; reinstateIndex: boolean };
-  dropStash: { selector: string };
-  renameStash: { selector: string; message: string };
+  applyStash: StashTarget & { reinstateIndex: boolean };
+  popStash: StashTarget & { reinstateIndex: boolean };
+  dropStash: StashTarget;
+  renameStash: StashTarget & { message: string };
   fastForwardBranch: { branchName: string };
   resetUncommittedChanges: Record<never, never>;
   cleanUntrackedFiles: Record<never, never>;

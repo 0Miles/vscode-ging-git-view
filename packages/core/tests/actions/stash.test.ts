@@ -4,10 +4,10 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { renameStash } from "@ging/core/backend/actions/stash";
+import { renameStash, StashMovedError } from "@ging/core/backend/actions/stash";
 import { loadStashes } from "@ging/core/backend/queries/loadStashes";
 
-import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
+import { git, makeRepo, rejection, rev, rmrf } from "@ging/core/tests/helpers";
 
 const repos: string[] = [];
 afterEach(() => {
@@ -22,7 +22,11 @@ describe("renameStash (real git)", () => {
     fs.writeFileSync(path.join(repo, "extra.txt"), "untracked");
     git(["stash", "push", "-u", "-m", "original"], repo);
 
-    await renameStash(simpleGit(repo), { selector: "stash@{0}", message: "renamed-stash" });
+    await renameStash(simpleGit(repo), {
+      selector: "stash@{0}",
+      expectedHash: rev(repo, "stash@{0}"),
+      message: "renamed-stash"
+    });
 
     // loadStashes reads the commit subject (%s) — the field shown in the graph.
     const stashes = await loadStashes(simpleGit(repo));
@@ -34,5 +38,27 @@ describe("renameStash (real git)", () => {
     git(["stash", "apply", "stash@{0}"], repo);
     expect(fs.readFileSync(path.join(repo, "f"), "utf8")).toBe("changed");
     expect(fs.existsSync(path.join(repo, "extra.txt"))).toBe(true);
+  });
+
+  it("refuses to rename the stash that inherited the number, leaving the stack as it was", async () => {
+    const repo = makeRepo();
+    repos.push(repo);
+    fs.writeFileSync(path.join(repo, "f"), "older");
+    git(["stash", "push", "-m", "older"], repo);
+    const older = rev(repo, "stash@{0}");
+    fs.writeFileSync(path.join(repo, "f"), "newer");
+    git(["stash", "push", "-m", "newer"], repo);
+
+    const error = await rejection(
+      renameStash(simpleGit(repo), {
+        selector: "stash@{0}",
+        expectedHash: older,
+        message: "renamed-stash"
+      })
+    );
+
+    expect(error).toBeInstanceOf(StashMovedError);
+    const stashes = await loadStashes(simpleGit(repo));
+    expect(stashes.map((s) => s.message)).toEqual(["On main: newer", "On main: older"]);
   });
 });

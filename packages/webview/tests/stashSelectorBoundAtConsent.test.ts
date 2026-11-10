@@ -114,8 +114,10 @@ describe("dropping the stash the dialog named", () => {
     mock.clearMessages();
     clickId("dialogAction");
 
+    // With the hash it pointed at when the user agreed, so the host can refuse
+    // too if the stack moves after this check and before git runs.
     expect(sentOf("dropStash")).toEqual([
-      { command: "dropStash", repo: DEFAULT_REPO, selector: "stash@{0}" }
+      { command: "dropStash", repo: DEFAULT_REPO, selector: "stash@{0}", expectedHash: "sA" }
     ]);
   });
 
@@ -199,7 +201,29 @@ describe("applying, popping or renaming the stash the form named", () => {
     submit();
 
     expect(sentOf("applyStash")).toEqual([
-      { command: "applyStash", repo: DEFAULT_REPO, selector: "stash@{0}", reinstateIndex: false }
+      {
+        command: "applyStash",
+        repo: DEFAULT_REPO,
+        selector: "stash@{0}",
+        expectedHash: "sA",
+        reinstateIndex: false
+      }
+    ]);
+  });
+
+  it.each([
+    ["popStash", L.stashPop + E, { reinstateIndex: false }],
+    // The rename form opens pre-filled with the stash's current message.
+    ["renameStash", L.stashRename + E, { message: "half-done refactor" }]
+  ])("sends %s with the hash it agreed to when the stack has not moved", (command, item, rest) => {
+    restack(before);
+    openMenuOn('.gitRef.stash[data-name="stash@{0}"]');
+    clickItem(item);
+    mock.clearMessages();
+    submit();
+
+    expect(sentOf(command)).toEqual([
+      { command, repo: DEFAULT_REPO, selector: "stash@{0}", expectedHash: "sA", ...rest }
     ]);
   });
 
