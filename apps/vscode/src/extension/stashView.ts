@@ -210,10 +210,6 @@ export function createStashView(
   const watch = createStashRefreshWatch({ ...deps, refresh: () => void provider.reload() });
   watch.setVisible(treeView.visible);
 
-  const reloadNow = async () => {
-    await provider.reload();
-  };
-
   const subscriptions = [
     treeView,
     provider,
@@ -226,21 +222,22 @@ export function createStashView(
         return color === undefined ? undefined : { badge, color: new vscode.ThemeColor(color) };
       }
     }),
-    vscode.commands.registerCommand("ging-git-view.stash.refresh", reloadNow),
+    vscode.commands.registerCommand("ging-git-view.stash.refresh", () => provider.reload()),
     vscode.commands.registerCommand(OPEN_FILE_DIFF_COMMAND, async (request) => {
       if (!(await openCommitDiff(request, deps.editorGroup()))) {
         void vscode.window.showErrorMessage(l10n.t("error.unableToViewDiff"));
       }
     }),
     // The stash is named by its SHA; its selector is looked up now, since the
-    // one on screen may have moved since the list was read.
+    // one on screen may have moved since the list was read, and copying it
+    // would hand out the name of whichever stash sits there now.
     vscode.commands.registerCommand("ging-git-view.stash.copyName", async (node: unknown) => {
       if (!isStashNode(node)) return;
       const stashes = await listStashes(deps.gitClients.gitClientFor(node.repo));
       const selector = selectorOfStash(stashes, node.stash.hash);
       if (selector === null) {
         void vscode.window.showWarningMessage(l10n.t("stashView.stashGone"));
-        void reloadNow();
+        void provider.reload();
         return;
       }
       await vscode.env.clipboard.writeText(selector);

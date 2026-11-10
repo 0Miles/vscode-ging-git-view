@@ -262,9 +262,11 @@ export function activate(context: vscode.ExtensionContext) {
   // Mirror the graph's context-menu visibility settings onto when-clause
   // context keys, so the side-views' menus show the same items. The branch key
   // set and each key's value are projected from the action catalogue's cmvKey
-  // declarations (ADR-0010) — this is only the pipe to setContext, so a new
-  // visibility key is picked up by declaring it, not by editing here. The
-  // Stash side-view's one gated action is spelled out.
+  // declarations (ADR-0010) — for branches this is only the pipe to setContext,
+  // so a new branch visibility key is picked up by declaring it there, not by
+  // editing here. The catalogue holds branch actions only; the Stash
+  // side-view's one gated action (copy name) has no entry in it, so its key is
+  // spelled out here.
   const syncBranchMenuVisibility = () => {
     const cmv = config.contextMenuActionsVisibility();
     const keys = {

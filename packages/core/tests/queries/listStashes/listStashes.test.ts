@@ -6,6 +6,7 @@ import { simpleGit } from "simple-git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { listStashes } from "@ging/core/backend/queries/listStashes";
+import { loadStashes } from "@ging/core/backend/queries/loadStashes";
 
 import { makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
 
@@ -49,6 +50,26 @@ describe("listStashes", () => {
     const stashes = await listStashes(simpleGit(repo));
 
     expect(stashes.map((s) => s.hash)).toEqual([rev(repo, "stash@{0}"), rev(repo, "stash@{1}")]);
+  });
+
+  it("lists the same SHAs and messages, in the same order, as the graph's loadStashes", async () => {
+    // The Stash side-view reads listStashes and the graph loadStashes: after a
+    // stash action from either, both must show one set of stashes.
+    fs.writeFileSync(path.join(repo, "f"), "y");
+    cp.execFileSync("git", ["stash", "push", "-m", "first"], { cwd: repo });
+    fs.writeFileSync(path.join(repo, "f"), "z");
+    cp.execFileSync("git", ["stash", "push"], { cwd: repo });
+    cp.execFileSync("git", ["stash", "drop", "stash@{1}"], { cwd: repo });
+    fs.writeFileSync(path.join(repo, "f"), "w");
+    cp.execFileSync("git", ["stash", "push", "-m", "third"], { cwd: repo });
+
+    const side = await listStashes(simpleGit(repo));
+    const graph = await loadStashes(simpleGit(repo));
+
+    expect(side.map(({ hash, message }) => ({ hash, message }))).toEqual(
+      graph.map(({ hash, message }) => ({ hash, message }))
+    );
+    expect(side).toHaveLength(2);
   });
 
   it("keeps a tab in a stash's message", async () => {
