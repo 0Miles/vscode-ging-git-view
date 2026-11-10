@@ -2,6 +2,25 @@ import type { GitFileChangeOrigin, GitResetMode } from "./git.types";
 
 export type GitCommandStatus = string | null;
 
+/**
+ * The stash a stash action is about. `selector` (`stash@{n}`) is what git
+ * takes, but it is a position on the stack, not a name: every `git stash push`
+ * — the terminal, the SCM view, a `pull --autostash` — renumbers what is below
+ * the top, so the number a caller read can name another stash by the time git
+ * runs. The request therefore also carries `expectedHash`, the commit SHA the
+ * caller saw at that position. Required, so no caller can send a selector
+ * alone.
+ *
+ * Two checks stand on it. The graph re-reads its loaded stash at consent
+ * (`forStash`), answering with no round trip; the host re-resolves the
+ * selector just before git runs and refuses with `StashMovedError`, touching
+ * nothing, which covers what the graph has not reloaded for and callers with
+ * no graph at all. Both refuse rather than redirect to wherever the hash sits
+ * now: the number is what the user was shown and agreed to. The host check
+ * narrows the window without closing it — see `verifyStashSelector`.
+ */
+type StashTarget = { selector: string; expectedHash: string };
+
 type ActionPayloads = {
   addTag: {
     tagName: string;
@@ -31,10 +50,10 @@ type ActionPayloads = {
      *  the stash the file is restored from (see `fileChangeRevision`). */
     origin?: GitFileChangeOrigin;
   };
-  applyStash: { selector: string; reinstateIndex: boolean };
-  popStash: { selector: string; reinstateIndex: boolean };
-  dropStash: { selector: string };
-  renameStash: { selector: string; message: string };
+  applyStash: StashTarget & { reinstateIndex: boolean };
+  popStash: StashTarget & { reinstateIndex: boolean };
+  dropStash: StashTarget;
+  renameStash: StashTarget & { message: string };
   fastForwardBranch: { branchName: string };
   resetUncommittedChanges: Record<never, never>;
   cleanUntrackedFiles: Record<never, never>;
@@ -155,6 +174,10 @@ export type BatchResultOf<T extends keyof BatchActionPayloads> =
  * sent as its own field.
  */
 type ActionResponseExtras = {
+  applyStash: StashRefusalFacts;
+  popStash: StashRefusalFacts;
+  dropStash: StashRefusalFacts;
+  renameStash: StashRefusalFacts;
   deleteBranch: {
     /** git refused the delete only because the branch is not fully merged, so
      *  the webview can offer a force delete. See `isNotFullyMergedError`. */
@@ -178,6 +201,14 @@ type ActionResponseExtras = {
      *  `staleLeaseInfoRefs`. */
     staleInfoRefs: string[];
   };
+};
+
+/** What a stash action reports beside its status. */
+export type StashRefusalFacts = {
+  /** The selector refused because it no longer resolved to `expectedHash`
+   *  (`StashMovedError`), or null for any other outcome. Carried so the
+   *  refusal can name the selector the user agreed to. */
+  movedSelector: string | null;
 };
 
 /** The extra response fields action `T` carries — `never` for the actions that

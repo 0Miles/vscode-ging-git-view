@@ -13,7 +13,16 @@ import {
 import { webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { RequestMessage } from "@ging/shared/types";
 
-import { fakePorts, fakeWebview, git, makeRepo, rmrf, toRepoPath } from "@ging/core/tests/helpers";
+import {
+  fakePorts,
+  fakeWebview,
+  git,
+  makeRepo,
+  pushTwoStashes,
+  rev,
+  rmrf,
+  toRepoPath
+} from "@ging/core/tests/helpers";
 
 // The message dispatch, driven the way the webview drives it — a request in
 // over the channel, the responses out of it — with every host capability a
@@ -197,6 +206,37 @@ describe("actions", () => {
       force: false
     } as RequestMessage);
     expect(h.posted).toEqual([{ command: "createBranch", status: null }]);
+  });
+
+  it("names the selector of a stash action refused because the stack moved", async () => {
+    const { older } = pushTwoStashes(repo);
+    const h = harness();
+    await h.send({ command: "selectRepo", repo });
+
+    await h.send({
+      command: "dropStash",
+      selector: "stash@{0}",
+      expectedHash: older
+    } as RequestMessage);
+
+    expect(h.posted).toEqual([
+      { command: "dropStash", status: expect.any(String), movedSelector: "stash@{0}" }
+    ]);
+  });
+
+  it("names no selector for a stash action that went through", async () => {
+    fs.writeFileSync(path.join(repo, "f"), "changed");
+    git(["stash", "push", "-m", "wip"], repo);
+    const h = harness();
+    await h.send({ command: "selectRepo", repo });
+
+    await h.send({
+      command: "dropStash",
+      selector: "stash@{0}",
+      expectedHash: rev(repo, "stash@{0}")
+    } as RequestMessage);
+
+    expect(h.posted).toEqual([{ command: "dropStash", status: null, movedSelector: null }]);
   });
 });
 
@@ -473,6 +513,6 @@ describe("reportError", () => {
   });
 });
 
-function revParse(cwd: string, rev: string): string {
-  return cp.execFileSync("git", ["rev-parse", rev], { cwd }).toString().trim();
+function revParse(cwd: string, revision: string): string {
+  return cp.execFileSync("git", ["rev-parse", revision], { cwd }).toString().trim();
 }
