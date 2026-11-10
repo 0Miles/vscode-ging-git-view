@@ -158,6 +158,27 @@ suite("workspaceWatcher / dispose", () => {
     watcher.dispose();
     assert.ok(watcherHandles.every((h) => h.disposed));
   });
+
+  test("drops batches still waiting out their debounce", async () => {
+    const tmp = makeTmpDir();
+    try {
+      const { watcher, watcherHandles, searched, removed, getSendCount } = makeStubs(["/ws/a"]);
+      watcher.startWatching();
+      // A directory that exists, and a path that does not: either batch would
+      // reach the repo manager if it ran.
+      watcherHandles[0].fireCreate(makeUri(tmp));
+      watcherHandles[0].fireChange(makeUri(os.tmpdir() + "/ngg-does-not-exist-xyz"));
+      watcher.dispose();
+      // flushPending would run any batch still waiting, so this shows none is —
+      // no wait for the debounce needed.
+      await watcher.flushPending();
+      assert.deepStrictEqual(searched, []);
+      assert.deepStrictEqual(removed, []);
+      assert.strictEqual(getSendCount(), 0);
+    } finally {
+      rmrf(tmp);
+    }
+  });
 });
 
 suite("workspaceWatcher / onWatcherDelete", () => {

@@ -41,6 +41,11 @@ function pathQueue() {
       const path = queue.shift();
       if (path !== undefined) queued.delete(path);
       return path;
+    },
+    /** Empty the queue. */
+    clear(): void {
+      queue.length = 0;
+      queued.clear();
     }
   };
 }
@@ -122,6 +127,13 @@ function debouncedBatch(
         // A path queued meanwhile has set a timer, or one that already fired
         // has chained another drain.
       } while (timeout !== null || running !== awaited);
+    },
+    /** Drop the waiting paths and the timer that would run them. A drain
+     *  already running stops after the path it is on. */
+    cancel(): void {
+      if (timeout !== null) clearTimeout(timeout);
+      timeout = null;
+      paths.clear();
     }
   };
 }
@@ -234,6 +246,10 @@ export function createRepoWatcher(
     },
     dispose() {
       folderChangeHandler.dispose();
+      // A batch still waiting out its debounce never reaches the repo manager
+      // once the watcher is gone.
+      createdPaths.cancel();
+      changedPaths.cancel();
       const folders = Object.keys(folderWatchers);
       for (const folder of folders) {
         stopWatchingFolder(folder);
