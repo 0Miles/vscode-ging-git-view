@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom"],
+    // The DOM suites run under jsdom but reach node's fs and path, and the
+    // stylesheet locks in styles/ read main.css off disk under node.
+    "types": ["node"]
+  },
+  // The DOM suites drive the webview, whose globals (`l10n`, `viewState`, the
+  // GG types...) are ambient declarations nothing imports.
+  "include": ["./**/*.ts", "../src/**/*.d.ts"]
+}

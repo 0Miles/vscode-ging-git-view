@@ -8,7 +8,7 @@ status: accepted
 
 ## 為什麼未來的讀者會困惑
 
-`copyName` 的批次實作在 `src/extension.ts`,`delete` 的批次實作在 `src/webview/main.ts` —— 同一個右鍵選單上的兩個項目落在兩個不同的行程裡,看起來像是有人偷懶沒統一。
+`copyName` 的批次實作在 `apps/vscode/src/extension.ts`,`delete` 的批次實作在 `packages/webview/src/main.ts` —— 同一個右鍵選單上的兩個項目落在兩個不同的行程裡,看起來像是有人偷懶沒統一。
 
 分流的理由是**委派的正當性有邊界**。委派存在的唯一目的,是不要把圖內選單已經有的對話框再寫一份(見 `extension.ts` 的 `runRefActionInGraph` 註解)。對單一動作,這個理由成立。但批次對話框在圖內**根本不存在**,所以「沿用」對批次不成立;剩下的只有委派的成本:`openGraphView()` 會把圖形面板叫到前景,而 webview 隱藏時會掉訊息(沒開 `retainContextWhenHidden`),現有的 `pendingRefAction` + `seq` 雙路投遞就是為了補償這件事。對一個「連 UI 都不需要」的動作付這個成本是純虧。
 
@@ -16,7 +16,7 @@ status: accepted
 
 ## 考慮過但否決的方案
 
-**批次一律改在 extension host 原生執行。** 側邊欄操作不再彈出圖形,而且批次確認框剛好就是 issue #12「清理遺留分支對話框」需要的那個 UI,兩者可以共用。(文案不是問題:webview 的字串全部由 `src/extension/webviewL10n.ts` 以 `l10n.t()` 從同一份 `l10n/bundle.l10n.json` 投影過去,host 與 webview 本來就共用一套 l10n。)否決原因是**互動形狀**:原生 modal 只有按鈕、沒有 checkbox,批次刪除的「強制刪除」與「同時刪除遠端」在原生只能攤成多顆按鈕或兩段式 QuickPick。單一刪除與批次刪除並排在同一個右鍵選單上,卻是兩種互動形狀,使用者會讀成兩個不同的功能。
+**批次一律改在 extension host 原生執行。** 側邊欄操作不再彈出圖形,而且批次確認框剛好就是 issue #12「清理遺留分支對話框」需要的那個 UI,兩者可以共用。(文案不是問題:webview 的字串全部由 `packages/webview/src/webviewL10n.ts` 以 `l10n.t()` 從同一份 `packages/shared/l10n/bundle.l10n.json` 投影過去,host 與 webview 本來就共用一套 l10n。)否決原因是**互動形狀**:原生 modal 只有按鈕、沒有 checkbox,批次刪除的「強制刪除」與「同時刪除遠端」在原生只能攤成多顆按鈕或兩段式 QuickPick。單一刪除與批次刪除並排在同一個右鍵選單上,卻是兩種互動形狀,使用者會讀成兩個不同的功能。
 
 **批次一律委派給 webview。** 一致,但為了複製 5 個分支名而把整個圖形面板叫到前景。
 

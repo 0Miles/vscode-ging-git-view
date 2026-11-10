@@ -1,2 +1,12 @@
+packages:
+  - packages/*
+  - apps/*
+
+# Dev-tool versions more than one workspace package pins. Runtime dependencies
+# stay literal: the extension's manifest is packaged as written.
+catalog:
+  "@types/node": ^20.19.39
+  esbuild: ^0.28.0
+
 onlyBuiltDependencies:
   - esbuild

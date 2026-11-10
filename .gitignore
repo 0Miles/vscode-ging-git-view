@@ -1,8 +1,15 @@
-/.vscode-test/
-/media/*.js
-/node_modules/
+.vscode-test/
+node_modules/
 **/out/
 *.vsix
+
+# Copied into the extension at build / package time (esbuild.js, vscode:prepublish)
+/apps/vscode/media/
+/apps/vscode/l10n/
+/apps/vscode/README.md
+/apps/vscode/CHANGELOG.md
+/apps/vscode/LICENSE
+/apps/vscode/resources/icon.png
 
 *.orig
 

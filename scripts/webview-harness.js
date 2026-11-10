@@ -5,13 +5,13 @@
  * The GING webview is plain HTML/CSS/JS, but jsdom (used by the unit
  * tests) does no layout, so CSS / positioning / SVG changes can't be verified
  * there. This script builds a self-contained page that loads the *real* built
- * webview bundle (out/web.min.js) with mock VS Code theme variables, a mock
+ * webview bundle (apps/vscode/out/web.min.js) with mock VS Code theme variables, a mock
  * `viewState`/`l10n`/`acquireVsCodeApi`, and sample commit data, so it can be
  * opened in a real browser (manually, or via Playwright) to inspect computed
  * styles and take screenshots.
  *
  * Usage:
- *   node esbuild.js                       # build out/web.min.js first
+ *   pnpm run compile                      # build apps/vscode/out/web.min.js first
  *   node scripts/webview-harness.js       # writes out/webview-harness/
  *   (cd out/webview-harness && python3 -m http.server 8771)
  *   open http://localhost:8771/           # or drive with Playwright
@@ -28,6 +28,7 @@ const path = require("node:path");
 const esbuild = require("esbuild/lib/main.js");
 
 const ROOT = path.resolve(__dirname, "..");
+const APP = path.join(ROOT, "apps", "vscode");
 const OUT = path.join(ROOT, "out", "webview-harness");
 
 // Stub VS Code theme variables the webview CSS reads (a dark-theme-ish palette).
@@ -65,16 +66,16 @@ const THEME_VARS = {
 
 /**
  * The webview suites' viewState fixture, loaded rather than copied so the two
- * cannot drift (issue #76). It is TypeScript behind `@/` paths, so esbuild
- * bundles it into the harness output (resolving those paths from the tsconfig)
- * and node requires the bundle.
+ * cannot drift (issue #76). It is TypeScript importing the workspace packages,
+ * so esbuild bundles it into the harness output (resolving them from the
+ * webview package's node_modules) and node requires the bundle.
  *
- * @returns {typeof import("../tests/webview/viewStateFixture")}
+ * @returns {typeof import("../packages/webview/tests/viewStateFixture")}
  */
 function loadViewStateFixture() {
   const outfile = path.join(OUT, "viewStateFixture.cjs");
   esbuild.buildSync({
-    entryPoints: [path.join(ROOT, "tests", "webview", "viewStateFixture.ts")],
+    entryPoints: [path.join(ROOT, "packages", "webview", "tests", "viewStateFixture.ts")],
     bundle: true,
     format: "cjs",
     platform: "node",
@@ -92,7 +93,7 @@ function loadViewStateFixture() {
  * @returns {string[]}
  */
 function shippedPalette() {
-  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  const manifest = JSON.parse(fs.readFileSync(path.join(APP, "package.json"), "utf8"));
   return manifest.contributes.configuration.properties["ging-git-view.graph.palette"].default;
 }
 
@@ -228,7 +229,7 @@ const html = `<!DOCTYPE html>
         console.error(
           "webview-harness: no tr.commit rows rendered; the webview requested: " +
           (window.harnessRequests.map((m) => m.command).join(", ") || "nothing") +
-          ". The answers are probably out of sync with ResponseMessage in src/types.ts"
+          ". The answers are probably out of sync with ResponseMessage in packages/shared/src/types.ts"
         );
       }
     });
@@ -237,9 +238,9 @@ const html = `<!DOCTYPE html>
 </html>`;
 
 for (const f of ["main.css"]) {
-  fs.copyFileSync(path.join(ROOT, "media", f), path.join(OUT, f));
+  fs.copyFileSync(path.join(ROOT, "packages", "webview", "media", f), path.join(OUT, f));
 }
-fs.copyFileSync(path.join(ROOT, "out", "web.min.js"), path.join(OUT, "web.min.js"));
+fs.copyFileSync(path.join(APP, "out", "web.min.js"), path.join(OUT, "web.min.js"));
 fs.writeFileSync(path.join(OUT, "index.html"), html);
 process.stdout.write(
   "Wrote " + OUT + "/index.html — serve it (python3 -m http.server) and open in a browser.\n"

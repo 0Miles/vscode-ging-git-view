@@ -7,7 +7,13 @@
     "oxlint/style.config.json"
   ],
   "jsPlugins": [{ "name": "import-js", "specifier": "eslint-plugin-import" }],
-  "ignorePatterns": [".pnpm-store/**", ".idea/**", "out/**", "node_modules/**", "*.config.js"],
+  "ignorePatterns": [
+    ".pnpm-store/**",
+    ".idea/**",
+    "**/out/**",
+    "**/node_modules/**",
+    "*.config.js"
+  ],
   "env": {
     "node": true
   },
@@ -28,14 +34,14 @@
         "groups": ["builtin", "external", "internal", ["parent", "sibling", "index"]],
         "pathGroups": [
           {
-            "pattern": "@/**",
-            "group": "internal",
-            "position": "before"
-          },
-          {
-            "pattern": "@tests/**",
+            "pattern": "@ging/*/tests/**",
             "group": "internal",
             "position": "after"
+          },
+          {
+            "pattern": "@ging/**",
+            "group": "internal",
+            "position": "before"
           }
         ],
         "pathGroupsExcludedImportTypes": ["builtin"],
@@ -61,16 +67,44 @@
   },
   "overrides": [
     {
-      "files": [".vscode-test.mjs"],
+      "files": ["apps/vscode/.vscode-test.mjs"],
       "rules": {
         "import/named": "off"
       }
     },
     {
-      "files": ["src/webview/**/*.ts"],
+      "files": ["packages/webview/**/*.ts"],
       "env": {
         "node": false,
         "browser": true
+      }
+    },
+    {
+      // Runs in both the webview and the extension host, so neither set of globals
+      "files": ["packages/shared/**/*.ts"],
+      "env": {
+        "node": false,
+        "browser": false
+      }
+    },
+    {
+      // The packages are host-neutral; only apps/vscode lists @types/vscode. That
+      // alone fails the typecheck on a clean checkout, but not where a parent
+      // directory has its own node_modules with the types in it (a worktree
+      // inside a checkout), so the boundary is held here as well.
+      "files": ["packages/**"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "vscode",
+                "message": "packages/* must not depend on the VS Code API; take what you need as a parameter and let apps/vscode pass it."
+              }
+            ]
+          }
+        ]
       }
     }
   ]

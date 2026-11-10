@@ -1,0 +1,123 @@
+import { beforeAll, describe, expect, it, vi } from "vitest";
+
+import type * as GG from "@ging/shared/types";
+
+import { createVscodeMock, DEFAULT_REPO, makeViewState, receive, setupHtml } from "./setup";
+
+const viewState = makeViewState({
+  combineLocalAndRemoteBranchLabels: false,
+  // The repo the host would seed for this set: `null` alongside a non-empty
+  // `repos` is a shape the host no longer produces (`pickBootRepo` falls
+  // through to the first live known repository), and taking it literally boots
+  // the panel onto no repository at all — which sends no load, so there is no
+  // answer for this suite's broken response to be an answer *to*.
+  lastActiveRepo: DEFAULT_REPO
+});
+
+/** A response whose payload breaks the handler applying it — the shape of the
+ *  failure this suite is about: a handler that throws part-way through, leaving
+ *  the view half-applied (issue #39). */
+const brokenResponse = {
+  command: "loadBranches",
+  token: 0,
+  branches: null,
+  head: null,
+  hard: true,
+  isRepo: true,
+  filter: []
+} as unknown as GG.ResponseMessage;
+
+function reports(mock: ReturnType<typeof createVscodeMock>): GG.WebviewErrorReport[] {
+  return mock.sentMessages
+    .filter((m): m is GG.RequestReportError => m.command === "reportError")
+    .map((m) => m.report);
+}
+
+describe("failures the webview cannot handle (issue #39)", () => {
+  let mock: ReturnType<typeof createVscodeMock>;
+  let consoleError: ReturnType<typeof vi.spyOn>;
+
+  beforeAll(async () => {
+    vi.resetModules();
+    mock = createVscodeMock();
+    setupHtml(viewState);
+    consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    await import("@ging/webview/main");
+  });
+
+  it("reports the message it could not apply, with the stack", () => {
+    mock.clearMessages();
+    receive(brokenResponse);
+
+    expect(reports(mock)).toHaveLength(1);
+    const report = reports(mock)[0]!;
+    expect(report.origin).toBe("message");
+    // The command is what turns "something broke" into "this operation did not
+    // complete" — the host shows the user nothing without it.
+    expect(report.command).toBe("loadBranches");
+    expect(report.message).toContain("TypeError");
+    expect(report.stack).toBeTypeOf("string");
+  });
+
+  it("still hands the developer their console stack", () => {
+    // Catching must not make an error that used to be obvious in the Webview
+    // Developer Tools any harder to notice.
+    expect(consoleError).toHaveBeenCalled();
+  });
+
+  it("reports every occurrence, leaving what to do about repeats to the host", () => {
+    // Both surfaces the host owns treat repetition differently (ADR-0016), and
+    // neither rule can be applied from here without pre-empting the other.
+    mock.clearMessages();
+    receive(brokenResponse);
+    receive(brokenResponse);
+
+    expect(reports(mock)).toHaveLength(2);
+  });
+
+  it("reports what escapes into a timer or an event handler", () => {
+    mock.clearMessages();
+    window.dispatchEvent(
+      new ErrorEvent("error", { error: new Error("late boom"), message: "late boom" })
+    );
+
+    expect(reports(mock)).toEqual([
+      {
+        origin: "uncaught",
+        // No message was being applied, so there is no operation to name.
+        command: null,
+        message: "Error: late boom",
+        stack: expect.stringContaining("late boom")
+      }
+    ]);
+  });
+
+  it("reports a rejected promise nobody caught", () => {
+    mock.clearMessages();
+    // Built by hand: jsdom has no PromiseRejectionEvent constructor, but it
+    // dispatches the event the same way the webview's browser does.
+    const event = new Event("unhandledrejection");
+    Object.defineProperty(event, "reason", { value: new Error("dangling") });
+    window.dispatchEvent(event);
+
+    expect(reports(mock)).toMatchObject([
+      { origin: "unhandledRejection", command: null, message: "Error: dangling" }
+    ]);
+  });
+
+  it("keeps listening after a failure, rather than dying with it", () => {
+    mock.clearMessages();
+    receive({
+      command: "loadCommits",
+      token: 0,
+      commits: null,
+      head: null,
+      moreCommitsAvailable: false,
+      hard: true
+    } as unknown as GG.ResponseMessage);
+
+    // The catch swallowed the exception, not the listener: the next message is
+    // still received, and its own failure still reported under its own name.
+    expect(reports(mock)).toMatchObject([{ origin: "message", command: "loadCommits" }]);
+  });
+});

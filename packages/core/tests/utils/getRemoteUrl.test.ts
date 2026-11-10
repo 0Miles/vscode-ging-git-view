@@ -1,0 +1,34 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { getRemoteUrl } from "@ging/core/backend/utils/git";
+
+import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
+
+let repoWithRemote: string;
+let repoWithoutRemote: string;
+
+beforeAll(() => {
+  repoWithRemote = makeRepo();
+  git(["remote", "add", "origin", "https://github.com/some/repo.git"], repoWithRemote);
+
+  repoWithoutRemote = makeRepo();
+});
+
+afterAll(() => {
+  rmrf(repoWithRemote);
+  rmrf(repoWithoutRemote);
+});
+
+describe("getRemoteUrl", () => {
+  it("returns the remote origin URL", async () => {
+    expect(await getRemoteUrl(repoWithRemote, "git")).toBe("https://github.com/some/repo.git");
+  });
+
+  it("returns null when there is no remote", async () => {
+    expect(await getRemoteUrl(repoWithoutRemote, "git")).toBeNull();
+  });
+
+  it("returns null for a non-existent path", async () => {
+    expect(await getRemoteUrl("/tmp/ngg-test-does-not-exist-xyz", "git")).toBeNull();
+  });
+});

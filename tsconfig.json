@@ -1,21 +1,10 @@
 {
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "target": "es6",
-    "lib": ["es2023"],
-    "noEmit": true,
-    "strict": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "skipLibCheck": true,
-    "isolatedModules": true,
-    "esModuleInterop": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"],
-      "@tests/*": ["tests/*"]
-    }
-  }
+    "lib": ["es2023", "dom"],
+    "types": ["node"],
+    // The webview harness is plain JS run by node; it opts in with `// @ts-check`.
+    "allowJs": true
+  },
+  "include": ["scripts/webview-harness.js"]
 }

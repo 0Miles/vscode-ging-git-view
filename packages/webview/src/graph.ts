@@ -1,0 +1,626 @@
+import type { GitCommitNode } from "@ging/shared/backend/types";
+
+interface UnavailablePoint {
+  connectsTo: VertexOrNull;
+  onBranch: Branch;
+}
+type VertexOrNull = Vertex | null;
+
+class Branch {
+  private lines: Line[] = [];
+  private colour: number;
+  private end: number = 0;
+  private numUncommitted: number = 0;
+
+  constructor(colour: number) {
+    this.colour = colour;
+  }
+
+  public addLine(p1: Point, p2: Point, isCommitted: boolean, lockedFirst: boolean) {
+    this.lines.push({ p1: p1, p2: p2, lockedFirst: lockedFirst });
+    if (isCommitted) {
+      if (p2.y < this.numUncommitted) this.numUncommitted = p2.y;
+    } else {
+      this.numUncommitted++;
+    }
+  }
+  public getColour() {
+    return this.colour;
+  }
+  public getEnd() {
+    return this.end;
+  }
+  public setEnd(end: number) {
+    this.end = end;
+  }
+  public draw(svg: SVGElement, config: Config, expandAt: number) {
+    let colour = config.graphColours[this.colour % config.graphColours.length],
+      i,
+      x1,
+      y1,
+      x2,
+      y2,
+      lines: PlacedLine[] = [],
+      curPath = "",
+      curColour = "",
+      d = config.grid.y * (config.graphStyle === "angular" ? 0.38 : 0.8);
+
+    // Convert branch lines into pixel coordinates, respecting expanded commit extensions
+    for (i = 0; i < this.lines.length; i++) {
+      x1 = this.lines[i].p1.x * config.grid.x + config.grid.offsetX;
+      y1 = this.lines[i].p1.y * config.grid.y + config.grid.offsetY;
+      x2 = this.lines[i].p2.x * config.grid.x + config.grid.offsetX;
+      y2 = this.lines[i].p2.y * config.grid.y + config.grid.offsetY;
+
+      // If a commit is expanded, we needd to stretch the graph for the height of the commit details view
+      if (expandAt > -1) {
+        if (this.lines[i].p1.y > expandAt) {
+          // If the line starts after the expansion, move the whole line lower
+          y1 += config.grid.expandY;
+          y2 += config.grid.expandY;
+        } else if (this.lines[i].p2.y > expandAt) {
+          // If the line crosses the expansion
+          if (x1 === x2) {
+            // The line is vertical, extend the endpoint past the expansion
+            y2 += config.grid.expandY;
+          } else if (this.lines[i].lockedFirst) {
+            // If the line is locked to the first point, the transition stays in its normal position
+            lines.push({
+              p1: { x: x1, y: y1 },
+              p2: { x: x2, y: y2 },
+              isCommitted: i >= this.numUncommitted,
+              lockedFirst: this.lines[i].lockedFirst
+            }); // Display the normal transition
+            lines.push({
+              p1: { x: x2, y: y1 + config.grid.y },
+              p2: { x: x2, y: y2 + config.grid.expandY },
+              isCommitted: i >= this.numUncommitted,
+              lockedFirst: this.lines[i].lockedFirst
+            }); // Extend the line over the expansion from the transition end point
+            continue;
+          } else {
+            // If the line is locked to the second point, the transition moves to after the expansion
+            lines.push({
+              p1: { x: x1, y: y1 },
+              p2: { x: x1, y: y2 - config.grid.y + config.grid.expandY },
+              isCommitted: i >= this.numUncommitted,
+              lockedFirst: this.lines[i].lockedFirst
+            }); // Extend the line over the expansion to the new transition start point
+            y1 += config.grid.expandY;
+            y2 += config.grid.expandY;
+          }
+        }
+      }
+      lines.push({
+        p1: { x: x1, y: y1 },
+        p2: { x: x2, y: y2 },
+        isCommitted: i >= this.numUncommitted,
+        lockedFirst: this.lines[i].lockedFirst
+      });
+    }
+
+    // Simplify consecutive lines that are straight by removing the 'middle'
+    // point. One forward pass into a new array rather than `splice` on this
+    // one: splice moves every remaining element, and the merge does not advance
+    // afterwards, so a branch drawn as one long vertical run — master across
+    // the whole graph, the common case — spliced at nearly every segment. That
+    // made `draw` quadratic in the branch's length, and `render` runs it for
+    // every branch on every redraw, including each mousemove of a Commit
+    // Details View resize.
+    const merged: PlacedLine[] = [];
+    for (const line of lines) {
+      const prev = merged[merged.length - 1];
+      if (
+        prev !== undefined &&
+        prev.p1.x === prev.p2.x &&
+        prev.p2.x === line.p1.x &&
+        line.p1.x === line.p2.x &&
+        prev.p2.y === line.p1.y &&
+        prev.isCommitted === line.isCommitted
+      ) {
+        prev.p2.y = line.p2.y;
+      } else {
+        merged.push(line);
+      }
+    }
+    lines = merged;
+
+    // Iterate through all lines, producing and adding the svg paths to the DOM
+    for (i = 0; i < lines.length; i++) {
+      x1 = lines[i].p1.x;
+      y1 = lines[i].p1.y;
+      x2 = lines[i].p2.x;
+      y2 = lines[i].p2.y;
+
+      // If the new point belongs to a different path, render the current path and reset it for the new path
+      if (curPath !== "" && i > 0 && lines[i].isCommitted !== lines[i - 1].isCommitted) {
+        this.drawPath(
+          svg,
+          curPath,
+          curColour,
+          curColour === "#808080" && config.uncommittedChangesAtHead
+        );
+        curPath = "";
+        curColour = "";
+      }
+
+      // If the path hasn't been started or the new point belongs to a different path, move to p1
+      if (curPath === "" || (i > 0 && (x1 !== lines[i - 1].p2.x || y1 !== lines[i - 1].p2.y)))
+        curPath += "M" + x1.toFixed(0) + "," + y1.toFixed(1);
+
+      // If the path hasn't been assigned a colour, assign it
+      if (curColour === "") curColour = lines[i].isCommitted ? colour : "#808080";
+
+      if (x1 === x2) {
+        // If the path is vertical, draw a straight line
+        curPath += "L" + x2.toFixed(0) + "," + y2.toFixed(1);
+      } else {
+        // If the path moves horizontal, draw the appropriate transition
+        if (config.graphStyle === "angular") {
+          curPath +=
+            "L" +
+            (lines[i].lockedFirst
+              ? x2.toFixed(0) + "," + (y2 - d).toFixed(1)
+              : x1.toFixed(0) + "," + (y1 + d).toFixed(1)) +
+            "L" +
+            x2.toFixed(0) +
+            "," +
+            y2.toFixed(1);
+        } else {
+          curPath +=
+            "C" +
+            x1.toFixed(0) +
+            "," +
+            (y1 + d).toFixed(1) +
+            " " +
+            x2.toFixed(0) +
+            "," +
+            (y2 - d).toFixed(1) +
+            " " +
+            x2.toFixed(0) +
+            "," +
+            y2.toFixed(1);
+        }
+      }
+    }
+
+    // Draw the remaining path (dashed if it's the uncommitted line).
+    this.drawPath(
+      svg,
+      curPath,
+      curColour,
+      curColour === "#808080" && config.uncommittedChangesAtHead
+    );
+  }
+  private drawPath(svg: SVGElement, path: string, colour: string, dashed: boolean = false) {
+    let line1 = document.createElementNS("http://www.w3.org/2000/svg", "path"),
+      line2 = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    line1.setAttribute("class", "shaddow");
+    line1.setAttribute("d", path);
+    line2.setAttribute("class", "line");
+    line2.setAttribute("d", path);
+    line2.setAttribute("stroke", colour);
+    // Dash the uncommitted-changes line when its open circle is at HEAD.
+    if (dashed) line2.setAttribute("stroke-dasharray", "2px");
+    svg.appendChild(line1);
+    svg.appendChild(line2);
+  }
+}
+
+class Vertex {
+  private x: number = 0;
+  private y: number;
+  private parents: Vertex[] = [];
+  private nextParent: number = 0;
+  private onBranch: Branch | null = null;
+  private isCommitted: boolean = true;
+  private isCurrent: boolean = false;
+  private nextX: number = 0;
+  private connections: UnavailablePoint[] = [];
+
+  constructor(y: number) {
+    this.y = y;
+  }
+
+  /** The vertex's row index; -1 marks the sentinel "null" vertex used for a
+   *  parent that lies outside the loaded commits. */
+  public getId() {
+    return this.y;
+  }
+  public addParent(vertex: Vertex) {
+    this.parents.push(vertex);
+  }
+  public hasParents() {
+    return this.parents.length > 0;
+  }
+  public getNextParent(): Vertex | null {
+    if (this.nextParent < this.parents.length) return this.parents[this.nextParent];
+    return null;
+  }
+  public getLastParent(): Vertex | null {
+    if (this.nextParent < 1) return null;
+    return this.parents[this.nextParent - 1];
+  }
+  public registerParentProcessed() {
+    this.nextParent++;
+  }
+  public isMerge() {
+    return this.parents.length > 1;
+  }
+
+  public addToBranch(branch: Branch, x: number) {
+    if (this.onBranch === null) {
+      this.onBranch = branch;
+      this.x = x;
+    }
+  }
+  public isNotOnBranch() {
+    return this.onBranch === null;
+  }
+  public isOnThisBranch(branch: Branch) {
+    return this.onBranch === branch;
+  }
+  public getBranch() {
+    return this.onBranch;
+  }
+
+  public getPoint(): Point {
+    return { x: this.x, y: this.y };
+  }
+  public getNextPoint(): Point {
+    return { x: this.nextX, y: this.y };
+  }
+  public getIsCommitted() {
+    return this.isCommitted;
+  }
+
+  public getPointConnectingTo(vertex: VertexOrNull, onBranch: Branch) {
+    for (let i = 0; i < this.connections.length; i++) {
+      if (this.connections[i].connectsTo === vertex && this.connections[i].onBranch === onBranch)
+        return { x: i, y: this.y };
+    }
+    return null;
+  }
+  public registerUnavailablePoint(x: number, connectsToVertex: VertexOrNull, onBranch: Branch) {
+    if (x === this.nextX) {
+      this.nextX = x + 1;
+      this.connections[x] = { connectsTo: connectsToVertex, onBranch: onBranch };
+    }
+  }
+
+  public getColour() {
+    return this.onBranch !== null ? this.onBranch.getColour() : 0;
+  }
+  public setNotCommited() {
+    this.isCommitted = false;
+  }
+  public setCurrent() {
+    this.isCurrent = true;
+  }
+  public draw(svg: SVGElement, config: Config, expandOffset: boolean) {
+    if (this.onBranch === null) return;
+
+    let circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    let colour = this.isCommitted
+      ? config.graphColours[this.onBranch.getColour() % config.graphColours.length]
+      : "#808080";
+    const cx = (this.x * config.grid.x + config.grid.offsetX).toString();
+    const cy = (
+      this.y * config.grid.y +
+      config.grid.offsetY +
+      (expandOffset ? config.grid.expandY : 0)
+    ).toString();
+    circle.setAttribute("cx", cx);
+    circle.setAttribute("cy", cy);
+    circle.setAttribute("r", "4");
+    if (this.isCurrent) {
+      // An outer ring hugging the coloured stroke, styled (via CSS) like the
+      // editor-background outline normal nodes get, so the HEAD node carries
+      // the same cut-out edge as every other node.
+      let halo = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      halo.setAttribute("cx", cx);
+      halo.setAttribute("cy", cy);
+      halo.setAttribute("r", "5.5");
+      halo.setAttribute("class", "currentHalo");
+      svg.appendChild(halo);
+      circle.setAttribute("class", "current");
+      circle.setAttribute("stroke", colour);
+    } else {
+      circle.setAttribute("fill", colour);
+    }
+
+    svg.appendChild(circle);
+  }
+}
+
+export class Graph {
+  private config: Config;
+
+  private svg: SVGElement;
+  private svgGroup: SVGGElement | null = null;
+  private svgMaskRect: SVGRectElement;
+  private svgGradientStop1: SVGStopElement;
+  private svgGradientStop2: SVGStopElement;
+  private maxWidth: number = -1;
+
+  private vertices: Vertex[] = [];
+  private branches: Branch[] = [];
+  private availableColours: number[] = [];
+
+  constructor(id: string, config: Config) {
+    this.config = config;
+
+    let svgNamespace = "http://www.w3.org/2000/svg";
+    let defs = document.createElementNS(svgNamespace, "defs"),
+      linearGradient = document.createElementNS(svgNamespace, "linearGradient"),
+      mask = document.createElementNS(svgNamespace, "mask");
+    this.svg = <SVGElement>document.createElementNS(svgNamespace, "svg");
+    this.svgMaskRect = <SVGRectElement>document.createElementNS(svgNamespace, "rect");
+    this.svgGradientStop1 = <SVGStopElement>document.createElementNS(svgNamespace, "stop");
+    this.svgGradientStop2 = <SVGStopElement>document.createElementNS(svgNamespace, "stop");
+
+    linearGradient.setAttribute("id", "GraphGradient");
+    this.svgGradientStop1.setAttribute("stop-color", "white");
+    linearGradient.appendChild(this.svgGradientStop1);
+    this.svgGradientStop2.setAttribute("stop-color", "black");
+    linearGradient.appendChild(this.svgGradientStop2);
+    defs.appendChild(linearGradient);
+    mask.setAttribute("id", "GraphMask");
+    this.svgMaskRect.setAttribute("fill", "url(#GraphGradient)");
+    mask.appendChild(this.svgMaskRect);
+    defs.appendChild(mask);
+    this.svg.appendChild(defs);
+    this.setDimensions(0, 0);
+    document.getElementById(id)!.appendChild(this.svg);
+  }
+
+  /** `onlyFollowFirstParent` says the commits came from a `--first-parent`
+   *  walk. Their `parentHashes` still list every parent — other readers need
+   *  the real ones — but the walk only loads a later parent when some shown
+   *  ref reaches it, so an unloaded later parent gets no line off the bottom
+   *  edge (#205). A loaded one keeps its line: that is a merged branch whose
+   *  ref remains, and cutting it would leave the branch looking unmerged. */
+  public loadCommits(
+    commits: GitCommitNode[],
+    commitHead: string | null,
+    commitLookup: { [hash: string]: number },
+    onlyFollowFirstParent: boolean
+  ) {
+    this.vertices = [];
+    this.branches = [];
+    this.availableColours = [];
+
+    let i: number, j: number;
+    // A sentinel parent (id -1) for parents outside the loaded commits, so a
+    // branch line extends off the bottom edge rather than dead-ending.
+    const nullVertex = new Vertex(-1);
+    for (i = 0; i < commits.length; i++) {
+      this.vertices.push(new Vertex(i));
+    }
+    for (i = 0; i < commits.length; i++) {
+      for (j = 0; j < commits[i].parentHashes.length; j++) {
+        if (typeof commitLookup[commits[i].parentHashes[j]] === "number") {
+          this.vertices[i].addParent(this.vertices[commitLookup[commits[i].parentHashes[j]]]);
+        } else if (!onlyFollowFirstParent || j === 0) {
+          this.vertices[i].addParent(nullVertex);
+        }
+      }
+    }
+
+    if (commits.length > 0) {
+      if (commits[0].hash === "*") {
+        this.vertices[0].setNotCommited();
+        // The open (hollow) circle goes at the checked-out commit or the
+        // uncommitted-changes node, per `graph.uncommittedChanges`.
+        if (
+          this.config.uncommittedChangesAtHead &&
+          commitHead !== null &&
+          typeof commitLookup[commitHead] === "number"
+        ) {
+          this.vertices[commitLookup[commitHead]].setCurrent();
+        } else {
+          this.vertices[0].setCurrent();
+        }
+      } else if (commitHead !== null && typeof commitLookup[commitHead] === "number") {
+        this.vertices[commitLookup[commitHead]].setCurrent();
+      }
+    }
+
+    // The cursor is what keeps this from being quadratic: `findStart` is called
+    // once per `determinePath`, and `determinePath` runs on the order of once
+    // per commit, so rescanning from zero each time re-walked the whole vertex
+    // list per commit.
+    //
+    // Safe because the predicate only ever falls, never rises. `getNextParent`
+    // returns null once every parent is processed, and `registerParentProcessed`
+    // only increments; `isNotOnBranch` goes false when `addToBranch` sets the
+    // branch, and that setter is guarded on `onBranch === null` and never
+    // clears it. So an index that failed the predicate cannot pass it later,
+    // and nothing before the cursor is worth looking at again. The cursor is
+    // not advanced past `i` — the same vertex may still have parents left.
+    let searchFrom = 0;
+    while ((i = this.findStart(searchFrom)) !== -1) {
+      searchFrom = i;
+      this.determinePath(i);
+    }
+  }
+
+  public render(expandedCommit: ExpandedCommit | null) {
+    let group = <SVGGElement>document.createElementNS("http://www.w3.org/2000/svg", "g"),
+      i,
+      width = this.getWidth();
+    group.setAttribute("mask", "url(#GraphMask)");
+
+    for (i = 0; i < this.branches.length; i++) {
+      this.branches[i].draw(group, this.config, expandedCommit !== null ? expandedCommit.id : -1);
+    }
+    for (i = 0; i < this.vertices.length; i++) {
+      this.vertices[i].draw(group, this.config, expandedCommit !== null && i > expandedCommit.id);
+    }
+
+    if (this.svgGroup !== null) this.svg.removeChild(this.svgGroup);
+    this.svg.appendChild(group);
+    this.svgGroup = group;
+    this.setDimensions(width, this.getHeight(expandedCommit));
+    this.applyMaxWidth(width);
+  }
+
+  public clear() {
+    if (this.svgGroup !== null) {
+      this.svg.removeChild(this.svgGroup);
+      this.svgGroup = null;
+      this.setDimensions(0, 0);
+    }
+  }
+
+  public getWidth() {
+    let x = 0,
+      i,
+      p;
+    for (i = 0; i < this.vertices.length; i++) {
+      p = this.vertices[i].getNextPoint();
+      if (p.x > x) x = p.x;
+    }
+    return x * this.config.grid.x;
+  }
+
+  public getHeight(expandedCommit: ExpandedCommit | null) {
+    return (
+      this.vertices.length * this.config.grid.y +
+      this.config.grid.offsetY -
+      this.config.grid.y / 2 +
+      (expandedCommit !== null ? this.config.grid.expandY : 0)
+    );
+  }
+
+  public getVertexColour(v: number) {
+    return this.vertices[v].getColour() % this.config.graphColours.length;
+  }
+
+  /** Pixel x-offset just to the right of each commit's vertex, so branch labels
+   *  can be aligned to the graph (`referenceLabels.alignment`). */
+  public getWidthsAtVertices(): number[] {
+    const widths: number[] = [];
+    for (let i = 0; i < this.vertices.length; i++) {
+      widths[i] =
+        this.config.grid.offsetX + this.vertices[i].getNextPoint().x * this.config.grid.x - 2;
+    }
+    return widths;
+  }
+
+  public limitMaxWidth(maxWidth: number) {
+    this.maxWidth = maxWidth;
+    this.applyMaxWidth(this.getWidth());
+  }
+
+  private setDimensions(width: number, height: number) {
+    this.svg.setAttribute("width", width.toString());
+    this.svg.setAttribute("height", height.toString());
+    this.svgMaskRect.setAttribute("width", width.toString());
+    this.svgMaskRect.setAttribute("height", height.toString());
+  }
+
+  private applyMaxWidth(width: number) {
+    let offset1 = this.maxWidth > -1 ? (this.maxWidth - 12) / width : 1;
+    let offset2 = this.maxWidth > -1 ? this.maxWidth / width : 1;
+    this.svgGradientStop1.setAttribute("offset", offset1.toString());
+    this.svgGradientStop2.setAttribute("offset", offset2.toString());
+  }
+
+  private determinePath(startAt: number) {
+    let i = startAt;
+    let vertex = this.vertices[i],
+      parentVertex = this.vertices[i].getNextParent();
+    let lastPoint = vertex.isNotOnBranch() ? vertex.getNextPoint() : vertex.getPoint(),
+      curPoint;
+
+    if (
+      parentVertex !== null &&
+      parentVertex.getId() > -1 &&
+      vertex.isMerge() &&
+      !vertex.isNotOnBranch() &&
+      !parentVertex.isNotOnBranch()
+    ) {
+      // Branch is a merge between two vertices already on branches
+      let foundPointToParent = false,
+        parentBranch = parentVertex.getBranch()!;
+      for (i = startAt + 1; i < this.vertices.length; i++) {
+        curPoint = this.vertices[i].getPointConnectingTo(parentVertex, parentBranch); // Check if there is already a point connecting the ith vertex to the required parent
+        if (curPoint !== null) {
+          foundPointToParent = true; // Parent was found
+        } else {
+          curPoint = this.vertices[i].getNextPoint(); // Parent couldn't be found, choose the next avaialble point for the vertex
+        }
+        parentBranch.addLine(
+          lastPoint,
+          curPoint,
+          vertex.getIsCommitted(),
+          !foundPointToParent && this.vertices[i] !== parentVertex ? lastPoint.x < curPoint.x : true
+        );
+        this.vertices[i].registerUnavailablePoint(curPoint.x, parentVertex, parentBranch);
+        lastPoint = curPoint;
+
+        if (foundPointToParent) {
+          vertex.registerParentProcessed();
+          break;
+        }
+      }
+      // The downward scan never found a point connecting to the parent — only
+      // possible when the parent vertex sits *above* this one (e.g. a stash
+      // placed by date above its base commit). Mark the parent processed anyway
+      // so findStart() makes progress instead of looping on this vertex forever.
+      if (!foundPointToParent) vertex.registerParentProcessed();
+    } else {
+      // Branch is normal
+      let branch = new Branch(this.getAvailableColour(startAt));
+      vertex.addToBranch(branch, lastPoint.x);
+      vertex.registerUnavailablePoint(lastPoint.x, vertex, branch);
+      for (i = startAt + 1; i < this.vertices.length; i++) {
+        curPoint =
+          parentVertex === this.vertices[i] && !parentVertex.isNotOnBranch()
+            ? this.vertices[i].getPoint()
+            : this.vertices[i].getNextPoint();
+        branch.addLine(lastPoint, curPoint, vertex.getIsCommitted(), lastPoint.x < curPoint.x);
+        this.vertices[i].registerUnavailablePoint(curPoint.x, parentVertex, branch);
+        lastPoint = curPoint;
+
+        if (parentVertex === this.vertices[i]) {
+          vertex.registerParentProcessed();
+          let parentVertexOnBranch = !parentVertex.isNotOnBranch();
+          parentVertex.addToBranch(branch, curPoint.x);
+          vertex = parentVertex;
+          parentVertex = vertex.getNextParent();
+          if (parentVertex === null || parentVertexOnBranch) break;
+        }
+      }
+      // Reached the bottom of the graph with a parent still pending: either an
+      // off-graph parent (the null vertex), or a parent lying *above* this
+      // vertex so the downward scan never reached it (e.g. a stash placed by
+      // date above its base commit). Either way mark it processed so the branch
+      // ends here and findStart doesn't loop on this vertex forever.
+      if (i === this.vertices.length && parentVertex !== null) {
+        vertex.registerParentProcessed();
+      }
+      branch.setEnd(i);
+      this.branches.push(branch);
+      this.availableColours[branch.getColour()] = i;
+    }
+  }
+
+  private findStart(from: number) {
+    for (let i = from; i < this.vertices.length; i++) {
+      if (this.vertices[i].getNextParent() !== null || this.vertices[i].isNotOnBranch()) return i;
+    }
+    return -1;
+  }
+
+  private getAvailableColour(startAt: number) {
+    for (let i = 0; i < this.availableColours.length; i++) {
+      if (startAt > this.availableColours[i]) {
+        return i;
+      }
+    }
+    this.availableColours.push(0);
+    return this.availableColours.length - 1;
+  }
+}

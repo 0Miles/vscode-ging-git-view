@@ -6,8 +6,9 @@
   "ignorePatterns": [
     ".pnpm-store/**",
     ".idea/**",
-    "out/**",
-    "node_modules/**",
+    "**/out/**",
+    "**/.vscode-test/**",
+    "**/node_modules/**",
     "**/*.ctx.md",
     "CHANGELOG.md"
   ],
