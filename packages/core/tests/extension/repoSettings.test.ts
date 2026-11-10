@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveRepoScope, sideViewStateChanged } from "@ging/core/extension/repoSettings";
+import {
+  resolveRepoScope,
+  resolveShowRemoteBranches,
+  sideViewStateChanged
+} from "@ging/core/extension/repoSettings";
 import type { RepoScopeSettings } from "@ging/shared/types";
 
 const DEFAULTS: RepoScopeSettings = {
@@ -36,6 +40,18 @@ describe("resolveRepoScope", () => {
     expect(resolveRepoScope({ columnWidths: null, includeReflogCommits: null }, DEFAULTS)).toEqual(
       DEFAULTS
     );
+  });
+});
+
+describe("resolveShowRemoteBranches", () => {
+  it("takes the repo's override, false included, and the global setting where it has none", () => {
+    expect(resolveShowRemoteBranches({ columnWidths: null, showRemoteBranches: false }, true)).toBe(
+      false
+    );
+    expect(resolveShowRemoteBranches({ columnWidths: null, showRemoteBranches: null }, true)).toBe(
+      true
+    );
+    expect(resolveShowRemoteBranches(undefined, false)).toBe(false);
   });
 });
 
