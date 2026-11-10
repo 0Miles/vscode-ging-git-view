@@ -1,3 +1,4 @@
+import { fileChangeRevision } from "@ging/core/backend/utils/fileChangeRevision";
 import { abbrevCommit } from "@ging/core/backend/utils/string";
 import type { GitFileChangeOrigin, GitFileChangeType } from "@ging/shared/backend/types";
 
@@ -19,21 +20,6 @@ export type CommitDiffRequest = {
    *  `fileChangeRevision`). */
   origin?: GitFileChangeOrigin;
 };
-
-/**
- * The revision a commit's file change is read from: the commit itself, or, for
- * a stash's untracked file, the stash's third parent — the commit `git stash
- * push --include-untracked` keeps those files in, since the stash's own tree
- * has only its tracked files. The one place a file change's `origin` becomes a
- * revision: every reader of a CDV file (View Diff, View File at Revision, View
- * Diff with Working) asks here, and the webview never names the revision itself.
- */
-export function fileChangeRevision(
-  commitHash: string,
-  origin: GitFileChangeOrigin | undefined
-): string {
-  return origin === "untracked" ? commitHash + "^3" : commitHash;
-}
 
 /** One side of a diff editor: a file's contents at a commit. */
 export type DiffSide = { repo: string; filePath: string; commit: string };

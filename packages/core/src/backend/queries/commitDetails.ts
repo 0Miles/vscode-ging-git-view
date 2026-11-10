@@ -1,5 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
+import { fileChangeRevision } from "@ging/core/backend/utils/fileChangeRevision";
 import type { GitCommitDetails, QueryResult } from "@ging/shared/backend/types";
 
 import { parseDiffFileChanges } from "./diffFileChanges";
@@ -90,14 +91,14 @@ export async function commitDetails(
 
     details.fileChanges.push(...parseDiffFileChanges(nameStatusLines, numStatLines, firstFileLine));
 
-    // A stash created with --include-untracked stores those files in a third
-    // parent (<stash>^3), a root commit holding only them; list them so the
-    // stash's details include them. Diffing it as a root commit adds every
-    // file, counted like any other added file (a binary one included), and
-    // `origin` tells the readers to look there rather than in the stash's own
-    // tree (see `fileChangeRevision`).
+    // A stash created with --include-untracked stores those files in a commit
+    // of their own (see `fileChangeRevision`), a root commit holding only them;
+    // list them so the stash's details include them. Diffing it as a root
+    // commit adds every file, counted like any other added file (a binary one
+    // included), and `origin` tells the readers to look there rather than in
+    // the stash's own tree.
     if (input.isStash) {
-      const untrackedCommit = input.commitHash + "^3";
+      const untrackedCommit = fileChangeRevision(input.commitHash, "untracked");
       try {
         const [untrackedNameStatus, untrackedNumStat] = await Promise.all([
           fetchDiff(git, untrackedCommit, false, "--name-status"),
@@ -109,7 +110,7 @@ export async function commitDetails(
           details.fileChanges.push({ ...fileChange, origin: "untracked" });
         }
       } catch {
-        // No ^3 (stash had no untracked files) — nothing to add.
+        // No such commit (stash had no untracked files) — nothing to add.
       }
     }
 

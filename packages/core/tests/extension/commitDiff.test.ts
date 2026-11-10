@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  type CommitDiffRequest,
-  commitDiffView,
-  fileChangeRevision
-} from "@ging/core/extension/commitDiff";
+import { type CommitDiffRequest, commitDiffView } from "@ging/core/extension/commitDiff";
 
 const SHA = "a".repeat(40);
 const FROM = "b".repeat(40);
@@ -80,15 +76,5 @@ describe("commitDiffView", () => {
     expect(left).toEqual({ repo: "/repo", filePath: "src/a.ts", commit: `${SHA}^` });
     expect(right).toEqual({ repo: "/repo", filePath: "src/a.ts", commit: `${SHA}^3` });
     expect(title).toBe("a.ts (Added in aaaaaaaa)");
-  });
-});
-
-describe("fileChangeRevision", () => {
-  it("reads a file change from its commit", () => {
-    expect(fileChangeRevision(SHA, undefined)).toBe(SHA);
-  });
-
-  it("reads a stash's untracked file from the stash's third parent", () => {
-    expect(fileChangeRevision(SHA, "untracked")).toBe(`${SHA}^3`);
   });
 });
