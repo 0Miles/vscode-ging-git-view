@@ -3565,11 +3565,12 @@ class GitGraphView {
             }
           ],
           command === "popStash" ? l10n.stashPop : l10n.stashApply,
-          this.forStash(refName, (repo, values: string[]) => {
+          this.forStash(refName, (repo, expectedHash, values: string[]) => {
             sendMessage({
               command,
               repo,
               selector: refName,
+              expectedHash,
               reinstateIndex: values[0] === "checked"
             });
           }),
@@ -3589,8 +3590,8 @@ class GitGraphView {
           // dialogs' ({@link forStash}).
           showConfirmationDialog(
             fillTemplate(l10n.dialogStashDropConfirm, "<b><i>" + escapeHtml(refName) + "</i></b>"),
-            this.forStash(refName, (repo) => {
-              sendMessage({ command: "dropStash", repo, selector: refName });
+            this.forStash(refName, (repo, expectedHash) => {
+              sendMessage({ command: "dropStash", repo, selector: refName, expectedHash });
             }),
             sourceElem
           );
@@ -3599,8 +3600,8 @@ class GitGraphView {
           // Pre-fill with the stash's current displayed name (its commit
           // subject), taken from the loaded stash node for this ref.
           const currentMessage = this.stashNodeFor(refName)?.message ?? "";
-          const rename = this.forStash(refName, (repo, message: string) => {
-            sendMessage({ command: "renameStash", repo, selector: refName, message });
+          const rename = this.forStash(refName, (repo, expectedHash, message: string) => {
+            sendMessage({ command: "renameStash", repo, selector: refName, expectedHash, message });
           });
           showFormDialog(
             fillTemplate(l10n.dialogStashRenameTitle, "<b><i>" + escapeHtml(refName) + "</i></b>"),
@@ -5386,20 +5387,27 @@ class GitGraphView {
    * pop applies someone else's work before dropping it, so this is
    * {@link confirmForRepoAndHead}'s case rather than `confirmForRepo`'s — fail
    * safe, and say so.
+   *
+   * The bound hash is handed on to `actioned` too, to send as the action's
+   * `expectedHash`: this check can only see the graph's last reload, so the
+   * host re-checks the selector against the same hash just before git runs and
+   * refuses with the same message ({@link handleStashResponse}). This half
+   * answers at consent, with no round trip; that half covers a push the graph
+   * has not reloaded for yet.
    */
   private forStash<A extends unknown[]>(
     selector: string,
-    actioned: (repo: string, ...answer: A) => void
+    actioned: (repo: string, expectedHash: string, ...answer: A) => void
   ): (...answer: A) => void {
     // Never undefined here — the menu was opened on a row this lookup's own
     // list drew.
     const stashHash = this.stashNodeFor(selector)?.hash;
     return this.forRepo((repo, ...answer: A) => {
-      if (this.stashNodeFor(selector)?.hash !== stashHash) {
+      if (stashHash === undefined || this.stashNodeFor(selector)?.hash !== stashHash) {
         showErrorDialog(fillTemplate(l10n.dialogStashMoved, escapeHtml(selector)), null, null);
         return;
       }
-      actioned(repo, ...answer);
+      actioned(repo, stashHash, ...answer);
     });
   }
 
@@ -9401,9 +9409,6 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "checkoutAndPullBranch":
     case "checkoutCommit":
     case "dropCommit":
-    case "applyStash":
-    case "popStash":
-    case "dropStash":
     case "resetUncommittedChanges":
     case "cleanUntrackedFiles":
     case "continueOperation":
@@ -9415,7 +9420,6 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
     case "deleteRemoteBranch":
     case "deleteTag":
     case "fetchIntoLocalBranch":
-    case "renameStash":
     case "fastForwardBranch":
     case "mergeBranch":
     case "mergeCommit":
@@ -9437,6 +9441,12 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       // `refreshGraphOrDisplayError` is what closes the action's progress
       // dialog, so the omission strands the user behind it.
       refreshGraphOrDisplayError(msg.status, l10n[ACTION_FAILURE[msg.command]]);
+      break;
+    case "applyStash":
+    case "popStash":
+    case "dropStash":
+    case "renameStash":
+      handleStashResponse(msg.status, msg.movedSelector, l10n[ACTION_FAILURE[msg.command]]);
       break;
     case "operationState":
       gitGraph.showConflictBanner(msg.operation, msg.conflictedFiles);
@@ -9663,9 +9673,12 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
  *
  * `deleteBranch` and `pushBranch` are excluded because they do not belong
  * here: each reports a classification as well (`notFullyMerged`,
- * `remoteUpdatedSinceCheckout`) and has a response handler built on it. `fetch`
- * is included though it is not an action — its response carries
- * `status` and reports failure exactly the same way.
+ * `remoteUpdatedSinceCheckout`) and has a response handler built on it. The
+ * four stash actions report one too (`movedSelector`) and have their own arm,
+ * {@link handleStashResponse}, but stay in: any failure other than that one is
+ * reported with the message here. `fetch` is included though it is not an
+ * action — its response carries `status` and reports failure exactly the same
+ * way.
  *
  * The three rebases share one message deliberately: which of them ran was
  * decided by the dialog's ticks, not by the user, so they are one operation to
@@ -9719,6 +9732,26 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
     // during the action, so this is what surfaces the conflict banner without a
     // manual refresh. (Harmless for non-operation failures — state is unchanged.)
     raiseAnswerError(errorMessage, status, () => gitGraph.refresh(false));
+  }
+}
+
+/** Handle a stash action's response. A refusal because the selector no longer
+ *  named the stash the user agreed to — the host's re-check of `expectedHash`,
+ *  see `StashMovedError` — reads exactly as {@link GitGraphView.forStash}'s
+ *  refusal at consent does: it is the same rule, caught later. git ran nothing,
+ *  so there is no git error to show beneath it. The graph is refreshed once
+ *  it is dismissed, as for any failure: the stack it drew is the stale one. */
+function handleStashResponse(
+  status: GitCommandStatus,
+  movedSelector: string | null,
+  failure: string
+) {
+  if (movedSelector !== null) {
+    raiseAnswerError(fillTemplate(l10n.dialogStashMoved, escapeHtml(movedSelector)), null, () =>
+      gitGraph.refresh(false)
+    );
+  } else {
+    refreshGraphOrDisplayError(status, failure);
   }
 }
 

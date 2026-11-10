@@ -42,7 +42,13 @@ import {
   type RebaseTodoStager
 } from "@ging/core/backend/actions/rebase";
 import { getRemoteUrl } from "@ging/core/backend/actions/remote";
-import { applyStash, dropStash, popStash, renameStash } from "@ging/core/backend/actions/stash";
+import {
+  applyStash,
+  dropStash,
+  popStash,
+  renameStash,
+  stashRefusalFacts
+} from "@ging/core/backend/actions/stash";
 import { addTag, deleteTag, pushTag } from "@ging/core/backend/actions/tag";
 import {
   cleanUntrackedFiles,
@@ -278,10 +284,18 @@ export function registerMessageHandlers(
       stager: deps.sequenceEditor
     })
   );
-  registerAction("applyStash", (msg) => applyStash(gitClient.getInstance(), msg));
-  registerAction("popStash", (msg) => popStash(gitClient.getInstance(), msg));
-  registerAction("dropStash", (msg) => dropStash(gitClient.getInstance(), msg));
-  registerAction("renameStash", (msg) => renameStash(gitClient.getInstance(), msg));
+  registerAction(
+    "applyStash",
+    (msg) => applyStash(gitClient.getInstance(), msg),
+    stashRefusalFacts
+  );
+  registerAction("popStash", (msg) => popStash(gitClient.getInstance(), msg), stashRefusalFacts);
+  registerAction("dropStash", (msg) => dropStash(gitClient.getInstance(), msg), stashRefusalFacts);
+  registerAction(
+    "renameStash",
+    (msg) => renameStash(gitClient.getInstance(), msg),
+    stashRefusalFacts
+  );
   registerAction("fastForwardBranch", (msg) => fastForwardBranch(gitClient.getInstance(), msg));
   registerAction("resetUncommittedChanges", () => resetUncommittedChanges(gitClient.getInstance()));
   registerAction("cleanUntrackedFiles", () => cleanUntrackedFiles(gitClient.getInstance()));
