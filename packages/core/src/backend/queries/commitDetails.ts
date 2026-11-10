@@ -1,7 +1,7 @@
 import type { SimpleGit } from "simple-git";
 
 import { fileChangeRevision } from "@ging/core/backend/utils/fileChangeRevision";
-import type { GitCommitDetails, QueryResult } from "@ging/shared/backend/types";
+import type { GitCommitDetails, GitFileChange, QueryResult } from "@ging/shared/backend/types";
 
 import { parseDiffFileChanges } from "./diffFileChanges";
 
@@ -57,8 +57,8 @@ async function fetchCommitInfo(
 // broke the line parser. Root commits (no parent) use the `--root` form.
 //
 // The two-argument form prints no leading commit-hash line, whereas the
-// single-commit `--root` form does — so callers skip the first line only for
-// root commits (see `firstFileLine`).
+// single-commit `--root` form does — so the first line is skipped only for
+// root commits (see `fetchFileChanges`).
 async function fetchDiff(
   git: SimpleGit,
   commitHash: string,
@@ -74,6 +74,22 @@ async function fetchDiff(
   return (await git.raw(args)).split(eolRegex);
 }
 
+/** A commit's file changes, counted: against its first parent, or — a root
+ *  commit, `hasParents` false — as every file added. */
+async function fetchFileChanges(
+  git: SimpleGit,
+  commitHash: string,
+  hasParents: boolean
+): Promise<GitFileChange[]> {
+  const [nameStatusLines, numStatLines] = await Promise.all([
+    fetchDiff(git, commitHash, hasParents, "--name-status"),
+    fetchDiff(git, commitHash, hasParents, "--numstat")
+  ]);
+  // Only the single-commit `--root` form (no parents) prints a leading hash line.
+  const firstFileLine = hasParents ? 0 : 1;
+  return parseDiffFileChanges(nameStatusLines, numStatLines, firstFileLine);
+}
+
 export async function commitDetails(
   git: SimpleGit,
   input: CommitDetailsInput
@@ -82,14 +98,7 @@ export async function commitDetails(
     // The commit's parents decide the diff strategy, so fetch them first.
     const details = await fetchCommitInfo(git, input.commitHash, input.useMailmap);
     const hasParents = details.parents.length > 0;
-    const [nameStatusLines, numStatLines] = await Promise.all([
-      fetchDiff(git, input.commitHash, hasParents, "--name-status"),
-      fetchDiff(git, input.commitHash, hasParents, "--numstat")
-    ]);
-    // Only the single-commit `--root` form (no parents) prints a leading hash line.
-    const firstFileLine = hasParents ? 0 : 1;
-
-    details.fileChanges.push(...parseDiffFileChanges(nameStatusLines, numStatLines, firstFileLine));
+    details.fileChanges.push(...(await fetchFileChanges(git, input.commitHash, hasParents)));
 
     // A stash created with --include-untracked stores those files in a commit
     // of their own (see `fileChangeRevision`), a root commit holding only them;
@@ -100,11 +109,9 @@ export async function commitDetails(
     // with two parents was pushed without untracked files and has none to add.
     if (input.isStash && details.parents.length > 2) {
       const untrackedCommit = fileChangeRevision(input.commitHash, "untracked");
-      const [untrackedNameStatus, untrackedNumStat] = await Promise.all([
-        fetchDiff(git, untrackedCommit, false, "--name-status"),
-        fetchDiff(git, untrackedCommit, false, "--numstat")
-      ]);
-      for (const fileChange of parseDiffFileChanges(untrackedNameStatus, untrackedNumStat, 1)) {
+      // A root commit: it has no parents.
+      const untrackedHasParents = false;
+      for (const fileChange of await fetchFileChanges(git, untrackedCommit, untrackedHasParents)) {
         // Already listed as a change to a tracked file.
         if (details.fileChanges.some((fc) => fc.newFilePath === fileChange.newFilePath)) continue;
         details.fileChanges.push({ ...fileChange, origin: "untracked" });
