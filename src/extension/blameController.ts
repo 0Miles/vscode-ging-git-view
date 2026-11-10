@@ -32,6 +32,7 @@ import {
   createLastHoverDetails
 } from "./blameHover";
 import { lineChangeArgs, lineChangeDiff } from "./blameLineChange";
+import { type CommitLocation, commitLocationArgs } from "./blameLocate";
 import { createBlameRepoWatchers } from "./blameRepoWatchers";
 import { updateDelay } from "./blameSchedule";
 import { type BlameTarget, blameTarget, spansLines } from "./blameTarget";
@@ -47,6 +48,8 @@ const COLOR_ID = "ging-git-view.blameAnnotationForeground";
 const COPY_SHA_COMMAND = "ging-git-view.blame.copySha";
 /** The hidden command a hover's link to the line's change runs. */
 const OPEN_LINE_CHANGE_COMMAND = "ging-git-view.blame.openLineChange";
+/** The hidden command a hover's link to the commit's place in the graph runs. */
+const LOCATE_COMMIT_COMMAND = "ging-git-view.blame.locateCommit";
 /** How many commits' changes the hovers keep. */
 const CHANGE_CACHE_SIZE = 100;
 /** How many excerpts of hunks too big to keep whole the hovers keep. */
@@ -296,16 +299,20 @@ export function createBlameController(deps: {
         ...context.labels,
         changes: l10n.t("blame.hover.changes"),
         copyHash: l10n.t("blame.hover.copyHash"),
-        openLineChange: l10n.t("blame.hover.openLineChange")
+        openLineChange: l10n.t("blame.hover.openLineChange"),
+        locateCommit: l10n.t("blame.hover.locateCommit")
       },
       repo,
       copyShaCommand: COPY_SHA_COMMAND,
-      openLineChangeCommand: OPEN_LINE_CHANGE_COMMAND
+      openLineChangeCommand: OPEN_LINE_CHANGE_COMMAND,
+      locateCommitCommand: LOCATE_COMMIT_COMMAND
     });
     const hover = new vscode.MarkdownString(markdown, true);
-    // The SHA links and the line's change link, and nothing else, may run a
-    // command.
-    hover.isTrusted = { enabledCommands: [COPY_SHA_COMMAND, OPEN_LINE_CHANGE_COMMAND] };
+    // The SHA links, the line's change link and the graph link, and nothing
+    // else, may run a command.
+    hover.isTrusted = {
+      enabledCommands: [COPY_SHA_COMMAND, OPEN_LINE_CHANGE_COMMAND, LOCATE_COMMIT_COMMAND]
+    };
     return hover;
   }
 
@@ -465,6 +472,25 @@ export function registerBlameOpenLineChange(deps: {
       change !== null &&
       (await openCommitDiff(lineChangeDiff(change), config.openNewTabEditorGroup()));
     if (!opened) void vscode.window.showErrorMessage(l10n.t("error.unableToViewDiff"));
+  });
+}
+
+/** `ging-git-view.blame.locateCommit`, the hover's link to the commit's place
+ *  in the graph (#310): `locate` opens the graph on the blamed file's
+ *  repository and has it select the commit. Hidden from the Command Palette. */
+export function registerBlameLocateCommit(deps: {
+  knownRepos: () => string[];
+  locate: (location: CommitLocation) => Promise<void>;
+}): vscode.Disposable {
+  return vscode.commands.registerCommand(LOCATE_COMMIT_COMMAND, async (arg: unknown) => {
+    // As with the line's change: a repository no longer known since the hover
+    // was drawn is reported, rather than the click doing nothing.
+    const location = commitLocationArgs(arg, deps.knownRepos());
+    if (location === null) {
+      void vscode.window.showErrorMessage(l10n.t("blame.locate.failed"));
+      return;
+    }
+    await deps.locate(location);
   });
 }
 

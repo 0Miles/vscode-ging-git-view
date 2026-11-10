@@ -36,6 +36,8 @@ export function getWebviewLocalizedStrings() {
     filterPlaceholder: l10n.t("ui.filterPlaceholder"),
     noResultsFound: l10n.t("ui.noResultsFound"),
     unableToSearchBranches: l10n.t("error.unableToSearchBranches"),
+    // The host says the same when the hover's link cannot be followed.
+    unableToLocateCommit: l10n.t("blame.locate.failed"),
     description: l10n.t("ui.description"),
     date: l10n.t("ui.date"),
     author: l10n.t("ui.author"),

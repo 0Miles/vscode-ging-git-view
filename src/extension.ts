@@ -32,6 +32,7 @@ import { AskpassManager } from "./extension/askpass/askpassManager";
 import {
   createBlameController,
   registerBlameCopySha,
+  registerBlameLocateCommit,
   registerBlameOpenLineChange,
   registerBlameToggle
 } from "./extension/blameController";
@@ -611,6 +612,19 @@ export function activate(context: vscode.ExtensionContext) {
         [l10n.t("branchView.batch.noTargets"), ...skippedNotes(skipped)].join(" ")
       )
   });
+
+  // The blame hover's "locate in the graph" (#310), for a commit in the blamed
+  // file's repository — which need not be the current repository. The graph is
+  // opened on it and handed the commit, over the delegate's two delivery paths
+  // so a panel still loading cannot drop it. Whether a branch filter is what
+  // hides the commit only the graph can tell, against the history it shows; it
+  // then asks for Show All the way its filter chip does.
+  context.subscriptions.push(
+    registerBlameLocateCommit({
+      knownRepos,
+      locate: ({ repo, sha }) => branchActionDelegate.locateCommit(repo, sha)
+    })
+  );
 
   /**
    * Build the cleanup candidates and open the dialog on them.

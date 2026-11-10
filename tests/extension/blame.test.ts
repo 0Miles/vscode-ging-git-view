@@ -26,4 +26,15 @@ suite("inline blame", () => {
     await vscode.commands.executeCommand("ging-git-view.blame.toggle");
     assert.strictEqual(globalValue(), true);
   });
+
+  test("registers every command the hover links to", async () => {
+    const commands = await vscode.commands.getCommands(true);
+    for (const id of [
+      "ging-git-view.blame.copySha",
+      "ging-git-view.blame.openLineChange",
+      "ging-git-view.blame.locateCommit"
+    ]) {
+      assert.ok(commands.includes(id), `${id} is not registered`);
+    }
+  });
 });

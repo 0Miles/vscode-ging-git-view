@@ -469,5 +469,9 @@
   "blame.hover.openLineChange": "開啟這一行在這個 commit 的變更",
   "blame.copiedHash": "已複製 commit hash {0}",
   "blame.workspaceKeepsOff": "已在使用者設定開啟 inline blame，但這個工作區的設定仍然把它關閉。",
-  "blame.workspaceKeepsOn": "已在使用者設定關閉 inline blame，但這個工作區的設定仍然把它開啟。"
+  "blame.workspaceKeepsOn": "已在使用者設定關閉 inline blame，但這個工作區的設定仍然把它開啟。",
+  "blame.hover.locateCommit": "在 GING 圖形中定位",
+  "blame.locate.notInGraph": "commit {0} 沒有顯示在 GING 圖形中。只跟隨第一個父 commit、隱藏某個 remote 這類設定，可能讓 commit 不被顯示。",
+  "blame.locate.failed": "無法在 GING 圖形中定位這個 commit",
+  "blame.locate.filterNotCleared": "commit {0} 被 branch filter 濾掉了，而篩選沒能清除。請先顯示所有分支，再試一次。"
 }
