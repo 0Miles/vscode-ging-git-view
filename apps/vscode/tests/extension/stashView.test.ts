@@ -1,0 +1,157 @@
+import * as assert from "node:assert";
+import * as cp from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+import { simpleGit } from "simple-git";
+import * as vscode from "vscode";
+
+import { listStashes } from "@ging/core/backend/queries/listStashes";
+import { STASH_REFRESH_DEBOUNCE_MS } from "@ging/core/extension/stashWatch";
+import { config } from "@ging/vscode/config";
+import { findGraphTabs } from "@ging/vscode/extension/graphPanelWindow";
+import { createStashRefreshWatch } from "@ging/vscode/extension/stashView";
+
+import { makeRepo, rmrf } from "@ging/core/tests/helpers";
+
+/** Run git in `cwd` as a committer every test repo can use, whether or not
+ *  it was made by `makeRepo` (a bare `git init` has no identity). */
+function git(args: string[], cwd: string): void {
+  cp.execFileSync(
+    "git",
+    ["-c", "user.name=T", "-c", "user.email=t@t.com", "-c", "commit.gpgsign=false", ...args],
+    { cwd, stdio: "pipe" }
+  );
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** How long a watch gets to come up after the view is shown: a git run to find
+ *  the common dir, then VS Code's watcher. */
+const WATCH_UP_MS = 1500;
+
+/** How long a change may take to reach the list: the debounce, plus room for
+ *  the file watcher's own latency and the git run that re-reads. */
+const REACH_MS = STASH_REFRESH_DEBOUNCE_MS + 4000;
+
+// The Stash side-view's own watch over real repositories, with the graph panel
+// closed: the view is refreshed by `createStashRefreshWatch` alone — the very
+// wiring `createStashView` uses — and never by the graph's `RepoFileWatcher`,
+// which only exists while a graph panel does. Each refresh re-reads the stash
+// list the way the view does, and each scenario waits for that list to show
+// what git did.
+suite("Stash side-view watch (graph panel closed)", function () {
+  this.timeout(30_000);
+
+  const dirs: string[] = [];
+  let dispose: (() => void) | null = null;
+
+  // An earlier suite may have left a graph open; close it, so nothing but the
+  // view's own watch is left to notice a stash.
+  suiteSetup(async () => {
+    await vscode.window.tabGroups.close(findGraphTabs(vscode.window.tabGroups.all));
+    assert.strictEqual(findGraphTabs(vscode.window.tabGroups.all).length, 0);
+  });
+
+  teardown(() => {
+    dispose?.();
+    dispose = null;
+    for (const dir of dirs.splice(0)) rmrf(dir);
+  });
+
+  /** A visible Stash side-view on `repo`, its watch up; `messages` is the
+   *  stash list as its last refresh read it. */
+  async function visibleViewOn(repo: string) {
+    const state = { refreshes: 0, messages: null as string[] | null };
+    const watch = createStashRefreshWatch({
+      gitPath: config.gitPath,
+      refresh: () => {
+        state.refreshes++;
+        void listStashes(simpleGit(repo)).then((stashes) => {
+          state.messages = stashes.map((s) => s.message);
+        });
+      }
+    });
+    dispose = () => watch.dispose();
+    watch.setRepo(repo);
+    watch.setVisible(true);
+    assert.strictEqual(state.refreshes, 1, "shown: refreshed straight away");
+    await sleep(WATCH_UP_MS);
+    return state;
+  }
+
+  /** Wait until the view's list is `expected`, failing after `REACH_MS`. */
+  async function untilListed(state: { messages: string[] | null }, expected: string[]) {
+    const deadline = Date.now() + REACH_MS;
+    while (Date.now() < deadline) {
+      if (JSON.stringify(state.messages) === JSON.stringify(expected)) return;
+      // eslint-disable-next-line no-await-in-loop -- polling: each wait precedes the next look
+      await sleep(50);
+    }
+    assert.deepStrictEqual(state.messages, expected);
+  }
+
+  const newRepo = () => {
+    const repo = makeRepo();
+    dirs.push(repo);
+    return repo;
+  };
+
+  test("1. the first stash push in a repository with commits", async () => {
+    const repo = newRepo();
+    const view = await visibleViewOn(repo);
+    await untilListed(view, []);
+
+    fs.writeFileSync(path.join(repo, "f"), "changed");
+    git(["stash", "push", "-m", "first"], repo);
+
+    await untilListed(view, ["On main: first"]);
+  });
+
+  test("2. from a fresh git init: a commit, then a stash push", async () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-"));
+    dirs.push(repo);
+    git(["init", "--template=", "-b", "main"], repo);
+    assert.ok(!fs.existsSync(path.join(repo, ".git", "logs")), "a fresh repo has no logs yet");
+    const view = await visibleViewOn(repo);
+    await untilListed(view, []);
+
+    fs.writeFileSync(path.join(repo, "f"), "x");
+    git(["add", "f"], repo);
+    git(["commit", "-m", "init"], repo);
+    // Let the watch move down to logs/refs before the stash log appears in it.
+    await sleep(WATCH_UP_MS);
+    fs.writeFileSync(path.join(repo, "f"), "changed");
+    git(["stash", "push", "-m", "after init"], repo);
+
+    await untilListed(view, ["On main: after init"]);
+  });
+
+  test("3. git stash clear", async () => {
+    const repo = newRepo();
+    fs.writeFileSync(path.join(repo, "f"), "changed");
+    git(["stash", "push", "-m", "doomed"], repo);
+    const view = await visibleViewOn(repo);
+    await untilListed(view, ["On main: doomed"]);
+
+    git(["stash", "clear"], repo);
+
+    await untilListed(view, []);
+  });
+
+  test("4. a stash push in another linked worktree", async () => {
+    const repo = newRepo();
+    const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-wt-"));
+    dirs.push(worktree);
+    fs.rmdirSync(worktree);
+    git(["worktree", "add", "-b", "side", worktree], repo);
+    const view = await visibleViewOn(repo);
+    await untilListed(view, []);
+
+    fs.writeFileSync(path.join(worktree, "f"), "changed");
+    git(["stash", "push", "-m", "from the worktree"], worktree);
+
+    await untilListed(view, ["On side: from the worktree"]);
+  });
+});
