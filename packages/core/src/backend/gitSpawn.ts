@@ -99,21 +99,28 @@ export type GitSpawnOptions = {
   args: string[];
   /** Written to the child's stdin, which is then closed. */
   stdin?: string;
-  /** Kill the child and resolve `timeout` once it has run this long. */
+  /** Kill the child (best-effort, see `killTree`) and resolve `timeout` once
+   *  it has run this long. */
   timeoutMs?: number;
-  /** Kill the child and resolve `aborted` once this aborts; nothing is
-   *  spawned (or logged) if it already has. */
+  /** Kill the child (best-effort, see `killTree`) and resolve `aborted` once
+   *  this aborts; nothing is spawned (or logged) if it already has. */
   signal?: AbortSignal;
   onCommand?: GitCommandHandler;
   gitEnv?: NodeJS.ProcessEnv;
 };
 
 /**
- * Kill `child` and everything it started. On Windows `child.kill()` ends only
- * the direct child — and the `git` found on PATH is usually Git for Windows'
- * `cmd\git.exe` wrapper, so the real git (and any shell it runs) would carry on
- * working. `taskkill /T` takes the whole tree. Elsewhere git cleans up the
- * children it started when it is signalled.
+ * Kill `child` and, as far as it can, everything it started — without waiting
+ * for any of it to go. On Windows `child.kill()` ends only the direct child —
+ * and the `git` found on PATH is usually Git for Windows' `cmd\git.exe`
+ * wrapper, so the real git (and any shell it runs) would carry on working.
+ * `taskkill /T` takes the tree, but only best-effort; three gaps let a process
+ * escape (#361, diagnosed in #343; accepted, not fixed — see ADR-0028):
+ *   1. a child born after `taskkill` snapshots the tree;
+ *   2. leaves die first, so an MSYS `sh` reads exit 0 and runs its next `&&`;
+ *   3. a program an MSYS shell execs has no Windows parent for `/T` to follow.
+ * Elsewhere git is expected to clean up the children it started when it is
+ * signalled; that is unmeasured.
  */
 function killTree(child: cp.ChildProcess) {
   // A child that has already exited may have had its PID handed to an
@@ -143,9 +150,11 @@ export type GitSpawnResult =
  * environment, the same `-c` overrides, the same command log.
  *
  * Never rejects: a git that can't start is an `error`, a non-zero exit is an
- * `ok` with its exit code, and a child past `timeoutMs` is killed — with every
- * process under it — and reported as `timeout` without waiting for it to go;
- * one whose `signal` aborts, likewise, as `aborted`.
+ * `ok` with its exit code. A child past `timeoutMs`, or whose `signal` aborts,
+ * is sent a kill (best-effort, see `killTree`) and reported as `timeout` /
+ * `aborted` at once; nothing a settled run prints is used.
+ *
+ * See ADR-0028 before adding a caller that writes, runs hooks or goes to the network.
  */
 export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
   const { signal } = options;

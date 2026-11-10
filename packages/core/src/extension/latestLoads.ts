@@ -6,8 +6,9 @@
  * next request loads again.
  *
  * Only the latest request loads: at most one load is in flight, and asking for
- * any other key — or `cancel` — aborts it through its signal, so its git
- * processes are killed rather than left to run to their deadline. An aborted
+ * any other key — or `cancel` — aborts it through its signal, which settles it
+ * at once and sends its git processes a kill (best-effort, see `killTree` in
+ * `gitSpawn.ts`) rather than leaving them to run to their deadline. An aborted
  * load is not kept either.
  */
 export function createLatestLoads<A, V>(deps: {

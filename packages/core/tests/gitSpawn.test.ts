@@ -15,9 +15,8 @@ import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 // second after the sleep would have ended. `killTree` does not wait for
 // `taskkill`, so the sleep is all the time the tree gets to die in (timings in
 // #343).
-// Waiting for `started` deliberately keeps these tests off #361: a kill while
-// the tree is still being born (or before `sleep` itself is up) can leave a
-// child running. Once #361 is fixed, add a test that kills right after spawn.
+// Waiting for `started` deliberately keeps these tests off #361: a kill during
+// tree birth is a known gap (ADR-0028); a test comes with any fix.
 const slowAlias = (sleepSeconds: number) =>
   `alias.nggslow=!echo > started && sleep ${sleepSeconds} && echo done > survived`;
 const hasStarted = (dir: string) => fs.existsSync(path.join(dir, "started"));

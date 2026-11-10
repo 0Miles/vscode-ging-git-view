@@ -1,6 +1,7 @@
 import { type GitCommandHandler, type GitSpawnResult, spawnGit } from "./gitSpawn";
 
-/** Where and how a git run happens. */
+/** Where and how a git run happens. See ADR-0028 before adding a caller that
+ *  writes, runs hooks or goes to the network. */
 export type GitRunOptions = {
   gitPath: string;
   repoPath: string;
@@ -9,7 +10,8 @@ export type GitRunOptions = {
   deadline?: number;
   onCommand?: GitCommandHandler;
   gitEnv?: NodeJS.ProcessEnv;
-  /** Ends every run of the lookup at once, its processes killed. */
+  /** Ends every run of the lookup at once, its processes sent a kill
+   *  (best-effort, see `killTree` in `gitSpawn.ts`). */
   signal?: AbortSignal;
 };
 
