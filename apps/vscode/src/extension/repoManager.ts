@@ -61,6 +61,12 @@ export function createRepoManager(
     extensionState.saveRepos(repos);
   }
 
+  /** Remove `repo` and broadcast the set without it. */
+  function dropRepo(repo: string) {
+    removeRepo(repo);
+    sendRepos();
+  }
+
   function registerViewCallback(cb: RepoChangeCallback) {
     viewCallbacks.add(cb);
   }
@@ -200,6 +206,7 @@ export function createRepoManager(
     addRepo,
     exportRepoConfig,
     removeRepo,
+    dropRepo,
     removeReposWithinFolder,
     setRepoState,
     onDidWriteRepoState,

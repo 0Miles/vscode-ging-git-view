@@ -134,9 +134,8 @@ export interface RepoSource {
   /** Drop the repos that are gone, broadcasting the set when any were;
    *  resolves to whether any were. */
   checkReposExist(): PromiseLike<boolean>;
-  removeRepo(repo: string): void;
-  /** Broadcast the set to everything showing it. */
-  sendRepos(): void;
+  /** Remove `repo` and broadcast the set without it to everything showing it. */
+  dropRepo(repo: string): void;
   setRepoState(repo: string, state: GitRepoState): void;
 }
 

@@ -718,8 +718,7 @@ export function registerMessageHandlers(
         // later. Saying it out loud matters as much as the pruning — this line
         // is the only record that a repo the user picked was not there.
         logger.log(`Cannot open a repository that is gone, dropping it: ${msg.repo}`);
-        repoSource.removeRepo(msg.repo);
-        repoSource.sendRepos();
+        repoSource.dropRepo(msg.repo);
         return;
       }
       currentRepo = msg.repo;

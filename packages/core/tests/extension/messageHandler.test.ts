@@ -100,8 +100,7 @@ function fakePorts() {
       getRepos: () => ({ "/a": { columnWidths: null } }),
       getBootRepo: () => "/a",
       checkReposExist: async () => answers.reposChanged,
-      removeRepo: record("removeRepo"),
-      sendRepos: record("sendRepos"),
+      dropRepo: record("dropRepo"),
       setRepoState: record("setRepoState")
     },
     logger: { log: record("log"), logError: record("logError"), reveal: record("reveal") }
@@ -202,8 +201,7 @@ describe("selectRepo", () => {
     await h.send({ command: "selectRepo", repo: gone });
     expect(h.calls).toEqual([
       ["log", `Cannot open a repository that is gone, dropping it: ${gone}`],
-      ["removeRepo", gone],
-      ["sendRepos"]
+      ["dropRepo", gone]
     ]);
   });
 });

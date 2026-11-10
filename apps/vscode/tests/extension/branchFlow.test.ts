@@ -313,8 +313,7 @@ suite("selectRepo failures (integration)", () => {
   test("a repository that is gone is dropped, not half-selected", async () => {
     const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const gone = path.join(repoPath, `no-such-repo-${process.pid}`);
-    const removed: string[] = [];
-    let broadcasts = 0;
+    const dropped: string[] = [];
     const persisted: (string | null)[] = [];
 
     const { handlers, posted, bridge } = makeBridge();
@@ -324,8 +323,7 @@ suite("selectRepo failures (integration)", () => {
         repoSource: {
           getRepos: () => ({}),
           setRepoState: noop,
-          removeRepo: (r: string) => removed.push(r),
-          sendRepos: () => broadcasts++
+          dropRepo: (r: string) => dropped.push(r)
         },
         extensionState: {
           setLastActiveRepo: (r: string | null) => persisted.push(r),
@@ -339,8 +337,8 @@ suite("selectRepo failures (integration)", () => {
     // unhandled one and the webview is told nothing at all.
     await handlers.get("selectRepo")!({ command: "selectRepo", repo: gone } as RequestMessage);
 
-    assert.deepStrictEqual(removed, [gone], "the repo that is gone should be dropped from the set");
-    assert.strictEqual(broadcasts, 1, "the panel should be re-seeded so it can move off it");
+    // Dropping it also re-seeds the panel, so it can move off it.
+    assert.deepStrictEqual(dropped, [gone], "the repo that is gone should be dropped from the set");
     assert.deepStrictEqual(persisted, [repoPath], "the dead repo must not become the stored one");
 
     // And the host is still on the repo it had — answering for it, rather than
@@ -364,7 +362,7 @@ suite("selectRepo failures (integration)", () => {
     // unrelated repository's history ends up drawn under an empty title.
     const repoPath = vscode.workspace.workspaceFolders![0]!.uri.fsPath;
     const persisted: (string | null)[] = [];
-    const removed: string[] = [];
+    const dropped: string[] = [];
 
     const { handlers, bridge } = makeBridge();
     registerMessageHandlers(
@@ -373,8 +371,7 @@ suite("selectRepo failures (integration)", () => {
         repoSource: {
           getRepos: () => ({}),
           setRepoState: noop,
-          removeRepo: (r: string) => removed.push(r),
-          sendRepos: noop
+          dropRepo: (r: string) => dropped.push(r)
         },
         extensionState: {
           setLastActiveRepo: (r: string | null) => persisted.push(r),
@@ -387,6 +384,6 @@ suite("selectRepo failures (integration)", () => {
     await handlers.get("selectRepo")!({ command: "selectRepo", repo: "" } as RequestMessage);
 
     assert.deepStrictEqual(persisted, [repoPath], "an empty path must not be stored");
-    assert.deepStrictEqual(removed, [], "an empty path is not a repo to drop, just one to refuse");
+    assert.deepStrictEqual(dropped, [], "an empty path is not a repo to drop, just one to refuse");
   });
 });
