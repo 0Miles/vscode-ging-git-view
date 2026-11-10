@@ -93,7 +93,8 @@ function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps]
     onSelectRepo: noop,
     onDelegatedRan: noop,
     showAllBranches: async () => {},
-    configurePullRequestProvider: noop
+    configurePullRequestProvider: noop,
+    openScmView: noop
   };
   return [ports, deps];
 }

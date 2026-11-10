@@ -488,7 +488,8 @@ export function activate(context: vscode.ExtensionContext) {
         showAllBranches: (repo) =>
           vscode.commands.executeCommand("ging-git-view.branches.showAll", repo),
         configurePullRequestProvider: (host) =>
-          void vscode.commands.executeCommand("ging-git-view.managePullRequestProviders", host)
+          void vscode.commands.executeCommand("ging-git-view.managePullRequestProviders", host),
+        openScmView: () => void vscode.commands.executeCommand("workbench.view.scm")
       }
     );
     currentPanel = createWebviewPanel({

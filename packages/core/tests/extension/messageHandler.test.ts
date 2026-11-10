@@ -84,8 +84,7 @@ function fakePorts() {
       },
       openMergeEditor: record("openMergeEditor"),
       openTerminal: record("openTerminal"),
-      openExternalUrl: record("openExternalUrl"),
-      openScmView: record("openScmView")
+      openExternalUrl: record("openExternalUrl")
     },
     clipboard: {
       writeText: (text) => {
@@ -150,6 +149,7 @@ function harness(depOverrides: Partial<MessageHandlerDeps> = {}) {
     onDelegatedRan: (seq) => calls.push(["onDelegatedRan", seq]),
     showAllBranches: async (repo) => calls.push(["showAllBranches", repo]),
     configurePullRequestProvider: (host) => calls.push(["configurePullRequestProvider", host]),
+    openScmView: () => calls.push(["openScmView"]),
     ...depOverrides
   };
   const handlers = registerMessageHandlers(bridge, ports, deps);

@@ -80,7 +80,7 @@ export interface Prompts {
   }): PromiseLike<string | undefined>;
 }
 
-/** Opening things in the host: editors, diffs, a terminal, a browser, a view. */
+/** Opening things in the host: editors, diffs, a terminal, a browser. */
 export interface Opener {
   /** Open a working-tree file. Rejects when it could not be opened. */
   openFile(path: string): PromiseLike<unknown>;
@@ -99,8 +99,6 @@ export interface Opener {
   /** A terminal in `cwd`, titled `name`, brought into view. */
   openTerminal(cwd: string, name: string): void;
   openExternalUrl(url: string): void;
-  /** The host's own source-control view. */
-  openScmView(): void;
 }
 
 export interface Clipboard {

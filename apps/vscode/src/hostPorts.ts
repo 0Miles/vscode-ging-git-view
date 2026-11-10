@@ -65,8 +65,7 @@ export function createVscodeOpener(settings: Pick<Config, "openNewTabEditorGroup
       );
     },
     openTerminal: (cwd, name) => vscode.window.createTerminal({ cwd, name }).show(),
-    openExternalUrl: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
-    openScmView: () => void vscode.commands.executeCommand("workbench.view.scm")
+    openExternalUrl: (url) => void vscode.env.openExternal(vscode.Uri.parse(url))
   };
 }
 

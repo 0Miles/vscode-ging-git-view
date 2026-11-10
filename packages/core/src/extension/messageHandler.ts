@@ -120,6 +120,8 @@ export type MessageHandlerDeps = {
   showAllBranches: (repo: string) => PromiseLike<unknown>;
   /** Offer to configure the pull request provider of `host`. */
   configurePullRequestProvider: (host: string) => void;
+  /** The host's own source-control view. */
+  openScmView: () => void;
 };
 
 /**
@@ -146,7 +148,8 @@ export function registerMessageHandlers(
     onSelectRepo,
     onDelegatedRan,
     showAllBranches,
-    configurePullRequestProvider
+    configurePullRequestProvider,
+    openScmView
   } = deps;
 
   let currentRepo: string | null = null;
@@ -844,7 +847,7 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "openScmView",
     () => {
-      opener.openScmView();
+      openScmView();
     },
     { mutatesRepo: false }
   );
