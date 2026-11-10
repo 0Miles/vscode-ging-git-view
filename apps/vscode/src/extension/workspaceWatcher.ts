@@ -58,13 +58,13 @@ export function createRepoWatcher(
   let processCreateEventsTimeout: NodeJS.Timeout | null = null;
   let processChangeEventsTimeout: NodeJS.Timeout | null = null;
   /** Batches and folder changes still running, for `flushPending` to await. */
-  const running = new Set<Promise<void>>();
+  const inFlight = new Set<Promise<void>>();
 
   function track(work: Promise<void>): void {
-    running.add(work);
+    inFlight.add(work);
     // `finally`, not `then(done, done)`: a failed batch must still surface as
     // the unhandled rejection it always was, not be swallowed here.
-    void work.finally(() => running.delete(work));
+    void work.finally(() => inFlight.delete(work));
   }
 
   function runCreateBatch() {
@@ -191,7 +191,7 @@ export function createRepoWatcher(
       while (
         processCreateEventsTimeout !== null ||
         processChangeEventsTimeout !== null ||
-        running.size > 0
+        inFlight.size > 0
       ) {
         if (processCreateEventsTimeout !== null) {
           clearTimeout(processCreateEventsTimeout);
@@ -201,7 +201,7 @@ export function createRepoWatcher(
           clearTimeout(processChangeEventsTimeout);
           runChangeBatch();
         }
-        await Promise.allSettled(running);
+        await Promise.allSettled(inFlight);
       }
     },
     dispose() {

@@ -36,14 +36,16 @@ function makeFolder(fsPath: string): StubFolder {
  *  nothing is left queued that could still call in later (#286). */
 const DEBOUNCE_NEVER_FIRES_MS = 60_000;
 
-function makeStubs(initialFolders: string[] = []) {
+function makeStubs(initialFolders: string[] = [], debounceDelay = DEBOUNCE_NEVER_FIRES_MS) {
   const searched: string[] = [];
   const removed: string[] = [];
   let sendCount = 0;
+  let onSearch: ((path: string) => void) | null = null;
 
   const repoSearch = {
     searchDirectoryForRepos: async (path: string, _depth: number) => {
       searched.push(path);
+      onSearch?.(path);
       return true;
     }
   };
@@ -111,7 +113,7 @@ function makeStubs(initialFolders: string[] = []) {
     config as unknown as Config,
     repoSearch as unknown as RepoSearch,
     workspace as unknown as Parameters<typeof createRepoWatcher>[3],
-    DEBOUNCE_NEVER_FIRES_MS
+    debounceDelay
   );
 
   const fireFolderChange = (e: FolderChangeEvent) => folderChangeCallback!(e);
@@ -122,7 +124,12 @@ function makeStubs(initialFolders: string[] = []) {
     fireFolderChange,
     searched,
     removed,
-    getSendCount: () => sendCount
+    getSendCount: () => sendCount,
+    /** The path of the next repo search, whatever starts it. */
+    nextSearch: () =>
+      new Promise<string>((resolve) => {
+        onSearch = resolve;
+      })
   };
 }
 
@@ -181,6 +188,23 @@ suite("workspaceWatcher / onWatcherDelete", () => {
 });
 
 suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
+  test("runs the batch once the debounce fires, without a flush", async () => {
+    // Every other test drives batches through flushPending; this is the one
+    // that lets the timer start a batch on its own, as it does in production.
+    const tmp = makeTmpDir();
+    try {
+      const { watcher, watcherHandles, nextSearch } = makeStubs(["/ws/a"], 0);
+      watcher.startWatching();
+      const searched = nextSearch();
+      watcherHandles[0].fireCreate(makeUri(tmp));
+      assert.strictEqual(await searched, toRepoPath(tmp));
+      await watcher.flushPending();
+      watcher.dispose();
+    } finally {
+      rmrf(tmp);
+    }
+  });
+
   test("triggers searchDirectoryForRepos for a new directory", async () => {
     const tmp = makeTmpDir();
     try {
