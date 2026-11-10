@@ -7937,14 +7937,9 @@ class GitGraphView {
                 "<b><i>" + escapeHtml(filePath) + "</i></b>",
                 "<b><i>" + abbrevCommit(commitHash) + "</i></b>"
               ),
-              (repo) => {
-                sendMessage({
-                  command: "resetFileToRevision",
-                  repo,
-                  commitHash,
-                  filePath
-                });
-              },
+              // The repo the dialog was raised for, not whichever is current
+              // by the time it is confirmed.
+              (repo) => sendMessage({ command: "resetFileToRevision", ...file, repo }),
               null
             );
           }

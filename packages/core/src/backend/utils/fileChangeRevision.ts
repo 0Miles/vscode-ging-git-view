@@ -7,8 +7,9 @@ import type { GitFileChangeOrigin } from "@ging/shared/backend/types";
  * has only its tracked files. The one place a file change's `origin` becomes a
  * revision: `commitDetails` lists the untracked files from here, and every
  * reader of a CDV file (View Diff through `commitDiffView`, View File at
- * Revision, View Diff with Working) reads them from here. The webview never
- * names the revision itself.
+ * Revision, View Diff with Working) reads them from here, as Reset File to this
+ * Revision restores them from here. The webview never names the revision
+ * itself.
  */
 export function fileChangeRevision(
   commitHash: string,
