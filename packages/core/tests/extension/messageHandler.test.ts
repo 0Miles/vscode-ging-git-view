@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
+import type { BranchFilterChange } from "@ging/core/extension/branchFilter";
 import {
   type MessageHandlerDeps,
   registerMessageHandlers
@@ -126,7 +127,7 @@ function harness(depOverrides: Partial<MessageHandlerDeps> = {}) {
     ports.watcher,
     () => calls.push(["repoMutated"])
   );
-  const filterListeners: ((change: { repo: string; branches: string[] }) => void)[] = [];
+  const filterListeners: ((change: BranchFilterChange) => void)[] = [];
   const deps: MessageHandlerDeps = {
     gitClient: gitClientFactory("", "git"),
     extensionState: {
@@ -157,8 +158,7 @@ function harness(depOverrides: Partial<MessageHandlerDeps> = {}) {
     answers,
     posted,
     handlers,
-    fireFilterChange: (change: { repo: string; branches: string[] }) =>
-      filterListeners.forEach((l) => l(change)),
+    fireFilterChange: (change: BranchFilterChange) => filterListeners.forEach((l) => l(change)),
     send: async (msg: RequestMessage) => {
       await receive(msg);
     }
@@ -423,7 +423,7 @@ describe("opening things", () => {
   it("follows a file renamed since the commit it was viewed from", async () => {
     git(["mv", "f", "g"], repo);
     git(["commit", "-m", "rename"], repo);
-    const first = makeHash(repo, "HEAD~1");
+    const first = revParse(repo, "HEAD~1");
     const h = harness();
     await h.send({ command: "selectRepo", repo });
     h.calls.length = 0;
@@ -530,6 +530,6 @@ describe("reportError", () => {
   });
 });
 
-function makeHash(cwd: string, rev: string): string {
+function revParse(cwd: string, rev: string): string {
   return cp.execFileSync("git", ["rev-parse", rev], { cwd }).toString().trim();
 }
