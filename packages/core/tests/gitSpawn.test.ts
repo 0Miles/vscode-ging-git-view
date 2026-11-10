@@ -16,23 +16,26 @@ import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 // `taskkill`, so the sleep is all the time the tree gets to die in: under load
 // `taskkill` has been measured at up to ~5 s, and a shell has taken up to ~4.4 s
 // to start (#343).
-const slowAlias = (sleepS: number) =>
-  `alias.nggslow=!echo > started && sleep ${sleepS} && echo done > survived`;
+const slowAlias = (sleepSeconds: number) =>
+  `alias.nggslow=!echo > started && sleep ${sleepSeconds} && echo done > survived`;
+const hasStarted = (dir: string) => fs.existsSync(path.join(dir, "started"));
+const START_TIMEOUT_MS = 10_000;
 
 /** Resolves with the time the alias's shell was first seen to have started. */
 async function waitForStart(dir: string): Promise<number> {
-  await vi.waitFor(
-    () => {
-      if (!fs.existsSync(path.join(dir, "started"))) throw new Error("the alias has not started");
-    },
-    { timeout: 10_000, interval: 20 }
-  );
+  await vi.waitFor(() => expect(hasStarted(dir), "the alias has not started").toBe(true), {
+    timeout: START_TIMEOUT_MS,
+    interval: 20
+  });
   return Date.now();
 }
 
-async function outlastSleep(startedAt: number, sleepS: number) {
-  const end = startedAt + sleepS * 1000 + 1000;
-  await new Promise((r) => setTimeout(r, Math.max(0, end - Date.now())));
+/** Waits until a second after the alias's sleep would have ended, then checks
+ *  that nothing was left alive to mark `survived`. */
+async function expectTreeGone(dir: string, startedAt: number, sleepSeconds: number) {
+  const sleepEnded = startedAt + sleepSeconds * 1000;
+  await new Promise((r) => setTimeout(r, Math.max(0, sleepEnded + 1000 - Date.now())));
+  expect(fs.existsSync(path.join(dir, "survived"))).toBe(false);
 }
 
 describe("spawnGit (real git)", () => {
@@ -90,26 +93,28 @@ describe("spawnGit (real git)", () => {
   // Killing only the direct child is not enough: on Windows `git` on PATH is
   // the `cmd\git.exe` wrapper, and the real git and the shell under it live on.
   it("kills the whole process tree under the timed-out git", async () => {
-    // The timeout must not fire before the shell starts, which has taken up to
-    // ~4.4 s under load; the sleep outlasts it by the same 5 s as on abort.
-    const timeoutMs = 4000;
-    const sleepS = 9;
+    // The timer runs from the spawn, so it must not fire before the shell has
+    // started (up to ~4.4 s under load), and the sleep must then still leave
+    // `taskkill` at least sleepSeconds - timeoutMs = 5 s.
+    const timeoutMs = 5000;
+    const sleepSeconds = 10;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-kill-"));
     try {
-      let settled = false;
+      // Checked the moment the timeout settles, i.e. as `killTree` runs.
+      let startedBeforeKill: boolean | undefined;
       const running = spawnGit({
         gitPath: "git",
         cwd: dir,
-        args: ["-c", slowAlias(sleepS), "nggslow"],
+        args: ["-c", slowAlias(sleepSeconds), "nggslow"],
         timeoutMs
-      }).finally(() => {
-        settled = true;
+      }).then((result) => {
+        startedBeforeKill = hasStarted(dir);
+        return result;
       });
       const startedAt = await waitForStart(dir);
-      expect(settled, "the timeout fired before the alias started").toBe(false);
       expect((await running).kind).toBe("timeout");
-      await outlastSleep(startedAt, sleepS);
-      expect(fs.existsSync(path.join(dir, "survived"))).toBe(false);
+      expect(startedBeforeKill, "the timeout fired before the alias started").toBe(true);
+      await expectTreeGone(dir, startedAt, sleepSeconds);
     } finally {
       rmrf(dir);
     }
@@ -118,14 +123,15 @@ describe("spawnGit (real git)", () => {
   // Aborting must take the processes down too, not just drop the result: a
   // lookup nobody wants any more would otherwise run on to its deadline.
   it("kills the whole process tree when aborted, and reports the abort", async () => {
-    const sleepS = 5;
+    const sleepSeconds = 5;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-abort-"));
     try {
       const abort = new AbortController();
       const running = spawnGit({
         gitPath: "git",
         cwd: dir,
-        args: ["-c", slowAlias(sleepS), "nggslow"],
+        args: ["-c", slowAlias(sleepSeconds), "nggslow"],
+        // Only a backstop, well past the wait for the start.
         timeoutMs: 30_000,
         signal: abort.signal
       });
@@ -134,8 +140,7 @@ describe("spawnGit (real git)", () => {
       abort.abort();
       expect((await running).kind).toBe("aborted");
       expect(Date.now() - abortedAt).toBeLessThan(2000);
-      await outlastSleep(startedAt, sleepS);
-      expect(fs.existsSync(path.join(dir, "survived"))).toBe(false);
+      await expectTreeGone(dir, startedAt, sleepSeconds);
     } finally {
       rmrf(dir);
     }
