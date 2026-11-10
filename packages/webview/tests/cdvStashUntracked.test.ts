@@ -6,11 +6,13 @@ import type * as GG from "@ging/shared/types";
 import {
   clickElem,
   clickItem,
+  commitDetails,
   contextMenuEntries,
   createVscodeMock,
   DEFAULT_REPO,
   englishStrings,
   makeViewState,
+  openDetailsOn,
   receive,
   rightClick,
   setupHtml
@@ -48,15 +50,8 @@ const commits: GitCommitNode[] = [
 ];
 
 const stashDetails: GitCommitDetails = {
-  hash: STASH,
+  ...commitDetails(STASH),
   parents: ["aaa111"],
-  author: "Alice",
-  email: "alice@example.com",
-  committer: "Alice",
-  committerEmail: "alice@example.com",
-  authorDate: 1700000000,
-  commitDate: 1700000000,
-  body: "WIP on main",
   fileChanges: [
     {
       oldFilePath: "tracked.txt",
@@ -109,7 +104,7 @@ describe("a stash's untracked file in the Commit Details View", () => {
       moreCommitsAvailable: false,
       hard: true
     });
-    clickElem(document.querySelector(`tr.commit[data-hash="${STASH}"]`)!);
+    openDetailsOn(STASH);
     receive({ command: "commitDetails", commitDetails: stashDetails });
   });
 
