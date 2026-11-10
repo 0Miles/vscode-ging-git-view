@@ -11,9 +11,13 @@ import { listStashes } from "@ging/core/backend/queries/listStashes";
 import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths";
 import { loadStashFiles } from "@ging/core/extension/stashList";
 import { createStashViewWatch } from "@ging/core/extension/stashWatch";
-import { STASH_ACTIONS, stashActionCommand } from "@ging/shared/backend/utils/stashActionCatalogue";
 import { config } from "@ging/vscode/config";
 import { findGraphTabs } from "@ging/vscode/extension/graphPanelWindow";
+import {
+  STASH_ACTIONS,
+  type StashAction,
+  stashActionCommand
+} from "@ging/vscode/extension/stashActions";
 import { watchPaths } from "@ging/vscode/extension/watchPaths";
 
 import { makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
@@ -224,19 +228,20 @@ suite("Stash side-view commands (integration)", function () {
   // Drop and Rename ask first, through a modal and an input box the extension
   // host cannot answer, so what they do once asked is pinned by their core
   // tests (`dropListedStash`, `renameListedStash`). Here: that every stash
-  // catalogue action is a registered command, and that one handed anything
-  // but a listed stash asks nothing and does nothing.
-  test("every stash catalogue action is registered, and ignores anything but a listed stash", async () => {
+  // action is a registered command, and that one handed anything but a
+  // listed stash asks nothing and does nothing.
+  test("every stash action is registered, and ignores anything but a listed stash", async () => {
+    const actions = Object.keys(STASH_ACTIONS) as StashAction[];
     const registered = new Set(await vscode.commands.getCommands(true));
     const outcomes = await Promise.all(
-      STASH_ACTIONS.map((action) => {
+      actions.map((action) => {
         assert.ok(registered.has(stashActionCommand(action)), action);
         return vscode.commands.executeCommand(stashActionCommand(action), { kind: "file" });
       })
     );
     assert.deepStrictEqual(
       outcomes,
-      STASH_ACTIONS.map(() => undefined)
+      actions.map(() => undefined)
     );
   });
 

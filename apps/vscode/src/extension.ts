@@ -42,7 +42,6 @@ import {
   CATALOGUE_REF_ACTIONS,
   isBatchAction
 } from "@ging/shared/backend/utils/refActionCatalogue";
-import { stashMenuContextKeys } from "@ging/shared/backend/utils/stashActionCatalogue";
 import type { BatchSkipped, RepoSettingField } from "@ging/shared/types";
 
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/uri";
@@ -72,6 +71,7 @@ import {
 import { createRepoManager } from "./extension/repoManager";
 import { createRunRepoMutation } from "./extension/repoMutation";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
+import { stashMenuContextKeys } from "./extension/stashActions";
 import { createStashView } from "./extension/stashView";
 import { showStatistics } from "./extension/statisticsPanel";
 import { createWebviewPanel, WebviewPanel } from "./extension/webviewPanel";

@@ -84,9 +84,9 @@ export interface Prompts {
     filters: Record<string, string[]>;
     defaultPath: string;
   }): PromiseLike<string | undefined>;
-  /** A line of text. The prompt stays up until it is answered or dismissed —
-   *  not lost to a focus change — because what asks may be blocked on it (git
-   *  waiting for a credential). */
+  /** A line of text. The prompt stays up until it is answered or dismissed,
+   *  not lost to a focus change: git may be blocked on it waiting for a
+   *  credential, and a stash's new name may be copied from elsewhere. */
   input(options: {
     prompt: string;
     placeholder: string;

@@ -3,27 +3,20 @@ import * as vscode from "vscode";
 import { listStashes } from "@ging/core/backend/queries/listStashes";
 import type { RepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
-  copyStashName,
-  dropListedStash,
   type ListedStashHost,
   loadStashFiles,
-  renameListedStash,
   sameStashList,
   type StashFile,
   type StashListItem,
   stashListItems
 } from "@ging/core/extension/stashList";
 import { createStashViewWatch, type StashViewGit } from "@ging/core/extension/stashWatch";
-import {
-  STASH_ACTIONS,
-  type StashAction,
-  stashActionCommand
-} from "@ging/shared/backend/utils/stashActionCatalogue";
 import type { EditorGroup } from "@ging/vscode/config";
 import { vscodeClipboard, vscodeL10n, vscodePrompts } from "@ging/vscode/hostPorts";
 import * as l10n from "@ging/vscode/l10n";
 
 import { openCommitDiff } from "./openCommitDiff";
+import { STASH_ACTIONS, type StashAction, stashActionCommand } from "./stashActions";
 import { watchPaths } from "./watchPaths";
 
 const VIEW_ID = "ging-git-view.stash";
@@ -181,6 +174,15 @@ export function createStashView(deps: {
   });
   watch.setVisible(treeView.visible);
 
+  /** What a stash action on `node` is handed: its repository's git. */
+  const hostFor = (node: StashNode): ListedStashHost => ({
+    git: deps.gitClients.gitClientFor(node.repo),
+    clipboard: vscodeClipboard,
+    prompts: vscodePrompts,
+    l10n: vscodeL10n,
+    refresh: () => void provider.reload()
+  });
+
   const subscriptions = [
     treeView,
     provider,
@@ -199,24 +201,12 @@ export function createStashView(deps: {
         void vscode.window.showErrorMessage(l10n.t("error.unableToViewDiff"));
       }
     }),
-    // One command per stash catalogue entry. They run here in the host, not
-    // in the graph (ADR-0029), against the repository the item was listed
-    // for. #333: a stash whose position changed is refused, not redirected.
-    // Each resolves to its outcome, for the tests.
-    ...STASH_ACTIONS.map((action) =>
+    // One command per stash action. They run here in the host, not in the
+    // graph (ADR-0029), against the repository the item was listed for. Each
+    // resolves to its outcome, for the tests.
+    ...(Object.keys(STASH_ACTIONS) as StashAction[]).map((action) =>
       vscode.commands.registerCommand(stashActionCommand(action), (node: unknown) =>
-        isStashNode(node)
-          ? STASH_ACTION_HANDLERS[action](
-              {
-                git: deps.gitClients.gitClientFor(node.repo),
-                clipboard: vscodeClipboard,
-                prompts: vscodePrompts,
-                l10n: vscodeL10n,
-                refresh: () => void provider.reload()
-              },
-              node.stash
-            )
-          : undefined
+        isStashNode(node) ? STASH_ACTIONS[action].run(hostFor(node), node.stash) : undefined
       )
     )
   ];
@@ -234,17 +224,6 @@ export function createStashView(deps: {
     }
   };
 }
-
-/** What each stash catalogue action does; the `Record` makes a new catalogue
- *  entry a compile error until it has one. */
-const STASH_ACTION_HANDLERS: Record<
-  StashAction,
-  (deps: ListedStashHost, stash: StashListItem) => Promise<unknown>
-> = {
-  drop: dropListedStash,
-  rename: renameListedStash,
-  copyName: copyStashName
-};
 
 function isStashNode(node: unknown): node is StashNode {
   return typeof node === "object" && node !== null && (node as Partial<StashNode>).kind === "stash";

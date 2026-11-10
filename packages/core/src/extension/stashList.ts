@@ -57,118 +57,97 @@ export function sameStashList(a: StashListItem[], b: StashListItem[]): boolean {
   );
 }
 
-/**
- * Copy Name on a listed stash: the selector it shows, held to the same identity
- * rule as every stash action (`stashSelectorResolvesTo`). #333: a stash whose
- * position changed is refused, not redirected — it copies nothing, and the
- * user is warned and shown the list as it is now.
- */
-export async function copyStashName(
-  deps: {
-    git: SimpleGit;
-    clipboard: Pick<Clipboard, "writeText">;
-    prompts: Pick<Prompts, "showWarning">;
-    l10n: Pick<L10n, "t">;
-    /** Re-read the list. */
-    refresh: () => void;
-  },
-  shown: { hash: string; selector: string }
-): Promise<"copied" | "refused"> {
-  if (!(await stashSelectorResolvesTo(deps.git, shown.selector, shown.hash))) {
-    deps.prompts.showWarning(deps.l10n.t("stashView.stashMoved"));
-    deps.refresh();
-    return "refused";
-  }
-  await deps.clipboard.writeText(shown.selector);
-  return "copied";
-}
-
-/** What drop and rename on a listed stash need from the host: the `Asks`
- *  they put to the user, and the two ways of reporting back. */
-type ListedStashDeps<Asks extends keyof Prompts> = {
+/** What an action on a listed stash needs from the host. */
+export type ListedStashHost = {
   git: SimpleGit;
-  prompts: Pick<Prompts, Asks | "showWarning" | "showError">;
+  clipboard: Pick<Clipboard, "writeText">;
+  prompts: Pick<Prompts, "confirm" | "input" | "showWarning" | "showError">;
   l10n: Pick<L10n, "t">;
   /** Re-read the list. */
   refresh: () => void;
 };
 
-/** Everything any action on a listed stash needs from the host. */
-export type ListedStashHost = ListedStashDeps<"confirm" | "input"> & {
-  clipboard: Pick<Clipboard, "writeText">;
-};
+/** #333: a stash whose position changed is refused, not redirected — the user
+ *  is warned and shown the list as it is now. */
+function refuseMoved(host: ListedStashHost): "refused" {
+  host.prompts.showWarning(host.l10n.t("stashView.stashMoved"));
+  host.refresh();
+  return "refused";
+}
 
 /**
  * Run a stash action the user agreed to, then re-read the list whatever came
- * of it — even a failed rename may have dropped the old entry. A stash that
- * moved is refused by the action itself (`StashMovedError`, #334) and told
- * apart from git failing: the user is warned, as `copyStashName` warns.
+ * of it — even a failed rename may have dropped the old entry. A moved stash
+ * is refused by the action itself (`StashMovedError`, #334).
  */
 async function runAgreed(
-  deps: ListedStashDeps<never>,
+  host: ListedStashHost,
   failureKey: string,
   action: () => Promise<void>
 ): Promise<"done" | "refused" | "failed"> {
   try {
     await action();
-    return "done";
   } catch (error) {
-    if (error instanceof StashMovedError) {
-      deps.prompts.showWarning(deps.l10n.t("stashView.stashMovedNothingDone"));
-      return "refused";
-    }
-    void deps.prompts.showError(deps.l10n.t(failureKey) + ": " + formatGitError(error));
+    if (error instanceof StashMovedError) return refuseMoved(host);
+    void host.prompts.showError(host.l10n.t(failureKey) + ": " + formatGitError(error));
+    host.refresh();
     return "failed";
-  } finally {
-    deps.refresh();
   }
+  host.refresh();
+  return "done";
+}
+
+/** Copy Name on a listed stash: the selector it shows, if it still names the
+ *  stash listed there (`stashSelectorResolvesTo`). */
+export async function copyStashName(
+  host: ListedStashHost,
+  shown: Pick<StashListItem, "hash" | "selector">
+): Promise<"copied" | "refused"> {
+  if (!(await stashSelectorResolvesTo(host.git, shown.selector, shown.hash))) {
+    return refuseMoved(host);
+  }
+  await host.clipboard.writeText(shown.selector);
+  return "copied";
 }
 
 /**
- * Drop on a listed stash. The question names the selector the item shows, and
- * that selector is what the answer agrees to: it is sent as shown, with the
- * SHA the item was listed under, never looked up again. A stash that has moved
- * since — before the menu opened or while the question was up — is refused
- * by `dropStash`, not redirected (#333). Dismissing runs no git.
+ * Drop on a listed stash, after a question naming its selector. That selector
+ * is what the answer agrees to, so it is sent as shown with the listed SHA and
+ * never looked up again: a stash that moved since is refused, not redirected.
  */
 export async function dropListedStash(
-  deps: ListedStashDeps<"confirm">,
+  host: ListedStashHost,
   shown: Pick<StashListItem, "hash" | "selector">
 ): Promise<"dropped" | "cancelled" | "refused" | "failed"> {
-  const drop = deps.l10n.t("action.stashDrop");
-  const answer = await deps.prompts.confirm(
-    deps.l10n.t("dialog.stash.dropConfirm", shown.selector),
+  const drop = host.l10n.t("action.stashDrop");
+  const answer = await host.prompts.confirm(
+    host.l10n.t("dialog.stash.dropConfirm", shown.selector),
     drop
   );
   if (answer !== drop) return "cancelled";
-  const outcome = await runAgreed(deps, "error.unableToDropStash", () =>
-    dropStash(deps.git, { selector: shown.selector, expectedHash: shown.hash })
+  const outcome = await runAgreed(host, "error.unableToDropStash", () =>
+    dropStash(host.git, { selector: shown.selector, expectedHash: shown.hash })
   );
   return outcome === "done" ? "dropped" : outcome;
 }
 
-/**
- * Rename on a listed stash: a new message for it, starting from the one it
- * has, bound to the item the way `dropListedStash` is. An empty answer
- * cancels, as the graph's rename does; so does an unchanged one, which would
- * only move the stash to the top (`renameStash`) under the same name. No
- * git runs for either.
- */
+/** Rename on a listed stash, bound like `dropListedStash`. An empty or
+ *  unchanged answer cancels: the unchanged one would only move it to the top. */
 export async function renameListedStash(
-  deps: ListedStashDeps<"input">,
+  host: ListedStashHost,
   shown: Pick<StashListItem, "hash" | "selector" | "message">
 ): Promise<"renamed" | "cancelled" | "refused" | "failed"> {
   const message = (
-    await deps.prompts.input({
-      prompt: deps.l10n.t("dialog.stash.renameTitle", shown.selector),
+    await host.prompts.input({
+      prompt: host.l10n.t("dialog.stash.renameTitle", shown.selector),
       placeholder: "",
       password: false,
       value: shown.message
     })
   )?.trim();
   if (message === undefined || message === "" || message === shown.message) return "cancelled";
-  const outcome = await runAgreed(deps, "error.unableToRenameStash", () =>
-    renameStash(deps.git, { selector: shown.selector, expectedHash: shown.hash, message })
+  const outcome = await runAgreed(host, "error.unableToRenameStash", () =>
+    renameStash(host.git, { selector: shown.selector, expectedHash: shown.hash, message })
   );
   return outcome === "done" ? "renamed" : outcome;
 }
