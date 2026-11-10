@@ -1,6 +1,9 @@
 import * as vscode from "vscode";
 
-import { isWatchedRepoPath } from "@ging/core/backend/utils/repoWatchPaths";
+import {
+  isWatchedRepoPath,
+  REPO_CHANGE_DEBOUNCE_MS
+} from "@ging/core/backend/utils/repoWatchPaths";
 
 import { getPathFromUri } from "./backend/utils/uri";
 
@@ -60,6 +63,6 @@ export class RepoFileWatcher {
     }
     this.refreshTimeout = setTimeout(() => {
       this.repoChangeCallback();
-    }, 750);
+    }, REPO_CHANGE_DEBOUNCE_MS);
   }
 }

@@ -13,3 +13,7 @@ export const watchedRepoPathRegex =
 export function isWatchedRepoPath(relativePath: string): boolean {
   return watchedRepoPathRegex.test(relativePath);
 }
+
+/** How long a repository's watched files must stay quiet before what shows
+ *  them re-reads: the graph's watcher and the Stash side-view's alike. */
+export const REPO_CHANGE_DEBOUNCE_MS = 750;
