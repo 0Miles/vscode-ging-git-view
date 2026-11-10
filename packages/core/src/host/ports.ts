@@ -32,6 +32,10 @@ export interface HostConfig {
   inactiveBranchAlwaysShow(): string[];
   fetchAndPrune(): boolean;
   fetchAndPruneTags(): boolean;
+  /** Whether the current repository is fetched on a timer. */
+  autoFetchEnabled(): boolean;
+  /** How often, in minutes; clamped to 1–60 by the timer. */
+  autoFetchIntervalMinutes(): number;
   pullRequestProviders(): PullRequestProvider[];
   /** "Show remote branches" for a repo that has not overridden it. */
   showRemoteBranches(): boolean;

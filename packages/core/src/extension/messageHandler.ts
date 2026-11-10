@@ -27,7 +27,6 @@ import {
   resetToCommit,
   revertCommit
 } from "@ging/core/backend/actions/commit";
-import { fetchFromRemotes } from "@ging/core/backend/actions/fetch";
 import { mergeBranch, mergeCommit } from "@ging/core/backend/actions/merge";
 import {
   abortOperation,
@@ -74,6 +73,7 @@ import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
 import { type BranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { type BranchFacts } from "@ging/core/extension/branchFacts";
 import { type BranchFilterChange } from "@ging/core/extension/branchFilter";
+import { type FetchService } from "@ging/core/extension/fetchService";
 import { resolveRepoScope, resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { type WebviewBridge } from "@ging/core/extension/webviewBridge";
 import { createWebviewErrorSink } from "@ging/core/extension/webviewErrorSink";
@@ -110,6 +110,10 @@ export type MessageHandlerDeps = {
   /** Builds the cleanup dialog's payload. Shared with the side-view command,
    *  which opens the same dialog from the other direction (ADR-0017). */
   branchCleanup: BranchCleanup;
+  /** The fetch, prune flags and all. The dispatch takes the git call alone:
+   *  its handlers already run inside the bridge's `mutatesRepo`, and the
+   *  service's hooked entry points would nest a second mute inside it. */
+  fetchService: Pick<FetchService, "fetchAll">;
   /** Called when the webview switches repo, so the Branches side-view can
    *  follow the same repo. */
   onSelectRepo: (repo: string) => void;
@@ -144,6 +148,7 @@ export function registerMessageHandlers(
     branchFilterStore,
     branchFacts,
     branchCleanup,
+    fetchService,
     onSelectRepo,
     onDelegatedRan,
     showAllBranches,
@@ -618,10 +623,7 @@ export function registerMessageHandlers(
       let fetchFailed = false;
       if (msg.fetch) {
         try {
-          await fetchFromRemotes(gitClient.getInstance(), {
-            prune: config.fetchAndPrune(),
-            pruneTags: config.fetchAndPruneTags()
-          });
+          await fetchService.fetchAll(gitClient.getInstance());
         } catch {
           // Report it and answer anyway: a pre-fetch list the user knows is
           // pre-fetch beats an error dialog that leaves them with nothing.
@@ -805,10 +807,7 @@ export function registerMessageHandlers(
     async () => {
       let status: string | null = null;
       try {
-        await fetchFromRemotes(gitClient.getInstance(), {
-          prune: config.fetchAndPrune(),
-          pruneTags: config.fetchAndPruneTags()
-        });
+        await fetchService.fetchAll(gitClient.getInstance());
       } catch (e: unknown) {
         status = formatGitError(e);
       }

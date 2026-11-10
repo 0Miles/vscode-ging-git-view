@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { AvatarManager } from "@ging/core/avatarManager";
 import { createBranch } from "@ging/core/backend/actions/branch";
 import { resetToCommit } from "@ging/core/backend/actions/commit";
-import { fetchFromRemotes, fetchRemote, listRemoteNames } from "@ging/core/backend/actions/fetch";
+import { listRemoteNames } from "@ging/core/backend/actions/fetch";
 import {
   addRemote,
   getRemoteUrl,
@@ -23,6 +23,7 @@ import { AskpassManager } from "@ging/core/extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "@ging/core/extension/branchActionDelegate";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
+import { createFetchService } from "@ging/core/extension/fetchService";
 import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
@@ -68,6 +69,7 @@ import {
   type RemoteActionTarget
 } from "./extension/remotesView";
 import { createRepoManager } from "./extension/repoManager";
+import { createRunRepoMutation } from "./extension/repoMutation";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
 import { showStatistics } from "./extension/statisticsPanel";
 import { createWebviewPanel, WebviewPanel } from "./extension/webviewPanel";
@@ -158,6 +160,9 @@ export function activate(context: vscode.ExtensionContext) {
   };
   let currentPanel: WebviewPanel | undefined;
   let currentBridge: WebviewBridge | undefined;
+  /** The open graph's file watcher, muted across the fetches made outside its
+   *  bridge (see `fetchService`). */
+  let currentWatcher: RepoFileWatcher | undefined;
 
   // Branches side-view: a native TreeView (in the Source Control container) that
   // replaces the in-graph branch dropdown. Its selection drives a per-repo
@@ -215,6 +220,23 @@ export function activate(context: vscode.ExtensionContext) {
     resolveExemptPatterns: config.inactiveBranchAlwaysShow,
     dateType: config.dateType
   });
+  // Every fetch, and the auto-fetch timer. The graph's own fetches take the git
+  // call alone, since its bridge mutes and refreshes around them; the `fetch`
+  // command, the timer and the Remotes view's fetch run inside this hook, which
+  // refreshes whether or not a graph is open.
+  const fetchService = createFetchService({
+    config,
+    prompts: vscodePrompts,
+    l10n: vscodeL10n,
+    gitClientFor: repoGitClients.gitClientFor,
+    currentRepo: () => extensionState.getLastActiveRepo(),
+    runRepoMutation: createRunRepoMutation({
+      watcher: () => currentWatcher,
+      afterMutation: () => refreshAfterRemoteChange()
+    })
+  });
+  fetchService.restartAutoFetch();
+  context.subscriptions.push(fetchService);
   const branchesView = createBranchesView({
     branchFacts,
     filterStore: branchFilterStore,
@@ -461,12 +483,14 @@ export function activate(context: vscode.ExtensionContext) {
       branchesView.refresh();
     });
     currentBridge = bridge;
+    currentWatcher = repoFileWatcher;
     avatarManager.registerBridge(bridge.post.bind(bridge));
     const messageHandlers = registerMessageHandlers(
       bridge,
       { ...hostPorts, watcher: repoFileWatcher },
       {
         gitClient,
+        fetchService,
         extensionState,
         avatarManager,
         branchFilterStore,
@@ -501,6 +525,7 @@ export function activate(context: vscode.ExtensionContext) {
       onDispose: () => {
         currentPanel = undefined;
         currentBridge = undefined;
+        currentWatcher = undefined;
         branchActionDelegate.forgetPending();
         messageHandlers.dispose();
       },
@@ -681,10 +706,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   /** Refresh everything that may show remote state: both side-views (remote
    *  renames/removals change remote-tracking refs) and an open graph. These
-   *  actions run against `repoGitClients` rather than through the webview
-   *  bridge, so they miss the mutation hook that would otherwise drop the
-   *  cached read — and a refresh inside the coalescing window would then be
-   *  served a snapshot still listing the remote-tracking branches just removed. */
+   *  actions, and the fetches run inside `fetchService`'s hook, run against
+   *  `repoGitClients` rather than through the webview bridge, so they miss the
+   *  mutation hook that would otherwise drop the cached read — and a refresh
+   *  inside the coalescing window would then be served a snapshot still
+   *  listing the remote-tracking branches just removed. */
   const refreshAfterRemoteChange = (): void => {
     branchFacts.invalidate();
     remotesView.refresh();
@@ -758,41 +784,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
     return undefined;
   };
-
-  // Auto-fetch: periodically fetch all remotes when enabled, then refresh an
-  // open graph. Best-effort and silent — failures (offline, no remotes) must
-  // not nag the user.
-  let autoFetchTimer: ReturnType<typeof setInterval> | undefined;
-  const restartAutoFetch = () => {
-    if (autoFetchTimer !== undefined) {
-      clearInterval(autoFetchTimer);
-      autoFetchTimer = undefined;
-    }
-    if (!config.autoFetchEnabled()) return;
-    const minutes = Math.min(60, Math.max(1, config.autoFetchIntervalMinutes()));
-    autoFetchTimer = setInterval(
-      () => {
-        void (async () => {
-          try {
-            await fetchFromRemotes(gitClient.getInstance(), {
-              prune: config.fetchAndPrune(),
-              pruneTags: config.fetchAndPruneTags()
-            });
-            currentBridge?.post({ command: "refresh" });
-          } catch {
-            /* best-effort: stay silent on failure */
-          }
-        })();
-      },
-      minutes * 60 * 1000
-    );
-  };
-  restartAutoFetch();
-  context.subscriptions.push({
-    dispose: () => {
-      if (autoFetchTimer !== undefined) clearInterval(autoFetchTimer);
-    }
-  });
 
   context.subscriptions.push(
     outputChannel,
@@ -926,15 +917,10 @@ export function activate(context: vscode.ExtensionContext) {
         await removeRemote(git, { name: target.name });
       })
     ),
-    vscode.commands.registerCommand("ging-git-view.remotes.fetchOne", (item: unknown) =>
-      runRemoteAction(item, "error.unableToFetch", (git, target) =>
-        fetchRemote(git, {
-          remote: target.name,
-          prune: config.fetchAndPrune(),
-          pruneTags: config.fetchAndPruneTags()
-        })
-      )
-    ),
+    vscode.commands.registerCommand("ging-git-view.remotes.fetchOne", async (item: unknown) => {
+      const target = remoteActionTarget(item);
+      if (target !== null) await fetchService.fetchOneCommand(target.repo, target.name);
+    }),
     vscode.commands.registerCommand("ging-git-view.remotes.copyUrl", (item: unknown) => {
       const target = remoteActionTarget(item);
       if (target !== null) void vscode.env.clipboard.writeText(target.fetchUrl);
@@ -942,20 +928,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("ging-git-view.clearAvatarCache", () => {
       avatarManager.clearCache();
     }),
-    vscode.commands.registerCommand("ging-git-view.fetch", async () => {
-      try {
-        await fetchFromRemotes(gitClient.getInstance(), {
-          prune: config.fetchAndPrune(),
-          pruneTags: config.fetchAndPruneTags()
-        });
-        // Refresh an open graph so the freshly-fetched refs show immediately.
-        currentBridge?.post({ command: "refresh" });
-      } catch (e: unknown) {
-        void vscode.window.showErrorMessage(
-          l10n.t("error.unableToFetch") + ": " + formatGitError(e)
-        );
-      }
-    }),
+    vscode.commands.registerCommand("ging-git-view.fetch", () => fetchService.fetchCommand()),
     vscode.commands.registerCommand(
       "ging-git-view.managePullRequestProviders",
       (host?: string | null) => managePullRequestProviders(host)
@@ -1041,11 +1014,7 @@ export function activate(context: vscode.ExtensionContext) {
                 placeHolder: l10n.t("fetch.pickRemote")
               });
         if (remote === undefined) return; // cancelled
-        await fetchRemote(git, {
-          remote,
-          prune: config.fetchAndPrune(),
-          pruneTags: config.fetchAndPruneTags()
-        });
+        await fetchService.fetchRemote(git, remote);
         currentBridge?.post({ command: "refresh" });
       } catch (e: unknown) {
         void vscode.window.showErrorMessage(
@@ -1310,7 +1279,7 @@ export function activate(context: vscode.ExtensionContext) {
       } else if (e.affectsConfiguration("git.path")) {
         gitClient.setGitPath(config.gitPath());
       } else if (e.affectsConfiguration("ging-git-view.autoFetch")) {
-        restartAutoFetch();
+        fetchService.restartAutoFetch();
       } else if (e.affectsConfiguration("ging-git-view.branches")) {
         // Threshold / always-show / default-visibility changes re-classify the
         // side-view's inactive branches.
