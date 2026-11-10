@@ -40,6 +40,6 @@ catalogue 的路徑已改為 `packages/shared`(正文已改),理由見 ADR-0026�
 
 ## 補記(2026-11-11,#336)
 
-**`cmvKey` 的宣告延伸到 stash,但放在另一份 catalogue;本篇的決定不變。**
+**`cmvKey` 的宣告延伸到 stash,但放在另一張表;本篇的決定不變。**
 
-Stash 側檢視的選單項目(drop、rename、copy name,#337 之後再加 apply、pop)由 `packages/shared/src/backend/utils/stashActionCatalogue.ts` 宣告。每一筆只有 `cmvKey`:本篇其他五件事實講的是委派給圖形與批次,stash 兩者都不適用。stash 的動作在 host 執行(ADR-0029),而且一次只作用在一筆。`ging-git-view.cmv.stash.*` 的 context key 由 `stashMenuContextKeys` 產生,不再在 `extension.ts` 手寫。`stashMenuConsistency.test.ts` 依照 `branchMenuConsistency.test.ts` 的方式,鎖住 `package.json` 的 `stash.*` when 子句。沒有併進 `REF_ACTION_CATALOGUE`,因為 `RefAction` 等型別都從它的 key 推導,stash 放進去會讓「branch 動作」這個集合不再只有 branch。
+Stash 側檢視的選單項目由 `apps/vscode/src/extension/stashActions.ts` 的 `STASH_ACTIONS` 宣告,每一筆是 `cmvKey` 加上它執行的 handler。本篇其他五件事實講的是委派給圖形與批次,stash 兩者都不適用:stash 的動作在 host 執行(ADR-0029),而且一次只作用在一筆。這張表放在 `apps/vscode` 而不是 `packages/shared`,因為 command ID 與 `ging-git-view.cmv.stash.*` context key 只有 VS Code 用得到,圖形沒有讀它。context key 由 `stashMenuContextKeys` 產生,不再在 `extension.ts` 手寫。`stashMenuConsistency.test.ts` 依照 `branchMenuConsistency.test.ts` 的方式,鎖住 `package.json` 的 `stash.*` when 子句。沒有併進 `REF_ACTION_CATALOGUE`,因為 `RefAction` 等型別都從它的 key 推導,stash 放進去會讓「branch 動作」這個集合不再只有 branch。
