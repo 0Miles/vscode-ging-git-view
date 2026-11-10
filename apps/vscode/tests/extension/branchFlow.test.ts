@@ -16,11 +16,10 @@ import { useSharedRepo } from "./helpers";
 // End-to-end exercise of the extension-side branch flow against a real repo.
 // Drives the real registerMessageHandlers with a real git client + real config
 // through a fake bridge, mimicking the webview's selectRepo -> loadBranches
-// handshake. The repo is one made for these tests (see the outer suite), not
-// the workspace they run in: none of the assertions depend on how big the repo
-// is, but the run time did, growing with every branch and worktree of whoever
-// ran it, so no timing measured on one machine held on another (#286).
-// Expectations are still read from git, not written in.
+// handshake. The repo is a small one made for these tests and shared by all of
+// them (see the outer suite), not the workspace they run in: none of the
+// assertions depend on what is in it, and the tests only read it. Expectations
+// are read from git, not written in.
 const noop = () => {};
 
 const resolveShowRemote = () => true;
