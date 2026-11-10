@@ -77,8 +77,7 @@ export type GitFileChange = {
   additions: number | null;
   deletions: number | null;
   /** Where in the stash the file's contents are kept, when not in the commit
-   *  itself (see `GitFileChangeOrigin`). Nothing to do with a git remote such
-   *  as `origin`. */
+   *  itself (see `GitFileChangeOrigin`). */
   origin?: GitFileChangeOrigin;
 };
 

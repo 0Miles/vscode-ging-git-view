@@ -279,18 +279,14 @@ export type ResponseCopyToClipboard = {
   success: boolean;
 };
 
-/** What a request reading a CDV file carries besides its file: the file
- *  change's `origin`, handed back as the CDV got it. */
-export type FileChangeOriginRef = {
-  origin?: GitFileChangeOrigin;
-};
-
 /** A CDV file to read: `filePath` as of `commitHash`. */
 export type CommitFileRef = {
   repo: string;
   commitHash: string;
   filePath: string;
-} & FileChangeOriginRef;
+  /** The file change's `origin`, handed back as the CDV got it. */
+  origin?: GitFileChangeOrigin;
+};
 
 export type RequestViewDiff = {
   command: "viewDiff";
@@ -302,7 +298,9 @@ export type RequestViewDiff = {
   /** When comparing two commits, the base commit to diff against instead
    *  of `commitHash`'s first parent. */
   fromHash?: string;
-} & FileChangeOriginRef;
+  /** The file change's `origin`, handed back as the CDV got it. */
+  origin?: GitFileChangeOrigin;
+};
 export type ResponseViewDiff = {
   command: "viewDiff";
   success: boolean;
