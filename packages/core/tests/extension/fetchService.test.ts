@@ -128,11 +128,11 @@ describe("the fetch command", () => {
     ]);
   });
 
-  it("does nothing without a current repository", async () => {
+  it("says so, and fetches nothing, without a current repository", async () => {
     const h = harness();
     h.setCurrentRepo(null);
     await h.service.fetchCommand();
-    expect(h.calls).toEqual([]);
+    expect(h.calls).toEqual([["showInformation", "repoName.noRepos"]]);
   });
 });
 
@@ -205,13 +205,47 @@ describe("auto-fetch", () => {
     ]);
   });
 
-  it("skips a tick with no current repository", async () => {
+  it("skips a tick, silently, with no current repository", async () => {
     const h = harness();
     h.settings.autoFetch = true;
     h.setCurrentRepo(null);
     h.service.restartAutoFetch();
     await vi.advanceTimersByTimeAsync(10 * MINUTE);
     expect(h.calls).toEqual([]);
+  });
+
+  it("skips a tick while the last tick's fetch is still running", async () => {
+    let finish!: () => void;
+    let started = 0;
+    const h = harness({
+      gitClientFor: () =>
+        ({
+          raw: () => {
+            started += 1;
+            return new Promise<void>((resolve) => {
+              finish = resolve;
+            });
+          }
+        }) as unknown as SimpleGit
+    });
+    h.settings.autoFetch = true;
+    h.service.restartAutoFetch();
+    await vi.advanceTimersByTimeAsync(10 * MINUTE);
+    expect(started).toBe(1);
+    // A second tick lands while the first fetch hangs (a slow or offline remote).
+    await vi.advanceTimersByTimeAsync(10 * MINUTE);
+    expect(started).toBe(1);
+    expect(h.calls).toEqual([["runRepoMutation", REPO]]);
+
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.calls).toEqual([
+      ["runRepoMutation", REPO],
+      ["runRepoMutation done", REPO]
+    ]);
+    // Once it has settled, the next tick fetches again.
+    await vi.advanceTimersByTimeAsync(10 * MINUTE);
+    expect(started).toBe(2);
   });
 
   it("keeps the interval between one minute and an hour", async () => {
