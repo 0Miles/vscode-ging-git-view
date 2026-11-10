@@ -8,7 +8,7 @@ import { listStashes } from "@ging/core/backend/queries/listStashes";
 import type { RepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
   loadStashFiles,
-  selectorOfStash,
+  copyStashName,
   type StashFile,
   type StashListItem,
   stashListItems
@@ -228,20 +228,21 @@ export function createStashView(
         void vscode.window.showErrorMessage(l10n.t("error.unableToViewDiff"));
       }
     }),
-    // The stash is named by its SHA; its selector is looked up now, since the
-    // one on screen may have moved since the list was read, and copying it
-    // would hand out the name of whichever stash sits there now.
-    vscode.commands.registerCommand("ging-git-view.stash.copyName", async (node: unknown) => {
-      if (!isStashNode(node)) return;
-      const stashes = await listStashes(deps.gitClients.gitClientFor(node.repo));
-      const selector = selectorOfStash(stashes, node.stash.hash);
-      if (selector === null) {
-        void vscode.window.showWarningMessage(l10n.t("stashView.stashGone"));
-        void provider.reload();
-        return;
-      }
-      await vscode.env.clipboard.writeText(selector);
-    })
+    // #333: a stash whose position changed is refused, not redirected (see
+    // `copyStashName`). Resolves to the outcome, for the tests.
+    vscode.commands.registerCommand("ging-git-view.stash.copyName", (node: unknown) =>
+      isStashNode(node)
+        ? copyStashName(
+            {
+              listStashes: () => listStashes(deps.gitClients.gitClientFor(node.repo)),
+              writeClipboard: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
+              warn: () => void vscode.window.showWarningMessage(l10n.t("stashView.stashMoved")),
+              refresh: () => void provider.reload()
+            },
+            node.stash
+          )
+        : undefined
+    )
   ];
 
   return {

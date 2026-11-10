@@ -40,10 +40,32 @@ export function stashListItems(stashes: ScmStashEntry[]): StashListItem[] {
   });
 }
 
-/** Where the stash with this SHA sits now, e.g. `stash@{2}`; null once it is
- *  gone. */
-export function selectorOfStash(stashes: ScmStashEntry[], hash: string): string | null {
-  return stashes.find((stash) => stash.hash === hash)?.ref ?? null;
+/**
+ * Copy Name on a listed stash: the selector the item shows, copied only while
+ * the stash with that SHA still sits there. #333: a stash whose position has
+ * changed is refused, not redirected — so a stash that moved or is gone copies
+ * nothing; the user is warned and the list re-read to show where things are
+ * now.
+ */
+export async function copyStashName(
+  deps: {
+    listStashes: () => Promise<ScmStashEntry[]>;
+    writeClipboard: (text: string) => Promise<void>;
+    /** Tell the user the stash has moved or is gone. */
+    warn: () => void;
+    /** Re-read the list. */
+    refresh: () => void;
+  },
+  shown: { hash: string; selector: string }
+): Promise<"copied" | "refused"> {
+  const stashes = await deps.listStashes();
+  if (!stashes.some(({ hash, ref }) => hash === shown.hash && ref === shown.selector)) {
+    deps.warn();
+    deps.refresh();
+    return "refused";
+  }
+  await deps.writeClipboard(shown.selector);
+  return "copied";
 }
 
 /** One file of an expanded stash. */

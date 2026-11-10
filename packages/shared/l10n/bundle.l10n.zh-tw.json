@@ -340,7 +340,7 @@
   "remotes.editUrl": "編輯 URL",
   "remotes.rename": "重新命名",
   "remotes.remove": "移除",
-  "stashView.stashGone": "這個 stash 已不存在。",
+  "stashView.stashMoved": "這個 stash 的位置已變動或已不存在，所以沒有複製名稱。清單已重新整理。",
   "remotes.actionPrompt": "選擇對 remote {0} 的動作",
   "remotes.renamePrompt": "Remote 的新名稱",
   "remotes.removeConfirm": "移除 remote {0}？這也會刪除其 remote 追蹤參考。",

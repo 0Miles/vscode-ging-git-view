@@ -6,7 +6,7 @@ import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { commitDiffView } from "@ging/core/extension/commitDiff";
-import { loadStashFiles, selectorOfStash, stashListItems } from "@ging/core/extension/stashList";
+import { copyStashName, loadStashFiles, stashListItems } from "@ging/core/extension/stashList";
 import type { ScmStashEntry } from "@ging/shared/backend/types";
 
 import { git, makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
@@ -51,13 +51,46 @@ describe("stashListItems", () => {
   });
 });
 
-describe("selectorOfStash", () => {
-  it("finds where the stash with this SHA sits now", () => {
-    expect(selectorOfStash([entry("aaa", 0), entry("bbb", 1)], "bbb")).toBe("stash@{1}");
+describe("copyStashName", () => {
+  /** Copy Name on the item showing `shown`, with git now listing `now`. */
+  async function copy(now: ScmStashEntry[], shown: { hash: string; selector: string }) {
+    const copied: string[] = [];
+    const calls = { warned: 0, refreshed: 0 };
+    const outcome = await copyStashName(
+      {
+        listStashes: () => Promise.resolve(now),
+        writeClipboard: (text) => {
+          copied.push(text);
+          return Promise.resolve();
+        },
+        warn: () => calls.warned++,
+        refresh: () => calls.refreshed++
+      },
+      shown
+    );
+    return { outcome, copied, ...calls };
+  }
+
+  it("copies the shown selector while the stash still sits there", async () => {
+    expect(
+      await copy([entry("aaa", 0), entry("bbb", 1)], { hash: "bbb", selector: "stash@{1}" })
+    ).toEqual({ outcome: "copied", copied: ["stash@{1}"], warned: 0, refreshed: 0 });
   });
 
-  it("is null once that stash is gone", () => {
-    expect(selectorOfStash([entry("aaa", 0)], "bbb")).toBeNull();
+  it("refuses, copying nothing, once the stash has moved", async () => {
+    // A newer push moved bbb from stash@{0} to stash@{1} after the list was read.
+    expect(
+      await copy([entry("ccc", 0), entry("bbb", 1)], { hash: "bbb", selector: "stash@{0}" })
+    ).toEqual({ outcome: "refused", copied: [], warned: 1, refreshed: 1 });
+  });
+
+  it("refuses, copying nothing, once the stash is gone", async () => {
+    expect(await copy([entry("aaa", 0)], { hash: "bbb", selector: "stash@{0}" })).toEqual({
+      outcome: "refused",
+      copied: [],
+      warned: 1,
+      refreshed: 1
+    });
   });
 });
 

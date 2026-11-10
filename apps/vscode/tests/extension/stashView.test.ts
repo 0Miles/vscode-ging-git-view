@@ -199,18 +199,39 @@ suite("Stash side-view commands (integration)", function () {
     assert.deepStrictEqual(await openDiff("new.txt"), { left: "", right: "untracked" });
   });
 
-  test("Copy Stash Name copies where the stash sits now, found by its SHA", async () => {
-    const node = {
-      kind: "stash",
-      repo,
-      stash: { id: stash, hash: stash, selector: "stash@{0}", message: "On main: both", date: 0 }
-    };
+  /** The view's item for the suite's stash, as listed at stash@{0}. */
+  const listedItem = () => ({
+    kind: "stash",
+    repo,
+    stash: { id: stash, hash: stash, selector: "stash@{0}", message: "On main: both", date: 0 }
+  });
+
+  test("Copy Stash Name copies the shown name while the stash still sits there", async () => {
+    await vscode.env.clipboard.writeText("untouched");
+
+    const outcome = await vscode.commands.executeCommand(
+      "ging-git-view.stash.copyName",
+      listedItem()
+    );
+
+    assert.strictEqual(outcome, "copied");
+    assert.strictEqual(await vscode.env.clipboard.readText(), "stash@{0}");
+  });
+
+  // #333: a stash whose position changed is refused, not redirected.
+  test("Copy Stash Name copies nothing once the stash has moved, and refreshes", async () => {
+    const item = listedItem();
     // A newer stash pushes this one down after the list was read.
     fs.writeFileSync(path.join(repo, "f"), "again");
     git(["stash", "push", "-m", "newer"], repo);
+    await vscode.env.clipboard.writeText("untouched");
 
-    await vscode.commands.executeCommand("ging-git-view.stash.copyName", node);
+    const outcome = await vscode.commands.executeCommand("ging-git-view.stash.copyName", item);
 
-    assert.strictEqual(await vscode.env.clipboard.readText(), "stash@{1}");
+    // "refused" is the branch of `copyStashName` that warns and refreshes; its
+    // core test pins both calls, since the TreeView's re-read can't be read
+    // back from the extension host.
+    assert.strictEqual(outcome, "refused");
+    assert.strictEqual(await vscode.env.clipboard.readText(), "untouched");
   });
 });
