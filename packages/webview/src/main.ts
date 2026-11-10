@@ -48,6 +48,7 @@ import {
   generateGitFileListHtml,
   generateGitFileTree,
   generateGitFileTreeHtml,
+  gitFileRowOrigin,
   isGitFolderOpen,
   parentGitFolderRow,
   serializeGitFileTree,
@@ -7855,7 +7856,8 @@ class GitGraphView {
         fromHash: this.cdvFromHash,
         oldFilePath: decodeURIComponent(sourceElem.dataset.oldfilepath!),
         newFilePath,
-        type: <GitFileChangeType>sourceElem.dataset.type
+        type: <GitFileChangeType>sourceElem.dataset.type,
+        origin: gitFileRowOrigin(sourceElem)
       });
     });
     this.addCdvListenerToClass("gitFileCopyPath", "click", (e) => {
@@ -7876,6 +7878,7 @@ class GitGraphView {
       const commitHash = this.cdvHash;
       const fromHash = this.cdvFromHash;
       const oldFilePath = decodeURIComponent(sourceElem.dataset.oldfilepath!);
+      const origin = gitFileRowOrigin(sourceElem);
       const notDeleted = fileType !== "D";
       // Per-action visibility; each action can be hidden via config.
       const v = viewState.contextMenuActionsVisibility.commitDetailsViewFile;
@@ -7893,7 +7896,8 @@ class GitGraphView {
               fromHash,
               oldFilePath,
               newFilePath: filePath,
-              type: <GitFileChangeType>fileType
+              type: <GitFileChangeType>fileType,
+              origin
             })
         });
       }
@@ -7908,7 +7912,8 @@ class GitGraphView {
               command: "viewFileAtRevision",
               repo: this.currentRepo!,
               commitHash,
-              filePath
+              filePath,
+              origin
             })
         });
       }
@@ -7921,7 +7926,8 @@ class GitGraphView {
               command: "viewDiffWithWorking",
               repo: this.currentRepo!,
               commitHash,
-              filePath
+              filePath,
+              origin
             })
         });
       }
@@ -7987,7 +7993,8 @@ class GitGraphView {
         command: "viewFileAtRevision",
         repo: this.currentRepo!,
         commitHash: this.cdvHash,
-        filePath: decodeURIComponent(sourceElem.dataset.filepath!)
+        filePath: decodeURIComponent(sourceElem.dataset.filepath!),
+        origin: gitFileRowOrigin(sourceElem.closest<HTMLElement>(".gitFile")!)
       });
     });
     this.addCdvListenerToClass("gitFileDiffWorking", "click", (e) => {
@@ -7998,7 +8005,8 @@ class GitGraphView {
         command: "viewDiffWithWorking",
         repo: this.currentRepo!,
         commitHash: this.cdvHash,
-        filePath: decodeURIComponent(sourceElem.dataset.filepath!)
+        filePath: decodeURIComponent(sourceElem.dataset.filepath!),
+        origin: gitFileRowOrigin(sourceElem.closest<HTMLElement>(".gitFile")!)
       });
     });
   }
