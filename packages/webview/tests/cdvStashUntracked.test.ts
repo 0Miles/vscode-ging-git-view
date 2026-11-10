@@ -5,11 +5,14 @@ import type * as GG from "@ging/shared/types";
 
 import {
   clickElem,
+  clickId,
   clickItem,
   commitDetails,
   contextMenuEntries,
   createVscodeMock,
   DEFAULT_REPO,
+  dialogShown,
+  dialogText,
   englishStrings,
   makeViewState,
   openDetailsOn,
@@ -171,6 +174,25 @@ describe("a stash's untracked file in the Commit Details View", () => {
       ["viewDiff", "untracked"],
       ["viewFileAtRevision", "untracked"],
       ["viewDiffWithWorking", "untracked"]
+    ]);
+  });
+
+  it("resets it with the origin handed back, behind the same confirmation as any file", () => {
+    rightClick(fileRow("sub/untracked.txt"));
+    clickItem(L.resetFileToRevision + "…");
+    expect(dialogShown()).toBe(true);
+    expect(dialogText()).toContain(
+      "Are you sure you want to reset sub/untracked.txt to its state at commit sss555? " +
+        "This overwrites the working-tree copy."
+    );
+    expect(sentWhile(() => clickId("dialogAction"))).toEqual([
+      {
+        command: "resetFileToRevision",
+        repo: DEFAULT_REPO,
+        commitHash: STASH,
+        filePath: "sub/untracked.txt",
+        origin: "untracked"
+      }
     ]);
   });
 
