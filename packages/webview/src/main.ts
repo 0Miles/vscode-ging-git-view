@@ -7994,7 +7994,7 @@ class GitGraphView {
         repo: this.currentRepo!,
         commitHash: this.cdvHash,
         filePath: decodeURIComponent(sourceElem.dataset.filepath!),
-        origin: gitFileRowOrigin(sourceElem.closest<HTMLElement>(".gitFile")!)
+        origin: gitFileRowOrigin(sourceElem)
       });
     });
     this.addCdvListenerToClass("gitFileDiffWorking", "click", (e) => {
@@ -8006,7 +8006,7 @@ class GitGraphView {
         repo: this.currentRepo!,
         commitHash: this.cdvHash,
         filePath: decodeURIComponent(sourceElem.dataset.filepath!),
-        origin: gitFileRowOrigin(sourceElem.closest<HTMLElement>(".gitFile")!)
+        origin: gitFileRowOrigin(sourceElem)
       });
     });
   }
