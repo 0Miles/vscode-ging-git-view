@@ -199,6 +199,29 @@ describe("commitDetails", () => {
     }
   });
 
+  it("lists a stash pushed without its untracked files by its tracked changes alone", async () => {
+    const r = makeRepo();
+    try {
+      fs.writeFileSync(path.join(r, "f"), "changed\n");
+      git(["stash", "push", "-m", "wip"], r);
+      const stashHash = cp
+        .execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r })
+        .toString()
+        .trim();
+
+      const result = await commitDetails(simpleGit(r), {
+        commitHash: stashHash,
+        useMailmap: false,
+        isStash: true
+      });
+      expect(result.commitDetails!.fileChanges.map((f) => [f.newFilePath, f.origin])).toEqual([
+        ["f", undefined]
+      ]);
+    } finally {
+      rmrf(r);
+    }
+  });
+
   it("counts a stash's untracked files and marks them as untracked", async () => {
     const r = makeRepo();
     try {

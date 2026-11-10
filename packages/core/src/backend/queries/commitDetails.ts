@@ -96,21 +96,18 @@ export async function commitDetails(
     // list them so the stash's details include them. Diffing it as a root
     // commit adds every file, counted like any other added file (a binary one
     // included), and `origin` tells the readers to look there rather than in
-    // the stash's own tree.
-    if (input.isStash) {
+    // the stash's own tree. That commit is the stash's third parent, so a stash
+    // with two parents was pushed without untracked files and has none to add.
+    if (input.isStash && details.parents.length > 2) {
       const untrackedCommit = fileChangeRevision(input.commitHash, "untracked");
-      try {
-        const [untrackedNameStatus, untrackedNumStat] = await Promise.all([
-          fetchDiff(git, untrackedCommit, false, "--name-status"),
-          fetchDiff(git, untrackedCommit, false, "--numstat")
-        ]);
-        for (const fileChange of parseDiffFileChanges(untrackedNameStatus, untrackedNumStat, 1)) {
-          // Already listed as a change to a tracked file.
-          if (details.fileChanges.some((fc) => fc.newFilePath === fileChange.newFilePath)) continue;
-          details.fileChanges.push({ ...fileChange, origin: "untracked" });
-        }
-      } catch {
-        // No such commit (stash had no untracked files) — nothing to add.
+      const [untrackedNameStatus, untrackedNumStat] = await Promise.all([
+        fetchDiff(git, untrackedCommit, false, "--name-status"),
+        fetchDiff(git, untrackedCommit, false, "--numstat")
+      ]);
+      for (const fileChange of parseDiffFileChanges(untrackedNameStatus, untrackedNumStat, 1)) {
+        // Already listed as a change to a tracked file.
+        if (details.fileChanges.some((fc) => fc.newFilePath === fileChange.newFilePath)) continue;
+        details.fileChanges.push({ ...fileChange, origin: "untracked" });
       }
     }
 
