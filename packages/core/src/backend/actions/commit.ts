@@ -49,7 +49,7 @@ export async function resetFileToRevision(
   git: SimpleGit,
   input: ActionPayload<"resetFileToRevision">
 ): Promise<void> {
-  // The "--" disambiguates the path from a ref.
+  // In both commands the "--" disambiguates the path from a ref.
   if (input.origin === "untracked") {
     // A stash's untracked file: write the working tree only, so the file comes
     // back untracked, as it was stashed, and whatever is already staged under
