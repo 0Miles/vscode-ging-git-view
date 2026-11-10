@@ -21,10 +21,11 @@ import { useSharedRepo } from "./helpers";
 // End-to-end exercise of the extension-side branch flow against a real repo.
 // Drives the real registerMessageHandlers with a real git client + real config
 // through a fake bridge and fake ports, mimicking the webview's selectRepo -> loadBranches
-// handshake. The repo is a small one made for these tests and shared by all of
-// them (see the outer suite), not the workspace they run in: none of the
-// assertions depend on what is in it, and the tests only read it. Expectations
-// are read from git, not written in.
+// handshake. The repo is a small one made for these tests, not the workspace
+// they run in, and one copy is shared by all of them: they only read it, so a
+// fresh copy per test (`useSeededRepo`) would isolate nothing and cost a git
+// spawn and a removal each. None of the assertions depend on what is in it;
+// expectations are read from git, not written in.
 const noop = () => {};
 
 const resolveShowRemote = () => true;
@@ -94,35 +95,39 @@ function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps]
   return [ports, deps];
 }
 
-/** One repo for every test in the file: they only read it, so a fresh copy
- *  per test (`useSeededRepo`) would isolate nothing and cost a git spawn and a
- *  removal each. */
+/** A stand-in for the webview's end of the bridge: the handlers registered on
+ *  it, by command, and every response posted back. */
+function makeBridge() {
+  const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
+  const posted: ResponseMessage[] = [];
+  const bridge = {
+    post: (m: ResponseMessage) => posted.push(m),
+    onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) => handlers.set(cmd, h)
+  } as unknown as WebviewBridge;
+  return { handlers, posted, bridge };
+}
+
 suite("branchFlow (integration)", () => {
   let repoPath: string;
   useSharedRepo((repo) => {
     repoPath = repo;
   });
 
+  /** The real handlers on a fresh bridge, with the shared repo selected the
+   *  way the webview's startup handshake selects it. */
+  async function selectSharedRepo(overrides?: DepOverrides) {
+    const wired = makeBridge();
+    registerMessageHandlers(wired.bridge, ...makeDeps(overrides));
+    await wired.handlers.get("selectRepo")!({
+      command: "selectRepo",
+      repo: repoPath
+    } as RequestMessage);
+    return wired;
+  }
+
   suite("branch loading flow (integration)", () => {
     test("selectRepo then loadBranches posts the repo's branches", async () => {
-      const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
-      const posted: ResponseMessage[] = [];
-      const bridge = {
-        post: (m: ResponseMessage) => posted.push(m),
-        onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) =>
-          handlers.set(cmd, h)
-      } as unknown as WebviewBridge;
-
-      // Inject an askpass-style env like the real extension. simple-git
-      // (>=3.36) rejects GIT_ASKPASS in an explicitly-passed env unless we opt in
-      // and merge it correctly — a regression that silently emptied every repo.
-      registerMessageHandlers(bridge, ...makeDeps());
-
-      // Mimic the webview's startup handshake.
-      await handlers.get("selectRepo")!({
-        command: "selectRepo",
-        repo: repoPath
-      } as RequestMessage);
+      const { handlers, posted } = await selectSharedRepo();
       await handlers.get("loadBranches")!({
         command: "loadBranches",
         hard: true,
@@ -158,20 +163,7 @@ suite("branchFlow (integration)", () => {
         .toString()
         .trim();
 
-      const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
-      const posted: ResponseMessage[] = [];
-      const bridge = {
-        post: (m: ResponseMessage) => posted.push(m),
-        onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) =>
-          handlers.set(cmd, h)
-      } as unknown as WebviewBridge;
-
-      registerMessageHandlers(bridge, ...makeDeps());
-
-      await handlers.get("selectRepo")!({
-        command: "selectRepo",
-        repo: repoPath
-      } as RequestMessage);
+      const { handlers, posted } = await selectSharedRepo();
       await handlers.get("commitDetails")!({
         command: "commitDetails",
         repo: repoPath,
@@ -200,25 +192,8 @@ suite("branchFlow (integration)", () => {
    *  Non-zero tokens throughout, and different ones per case: a hard-coded `0`,
    *  or one handler's token reaching the other, would pass against zeros. */
   suite("navigation token echo (integration)", () => {
-    function makeBridge() {
-      const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
-      const posted: ResponseMessage[] = [];
-      const bridge = {
-        post: (m: ResponseMessage) => posted.push(m),
-        onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) =>
-          handlers.set(cmd, h)
-      } as unknown as WebviewBridge;
-      return { handlers, posted, bridge };
-    }
-
     test("loadBranches echoes the request's token verbatim", async () => {
-      const { handlers, posted, bridge } = makeBridge();
-      registerMessageHandlers(bridge, ...makeDeps());
-
-      await handlers.get("selectRepo")!({
-        command: "selectRepo",
-        repo: repoPath
-      } as RequestMessage);
+      const { handlers, posted } = await selectSharedRepo();
       await handlers.get("loadBranches")!({
         command: "loadBranches",
         hard: true,
@@ -233,13 +208,7 @@ suite("branchFlow (integration)", () => {
     });
 
     test("loadCommits echoes the request's token verbatim", async () => {
-      const { handlers, posted, bridge } = makeBridge();
-      registerMessageHandlers(bridge, ...makeDeps());
-
-      await handlers.get("selectRepo")!({
-        command: "selectRepo",
-        repo: repoPath
-      } as RequestMessage);
+      const { handlers, posted } = await selectSharedRepo();
       await handlers.get("loadCommits")!({
         command: "loadCommits",
         repo: repoPath,
@@ -265,26 +234,11 @@ suite("branchFlow (integration)", () => {
   suite("first-parent mode rides with the commits (integration)", () => {
     for (const onlyFollowFirstParent of [true, false]) {
       test(`loadCommits answers onlyFollowFirstParent: ${onlyFollowFirstParent} when the repo resolves to it`, async () => {
-        const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
-        const posted: ResponseMessage[] = [];
-        const bridge = {
-          post: (m: ResponseMessage) => posted.push(m),
-          onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) =>
-            handlers.set(cmd, h)
-        } as unknown as WebviewBridge;
-        registerMessageHandlers(
-          bridge,
-          ...makeDeps({
-            repoSource: {
-              getRepos: () => ({ [repoPath]: { columnWidths: null, onlyFollowFirstParent } })
-            }
-          })
-        );
-
-        await handlers.get("selectRepo")!({
-          command: "selectRepo",
-          repo: repoPath
-        } as RequestMessage);
+        const { handlers, posted } = await selectSharedRepo({
+          repoSource: {
+            getRepos: () => ({ [repoPath]: { columnWidths: null, onlyFollowFirstParent } })
+          }
+        });
         await handlers.get("loadCommits")!({
           command: "loadCommits",
           repo: repoPath,
@@ -311,35 +265,15 @@ suite("branchFlow (integration)", () => {
    *  because the load responses carry a navigation token and no repo, so nothing
    *  downstream can notice the disagreement. */
   suite("selectRepo failures (integration)", () => {
-    function makeBridge() {
-      const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
-      const posted: ResponseMessage[] = [];
-      const bridge = {
-        post: (m: ResponseMessage) => posted.push(m),
-        onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) =>
-          handlers.set(cmd, h)
-      } as unknown as WebviewBridge;
-      return { handlers, posted, bridge };
-    }
-
     test("a repository that is gone is dropped, not half-selected", async () => {
       const gone = path.join(repoPath, `no-such-repo-${process.pid}`);
       const dropped: string[] = [];
       const persisted: (string | null)[] = [];
 
-      const { handlers, posted, bridge } = makeBridge();
-      registerMessageHandlers(
-        bridge,
-        ...makeDeps({
-          repoSource: { dropRepo: (r) => dropped.push(r) },
-          extensionState: { setLastActiveRepo: (r) => persisted.push(r) }
-        })
-      );
-
-      await handlers.get("selectRepo")!({
-        command: "selectRepo",
-        repo: repoPath
-      } as RequestMessage);
+      const { handlers, posted } = await selectSharedRepo({
+        repoSource: { dropRepo: (r) => dropped.push(r) },
+        extensionState: { setLastActiveRepo: (r) => persisted.push(r) }
+      });
       // Must not reject: the bridge has no catch, so a rejection here is an
       // unhandled one and the webview is told nothing at all.
       await handlers.get("selectRepo")!({ command: "selectRepo", repo: gone } as RequestMessage);
@@ -374,19 +308,10 @@ suite("branchFlow (integration)", () => {
       const persisted: (string | null)[] = [];
       const dropped: string[] = [];
 
-      const { handlers, bridge } = makeBridge();
-      registerMessageHandlers(
-        bridge,
-        ...makeDeps({
-          repoSource: { dropRepo: (r) => dropped.push(r) },
-          extensionState: { setLastActiveRepo: (r) => persisted.push(r) }
-        })
-      );
-
-      await handlers.get("selectRepo")!({
-        command: "selectRepo",
-        repo: repoPath
-      } as RequestMessage);
+      const { handlers } = await selectSharedRepo({
+        repoSource: { dropRepo: (r) => dropped.push(r) },
+        extensionState: { setLastActiveRepo: (r) => persisted.push(r) }
+      });
       await handlers.get("selectRepo")!({ command: "selectRepo", repo: "" } as RequestMessage);
 
       assert.deepStrictEqual(persisted, [repoPath], "an empty path must not be stored");
