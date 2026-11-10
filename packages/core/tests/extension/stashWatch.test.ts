@@ -175,6 +175,7 @@ function fakeView() {
 /** Let resolved lookups run their continuations. Microtasks only, so it works
  *  under fake timers. */
 const settle = async () => {
+  // eslint-disable-next-line no-await-in-loop -- each turn lets one more continuation run
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 

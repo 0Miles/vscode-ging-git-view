@@ -68,11 +68,11 @@ describe("loadStashFiles (real git)", () => {
     if (repo) rmrf(repo);
   });
 
-  /** What `git show <rev>:<path>` reads, or null when there's no such file. */
-  const show = (rev: string, file: string): string | null => {
+  /** What `git show <revision>:<path>` reads, or null when there's no such file. */
+  const show = (revision: string, file: string): string | null => {
     try {
       return cp
-        .execFileSync("git", ["show", `${rev}:${file}`], { cwd: repo, stdio: "pipe" })
+        .execFileSync("git", ["show", `${revision}:${file}`], { cwd: repo, stdio: "pipe" })
         .toString();
     } catch {
       return null;
