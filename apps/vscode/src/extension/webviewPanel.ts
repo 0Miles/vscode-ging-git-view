@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
 
 import { AvatarManager } from "@ging/core/avatarManager";
+import { ExtensionState } from "@ging/core/extensionState";
 import { GitRepoSet } from "@ging/shared/types";
 import { buildExtensionUri } from "@ging/vscode/backend/utils/uri";
 import { Config } from "@ging/vscode/config";
-import { ExtensionState } from "@ging/vscode/extensionState";
 import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
 
 import { RepoChangeCallback, RepoManager } from "./repoManager";

@@ -69,6 +69,7 @@ import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
 import { type BranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { type BranchFacts } from "@ging/core/extension/branchFacts";
 import { createWebviewErrorSink } from "@ging/core/extension/webviewErrorSink";
+import { ExtensionState } from "@ging/core/extensionState";
 import type {
   ActionResponseExtra,
   BatchActionRequest,
@@ -80,7 +81,6 @@ import { RepoScopeSettings, RequestMessage, ResponseMessage } from "@ging/shared
 import { Config } from "@ging/vscode/config";
 import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
 import { copyToClipboard } from "@ging/vscode/extension/utils/clipboard";
-import { ExtensionState } from "@ging/vscode/extensionState";
 import * as l10n from "@ging/vscode/l10n";
 import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
 

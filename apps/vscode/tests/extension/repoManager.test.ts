@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 
+import { ExtensionState } from "@ging/core/extensionState";
 import { GitRepoSet } from "@ging/shared/types";
 import { Config } from "@ging/vscode/config";
 import { createRepoManager } from "@ging/vscode/extension/repoManager";
-import { ExtensionState } from "@ging/vscode/extensionState";
 import { StatusBarItem } from "@ging/vscode/statusBarItem";
 
 import { rmrf } from "@ging/core/tests/helpers";

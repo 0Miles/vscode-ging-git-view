@@ -29,6 +29,7 @@ import {
   type SideViewField,
   sideViewStateChanged
 } from "@ging/core/extension/repoSettings";
+import { ExtensionState } from "@ging/core/extensionState";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
   branchMenuContextKeys,
@@ -71,7 +72,7 @@ import { WebviewBridge, webviewBridgeFactory } from "./extension/webviewBridge";
 import { createWebviewPanel, WebviewPanel } from "./extension/webviewPanel";
 import { createRepoSearch } from "./extension/workspaceSearch";
 import { createRepoWatcher } from "./extension/workspaceWatcher";
-import { ExtensionState } from "./extensionState";
+import { vscodeStorage } from "./hostPorts";
 import * as l10n from "./l10n";
 import { initL10n } from "./l10n";
 import { RepoFileWatcher } from "./repoFileWatcher";
@@ -81,7 +82,7 @@ export function activate(context: vscode.ExtensionContext) {
   initL10n(context.extensionPath);
   const outputChannel = vscode.window.createOutputChannel(l10n.t("outputChannel.text"));
   const logger = createLogger(outputChannel);
-  const extensionState = new ExtensionState(context);
+  const extensionState = new ExtensionState(vscodeStorage(context));
   // The Current repository is resolved when the state is constructed. Say which
   // path was dropped: nothing else will. The side views show their ordinary
   // "no repository selected" state, which is now true but says nothing about
