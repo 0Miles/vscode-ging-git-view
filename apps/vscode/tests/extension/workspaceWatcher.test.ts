@@ -29,16 +29,23 @@ function makeFolder(fsPath: string): StubFolder {
   return { uri: makeUri(fsPath) };
 }
 
-const tick = () => new Promise<void>((r) => setTimeout(r, 10));
+/** A debounce no test outlives, so a batch only runs when the test flushes it:
+ *  what an assertion sees is what `flushPending` delivered, never a timer that
+ *  happened to fire in time. That is also what makes the negative assertions
+ *  ("searched once", "never searched") mean something — once the flush returns
+ *  nothing is left queued that could still call in later (#286). */
+const DEBOUNCE_NEVER_FIRES_MS = 60_000;
 
-function makeStubs(initialFolders: string[] = []) {
+function makeStubs(initialFolders: string[] = [], debounceDelay = DEBOUNCE_NEVER_FIRES_MS) {
   const searched: string[] = [];
   const removed: string[] = [];
   let sendCount = 0;
+  let onSearch: ((path: string) => void) | null = null;
 
   const repoSearch = {
     searchDirectoryForRepos: async (path: string, _depth: number) => {
       searched.push(path);
+      onSearch?.(path);
       return true;
     }
   };
@@ -106,7 +113,7 @@ function makeStubs(initialFolders: string[] = []) {
     config as unknown as Config,
     repoSearch as unknown as RepoSearch,
     workspace as unknown as Parameters<typeof createRepoWatcher>[3],
-    0 // debounceDelay=0 so timers fire after a single tick
+    debounceDelay
   );
 
   const fireFolderChange = (e: FolderChangeEvent) => folderChangeCallback!(e);
@@ -115,10 +122,14 @@ function makeStubs(initialFolders: string[] = []) {
     watcher,
     watcherHandles,
     fireFolderChange,
-    tick,
     searched,
     removed,
-    getSendCount: () => sendCount
+    getSendCount: () => sendCount,
+    /** The path of the next repo search, whatever starts it. */
+    nextSearch: () =>
+      new Promise<string>((resolve) => {
+        onSearch = resolve;
+      })
   };
 }
 
@@ -177,16 +188,30 @@ suite("workspaceWatcher / onWatcherDelete", () => {
 });
 
 suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
+  test("runs the batch once the debounce fires, without a flush", async () => {
+    // Every other test drives batches through flushPending; this is the one
+    // that lets the timer start a batch on its own, as it does in production.
+    const tmp = makeTmpDir();
+    try {
+      const { watcher, watcherHandles, nextSearch } = makeStubs(["/ws/a"], 0);
+      watcher.startWatching();
+      const searched = nextSearch();
+      watcherHandles[0].fireCreate(makeUri(tmp));
+      assert.strictEqual(await searched, toRepoPath(tmp));
+      await watcher.flushPending();
+      watcher.dispose();
+    } finally {
+      rmrf(tmp);
+    }
+  });
+
   test("triggers searchDirectoryForRepos for a new directory", async () => {
     const tmp = makeTmpDir();
     try {
       const { watcher, watcherHandles, searched } = makeStubs(["/ws/a"]);
       watcher.startWatching();
       watcherHandles[0].fireCreate(makeUri(tmp));
-      // 500ms, not one tick: after the 0ms debounce fires, processCreateEvents
-      // suspends on await isDirectory() (real fs.stat I/O), which can be slow
-      // on loaded CI runners.
-      await new Promise<void>((r) => setTimeout(r, 500));
+      await watcher.flushPending();
       // getPathFromUri normalises "\" to "/", so compare against the normalised path.
       assert.ok(searched.includes(toRepoPath(tmp)));
       watcher.dispose();
@@ -203,9 +228,7 @@ suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
       watcherHandles[0].fireCreate(makeUri(tmp));
       watcherHandles[0].fireCreate(makeUri(tmp));
       watcherHandles[0].fireCreate(makeUri(tmp));
-      // Use a longer timeout: the 0ms debounce fires, then processCreateEvents suspends
-      // on await isDirectory() (real fs.stat I/O), which can be slow on loaded CI runners.
-      await new Promise<void>((r) => setTimeout(r, 500));
+      await watcher.flushPending();
       assert.strictEqual(
         searched.filter((p) => p === toRepoPath(tmp)).length,
         1,
@@ -221,7 +244,7 @@ suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
     const { watcher, watcherHandles, searched } = makeStubs(["/ws/a"]);
     watcher.startWatching();
     watcherHandles[0].fireCreate(makeUri("/ws/a/.git/objects"));
-    await new Promise<void>((r) => setTimeout(r, 10));
+    await watcher.flushPending();
     assert.deepStrictEqual(searched, []);
     watcher.dispose();
   });
@@ -232,8 +255,7 @@ suite("workspaceWatcher / onWatcherCreate (debounced)", () => {
       const { watcher, watcherHandles, searched } = makeStubs(["/ws/a"]);
       watcher.startWatching();
       watcherHandles[0].fireCreate(makeUri(tmp + "/.git"));
-      // Same 500ms rationale as the tests above: real fs I/O after the debounce.
-      await new Promise<void>((r) => setTimeout(r, 500));
+      await watcher.flushPending();
       assert.ok(searched.includes(toRepoPath(tmp)));
       watcher.dispose();
     } finally {
@@ -247,7 +269,7 @@ suite("workspaceWatcher / onWatcherChange (debounced)", () => {
     const { watcher, watcherHandles, removed } = makeStubs(["/ws/a"]);
     watcher.startWatching();
     watcherHandles[0].fireChange(makeUri("/ws/a/.git/config"));
-    await new Promise<void>((r) => setTimeout(r, 10));
+    await watcher.flushPending();
     assert.deepStrictEqual(removed, []);
     watcher.dispose();
   });
@@ -259,9 +281,7 @@ suite("workspaceWatcher / onWatcherChange (debounced)", () => {
     watcher.startWatching();
     watcherHandles[0].fireChange(makeUri(missing));
     watcherHandles[0].fireChange(makeUri(missing));
-    // 500ms, not one tick: after the 0ms debounce fires, processChangeEvents
-    // suspends on await doesPathExist() (real fs.stat I/O).
-    await new Promise<void>((r) => setTimeout(r, 500));
+    await watcher.flushPending();
     assert.strictEqual(
       removed.filter((p) => p === missing).length,
       1,
@@ -276,7 +296,7 @@ suite("workspaceWatcher / workspace folder changes", () => {
     const { watcher, watcherHandles, fireFolderChange, searched } = makeStubs([]);
     watcher.startWatching();
     fireFolderChange({ added: [makeFolder("/ws/new")], removed: [] });
-    await new Promise<void>((r) => setTimeout(r, 10));
+    await watcher.flushPending();
     assert.ok(searched.includes("/ws/new"));
     assert.ok(watcherHandles.some((h) => h.pattern === "/ws/new/**"));
     watcher.dispose();
@@ -286,7 +306,7 @@ suite("workspaceWatcher / workspace folder changes", () => {
     const { watcher, fireFolderChange, getSendCount } = makeStubs([]);
     watcher.startWatching();
     fireFolderChange({ added: [makeFolder("/ws/new")], removed: [] });
-    await new Promise<void>((r) => setTimeout(r, 10));
+    await watcher.flushPending();
     assert.strictEqual(getSendCount(), 1);
     watcher.dispose();
   });
@@ -295,7 +315,7 @@ suite("workspaceWatcher / workspace folder changes", () => {
     const { watcher, watcherHandles, fireFolderChange, removed } = makeStubs(["/ws/a"]);
     watcher.startWatching();
     fireFolderChange({ added: [], removed: [makeFolder("/ws/a")] });
-    await new Promise<void>((r) => setTimeout(r, 10));
+    await watcher.flushPending();
     assert.ok(removed.includes("/ws/a"));
     assert.ok(watcherHandles[0].disposed);
     watcher.dispose();
@@ -305,7 +325,7 @@ suite("workspaceWatcher / workspace folder changes", () => {
     const { watcher, fireFolderChange, getSendCount } = makeStubs(["/ws/a"]);
     watcher.startWatching();
     fireFolderChange({ added: [], removed: [makeFolder("/ws/a")] });
-    await new Promise<void>((r) => setTimeout(r, 10));
+    await watcher.flushPending();
     assert.strictEqual(getSendCount(), 1);
     watcher.dispose();
   });
