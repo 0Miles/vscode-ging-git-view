@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
 import type { Clipboard, L10n, Opener, Prompts, Storage } from "@ging/core/host/ports";
-import { type Config, config } from "@ging/vscode/config";
+import type { Config } from "@ging/vscode/config";
 import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
 import { openCommitDiff } from "@ging/vscode/extension/openCommitDiff";
 import * as l10nModule from "@ging/vscode/l10n";
@@ -29,16 +29,13 @@ export const vscodePrompts: Prompts = {
       placeHolder: placeholder,
       prompt,
       password,
-      // Git is blocked on the answer; a box that vanished on a focus change
-      // would leave it waiting for one that can no longer be given.
+      // The port's prompt stays up until it is answered (see `Prompts.input`).
       ignoreFocusOut: true
     })
 };
 
 /** `openCommitDiff` opens in the editor group the settings name. */
-export function createVscodeOpener(
-  settings: Pick<Config, "openNewTabEditorGroup"> = config
-): Opener {
+export function createVscodeOpener(settings: Pick<Config, "openNewTabEditorGroup">): Opener {
   return {
     openFile: (path) =>
       vscode.commands.executeCommand("vscode.open", vscode.Uri.file(path), { preview: true }),

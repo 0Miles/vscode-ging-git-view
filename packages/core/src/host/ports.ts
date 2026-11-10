@@ -72,8 +72,9 @@ export interface Prompts {
     filters: Record<string, string[]>;
     defaultPath: string;
   }): PromiseLike<string | undefined>;
-  /** A line of text — a credential git is waiting on, so the prompt stays up
-   *  until it is answered. */
+  /** A line of text. The prompt stays up until it is answered or dismissed —
+   *  not lost to a focus change — because what asks may be blocked on it (git
+   *  waiting for a credential, today's only caller). */
   input(options: {
     prompt: string;
     placeholder: string;
@@ -97,7 +98,7 @@ export interface Opener {
   diffWithWorking(left: FileAtRevision, workingPath: string, title: string): PromiseLike<unknown>;
   /** A commit's change to a file in a diff editor (see `commitDiffView`);
    *  resolves to whether it opened. */
-  openCommitDiff(request: CommitDiffRequest): Promise<boolean>;
+  openCommitDiff(request: CommitDiffRequest): PromiseLike<boolean>;
   /** A conflicted file in a 3-way merge editor, or a plain editor where there
    *  is none. */
   openMergeEditor(repo: string, filePath: string): void;
