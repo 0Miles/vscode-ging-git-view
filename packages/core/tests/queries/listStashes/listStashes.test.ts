@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { listStashes } from "@ging/core/backend/queries/listStashes";
 
-import { makeRepo, rmrf } from "@ging/core/tests/helpers";
+import { makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
 
 let repo: string;
 
@@ -38,6 +38,27 @@ describe("listStashes", () => {
     expect(stashes[1].ref).toBe("stash@{1}");
     expect(stashes[1].message).toContain("first");
     expect(stashes[0].date).toBeTypeOf("number");
+  });
+
+  it("names each stash by its commit's SHA, the identity the graph keys it by", async () => {
+    fs.writeFileSync(path.join(repo, "f"), "y");
+    cp.execFileSync("git", ["stash", "push", "-m", "first"], { cwd: repo });
+    fs.writeFileSync(path.join(repo, "f"), "z");
+    cp.execFileSync("git", ["stash", "push", "-m", "second"], { cwd: repo });
+
+    const stashes = await listStashes(simpleGit(repo));
+
+    expect(stashes.map((s) => s.hash)).toEqual([rev(repo, "stash@{0}"), rev(repo, "stash@{1}")]);
+  });
+
+  it("keeps a tab in a stash's message", async () => {
+    fs.writeFileSync(path.join(repo, "f"), "y");
+    cp.execFileSync("git", ["stash", "push", "-m", "a\tb"], { cwd: repo });
+
+    const [stash] = await listStashes(simpleGit(repo));
+
+    expect(stash.message).toBe("On main: a\tb");
+    expect(stash.hash).toBe(rev(repo, "stash@{0}"));
   });
 
   it("sequential index numbering tolerates blank lines in stdout", async () => {

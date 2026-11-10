@@ -1,4 +1,8 @@
 export type ScmStashEntry = {
+  /** The stash commit's SHA: what names the stash, since its `ref` moves
+   *  whenever a stash above it is pushed or dropped. */
+  hash: string;
+  /** The selector, e.g. `stash@{0}`. */
   ref: string;
   index: number;
   message: string;
