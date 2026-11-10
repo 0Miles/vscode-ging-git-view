@@ -326,6 +326,7 @@ export function getWebviewLocalizedStrings() {
     dialogPushForceForce: l10n.t("dialog.pushForce.force"),
     dialogPushForceLease: l10n.t("dialog.pushForce.lease"),
     dialogPushForceLeaseRefused: l10n.t("dialog.pushForce.leaseRefused"),
+    dialogPushForceLeaseRefusedNamedTarget: l10n.t("dialog.pushForce.leaseRefusedNamedTarget"),
     dialogPushForceLeaseStaleInfo: l10n.t("dialog.pushForce.leaseStaleInfo"),
     dialogPushRemote: l10n.t("dialog.pushRemote"),
     dialogPullConfirm: l10n.t("dialog.pull.confirm"),
