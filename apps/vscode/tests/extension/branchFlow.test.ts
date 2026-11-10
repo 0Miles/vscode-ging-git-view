@@ -3,6 +3,8 @@ import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import * as vscode from "vscode";
+
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
