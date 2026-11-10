@@ -44,14 +44,32 @@ async function verifyStashSelector(
   selector: string,
   expectedHash: string
 ): Promise<string> {
-  // `--verify --quiet`: a selector that names nothing — past the end of the
-  // stack — exits 1 with no output, which simple-git resolves as "". Any other
-  // failure (not a repository, git missing) rejects, and is git's to report.
-  const actualHash = (await git.raw(["rev-parse", "--verify", "--quiet", selector])).trim() || null;
+  const actualHash = await stashSelectorTarget(git, selector);
   if (actualHash !== expectedHash) {
     throw new StashMovedError(selector, expectedHash, actualHash);
   }
   return expectedHash;
+}
+
+/** The commit `selector` names now; null when it names nothing. */
+async function stashSelectorTarget(git: SimpleGit, selector: string): Promise<string | null> {
+  // `--verify --quiet`: a selector that names nothing — past the end of the
+  // stack — exits 1 with no output, which simple-git resolves as "". Any other
+  // failure (not a repository, git missing) rejects, and is git's to report.
+  return (await git.raw(["rev-parse", "--verify", "--quiet", selector])).trim() || null;
+}
+
+/**
+ * Whether `selector` still names the stash `expectedHash` — the identity rule
+ * every stash action is held to (`verifyStashSelector`), for a caller that
+ * refuses on its own terms instead of with `StashMovedError`.
+ */
+export async function stashSelectorResolvesTo(
+  git: SimpleGit,
+  selector: string,
+  expectedHash: string
+): Promise<boolean> {
+  return (await stashSelectorTarget(git, selector)) === expectedHash;
 }
 
 /** Apply a stash to the working tree, keeping it in the stash list. With

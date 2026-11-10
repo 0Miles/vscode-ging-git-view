@@ -6,7 +6,13 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { applyStash, dropStash, popStash, StashMovedError } from "@ging/core/backend/actions/stash";
+import {
+  applyStash,
+  dropStash,
+  popStash,
+  StashMovedError,
+  stashSelectorResolvesTo
+} from "@ging/core/backend/actions/stash";
 
 import { git, makeRepo, pushTwoStashes, rejection, rev, rmrf } from "@ging/core/tests/helpers";
 
@@ -145,5 +151,25 @@ describe("stash actions", () => {
 
     expect(error).not.toBeInstanceOf(StashMovedError);
     expect(String(error)).toMatch(/not a git repository/);
+  });
+});
+
+describe("stashSelectorResolvesTo", () => {
+  it("holds while the selector still names the stash", async () => {
+    repo = makeRepo();
+    const { newer } = pushTwoStashes(repo);
+    expect(await stashSelectorResolvesTo(simpleGit(repo), "stash@{0}", newer)).toBe(true);
+  });
+
+  it("fails once a newer push moved the stash, without throwing", async () => {
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+    expect(await stashSelectorResolvesTo(simpleGit(repo), "stash@{0}", older)).toBe(false);
+  });
+
+  it("fails once the selector names nothing", async () => {
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+    expect(await stashSelectorResolvesTo(simpleGit(repo), "stash@{2}", older)).toBe(false);
   });
 });

@@ -43,6 +43,7 @@ import { config } from "@ging/vscode/config";
 import * as l10n from "@ging/vscode/l10n";
 
 import { openCommitDiff } from "./openCommitDiff";
+import { watchPaths } from "./watchPaths";
 
 const SECTION = "ging-git-view";
 const ENABLED_KEY = "blame.enabled";
@@ -122,19 +123,7 @@ async function watchGitDir(
 ): Promise<vscode.Disposable | null> {
   const dirs = await findGitDirs(git);
   if (dirs === null) return null;
-  const watchers = gitDirWatchPaths(dirs).map(({ base, glob }) =>
-    vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(vscode.Uri.file(base), glob)
-    )
-  );
-  return vscode.Disposable.from(
-    ...watchers.flatMap((w) => [
-      w.onDidCreate(onChange),
-      w.onDidChange(onChange),
-      w.onDidDelete(onChange)
-    ]),
-    ...watchers
-  );
+  return watchPaths(gitDirWatchPaths(dirs), onChange);
 }
 
 const sameTarget = (a: BlameTarget | null, b: BlameTarget) =>
