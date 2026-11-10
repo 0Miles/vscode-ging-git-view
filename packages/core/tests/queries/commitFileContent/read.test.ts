@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getCommitFileContent } from "@ging/core/backend/queries/commitFileContent";
 import { commitDiffView, type DiffSide } from "@ging/core/extension/commitDiff";
 
-import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
+import { git, makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
 
 const repos: string[] = [];
 function newRepo(): string {
@@ -39,7 +39,7 @@ describe("getCommitFileContent", () => {
     fs.mkdirSync(path.join(r, "sub"));
     fs.writeFileSync(path.join(r, "sub", "untracked.txt"), "brand new untracked\n");
     git(["stash", "push", "--include-untracked", "-m", "wip"], r);
-    const stash = cp.execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: r }).toString().trim();
+    const stash = rev(r, "stash@{0}");
 
     const { left, right } = commitDiffView(
       {

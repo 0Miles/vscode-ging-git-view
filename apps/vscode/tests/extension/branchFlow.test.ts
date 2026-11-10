@@ -18,7 +18,7 @@ import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import { config } from "@ging/vscode/config";
 import { createVscodeOpener } from "@ging/vscode/hostPorts";
 
-import { fakePorts, makeRepo, rmrf, SEED_TIMEOUT_MS } from "@ging/core/tests/helpers";
+import { fakePorts, git, makeRepo, rev, rmrf, SEED_TIMEOUT_MS } from "@ging/core/tests/helpers";
 
 import { useSharedRepo } from "./helpers";
 
@@ -347,8 +347,8 @@ suite("a stash's untracked file opens with its contents (integration)", () => {
     repo = makeRepo();
     fs.mkdirSync(path.join(repo, "sub"));
     fs.writeFileSync(path.join(repo, "sub", "untracked.txt"), STASHED);
-    cp.execFileSync("git", ["stash", "push", "--include-untracked", "-m", "wip"], { cwd: repo });
-    stash = cp.execFileSync("git", ["rev-parse", "stash@{0}"], { cwd: repo }).toString().trim();
+    git(["stash", "push", "--include-untracked", "-m", "wip"], repo);
+    stash = rev(repo, "stash@{0}");
     // The stash took the file, and its folder, away; View Diff with Working
     // needs one to compare.
     fs.mkdirSync(path.join(repo, "sub"));
@@ -361,13 +361,7 @@ suite("a stash's untracked file opens with its contents (integration)", () => {
   });
 
   async function dispatch() {
-    const handlers = new Map<string, (m: RequestMessage) => void | Promise<void>>();
-    const posted: ResponseMessage[] = [];
-    const bridge = {
-      post: (m: ResponseMessage) => posted.push(m),
-      onMessage: (cmd: string, h: (m: RequestMessage) => void | Promise<void>) =>
-        handlers.set(cmd, h)
-    } as unknown as WebviewBridge;
+    const { handlers, posted, bridge } = makeBridge();
     const [ports, deps] = makeDeps();
     registerMessageHandlers(bridge, { ...ports, opener: createVscodeOpener(config) }, deps);
     await handlers.get("selectRepo")!({ command: "selectRepo", repo } as RequestMessage);

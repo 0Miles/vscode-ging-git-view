@@ -3,7 +3,7 @@ import type { SimpleGit } from "simple-git";
 import { fileChangeRevision } from "@ging/core/backend/utils/fileChangeRevision";
 import type { GitCommitDetails, GitFileChange, QueryResult } from "@ging/shared/backend/types";
 
-import { parseDiffFileChanges } from "./diffFileChanges";
+import { parseDiffFileChanges, toPath, unquoteGitPath } from "./diffFileChanges";
 
 const eolRegex = /\r\n|\r|\n/g;
 const gitLogSeparator = "XX7Nal-YARtTpjCikii9nJxER19D6diSyk-AWkPb";
@@ -90,6 +90,27 @@ async function fetchFileChanges(
   return parseDiffFileChanges(nameStatusLines, numStatLines, firstFileLine);
 }
 
+/** A root commit's file changes: every one added, none renamed, so `--numstat`
+ *  alone names them (a binary file's counts are `-`, as in `fetchFileChanges`). */
+async function fetchRootFileChanges(git: SimpleGit, commitHash: string): Promise<GitFileChange[]> {
+  const numStatLines = await fetchDiff(git, commitHash, false, "--numstat");
+  const fileChanges: GitFileChange[] = [];
+  // Skip the leading hash line the single-commit `--root` form prints.
+  for (let i = 1; i < numStatLines.length - 1; i++) {
+    const line = numStatLines[i].split("\t");
+    if (line.length !== 3) break;
+    const filePath = toPath(unquoteGitPath(line[2]));
+    fileChanges.push({
+      oldFilePath: filePath,
+      newFilePath: filePath,
+      type: "A",
+      additions: parseInt(line[0]),
+      deletions: parseInt(line[1])
+    });
+  }
+  return fileChanges;
+}
+
 export async function commitDetails(
   git: SimpleGit,
   input: CommitDetailsInput
@@ -98,24 +119,24 @@ export async function commitDetails(
     // The commit's parents decide the diff strategy, so fetch them first.
     const details = await fetchCommitInfo(git, input.commitHash, input.useMailmap);
     const hasParents = details.parents.length > 0;
-    details.fileChanges.push(...(await fetchFileChanges(git, input.commitHash, hasParents)));
+    // A stash's third parent holds its untracked files; one with ≤ 2 parents has none.
+    const hasUntracked = input.isStash === true && details.parents.length > 2;
+    const [fileChanges, untrackedFileChanges] = await Promise.all([
+      fetchFileChanges(git, input.commitHash, hasParents),
+      hasUntracked
+        ? fetchRootFileChanges(git, fileChangeRevision(input.commitHash, "untracked"))
+        : []
+    ]);
+    details.fileChanges.push(...fileChanges);
 
-    // A stash created with --include-untracked stores those files in a commit
-    // of their own (see `fileChangeRevision`), a root commit holding only them;
-    // list them so the stash's details include them. Diffing it as a root
-    // commit adds every file, counted like any other added file (a binary one
-    // included), and `origin` tells the readers to look there rather than in
-    // the stash's own tree. That commit is the stash's third parent, so a stash
-    // with two parents was pushed without untracked files and has none to add.
-    if (input.isStash && details.parents.length > 2) {
-      const untrackedCommit = fileChangeRevision(input.commitHash, "untracked");
-      // A root commit: it has no parents.
-      const untrackedHasParents = false;
-      for (const fileChange of await fetchFileChanges(git, untrackedCommit, untrackedHasParents)) {
-        // Already listed as a change to a tracked file.
-        if (details.fileChanges.some((fc) => fc.newFilePath === fileChange.newFilePath)) continue;
-        details.fileChanges.push({ ...fileChange, origin: "untracked" });
-      }
+    // A file untracked when stashed can still be in the commit the stash was
+    // made on (`git rm --cached` leaves it so); the stash's tracked changes then
+    // list it too, and that row is the one kept. So no untracked row has a file
+    // on the left side of its diff, which is why `commitDiffView` reads it empty.
+    const trackedPaths = new Set(fileChanges.map((fc) => fc.newFilePath));
+    for (const fileChange of untrackedFileChanges) {
+      if (trackedPaths.has(fileChange.newFilePath)) continue;
+      details.fileChanges.push({ ...fileChange, origin: "untracked" });
     }
 
     return { commitDetails: details };

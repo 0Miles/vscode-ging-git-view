@@ -9,6 +9,11 @@ export function git(args: string[], cwd: string) {
   cp.execFileSync("git", args, { cwd, stdio: "pipe" });
 }
 
+/** What `git rev-parse <revision>` prints in `repo`, trimmed. */
+export function rev(repo: string, revision: string): string {
+  return cp.execFileSync("git", ["rev-parse", revision], { cwd: repo }).toString().trim();
+}
+
 /** Run git against a bare repo (which has no working tree) and capture stdout.
  *  Uses an explicit `--git-dir` rather than `{ cwd: <bareRepo> }`, which git
  *  refuses when the user has `safe.bareRepository = explicit` configured. */
