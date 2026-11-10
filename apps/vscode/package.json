@@ -345,6 +345,22 @@
       },
       {
         "category": "GING",
+        "command": "ging-git-view.stash.refresh",
+        "title": "%command.stash.refresh%",
+        "icon": "$(refresh)"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.stash.copyName",
+        "title": "%command.stash.copyName%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.stash.openFileDiff",
+        "title": "%command.stash.openFileDiff%"
+      },
+      {
+        "category": "GING",
         "command": "ging-git-view.blame.toggle",
         "title": "%command.blame.toggle%"
       },
@@ -376,6 +392,11 @@
           "name": "%view.remotes%",
           "contextualTitle": "%view.remotes%",
           "visibility": "collapsed"
+        },
+        {
+          "id": "ging-git-view.stash",
+          "name": "%view.stash%",
+          "contextualTitle": "%view.stash%"
         }
       ]
     },
@@ -393,6 +414,16 @@
         "view": "ging-git-view.remotes",
         "contents": "%view.remotes.welcomeEmpty%",
         "when": "ging-git-view.remotesView.hasRepo"
+      },
+      {
+        "view": "ging-git-view.stash",
+        "contents": "%view.stash.welcomeNoRepo%",
+        "when": "!ging-git-view.stashView.hasRepo"
+      },
+      {
+        "view": "ging-git-view.stash",
+        "contents": "%view.stash.welcomeEmpty%",
+        "when": "ging-git-view.stashView.hasRepo"
       }
     ],
     "menus": {
@@ -503,6 +534,11 @@
           "command": "ging-git-view.managePullRequestProviders",
           "when": "view == ging-git-view.remotes",
           "group": "1_tools@0"
+        },
+        {
+          "command": "ging-git-view.stash.refresh",
+          "when": "view == ging-git-view.stash",
+          "group": "navigation@0"
         }
       ],
       "view/item/context": [
@@ -530,6 +566,11 @@
           "command": "ging-git-view.remotes.copyUrl",
           "when": "view == ging-git-view.remotes && viewItem == remote",
           "group": "3_copy@1"
+        },
+        {
+          "command": "ging-git-view.stash.copyName",
+          "when": "view == ging-git-view.stash && viewItem == stash && ging-git-view.cmv.stash.copyName",
+          "group": "5_copy@1"
         },
         {
           "command": "ging-git-view.branches.checkout",
@@ -674,6 +715,18 @@
         },
         {
           "command": "ging-git-view.remotes.copyUrl",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.stash.refresh",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.stash.copyName",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.stash.openFileDiff",
           "when": "false"
         },
         {

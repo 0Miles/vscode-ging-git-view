@@ -340,6 +340,7 @@
   "remotes.editUrl": "编辑 URL",
   "remotes.rename": "重命名",
   "remotes.remove": "移除",
+  "stashView.stashMoved": "这个 stash 的位置已变动或已不存在，所以没有复制名称。列表已刷新。",
   "remotes.actionPrompt": "选择对 remote {0} 的操作",
   "remotes.renamePrompt": "Remote 的新名称",
   "remotes.removeConfirm": "移除 remote {0}？这也会删除其 remote 跟踪引用。",
