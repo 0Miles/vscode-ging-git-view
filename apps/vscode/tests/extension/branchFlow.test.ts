@@ -12,13 +12,15 @@ import {
   registerMessageHandlers
 } from "@ging/core/extension/messageHandler";
 import type { WebviewBridge } from "@ging/core/extension/webviewBridge";
-import type { HostPorts } from "@ging/core/host/ports";
+import type { HostPorts, RepoSource } from "@ging/core/host/ports";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import { config } from "@ging/vscode/config";
 
+import { fakePorts } from "@ging/core/tests/helpers";
+
 // End-to-end exercise of the extension-side branch flow against the real repo
 // (the test workspace is this repo). Drives the real registerMessageHandlers
-// with a real git client + real config through a fake bridge and inert ports, mimicking the
+// with a real git client + real config through a fake bridge and fake ports, mimicking the
 // webview's selectRepo -> loadBranches handshake. Expectations are derived
 // from git itself: CI checkouts only have the branch being built, never main.
 const noop = () => {};
@@ -26,17 +28,17 @@ const noop = () => {};
 const resolveShowRemote = () => true;
 
 /** Dependency slices a test may want to *observe* or steer rather than take
- *  as wired below, where both are inert stubs (and no repo overrides a
- *  setting). */
+ *  as wired below, where both are fakes (and no repo the dispatch reads
+ *  overrides a setting). What is given replaces the fake's members. */
 type DepOverrides = {
-  repoSource?: unknown;
-  extensionState?: unknown;
+  repoSource?: Partial<RepoSource>;
+  extensionState?: Partial<MessageHandlerDeps["extensionState"]>;
 };
 
 /** The real handler dependencies, wired the way extension.ts wires them: a real
  *  git client, real config, and a real BranchFacts over both — so the flow this
  *  suite exercises is the production one, not a stub of it. The ports other
- *  than `config` are inert: nothing here opens, prompts or watches anything. */
+ *  than `config` are fakes: nothing here opens, prompts or watches anything. */
 function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps] {
   // Inject an askpass-style env like the real extension. simple-git
   // (>=3.36) rejects GIT_ASKPASS in an explicitly-passed env unless we opt in
@@ -55,22 +57,19 @@ function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps]
     resolveShowCurrentBranchByDefault: config.showCurrentBranchByDefault,
     nowMs: () => Date.now()
   });
+  const fake = fakePorts().ports;
   const ports: HostPorts = {
+    ...fake,
     config,
-    prompts: {} as never,
-    opener: {} as never,
-    clipboard: {} as never,
-    watcher: { start: noop, mute: noop, unmute: noop },
-    l10n: { t: (key) => key },
-    repoSource: (overrides.repoSource ?? { getRepos: () => ({}), setRepoState: noop }) as never,
-    logger: { log: noop, logError: noop, reveal: noop }
+    repoSource: { ...fake.repoSource, ...overrides.repoSource }
   };
   const deps: MessageHandlerDeps = {
     gitClient,
-    extensionState: (overrides.extensionState ?? {
+    extensionState: {
       setLastActiveRepo: noop,
-      saveDialogMemory: noop
-    }) as never,
+      saveDialogMemory: noop,
+      ...overrides.extensionState
+    },
     avatarManager: { fetchAvatarImage: noop },
     branchFilterStore: { onDidChangeFilter: () => ({ dispose: noop }) },
     branchFacts,
@@ -257,8 +256,7 @@ suite("first-parent mode rides with the commits (integration)", () => {
         bridge,
         ...makeDeps({
           repoSource: {
-            getRepos: () => ({ [repoPath]: { columnWidths: null, onlyFollowFirstParent } }),
-            setRepoState: noop
+            getRepos: () => ({ [repoPath]: { columnWidths: null, onlyFollowFirstParent } })
           }
         })
       );
@@ -314,15 +312,8 @@ suite("selectRepo failures (integration)", () => {
     registerMessageHandlers(
       bridge,
       ...makeDeps({
-        repoSource: {
-          getRepos: () => ({}),
-          setRepoState: noop,
-          dropRepo: (r: string) => dropped.push(r)
-        },
-        extensionState: {
-          setLastActiveRepo: (r: string | null) => persisted.push(r),
-          saveDialogMemory: noop
-        }
+        repoSource: { dropRepo: (r) => dropped.push(r) },
+        extensionState: { setLastActiveRepo: (r) => persisted.push(r) }
       })
     );
 
@@ -362,15 +353,8 @@ suite("selectRepo failures (integration)", () => {
     registerMessageHandlers(
       bridge,
       ...makeDeps({
-        repoSource: {
-          getRepos: () => ({}),
-          setRepoState: noop,
-          dropRepo: (r: string) => dropped.push(r)
-        },
-        extensionState: {
-          setLastActiveRepo: (r: string | null) => persisted.push(r),
-          saveDialogMemory: noop
-        }
+        repoSource: { dropRepo: (r) => dropped.push(r) },
+        extensionState: { setLastActiveRepo: (r) => persisted.push(r) }
       })
     );
 
