@@ -141,7 +141,7 @@ export interface RepoSource {
   getBootRepo(): string | null;
   /** Drop the repos that are gone, broadcasting the set when any were;
    *  resolves to whether any were. */
-  checkReposExist(): Promise<boolean>;
+  checkReposExist(): PromiseLike<boolean>;
   removeRepo(repo: string): void;
   /** Broadcast the set to everything showing it. */
   sendRepos(): void;
