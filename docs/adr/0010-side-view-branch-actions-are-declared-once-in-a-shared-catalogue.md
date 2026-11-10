@@ -36,4 +36,4 @@ status: accepted
 
 #295 把 message dispatch 搬進 `packages/core`(`registerMessageHandlers`),它不再住在 `extension.ts`。宿主現在是透過 `MessageHandlerDeps` 的 `onSelectRepo` hook 聽到 selectRepo,而 `extension.ts` 仍然在那個 hook 裡接上 flush —— 方法今天叫 `flushDelegated`(#325 改名)。所以「caller 承擔的只剩把事件接到這個方法一行」照舊成立,只是那一行接的是 hook,不是 handler 本身。為什麼 dispatch 的宿主相依部分走 hook、不走 port,見 ADR-0027。
 
-catalogue 本身也搬了家,在 `packages/shared`(正文的路徑已經改過):host 與 webview 都要讀它,而 webview 不能依賴 core,shared 是唯一兩邊都能 import 的地方(ADR-0026)。
+catalogue 的路徑已改為 `packages/shared`(正文已改),理由見 ADR-0026。
