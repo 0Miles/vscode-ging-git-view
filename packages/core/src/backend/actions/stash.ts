@@ -45,7 +45,7 @@ export function stashRefusalFacts(error: unknown): StashRefusalFacts {
  *   renumbers the stack under them. This narrows their window, it does not
  *   close it.
  * - rename rebuilds the stash from the verified SHA, but drops the old entry
- *   by `selector`: its window is the span up to that drop.
+ *   by `selector`: a push before that drop still makes it drop another stash.
  *
  * What is gone for all four is the long window: from the moment the caller
  * read the selector to the moment the action reached the host.
@@ -72,7 +72,7 @@ async function stashSelectorTarget(git: SimpleGit, selector: string): Promise<st
 }
 
 /**
- * Whether `selector` still names the stash `expectedHash` — the identity rule
+ * Whether `selector` still names the stash `expectedHash` — the consent rule
  * every stash action is held to (`verifyStashSelector`), for a caller that
  * refuses on its own terms instead of with `StashMovedError`.
  */
