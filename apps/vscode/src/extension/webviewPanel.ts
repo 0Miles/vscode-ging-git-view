@@ -1,14 +1,14 @@
 import * as vscode from "vscode";
 
 import { AvatarManager } from "@ging/core/avatarManager";
+import type { WebviewBridge } from "@ging/core/extension/webviewBridge";
+import { ExtensionState } from "@ging/core/extensionState";
 import { GitRepoSet } from "@ging/shared/types";
 import { buildExtensionUri } from "@ging/vscode/backend/utils/uri";
 import { Config } from "@ging/vscode/config";
-import { ExtensionState } from "@ging/vscode/extensionState";
 import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
 
 import { RepoChangeCallback, RepoManager } from "./repoManager";
-import { WebviewBridge } from "./webviewBridge";
 import { buildWebviewHtml } from "./webviewHtml";
 
 export function createWebviewPanel(opts: {

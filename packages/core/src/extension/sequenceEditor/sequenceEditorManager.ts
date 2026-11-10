@@ -2,8 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import * as vscode from "vscode";
-
 import { getNonce } from "@ging/core/backend/utils/nonce";
 import { shellCommandPath } from "@ging/core/backend/utils/shellPath";
 
@@ -27,12 +25,15 @@ export interface SequenceEditorEnvironment {
   GING_REBASE_TODO?: string;
 }
 
-export class SequenceEditorManager implements vscode.Disposable {
+export class SequenceEditorManager {
   private readonly todoPath: string;
 
-  constructor() {
+  constructor(
+    /** The folder the helper script and `sequenceEditorMain.js` are shipped in. */
+    private readonly helperDir: string
+  ) {
     this.todoPath = path.join(os.tmpdir(), `ging-rebase-todo-${getNonce()}`);
-    fs.chmod(path.join(__dirname, "sequenceEditor.sh"), "755", () => {});
+    fs.chmod(path.join(this.helperDir, "sequenceEditor.sh"), "755", () => {});
   }
 
   public dispose() {
@@ -44,9 +45,9 @@ export class SequenceEditorManager implements vscode.Disposable {
       ELECTRON_RUN_AS_NODE: "1",
       // A command string for the shell, not a path git will exec — see
       // shellCommandPath.
-      GIT_SEQUENCE_EDITOR: shellCommandPath(path.join(__dirname, "sequenceEditor.sh")),
+      GIT_SEQUENCE_EDITOR: shellCommandPath(path.join(this.helperDir, "sequenceEditor.sh")),
       GING_SEQUENCE_EDITOR_NODE: process.execPath,
-      GING_SEQUENCE_EDITOR_MAIN: path.join(__dirname, "sequenceEditorMain.js"),
+      GING_SEQUENCE_EDITOR_MAIN: path.join(this.helperDir, "sequenceEditorMain.js"),
       GING_REBASE_TODO: this.todoPath
     };
   }

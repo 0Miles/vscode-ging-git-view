@@ -12,10 +12,10 @@ import {
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { evalPromises } from "@ging/core/backend/utils/promise";
 import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
+import { ExtensionState } from "@ging/core/extensionState";
 import { GitRepoSet, GitRepoState } from "@ging/shared/types";
 import { getPathFromUri } from "@ging/vscode/backend/utils/uri";
 import { Config } from "@ging/vscode/config";
-import { ExtensionState } from "@ging/vscode/extensionState";
 import { StatusBarItem } from "@ging/vscode/statusBarItem";
 
 export type RepoChangeCallback = (repos: GitRepoSet, numRepos: number) => void;
@@ -59,6 +59,12 @@ export function createRepoManager(
   function removeRepo(repo: string) {
     delete repos[repo];
     extensionState.saveRepos(repos);
+  }
+
+  /** Remove `repo` and broadcast the set without it. */
+  function dropRepo(repo: string) {
+    removeRepo(repo);
+    sendRepos();
   }
 
   function registerViewCallback(cb: RepoChangeCallback) {
@@ -200,6 +206,7 @@ export function createRepoManager(
     addRepo,
     exportRepoConfig,
     removeRepo,
+    dropRepo,
     removeReposWithinFolder,
     setRepoState,
     onDidWriteRepoState,

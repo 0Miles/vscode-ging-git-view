@@ -2,6 +2,9 @@ import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+
+export { fakePorts, fakeWebview } from "./fakeHost";
+
 export function git(args: string[], cwd: string) {
   cp.execFileSync("git", args, { cwd, stdio: "pipe" });
 }

@@ -1,8 +1,6 @@
 import * as fs from "node:fs";
 
-import * as vscode from "vscode";
-
-import { AvatarManager } from "@ging/core/avatarManager";
+import type { AvatarManager } from "@ging/core/avatarManager";
 import { createArchive } from "@ging/core/backend/actions/archive";
 import {
   checkoutAndPullBranch,
@@ -68,7 +66,12 @@ import { acknowledgeShowAll } from "@ging/core/extension/blameLocate";
 import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
 import { type BranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { type BranchFacts } from "@ging/core/extension/branchFacts";
+import { type BranchFilterChange } from "@ging/core/extension/branchFilter";
+import { resolveRepoScope, resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
+import { type WebviewBridge } from "@ging/core/extension/webviewBridge";
 import { createWebviewErrorSink } from "@ging/core/extension/webviewErrorSink";
+import type { ExtensionState } from "@ging/core/extensionState";
+import type { HostPorts } from "@ging/core/host/ports";
 import type {
   ActionResponseExtra,
   BatchActionRequest,
@@ -76,75 +79,82 @@ import type {
   BranchSearchEntry,
   CommitOrdering
 } from "@ging/shared/backend/types";
-import { RepoScopeSettings, RequestMessage, ResponseMessage } from "@ging/shared/types";
-import { Config } from "@ging/vscode/config";
-import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
-import { copyToClipboard } from "@ging/vscode/extension/utils/clipboard";
-import { ExtensionState } from "@ging/vscode/extensionState";
-import * as l10n from "@ging/vscode/l10n";
-import { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
+import { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
-import { BranchFilterStore } from "./branchFilterStore";
-import { type Logger } from "./logger";
-import { openCommitDiff } from "./openCommitDiff";
-import { RepoManager } from "./repoManager";
-import { WebviewBridge } from "./webviewBridge";
+/** What the dispatch needs besides the host ports: the core services it shares
+ *  with the rest of the host, and the hooks back into the host's other
+ *  surfaces (the side-views, its commands). */
+export type MessageHandlerDeps = {
+  gitClient: GitClient;
+  /** Where the current repository and dialog memory persist. */
+  extensionState: Pick<ExtensionState, "setLastActiveRepo" | "saveDialogMemory">;
+  avatarManager: Pick<AvatarManager, "fetchAvatarImage">;
+  /** The per-repo branch filters the side-view writes; the graph showing a
+   *  repo follows its filter. */
+  branchFilterStore: {
+    onDidChangeFilter(listener: (change: BranchFilterChange) => void): { dispose(): void };
+  };
+  /** The shared classification facts, consumed by `loadBranches` and by the
+   *  Branches side-view alike. */
+  branchFacts: BranchFacts;
+  /** Stages the todo an interactive rebase runs with, and reports whether git
+   *  actually took it. */
+  sequenceEditor: RebaseTodoStager;
+  /** Builds the cleanup dialog's payload. Shared with the side-view command,
+   *  which opens the same dialog from the other direction (ADR-0017). */
+  branchCleanup: BranchCleanup;
+  /** Called when the webview switches repo, so the Branches side-view can
+   *  follow the same repo. */
+  onSelectRepo: (repo: string) => void;
+  /** Called when the webview takes a delegated message off its queue to run
+   *  it, so the host stops holding it for a reload. */
+  onDelegatedRan: (seq: number) => void;
+  /** The side-view's Show All for `repo` — the very thing its title button
+   *  runs. Settles once it has run, or failed to. */
+  showAllBranches: (repo: string) => PromiseLike<unknown>;
+  /** Offer to configure the pull request provider of `host`. */
+  configurePullRequestProvider: (host: string) => void;
+  /** The host's own source-control view. */
+  openScmView: () => void;
+};
 
+/**
+ * The graph panel's message dispatch: every request the webview sends, what
+ * git runs for it and what is posted back. Host-neutral — whatever it needs
+ * from the editor hosting it comes through `ports`, so a host provides those
+ * and gets the same dispatch.
+ */
 export function registerMessageHandlers(
   bridge: WebviewBridge,
-  deps: {
-    config: Config;
-    gitClient: GitClient;
-    repoManager: RepoManager;
-    extensionState: ExtensionState;
-    avatarManager: AvatarManager;
-    repoFileWatcher: RepoFileWatcher;
-    branchFilterStore: BranchFilterStore;
-    /** The shared classification facts, consumed by `loadBranches` and by the
-     *  Branches side-view alike. */
-    branchFacts: BranchFacts;
-    /** Stages the todo an interactive rebase runs with, and reports whether git
-     *  actually took it. */
-    sequenceEditor: RebaseTodoStager;
-    /** Builds the cleanup dialog's payload. Shared with the side-view command,
-     *  which opens the same dialog from the other direction (ADR-0017). */
-    branchCleanup: BranchCleanup;
-    /** The repo's "show remote branches" state. The webview no longer sends its
-     *  own copy: it was a one-way echo of this and could only be staler. */
-    resolveShowRemote: (repo: string) => boolean;
-    /** The repo's load scope — first-parent, reflog, stashes, tag-only commits,
-     *  remote heads — with its per-repo overrides applied. Resolved here rather
-     *  than sent by the webview, for the same reason as `resolveShowRemote`. */
-    resolveRepoScope: (repo: string) => RepoScopeSettings;
-    /** The GING Output Channel, which is also where the webview's own failures
-     *  are written down (ADR-0016). */
-    logger: Logger;
-    /** Called when the webview switches repo, so the Branches side-view can
-     *  follow the same repo. */
-    onSelectRepo: (repo: string) => void;
-    /** Called when the webview takes a delegated message off its queue to run
-     *  it, so the host stops holding it for a reload. */
-    onDelegatedRan: (seq: number) => void;
-  }
+  ports: HostPorts,
+  deps: MessageHandlerDeps
 ) {
+  const { config, prompts, opener, clipboard, watcher, l10n, repoSource, logger } = ports;
   const {
-    config,
     gitClient,
-    repoManager,
     extensionState,
     avatarManager,
-    repoFileWatcher,
     branchFilterStore,
     branchFacts,
     branchCleanup,
-    resolveShowRemote,
-    resolveRepoScope,
-    logger,
     onSelectRepo,
-    onDelegatedRan
+    onDelegatedRan,
+    showAllBranches,
+    configurePullRequestProvider,
+    openScmView
   } = deps;
 
   let currentRepo: string | null = null;
+
+  /** The repo's "show remote branches" state. The webview no longer sends its
+   *  own copy: it was a one-way echo of this and could only be staler. */
+  const resolveShowRemote = (repo: string) =>
+    resolveShowRemoteBranches(repoSource.getRepos()[repo], config.showRemoteBranches());
+  /** The repo's load scope — first-parent, reflog, stashes, tag-only commits,
+   *  remote heads — with its per-repo overrides applied. Resolved here rather
+   *  than sent by the webview, for the same reason as `resolveShowRemote`. */
+  const resolveScope = (repo: string) =>
+    resolveRepoScope(repoSource.getRepos()[repo], config.repoSettingDefaults());
 
   // Push filter changes (from the side-view / "Show All") into the graph, but
   // only those for the repo this panel is showing.
@@ -288,7 +298,7 @@ export function registerMessageHandlers(
     commitOrder?: CommitOrdering;
     hiddenRemotes?: string[];
   }) {
-    const scope = resolveRepoScope(currentRepo!);
+    const scope = resolveScope(currentRepo!);
     return {
       branchNames: msg.branchNames,
       showRemoteBranches: resolveShowRemote(currentRepo!),
@@ -357,9 +367,9 @@ export function registerMessageHandlers(
       if (!isCommitHash(msg.hash)) return;
       const sha = abbrevCommit(msg.hash);
       if (msg.reason === "filterNotCleared") {
-        void vscode.window.showWarningMessage(l10n.t("blame.locate.filterNotCleared", sha));
+        prompts.showWarning(l10n.t("blame.locate.filterNotCleared", sha));
       } else {
-        void vscode.window.showInformationMessage(l10n.t("blame.locate.notInGraph", sha));
+        prompts.showInformation(l10n.t("blame.locate.notInGraph", sha));
       }
     },
     { mutatesRepo: false }
@@ -371,7 +381,7 @@ export function registerMessageHandlers(
       // Read before the first await, as everything else here is: a
       // `saveRepoState` the webview sent ahead of this request has been
       // applied by now, and one it sends after must not leak into it.
-      const scope = resolveRepoScope(currentRepo!);
+      const scope = resolveScope(currentRepo!);
       bridge.post({
         command: "loadCommits",
         ...(await loadCommits(gitClient.getInstance(), {
@@ -482,14 +492,14 @@ export function registerMessageHandlers(
       let success = true;
       try {
         const safeRef = msg.ref.replace(/[^a-zA-Z0-9-_.]/g, "-");
-        const uri = await vscode.window.showSaveDialog({
+        const outputPath = await prompts.pickSaveLocation({
           saveLabel: l10n.t("action.createArchive"),
           filters: { Archives: ["zip", "tar"] },
-          defaultUri: vscode.Uri.file(`${msg.repo}/${safeRef}.zip`)
+          defaultPath: `${msg.repo}/${safeRef}.zip`
         });
-        // No uri means the user cancelled — not an error.
-        if (uri !== undefined) {
-          await createArchive(gitClient.getInstance(), { ref: msg.ref, outputPath: uri.fsPath });
+        // No path means the user cancelled — not an error.
+        if (outputPath !== undefined) {
+          await createArchive(gitClient.getInstance(), { ref: msg.ref, outputPath });
         }
       } catch {
         success = false;
@@ -505,17 +515,14 @@ export function registerMessageHandlers(
     async (msg) => {
       let success = true;
       try {
-        const uri = await vscode.window.showSaveDialog({
+        const outputPath = await prompts.pickSaveLocation({
           saveLabel: l10n.t("action.exportPatch"),
           filters: { Patches: ["patch"] },
-          defaultUri: vscode.Uri.file(`${msg.repo}/${abbrevCommit(msg.commitHash)}.patch`)
+          defaultPath: `${msg.repo}/${abbrevCommit(msg.commitHash)}.patch`
         });
-        // No uri means the user cancelled — not an error.
-        if (uri !== undefined) {
-          await exportPatch(gitClient.getInstance(), {
-            commitHash: msg.commitHash,
-            outputPath: uri.fsPath
-          });
+        // No path means the user cancelled — not an error.
+        if (outputPath !== undefined) {
+          await exportPatch(gitClient.getInstance(), { commitHash: msg.commitHash, outputPath });
         }
       } catch {
         success = false;
@@ -713,13 +720,12 @@ export function registerMessageHandlers(
         // later. Saying it out loud matters as much as the pruning — this line
         // is the only record that a repo the user picked was not there.
         logger.log(`Cannot open a repository that is gone, dropping it: ${msg.repo}`);
-        repoManager.removeRepo(msg.repo);
-        repoManager.sendRepos();
+        repoSource.dropRepo(msg.repo);
         return;
       }
       currentRepo = msg.repo;
       extensionState.setLastActiveRepo(msg.repo);
-      repoFileWatcher.start(msg.repo);
+      watcher.start(msg.repo);
       onSelectRepo(msg.repo);
     },
     { mutatesRepo: false }
@@ -728,11 +734,11 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "loadRepos",
     async (msg) => {
-      if (!msg.check || !(await repoManager.checkReposExist())) {
+      if (!msg.check || !(await repoSource.checkReposExist())) {
         bridge.post({
           command: "loadRepos",
-          repos: repoManager.getRepos(),
-          lastActiveRepo: repoManager.getBootRepo()
+          repos: repoSource.getRepos(),
+          lastActiveRepo: repoSource.getBootRepo()
         });
       }
     },
@@ -750,7 +756,7 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "saveRepoState",
     (msg) => {
-      repoManager.setRepoState(msg.repo, msg.state);
+      repoSource.setRepoState(msg.repo, msg.state);
     },
     { mutatesRepo: false }
   );
@@ -769,7 +775,10 @@ export function registerMessageHandlers(
       bridge.post({
         command: "copyToClipboard",
         type: msg.type,
-        success: await copyToClipboard(msg.data)
+        success: await clipboard.writeText(msg.data).then(
+          () => true,
+          () => false
+        )
       });
     },
     { mutatesRepo: false }
@@ -797,8 +806,7 @@ export function registerMessageHandlers(
     "openTerminal",
     (msg) => {
       const name = msg.repo.split("/").findLast((s) => s !== "") ?? msg.repo;
-      const terminal = vscode.window.createTerminal({ cwd: msg.repo, name: `GING: ${name}` });
-      terminal.show();
+      opener.openTerminal(msg.repo, `GING: ${name}`);
     },
     { mutatesRepo: false }
   );
@@ -806,7 +814,7 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "openExternalUrl",
     (msg) => {
-      vscode.env.openExternal(vscode.Uri.parse(msg.url));
+      opener.openExternalUrl(msg.url);
     },
     { mutatesRepo: false }
   );
@@ -822,7 +830,7 @@ export function registerMessageHandlers(
       const remote = remoteUrl === "" ? null : remoteUrl;
       const url = pullRequestCreateUrl(remote, msg.branchName, config.pullRequestProviders());
       if (url !== null) {
-        void vscode.env.openExternal(vscode.Uri.parse(url));
+        opener.openExternalUrl(url);
         return;
       }
       const host = parseRemoteUrl(remote)?.host ?? null;
@@ -831,13 +839,8 @@ export function registerMessageHandlers(
         host !== null
           ? l10n.t("pullRequest.noProviderForHost", host)
           : l10n.t("pullRequest.unsupported");
-      const choice = await vscode.window.showErrorMessage(
-        message,
-        ...(host !== null ? [configure] : [])
-      );
-      if (choice === configure) {
-        void vscode.commands.executeCommand("ging-git-view.managePullRequestProviders", host);
-      }
+      const choice = await prompts.showError(message, ...(host !== null ? [configure] : []));
+      if (host !== null && choice === configure) configurePullRequestProvider(host);
     },
     { mutatesRepo: false }
   );
@@ -845,13 +848,13 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "openScmView",
     () => {
-      void vscode.commands.executeCommand("workbench.view.scm");
+      openScmView();
     },
     { mutatesRepo: false }
   );
 
-  // The graph's filter chip clears the filter through the very command the
-  // Branches side-view's title button runs. Writing `branchFilterStore` here
+  // The graph's filter chip clears the filter through the host's Show All, the
+  // very thing the Branches side-view's title button runs. Writing the filter
   // instead would only do half the job — the tree's visual selection would stay
   // highlighted while the graph showed everything.
   // Acknowledged once Show All has run, or failed to (see `acknowledgeShowAll`):
@@ -861,7 +864,7 @@ export function registerMessageHandlers(
     "clearBranchFilter",
     ({ repo }) =>
       acknowledgeShowAll(
-        () => vscode.commands.executeCommand("ging-git-view.branches.showAll", repo),
+        () => showAllBranches(repo),
         (msg) => bridge.post(msg)
       ),
     { mutatesRepo: false }
@@ -870,13 +873,7 @@ export function registerMessageHandlers(
   bridge.onMessage(
     "openMergeEditor",
     (msg) => {
-      const uri = vscode.Uri.joinPath(vscode.Uri.file(msg.repo), msg.filePath);
-      // The built-in git extension's 3-way merge editor; fall back to a plain
-      // open if it (or the command) isn't available.
-      void Promise.resolve(vscode.commands.executeCommand("git.openMergeEditor", uri)).then(
-        undefined,
-        () => vscode.commands.executeCommand("vscode.open", uri)
-      );
+      opener.openMergeEditor(msg.repo, msg.filePath);
     },
     { mutatesRepo: false }
   );
@@ -899,8 +896,7 @@ export function registerMessageHandlers(
       let success = true;
       try {
         const filePath = await resolveWorkingFilePath(msg.repo, msg.filePath, msg.commitHash);
-        const uri = vscode.Uri.file(`${msg.repo}/${filePath}`);
-        await vscode.commands.executeCommand("vscode.open", uri, { preview: true });
+        await opener.openFile(`${msg.repo}/${filePath}`);
       } catch {
         success = false;
       }
@@ -926,12 +922,10 @@ export function registerMessageHandlers(
           abbrevCommit(msg.commitHash) +
           l10n.t("diff.workingTreeSep") +
           ")";
-        await vscode.commands.executeCommand(
-          "vscode.diff",
-          encodeDiffDocUri(msg.repo, msg.filePath, msg.commitHash),
-          vscode.Uri.file(`${msg.repo}/${workingFilePath}`),
-          title,
-          { preview: true }
+        await opener.diffWithWorking(
+          { repo: msg.repo, filePath: msg.filePath, commit: msg.commitHash },
+          `${msg.repo}/${workingFilePath}`,
+          title
         );
       } catch {
         success = false;
@@ -946,10 +940,12 @@ export function registerMessageHandlers(
     async (msg) => {
       let success = true;
       try {
-        // Open the file's content as of the given commit (read-only) via the diff
-        // document provider, which resolves to `git show <commit>:<path>`.
-        const uri = encodeDiffDocUri(msg.repo, msg.filePath, msg.commitHash);
-        await vscode.commands.executeCommand("vscode.open", uri, { preview: true });
+        // The file's content as of the given commit, read-only.
+        await opener.openFileAtRevision({
+          repo: msg.repo,
+          filePath: msg.filePath,
+          commit: msg.commitHash
+        });
       } catch {
         success = false;
       }
@@ -963,29 +959,27 @@ export function registerMessageHandlers(
     async (msg) => {
       bridge.post({
         command: "viewDiff",
-        success: await openCommitDiff(
-          {
-            repo: msg.repo,
-            commitHash: msg.commitHash,
-            oldFilePath: msg.oldFilePath,
-            newFilePath: msg.newFilePath,
-            type: msg.type,
-            fromHash: msg.fromHash
-          },
-          config.openNewTabEditorGroup()
-        )
+        success: await opener.openCommitDiff({
+          repo: msg.repo,
+          commitHash: msg.commitHash,
+          oldFilePath: msg.oldFilePath,
+          newFilePath: msg.newFilePath,
+          type: msg.type,
+          fromHash: msg.fromHash
+        })
       });
     },
     { mutatesRepo: false }
   );
 
-  // The webview's failures have nowhere else to go: it has no Output Channel of
-  // its own, and its console is behind "Developer: Open Webview Developer
-  // Tools", which no bug report ever comes from (ADR-0016).
+  // The webview's failures have nowhere else to go: it has no log of its own
+  // (the host's is the Output Channel, in VS Code), and its console is behind
+  // "Developer: Open Webview Developer Tools", which no bug report ever comes
+  // from (ADR-0016).
   const reportWebviewError = createWebviewErrorSink({
-    log: logger.logError,
+    log: (line) => logger.logError(line),
     notify: async () => {
-      const choice = await vscode.window.showErrorMessage(
+      const choice = await prompts.showError(
         l10n.t("error.webviewFailed"),
         l10n.t("error.showLog")
       );

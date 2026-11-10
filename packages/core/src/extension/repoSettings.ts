@@ -35,6 +35,16 @@ export function resolveRepoScope(
   return resolved;
 }
 
+/** The repo's "show remote branches": its override where it has one, the
+ *  global setting where it does not. The side-view's toggle is its only
+ *  control. */
+export function resolveShowRemoteBranches(
+  state: GitRepoState | undefined,
+  globalDefault: boolean
+): boolean {
+  return state?.showRemoteBranches ?? globalDefault;
+}
+
 /** The fields the Branches side-view draws itself from. */
 const SIDE_VIEW_FIELDS = [
   "showRemoteBranches",

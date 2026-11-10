@@ -1,9 +1,8 @@
 import * as fs from "node:fs";
 
-import { ExtensionContext, Memento } from "vscode";
-
 import { getPathFromStr } from "@ging/core/backend/utils/path";
 import { isUsableRepoPath, resolveCurrentRepo } from "@ging/core/backend/utils/repoPath";
+import type { HostStorage, StateStore } from "@ging/core/host/ports";
 import { Avatar, AvatarCache, DialogMemoryStore, GitRepoSet } from "@ging/shared/types";
 
 const AVATAR_STORAGE_FOLDER = "/avatars";
@@ -14,18 +13,18 @@ const DIALOG_MEMORY = "dialogMemory";
 const PRUNE_TAGS_MIGRATION = "pruneTagsMigrationDone";
 
 export class ExtensionState {
-  private globalState: Memento;
-  private workspaceState: Memento;
+  private globalState: StateStore;
+  private workspaceState: StateStore;
   private globalStoragePath: string;
   private avatarStorageAvailable: boolean = false;
   private currentRepo: string | null = null;
 
-  constructor(context: ExtensionContext) {
-    this.globalState = context.globalState;
-    this.workspaceState = context.workspaceState;
+  constructor(storage: HostStorage) {
+    this.globalState = storage.global;
+    this.workspaceState = storage.workspace;
     this.resolveCurrentRepo();
 
-    this.globalStoragePath = getPathFromStr(context.globalStoragePath);
+    this.globalStoragePath = getPathFromStr(storage.globalStoragePath);
     fs.stat(this.globalStoragePath + AVATAR_STORAGE_FOLDER, (err) => {
       if (!err) {
         this.avatarStorageAvailable = true;

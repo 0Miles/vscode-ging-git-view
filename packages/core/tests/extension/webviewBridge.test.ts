@@ -1,29 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { RequestMessage } from "@ging/shared/types";
-import { webviewBridgeFactory } from "@ging/vscode/extension/webviewBridge";
-import type { RepoFileWatcher } from "@ging/vscode/repoFileWatcher";
 
-// `vi.mock` is hoisted above the imports, so the bridge's `import "vscode"`
-// resolves to this stub even though the mock is declared after it.
-vi.mock("vscode", () => ({}));
+import { fakeWebview } from "@ging/core/tests/helpers";
 
 function makeHarness() {
-  let receive: (msg: RequestMessage) => Promise<void>;
-  const webview = {
-    onDidReceiveMessage: (h: (msg: RequestMessage) => Promise<void>) => {
-      receive = h;
-    },
-    postMessage: vi.fn()
-  };
+  const { webview, receive } = fakeWebview();
   const watcher = { mute: vi.fn(), unmute: vi.fn() };
   const onRepoMutated = vi.fn();
-  const bridge = webviewBridgeFactory(
-    webview as never,
-    watcher as unknown as RepoFileWatcher,
-    onRepoMutated
-  );
-  return { bridge, watcher, onRepoMutated, receive: (msg: RequestMessage) => receive(msg) };
+  const bridge = webviewBridgeFactory(webview, watcher, onRepoMutated);
+  return { bridge, watcher, onRepoMutated, receive };
 }
 
 describe("webviewBridge watcher muting", () => {

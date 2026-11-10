@@ -1,9 +1,9 @@
 import * as assert from "node:assert";
 
+import { ExtensionState } from "@ging/core/extensionState";
 import { GitRepoSet } from "@ging/shared/types";
 import { Config } from "@ging/vscode/config";
 import { createRepoManager } from "@ging/vscode/extension/repoManager";
-import { ExtensionState } from "@ging/vscode/extensionState";
 import { StatusBarItem } from "@ging/vscode/statusBarItem";
 
 import { rmrf } from "@ging/core/tests/helpers";
@@ -61,6 +61,23 @@ suite("repoManager", () => {
       const { manager, getSaveCount } = makeManager({ "/ws/a": { columnWidths: null } });
       manager.removeRepo("/ws/a");
       assert.strictEqual(getSaveCount(), 1);
+    });
+  });
+
+  suite("dropRepo", () => {
+    test("removes the repo, then broadcasts the set without it", () => {
+      const { manager, store, getSaveCount } = makeManager({
+        "/ws/a": { columnWidths: null },
+        "/ws/b": { columnWidths: null }
+      });
+      let broadcast: GitRepoSet | null = null;
+      manager.registerViewCallback((r) => {
+        broadcast = r;
+      });
+      manager.dropRepo("/ws/a");
+      assert.strictEqual(store.repos["/ws/a"], undefined);
+      assert.strictEqual(getSaveCount(), 1);
+      assert.deepStrictEqual(Object.keys(broadcast!), ["/ws/b"]);
     });
   });
 
