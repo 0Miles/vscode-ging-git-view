@@ -41,11 +41,13 @@ export type BlameHoverContext = BlameAnnotationContext & {
   openLineChangeCommand: string;
   /** The command the graph link runs, given its `CommitLocation`. */
   locateCommitCommand: string;
-  /** Each icon as the host's Markdown writes it: the account icon that stands
-   *  in for an avatar, and the ones before the line's change link and the
-   *  graph link. */
-  icons: { account: string; lineChange: string; locateCommit: string };
+  /** An icon, by what it stands for, as the host's Markdown writes it. */
+  icon: (name: BlameHoverIcon) => string;
 };
+
+/** The icons the hover draws: `account` stands in for a missing avatar,
+ *  `change` leads the line's change link and `commit` the graph link. */
+export type BlameHoverIcon = "account" | "change" | "commit";
 
 /**
  * The hover card of a blamed line, as Markdown with the host's icons: the author's
@@ -63,12 +65,12 @@ export function blameHoverMarkdown(
   details: BlameHoverDetails,
   context: BlameHoverContext
 ): string {
-  const { labels, icons } = context;
+  const { labels, icon } = context;
   if (line.uncommitted) return escapeText(labels.uncommitted);
 
   const avatar =
     details.avatar === null
-      ? icons.account
+      ? icon("account")
       : `![](${details.avatar}|width=${AVATAR_SIZE},height=${AVATAR_SIZE})`;
   const author = isUser(line.authorEmail, context.userEmail) ? labels.you : line.authorName;
   const relative = relativeTime(context.now / 1000 - line.authorTime, context.locale);
@@ -91,12 +93,12 @@ export function blameHoverMarkdown(
       : `${shaLink(line.previous.sha)} ↔ ${shaLink(line.sha)}`;
   sections.push(`${escapeText(labels.changes)} ${shas}`);
   sections.push(
-    `${icons.lineChange} [${escapeText(labels.openLineChange)}](command:${context.openLineChangeCommand}?` +
+    `${icon("change")} [${escapeText(labels.openLineChange)}](command:${context.openLineChangeCommand}?` +
       `${commandArgs(lineChangeOf(context.repo, line))})`
   );
   const location: CommitLocation = { repo: context.repo, sha: line.sha };
   sections.push(
-    `${icons.locateCommit} [${escapeText(labels.locateCommit)}](command:${context.locateCommitCommand}?` +
+    `${icon("commit")} [${escapeText(labels.locateCommit)}](command:${context.locateCommitCommand}?` +
       `${commandArgs(location)})`
   );
   return sections.join("\n\n");

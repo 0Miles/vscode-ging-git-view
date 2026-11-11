@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { BlameLine } from "@ging/core/backend/queries/blameFile";
 import {
   type BlameHoverDetails,
+  type BlameHoverIcon,
   blameHoverMarkdown,
   copyableSha,
   createLastHoverDetails
@@ -62,16 +63,16 @@ function hover(
       copyShaCommand: "ext.copySha",
       openLineChangeCommand: "ext.openLineChange",
       locateCommitCommand: "ext.locateCommit",
-      icons: opts.icons ?? VSCODE_ICONS
+      icon: (name) => (opts.icons ?? VSCODE_ICONS)[name]
     }
   );
 }
 
 /** The icons as VS Code's Markdown writes them. */
-const VSCODE_ICONS = {
+const VSCODE_ICONS: Record<BlameHoverIcon, string> = {
   account: "$(account)",
-  lineChange: "$(diff)",
-  locateCommit: "$(git-commit)"
+  change: "$(diff)",
+  commit: "$(git-commit)"
 };
 
 /** The command link that opens the line's change, as the hover writes it. */
@@ -232,7 +233,7 @@ describe("blameHoverMarkdown", () => {
   });
 
   it("draws each icon the way the host writes it", () => {
-    const icons = { account: "[you]", lineChange: "[diff]", locateCommit: "[graph]" };
+    const icons = { account: "[you]", change: "[diff]", commit: "[graph]" };
     const lines = hover(line(), {}, { icons }).split("\n");
     expect(lines[0]).toMatch(/^\[you\] \*\*Bea\*\*, /);
     expect(lines.at(-3)).toMatch(/^\[diff\] \[Open this line's change\]\(command:/);
