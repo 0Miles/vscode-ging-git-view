@@ -6,6 +6,7 @@ import type {
   HostStorage,
   L10n,
   Opener,
+  PickItem,
   PickOptions,
   Prompts
 } from "@ging/core/host/ports";
@@ -25,6 +26,11 @@ const quickPickOptions = ({ placeholder, matchOnDescription }: PickOptions = {})
   matchOnDescription
 });
 
+/** The rows as QuickPick items: a `warning` row's label leads with the
+ *  warning icon. */
+const quickPickItems = <T>(items: readonly PickItem<T>[]) =>
+  items.map((item) => (item.warning ? { ...item, label: `$(warning) ${item.label}` } : item));
+
 export const vscodePrompts: Prompts = {
   showInformation: (message) => void vscode.window.showInformationMessage(message),
   showWarning: (message) => void vscode.window.showWarningMessage(message),
@@ -39,10 +45,13 @@ export const vscodePrompts: Prompts = {
       )
     )?.value,
   pick: async (items, options) =>
-    (await vscode.window.showQuickPick(items, quickPickOptions(options)))?.value,
+    (await vscode.window.showQuickPick(quickPickItems(items), quickPickOptions(options)))?.value,
   pickMany: async (items, options) =>
     (
-      await vscode.window.showQuickPick(items, { ...quickPickOptions(options), canPickMany: true })
+      await vscode.window.showQuickPick(quickPickItems(items), {
+        ...quickPickOptions(options),
+        canPickMany: true
+      })
     )?.map((item) => item.value),
   pickSaveLocation: async ({ saveLabel, filters, defaultPath }) =>
     (

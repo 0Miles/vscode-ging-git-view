@@ -1,7 +1,8 @@
 /**
  * Steps the core's command services share: asking yes or no, finding the
- * current repository, listing its remotes, and running a change to it — each
- * failure told to the user the same way, under the caller's error key.
+ * current repository, listing its remotes, running a change to it, and any
+ * other step that can fail — each failure told to the user the same way, under
+ * the caller's error key.
  */
 
 import type { SimpleGit } from "simple-git";
@@ -50,6 +51,16 @@ export function createCommandKit(deps: CommandKitDeps) {
         return null;
       }
       return repo;
+    },
+
+    /** What `work` resolves to, or `undefined` after a toast saying why not. */
+    async tryOrToast<T>(errorKey: string, work: () => PromiseLike<T>): Promise<T | undefined> {
+      try {
+        return await work();
+      } catch (e: unknown) {
+        toast(errorKey, e);
+        return undefined;
+      }
     },
 
     /** `repo`'s remotes, or `undefined` after a toast saying why not. */

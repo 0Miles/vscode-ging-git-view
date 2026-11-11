@@ -78,6 +78,10 @@ export type PickItem<T> = {
   description?: string;
   /** Checked when a `pickMany` opens; ignored by `pick`. */
   picked?: boolean;
+  /** Marked the way the host marks a warning — a commit git's garbage
+   *  collection may remove, say. The host draws the mark; the label carries
+   *  no icon syntax of its own. */
+  warning?: boolean;
   /** What choosing this row answers. */
   value: T;
 };
