@@ -138,7 +138,8 @@ _Avoid_: page, 分頁, commit 快取, maxCommits(那是實作名)
 
 ### Stash 的身分
 
-`stash@{n}` 看起來像名字,其實是堆疊上的位置:每一次 `git stash push`(終端機、原生 SCM、`pull --autostash`)都會把底下每一筆的編號往後推,所以使用者讀到的編號,到 git 執行時可能已經指著另一筆 stash。一筆 stash 因此有兩個值,各管一件事。圖形只畫得出 loaded commit window 搆得到的 stash;stash 側檢視(VS Code host 專屬)列出整個堆疊,與圖形載入了什麼無關(#102),所以不在載入範圍內的 stash 一律從側檢視找、從側檢視操作。兩邊用的是同一套身分規則。
+stash 出現在兩個地方。圖形只畫得出 loaded commit window 搆得到的 stash;stash 側檢視(VS Code host 專屬)列出整個堆疊,與圖形載入了什麼無關,所以不在載入範圍內的 stash 一律從側檢視找、從側檢視操作(#102)。兩邊認 stash 的規則是同一套。
+規則要分兩個值,是因為 `stash@{n}` 看起來像名字,其實是堆疊上的位置:每一次 `git stash push`(終端機、原生 SCM、`pull --autostash`)都會把底下每一筆的編號往後推,使用者讀到的編號,到 git 執行時可能已經指著另一筆 stash。
 
 **Stash SHA**:
 stash commit 的 SHA —— stash 的**身分**。git 實際作用的、拿來比對的都是它,一律寫完整的(`rev-parse` 印出的形式),不用縮寫。同一筆 stash 的 SHA 不會變;唯一的例外是 rename,它重建 commit,換上新的 SHA,之後重讀的清單自然列出新的那一個。
