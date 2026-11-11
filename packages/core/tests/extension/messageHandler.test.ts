@@ -252,6 +252,51 @@ describe("actions", () => {
 
     expect(h.posted).toEqual([{ command: "dropStash", status: null, movedSelector: null }]);
   });
+
+  // The graph reports an apply or pop from the judgement the side view uses
+  // (#337), so the response carries it.
+  it("says where an apply that conflicted left the stash", async () => {
+    fs.writeFileSync(path.join(repo, "f"), "stashed");
+    git(["stash", "push", "-m", "wip"], repo);
+    fs.writeFileSync(path.join(repo, "f"), "committed");
+    git(["commit", "-am", "conflicts with the stash"], repo);
+    const h = harness();
+    await h.send({ command: "selectRepo", repo });
+
+    await h.send({
+      command: "applyStash",
+      selector: "stash@{0}",
+      expectedHash: rev(repo, "stash@{0}"),
+      reinstateIndex: false
+    } as RequestMessage);
+
+    expect(h.posted).toEqual([
+      {
+        command: "applyStash",
+        status: expect.any(String),
+        movedSelector: null,
+        applyFailure: { kind: "conflicted", keptAs: "stash@{0}" }
+      }
+    ]);
+  });
+
+  it("reports no failure for a pop that went through", async () => {
+    fs.writeFileSync(path.join(repo, "f"), "changed");
+    git(["stash", "push", "-m", "wip"], repo);
+    const h = harness();
+    await h.send({ command: "selectRepo", repo });
+
+    await h.send({
+      command: "popStash",
+      selector: "stash@{0}",
+      expectedHash: rev(repo, "stash@{0}"),
+      reinstateIndex: false
+    } as RequestMessage);
+
+    expect(h.posted).toEqual([
+      { command: "popStash", status: null, movedSelector: null, applyFailure: null }
+    ]);
+  });
 });
 
 // The graph's two fetches arrive through the bridge, whose `mutatesRepo`

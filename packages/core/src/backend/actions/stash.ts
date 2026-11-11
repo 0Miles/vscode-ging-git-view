@@ -1,6 +1,13 @@
 import type { SimpleGit } from "simple-git";
 
-import type { ActionPayload, StashRefusalFacts } from "@ging/shared/backend/types";
+import type {
+  ActionPayload,
+  StashApplyFacts,
+  StashApplyFailure,
+  StashRefusalFacts
+} from "@ging/shared/backend/types";
+
+type StashTarget = ActionPayload<"dropStash">;
 
 /** A stash action refused before any stash command ran: its selector resolves
  *  to another commit than `expectedHash`, or to nothing. Why — see
@@ -80,28 +87,136 @@ export async function stashSelectorResolvesTo(
   return (await stashSelectorTarget(git, selector)) === expectedHash;
 }
 
+const STASH_APPLY_FAILURE_MESSAGES: Record<StashApplyFailure["kind"], string> = {
+  unmergedBefore: "the working tree already has unmerged paths, so no stash command ran",
+  conflicted: "the stash was applied with conflicts",
+  unchanged: "the stash was not applied"
+};
+
+/** An apply or pop that did not go through, and why (`StashApplyFailure`).
+ *  Its message is git's when git threw, so `formatGitError` still finds git's
+ *  line in it. */
+export class StashApplyError extends Error {
+  constructor(
+    readonly failure: StashApplyFailure,
+    /** What git threw, or null when it threw nothing. */
+    cause: unknown
+  ) {
+    super(
+      cause instanceof Error ? cause.message : STASH_APPLY_FAILURE_MESSAGES[failure.kind],
+      cause === null ? undefined : { cause }
+    );
+    this.name = "StashApplyError";
+  }
+}
+
+/** What an apply or pop reports beside its status, read off the error it
+ *  threw (null when it succeeded). */
+export function stashApplyFacts(error: unknown): StashApplyFacts {
+  return {
+    ...stashRefusalFacts(error),
+    applyFailure: error instanceof StashApplyError ? error.failure : null
+  };
+}
+
+/** The working tree's unmerged paths. */
+async function unmergedPaths(git: SimpleGit): Promise<string[]> {
+  const out = await git.raw(["diff", "--name-only", "--diff-filter=U"]);
+  return out.split(/\r\n|\r|\n/).filter((line) => line !== "");
+}
+
+/** Where `sha` sits in the stash list now — the first place, should
+ *  `git stash store` have put it there twice — or null when it is not listed. */
+async function stashPosition(git: SimpleGit, sha: string): Promise<string | null> {
+  const out = await git.raw(["stash", "list", "--format=%H %gd"]);
+  for (const line of out.split(/\r\n|\r|\n/)) {
+    const [hash, selector] = line.split(" ");
+    if (hash === sha && selector !== undefined) return selector;
+  }
+  return null;
+}
+
+/**
+ * Run an apply or pop, judging a failure by the unmerged paths before and
+ * after it rather than by what git printed (#337); see `StashApplyFailure`.
+ *
+ * The check before narrows a window but cannot close it: the working tree can
+ * still change between it and the run, as the stack can between
+ * `verifyStashSelector` and the run.
+ */
+async function runApplyOrPop(
+  git: SimpleGit,
+  input: StashTarget,
+  run: () => Promise<unknown>
+): Promise<void> {
+  if ((await unmergedPaths(git)).length > 0) {
+    throw new StashApplyError({ kind: "unmergedBefore" }, null);
+  }
+  await verifyStashSelector(git, input.selector, input.expectedHash);
+  let failed = false;
+  let error: unknown = null;
+  try {
+    await run();
+  } catch (e) {
+    failed = true;
+    error = e;
+  }
+  // Read even after a run that resolved: a conflicted apply exits non-zero
+  // with git's report on stdout alone, and simple-git resolves that.
+  const judged = await judgeRun(git, input.expectedHash, failed, error);
+  if (judged !== null) throw judged;
+}
+
+/** What to throw for a run that ended as `failed` says — null when it went
+ *  through. When the judgement cannot be made, a failure is thrown as git
+ *  reported it, and a success stands. */
+async function judgeRun(
+  git: SimpleGit,
+  sha: string,
+  failed: boolean,
+  error: unknown
+): Promise<unknown> {
+  try {
+    if ((await unmergedPaths(git)).length === 0) {
+      return failed ? new StashApplyError({ kind: "unchanged" }, error) : null;
+    }
+    // Looked up again rather than taken from the request: a push or drop since
+    // the check moves the stash, and the selector agreed to may name another.
+    return new StashApplyError(
+      { kind: "conflicted", keptAs: await stashPosition(git, sha) },
+      error
+    );
+  } catch {
+    return failed ? error : null;
+  }
+}
+
 /** Apply a stash to the working tree, keeping it in the stash list. With
- *  `reinstateIndex`, the stash's staged changes are restored to the index too. */
+ *  `reinstateIndex`, the stash's staged changes are restored to the index too.
+ *  Fails with `StashApplyError` when it does not go through. */
 export async function applyStash(
   git: SimpleGit,
   input: ActionPayload<"applyStash">
 ): Promise<void> {
-  const sha = await verifyStashSelector(git, input.selector, input.expectedHash);
-  const args = ["stash", "apply"];
-  if (input.reinstateIndex) args.push("--index");
-  // Safe because verified above: a byte-equal full SHA. A short or all-digit
-  // token would read as something else, so the check must stay first.
-  args.push(sha);
-  await git.raw(args);
+  await runApplyOrPop(git, input, () => {
+    const args = ["stash", "apply"];
+    if (input.reinstateIndex) args.push("--index");
+    // Safe because verified first: a byte-equal full SHA. A short or all-digit
+    // token would read as something else, so the check must stay first.
+    args.push(input.expectedHash);
+    return git.raw(args);
+  });
 }
 
-/** Apply a stash and drop it from the stash list on success. */
+/** Apply a stash and drop it from the stash list on success. Fails with
+ *  `StashApplyError` when it does not go through. */
 export async function popStash(git: SimpleGit, input: ActionPayload<"popStash">): Promise<void> {
-  await verifyStashSelector(git, input.selector, input.expectedHash);
-  const args = ["stash", "pop"];
-  if (input.reinstateIndex) args.push("--index");
-  args.push(input.selector);
-  await git.raw(args);
+  await runApplyOrPop(git, input, () => {
+    const args = ["stash", "pop"];
+    if (input.reinstateIndex) args.push("--index");
+    args.push(input.selector);
+    return git.raw(args);
+  });
 }
 
 /** Delete a stash from the stash list. */
