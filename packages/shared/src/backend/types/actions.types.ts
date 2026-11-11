@@ -217,18 +217,15 @@ export type StashRefusalFacts = {
 };
 
 /**
- * Why an apply or pop did not go through, judged from the working tree's
- * unmerged paths before and after it — never from git's output (#337):
+ * Why an apply or pop did not go through, judged from the unmerged paths
+ * before and after it (ADR-0030):
  *
- * - `unmergedBefore`: there were unmerged paths already, so no stash command
- *   ran. Read afterwards, they would pass for a conflict the stash caused.
- * - `conflicted`: it ran and left unmerged paths. git keeps the stash on a
- *   conflict, pop included; `keptAs` is where its SHA sits now, looked up
- *   again after the run, or null when it is no longer listed.
- * - `unchanged`: it ran, failed, and left nothing unmerged. Read as "nothing
- *   was changed", which holds for every refusal git makes before it merges.
- *   One case it cannot tell apart: a pop whose apply landed cleanly but whose
- *   drop then failed. Telling that apart would mean reading git's output.
+ * - `unmergedBefore`: some were there already, so no stash command ran; read
+ *   afterwards, they would pass for a conflict the stash caused.
+ * - `conflicted`: the run left some. git keeps the stash then, pop included;
+ *   `keptAs` is where it is listed now, or null when it no longer is.
+ * - `unchanged`: the run failed and left none, read as "nothing changed". A
+ *   pop whose apply landed but whose drop failed reads this way too.
  */
 export type StashApplyFailure =
   | { kind: "unmergedBefore" }

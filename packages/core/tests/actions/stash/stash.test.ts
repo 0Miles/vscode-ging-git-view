@@ -319,6 +319,31 @@ describe("apply and pop that do not go through", () => {
     }
   );
 
+  // The two checks run together; the one about the working tree wins, since
+  // the stash being where it was would not make the apply any safer.
+  it("refuses for conflicts already there before refusing a stash that moved", async () => {
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+    git(["checkout", "-b", "other"], repo);
+    fs.writeFileSync(path.join(repo, "f"), "other");
+    git(["commit", "-am", "other"], repo);
+    git(["checkout", "main"], repo);
+    fs.writeFileSync(path.join(repo, "f"), "mine");
+    git(["commit", "-am", "mine"], repo);
+    expect(() => git(["merge", "other"], repo)).toThrow();
+
+    const error = await rejection(
+      applyStash(simpleGit(repo), {
+        selector: "stash@{0}",
+        expectedHash: older,
+        reinstateIndex: false
+      })
+    );
+
+    expect(error).toBeInstanceOf(StashApplyError);
+    expect((error as StashApplyError).failure).toEqual({ kind: "unmergedBefore" });
+  });
+
   it.each(actions)(
     "reports a %s that left conflicts, with the stash kept where it sits",
     async (_, action) => {
