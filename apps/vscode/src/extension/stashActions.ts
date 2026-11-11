@@ -1,9 +1,8 @@
 import {
-  applyListedStash,
+  applyOrPopListedStash,
   copyStashName,
   dropListedStash,
   type ListedStashHost,
-  popListedStash,
   renameListedStash,
   type StashListItem
 } from "@ging/core/extension/stashList";
@@ -18,8 +17,8 @@ type StashCmvSetting = keyof ContextMenuActionsVisibility["stash"];
  * stashMenuConsistency.test.ts holds package.json to this table.
  */
 export const STASH_ACTIONS = {
-  apply: { cmvKey: "apply", run: applyListedStash },
-  pop: { cmvKey: "pop", run: popListedStash },
+  apply: { cmvKey: "apply", run: (host, stash) => applyOrPopListedStash(host, stash, "apply") },
+  pop: { cmvKey: "pop", run: (host, stash) => applyOrPopListedStash(host, stash, "pop") },
   drop: { cmvKey: "drop", run: dropListedStash },
   // No setting exists for rename, and #333 adds none.
   rename: { cmvKey: null, run: renameListedStash },

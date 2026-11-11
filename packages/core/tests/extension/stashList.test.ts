@@ -7,13 +7,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { commitDiffView } from "@ging/core/extension/commitDiff";
 import {
-  applyListedStash,
+  applyOrPopListedStash,
   applyOrPopActions,
   copyStashName,
   dropListedStash,
   type ListedStashHost,
   loadStashFiles,
-  popListedStash,
   renameListedStash,
   sameStashList,
   stashListItems
@@ -342,10 +341,10 @@ describe("applyOrPopActions", () => {
   });
 });
 
-describe.each([
-  ["apply", applyListedStash, "applied"],
-  ["pop", popListedStash, "popped"]
-] as const)("%sListedStash (real git)", (mode, run, done) => {
+describe.each(["apply", "pop"] as const)("applyOrPopListedStash: %s (real git)", (mode) => {
+  const run = (host: ListedStashHost, shown: { hash: string; selector: string }) =>
+    applyOrPopListedStash(host, shown, mode);
+  const done = "done";
   let repo: string;
 
   afterEach(() => {
@@ -484,7 +483,7 @@ describe.each([
   });
 });
 
-describe("applyListedStash's report for a stash no longer listed", () => {
+describe("applyOrPopListedStash's report for a stash no longer listed", () => {
   let repo: string;
 
   afterEach(() => {
@@ -515,7 +514,7 @@ describe("applyListedStash's report for a stash no longer listed", () => {
     const { host, calls, answers } = hostOn(racing);
     answers.choose = "dialog.stash.apply";
 
-    expect(await applyListedStash(host, shown)).toBe("conflicted");
+    expect(await applyOrPopListedStash(host, shown, "apply")).toBe("conflicted");
     expect(calls.slice(1)).toEqual([["showWarning", "stashApply.conflictedUnlisted"], ["refresh"]]);
   });
 });

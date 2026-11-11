@@ -9441,16 +9441,14 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "applyStash":
     case "popStash":
+    case "dropStash":
+    case "renameStash":
       handleStashResponse(
         msg.status,
         msg.movedSelector,
         l10n[ACTION_FAILURE[msg.command]],
-        msg.applyFailure
+        "applyFailure" in msg ? msg.applyFailure : null
       );
-      break;
-    case "dropStash":
-    case "renameStash":
-      handleStashResponse(msg.status, msg.movedSelector, l10n[ACTION_FAILURE[msg.command]]);
       break;
     case "operationState":
       gitGraph.showConflictBanner(msg.operation, msg.conflictedFiles);
@@ -9748,7 +9746,7 @@ function handleStashResponse(
   status: GitCommandStatus,
   movedSelector: string | null,
   failure: string,
-  applyFailure: StashApplyFailure | null = null
+  applyFailure: StashApplyFailure | null
 ) {
   const refresh = () => gitGraph.refresh(false);
   if (movedSelector !== null) {

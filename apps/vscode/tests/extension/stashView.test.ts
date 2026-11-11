@@ -227,7 +227,7 @@ suite("Stash side-view commands (integration)", function () {
 
   // Apply, Pop, Drop and Rename ask first, through a modal and an input box
   // the extension host cannot answer, so what they do once asked is pinned by
-  // their core tests (`applyListedStash`, `popListedStash`, `dropListedStash`,
+  // their core tests (`applyOrPopListedStash`, `dropListedStash`,
   // `renameListedStash`). Here: that every stash
   // action is a registered command, and that one handed anything but a
   // listed stash asks nothing and does nothing.

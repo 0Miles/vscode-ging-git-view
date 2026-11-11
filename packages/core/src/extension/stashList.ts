@@ -175,67 +175,61 @@ export async function dropListedStash(
   return outcome === "done" ? "dropped" : outcome;
 }
 
+/** What apply and pop each ask with and run; the keys spelled out, so each
+ *  can be found and checked. */
+const APPLY_OR_POP = {
+  apply: {
+    run: applyStash,
+    question: "dialog.stash.applyConfirm",
+    plain: "dialog.stash.apply",
+    reinstateIndex: "dialog.stash.applyReinstateIndex",
+    failure: "error.unableToApplyStash"
+  },
+  pop: {
+    run: popStash,
+    question: "dialog.stash.popConfirm",
+    plain: "dialog.stash.pop",
+    reinstateIndex: "dialog.stash.popReinstateIndex",
+    failure: "error.unableToPopStash"
+  }
+} as const;
+
 /**
  * The two ways to say yes to an apply or pop, in the order the modal shows
- * them. The plain one comes first: it is what the graph's form sends with its
- * "reinstate the index" box unticked, as it opens. VS Code's stable API has no
- * checkbox for a modal, so the choice is a second button (ADR-0029). Each
- * answers the `reinstateIndex` it stands for; Cancel and Esc are the host's.
+ * them, each answering the `reinstateIndex` it stands for. The plain one comes
+ * first: it is what the graph's form sends with its box unticked (ADR-0029).
  */
 export function applyOrPopActions(
   l10n: Pick<L10n, "t">,
   mode: "apply" | "pop"
 ): { label: string; value: boolean }[] {
+  const keys = APPLY_OR_POP[mode];
   return [
-    { label: l10n.t(`dialog.stash.${mode}`), value: false },
-    { label: l10n.t(`dialog.stash.${mode}ReinstateIndex`), value: true }
+    { label: l10n.t(keys.plain), value: false },
+    { label: l10n.t(keys.reinstateIndex), value: true }
   ];
 }
 
-/** Apply or pop a listed stash, bound like `dropListedStash`. The side-view
- *  neither reads nor writes the graph's remembered choice (`dialogMemory`):
- *  no answer carries over to the next question. */
-async function applyOrPopListed(
+/** Apply or pop on a listed stash, bound like `dropListedStash`. The
+ *  side-view neither reads nor writes the graph's remembered choice
+ *  (`dialogMemory`). */
+export async function applyOrPopListedStash(
   host: ListedStashHost,
   shown: Pick<StashListItem, "hash" | "selector">,
   mode: "apply" | "pop"
 ): Promise<"done" | "cancelled" | "refused" | "conflicted" | "failed"> {
   const { t } = host.l10n;
-  const reinstateIndex = await host.prompts.choose(
-    t(`dialog.stash.${mode}Confirm`, shown.selector),
-    { detail: t("dialog.stash.reinstateIndexDetail"), actions: applyOrPopActions(host.l10n, mode) }
-  );
+  const { run, question, failure } = APPLY_OR_POP[mode];
+  const reinstateIndex = await host.prompts.choose(t(question, shown.selector), {
+    detail: t("dialog.stash.reinstateIndexDetail"),
+    actions: applyOrPopActions(host.l10n, mode)
+  });
   if (reinstateIndex === undefined) return "cancelled";
-  const target = { selector: shown.selector, expectedHash: shown.hash, reinstateIndex };
-  return mode === "apply"
-    ? runAgreed(
-        host,
-        () => applyStash(host.git, target),
-        reportApplyFailure(host, "error.unableToApplyStash")
-      )
-    : runAgreed(
-        host,
-        () => popStash(host.git, target),
-        reportApplyFailure(host, "error.unableToPopStash")
-      );
-}
-
-/** Apply on a listed stash: see `applyOrPopListed`. */
-export async function applyListedStash(
-  host: ListedStashHost,
-  shown: Pick<StashListItem, "hash" | "selector">
-): Promise<"applied" | "cancelled" | "refused" | "conflicted" | "failed"> {
-  const outcome = await applyOrPopListed(host, shown, "apply");
-  return outcome === "done" ? "applied" : outcome;
-}
-
-/** Pop on a listed stash: see `applyOrPopListed`. */
-export async function popListedStash(
-  host: ListedStashHost,
-  shown: Pick<StashListItem, "hash" | "selector">
-): Promise<"popped" | "cancelled" | "refused" | "conflicted" | "failed"> {
-  const outcome = await applyOrPopListed(host, shown, "pop");
-  return outcome === "done" ? "popped" : outcome;
+  return runAgreed(
+    host,
+    () => run(host.git, { selector: shown.selector, expectedHash: shown.hash, reinstateIndex }),
+    reportApplyFailure(host, failure)
+  );
 }
 
 /** Rename on a listed stash, bound like `dropListedStash`. An empty or
