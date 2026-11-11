@@ -16,9 +16,10 @@
 ## What GING is
 
 GING is a Source Control extension for Visual Studio Code. Its focus is bringing the Git history
-workflow into the **native Source Control sidebar** — including dedicated **Branches** and
-**Remotes** side views — so you can inspect history and manage branches and remotes without leaving
-the sidebar, with first-class support for **workspaces that contain many repositories**.
+workflow into the **native Source Control sidebar** — including dedicated **Branches**,
+**Remotes** and **Stashes** side views — so you can inspect history and manage branches, remotes and
+stashes without leaving the sidebar, with first-class support for **workspaces that contain many
+repositories**.
 
 It also includes a commit-graph webview for visualizing history, but the design direction is
 deliberately sidebar- and multi-repo-first, rather than centered on a single dedicated graph panel.
@@ -34,8 +35,8 @@ Panel. This extension focuses on exposing part of the Git history workflow throu
 sidebar view and integrating with the native Git sidebar repository view, especially for
 multi-repository workflows:
 
-- **Sidebar-first.** Branches and Remotes live as side views in the Source Control container;
-  history follows the repository selected in the Source Control view.
+- **Sidebar-first.** Branches, Remotes and Stashes live as side views in the Source Control
+  container; history follows the repository selected in the Source Control view.
 - **Multi-repository workflows.** Designed for workspaces with several repositories, with per-repo
   selection and grouping.
 - **Localized UI.** English, Simplified Chinese, and Traditional Chinese.
@@ -50,6 +51,7 @@ tradeoffs, and release process clearer.
 - **Branches view**: A sidebar view with search, multi-select, remote/local grouping, and independent filters for inactive and already-merged branches
 - **Merged-branch marking**: Branches already merged into the repo's default branch are badged in the sidebar and dimmed in the graph, so you can see what is safe to delete (ancestry only — squash and rebase merges are not detected)
 - **Remotes view**: Add, edit, rename, and remove remotes from the sidebar
+- **Stashes view**: Every stash in the repository, whether or not the graph has loaded the commit it was made on. Expand a stash to list its files and open their diffs; apply, pop, drop, rename, or copy its name from the context menu
 - **Source Control integration**: History follows the repository selected in the Source Control view
 - **Multi-repo**: Work with multiple repositories in one workspace
 - **Graph view**: See branches, tags, stashes, and uncommitted changes in one graph
@@ -73,6 +75,11 @@ The gear on the graph's toolbar slides out **Repository Settings**, which overri
 what the graph loads — first parent only, reflog commits, stashes, tag-only commits, remote branches and
 remote HEADs — for the current repository alone, next to its commit order, its name, and the Branches
 view's inactive and merged filters. Each change applies as you make it.
+
+A stash is drawn on the graph once the graph has loaded the commits it belongs among. A stash made
+on an old commit, or on one no branch reaches any more (after a `reset --hard`, say), may not be on
+the graph until the whole history is loaded. The **Stashes** view lists every stash either way, and
+the stashes setting above does not affect it.
 
 A few commonly adjusted settings:
 
