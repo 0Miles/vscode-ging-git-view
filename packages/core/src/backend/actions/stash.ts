@@ -1,5 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
+import { unmergedFiles } from "@ging/core/backend/queries/unmergedFiles";
 import type {
   ActionPayload,
   StashApplyFacts,
@@ -119,12 +120,6 @@ export function stashApplyFacts(error: unknown): StashApplyFacts {
   };
 }
 
-/** The working tree's unmerged paths. */
-async function unmergedPaths(git: SimpleGit): Promise<string[]> {
-  const out = await git.raw(["diff", "--name-only", "--diff-filter=U"]);
-  return out.split(/\r\n|\r|\n/).filter((line) => line !== "");
-}
-
 /** Where `sha` sits in the stash list now — the first place, should
  *  `git stash store` have put it there twice — or null when it is not listed. */
 async function stashPosition(git: SimpleGit, sha: string): Promise<string | null> {
@@ -149,7 +144,7 @@ async function runApplyOrPop(
   input: StashTarget,
   run: () => Promise<unknown>
 ): Promise<void> {
-  if ((await unmergedPaths(git)).length > 0) {
+  if ((await unmergedFiles(git)).length > 0) {
     throw new StashApplyError({ kind: "unmergedBefore" }, null);
   }
   await verifyStashSelector(git, input.selector, input.expectedHash);
@@ -178,7 +173,7 @@ async function judgeRun(
 ): Promise<unknown> {
   let unmerged: string[];
   try {
-    unmerged = await unmergedPaths(git);
+    unmerged = await unmergedFiles(git);
   } catch {
     return failed ? error : null;
   }
