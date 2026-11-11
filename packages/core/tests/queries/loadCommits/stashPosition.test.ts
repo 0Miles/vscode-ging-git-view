@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { listStashes } from "@ging/core/backend/queries/listStashes";
 import { loadCommits } from "@ging/core/backend/queries/loadCommits";
 
 import { makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
@@ -357,5 +358,18 @@ describe("loadCommits stash placement with reflog commits included", () => {
     const whole = windows.at(-1)!;
     expect(whole.commits.map((c) => c.hash).slice(0, 2)).toEqual([skewedTopHash, skewedStashHash]);
     expect(whole.commits[1].refs.some((r) => r.type === "stash")).toBe(true);
+  });
+});
+
+// #102: the graph leaves out a stash it cannot place, so something else must
+// still offer it. The Stash side-view reads `listStashes`, whatever is loaded.
+describe("a stash the loaded window leaves out (#102)", () => {
+  it("is still listed, by its SHA, for the Stash side-view", async () => {
+    const graph = await load(orphanStashRepo, 2);
+    expect(graph.moreCommitsAvailable).toBe(true);
+    expect(graph.commits.some((c) => c.hash === orphanStashHash)).toBe(false);
+
+    const listed = await listStashes(simpleGit(orphanStashRepo));
+    expect(listed.map((s) => [s.ref, s.hash])).toEqual([["stash@{0}", orphanStashHash]]);
   });
 });
