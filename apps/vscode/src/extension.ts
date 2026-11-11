@@ -209,9 +209,9 @@ export function activate(context: vscode.ExtensionContext) {
     dateType: config.dateType
   });
   // The changes made outside the graph's bridge — the fetch, remote and reflog
-  // commands, and the timer — run inside this hook, which refreshes whether or not a
-  // graph is open. The graph's own fetches take the git call alone, since its
-  // bridge mutes and refreshes around them.
+  // commands, and the timer — run inside this hook, which refreshes whether or
+  // not a graph is open. The graph's own fetches take the git call alone, since
+  // its bridge mutes and refreshes around them.
   const runRepoMutation = createRunRepoMutation({
     watcher: () => currentWatcher,
     afterMutation: () => refreshAfterRemoteChange()
