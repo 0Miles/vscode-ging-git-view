@@ -23,16 +23,13 @@ _與 ADR-0009 衝突:ADR-0009 說側檢視的單一分支動作一律委派給�
 
 ## 後果
 
-- **圖形與側檢視是兩種互動形狀,這是已接受的代價。** drop 在圖形裡是 GING 自己的確認框,在側檢視是原生 modal;rename 在圖形裡是表單,在側檢視是 `showInputBox`。apply / pop(#337)在圖形裡是一張表單,上面有「Reinstate the index」的 checkbox;在側檢視是一個原生 modal,有一行 detail 和兩顆按鈕:`Apply` 在前、`Apply & Reinstate Index` 在後(pop 是 `Pop` / `Pop & Reinstate Index`),Cancel 與 Esc 由 VS Code 提供。按鈕代替 checkbox,是因為 VS Code `^1.98` 的 stable API 沒有 modal 用的 checkbox。前一顆等於圖形 checkbox 打開時的預設(`reinstateIndex: false`),按鈕到 `reinstateIndex` 的對應在 core(`applyOrPopActions`)。之後選項如果再變多,兩顆按鈕會不夠用,改用 `createQuickPick` 的 toggle 列。
-- **衝突的判定與回報,圖形和側檢視共用一份。** 形狀雖然不同,apply / pop 沒有成功時,兩邊用的是同一個判定:core 的 `applyStash` / `popStash` 在執行前、後各讀一次 unmerged 路徑(`StashApplyFailure`),不解析 git 的輸出;回報也用同一組 l10n 字串(`stashApply.*`)。執行前已經有 unmerged 路徑時,直接拒絕,不跑 stash 指令,也不會被說成是這筆 stash 造成的衝突。執行後有衝突時,stash 的位置是用它的 SHA 重新查出來的,查不到就說它已經不在清單裡,不沿用使用者同意時的那個編號。執行前的檢查只是**縮小**了空窗:檢查完到真正執行之間,工作目錄仍然可能改變。
-- **側檢視不讀、也不寫 `dialogMemory`。** 那是圖內對話框「記住我的選擇」的存放處,原生 modal 沒有對應的 UI。所以側檢視的 apply / pop 不會沿用圖形記住的 checkbox,每次都是同樣兩顆按鈕。
-- **`Prompts` 長出了 `confirm` 與 `input` 的 `value`。** 這是 ADR-0027「先有呼叫端」規則下的第一個呼叫端:`confirm` 的形狀比照 `showError`(訊息加上一串動作,回傳選中的那一個),VS Code 的實作是 `showWarningMessage` 的 modal 版本。(這個 `confirm` 後來由 #352 換掉,見文末補記。)
+- **圖形與側檢視是兩種互動形狀,這是已接受的代價。** drop 在圖形裡是 GING 自己的確認框,在側檢視是原生 modal;rename 在圖形裡是表單,在側檢視是 `showInputBox`。apply / pop(#337)在圖形裡是帶 checkbox 的表單,在側檢視是兩顆按鈕的原生 modal:`Apply` 回答 `reinstateIndex: false`(等於 checkbox 的預設),`Apply & Reinstate Index` 回答 `true`(core 的 `applyOrPopActions`);用按鈕,是因為 VS Code 的 stable API 沒有 modal 用的 checkbox。它們沒有成功時怎麼判定與回報,兩邊共用一份,見 ADR-0030。
+- **側檢視不讀、也不寫 `dialogMemory`。** 那是圖內對話框「記住我的選擇」的存放處,原生 modal 沒有對應的 UI。
+- **`Prompts` 長出了 `confirm` 與 `input` 的 `value`。** 這是 ADR-0027「先有呼叫端」規則下的第一個呼叫端:`confirm` 的形狀比照 `showError`(訊息加上一串動作,回傳選中的那一個),VS Code 的實作是 `showWarningMessage` 的 modal 版本。
 - **rename 的答案是空的或沒有改變,都視同取消,不執行 git。** 空的答案沿用圖形的規則。沒有改變的答案在圖形裡會照樣送出,可是 `renameStash` 會重建 commit 並 store 到 `stash@{0}`,結果只是在名字不變的情況下把 stash 移到最上面,所以側檢視不送。
 - **側檢視的 stash 選單項目由 `apps/vscode` 的 `STASH_ACTIONS` 宣告**,`contextMenuActionsVisibility.stash.*` 的 context key 也從那裡產生,並有一支一致性測試鎖住 `package.json` 的 when 子句(ADR-0010 的補記)。apply、pop、drop 各自遵守 `stash.apply`、`stash.pop`、`stash.drop`;rename 沒有設定鍵,恆顯示,#333 不補鍵。
 - **例外的邊界**:之後新增的側檢視動作,只有在符合上面的適用條件時才能引用這篇。圖內對話框不需要已載入的列,就照 ADR-0009 委派。
 
 ## 補記(2026-11-11,#352)
 
-**「後果」裡 `Prompts` 那一條說它長出了 `confirm`,形狀比照 `showError`。#352 把它換成更一般的 `Prompts.choose`(可以有 `detail` 與幾個動作,回答按下那個動作的值);drop 改用 core 架在它上面的 `confirm(prompts, message, confirmLabel)`,行為不變。** 理由見 ADR-0027 的補記:#337 的 apply / pop 要 `detail` 與兩個動作按鈕,一個布林值裝不下。
-
-apply / pop 直接呼叫 `choose`:兩個動作的 `value` 就是 `reinstateIndex` 本身(`Apply` 是 `false`、`Apply & Reinstate Index` 是 `true`),由 core 的 `applyOrPopActions` 產生,所以按下的按鈕不必再拿 label 比對一次。Cancel 與 Esc 回答 `undefined`,不執行 git。
+**「後果」第三條說 `Prompts` 長出了 `confirm`,形狀比照 `showError`。#352 把它換成更一般的 `Prompts.choose`(可以有 `detail` 與幾個動作,回答按下那個動作的值);drop 改用 core 架在它上面的 `confirm(prompts, message, confirmLabel)`,行為不變。** 理由見 ADR-0027 的補記:#337 的 apply / pop 要 `detail` 與兩個動作按鈕,一個布林值裝不下。
