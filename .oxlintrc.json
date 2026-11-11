@@ -121,8 +121,8 @@
             "patterns": [
               {
                 "group": [
-                  "@ging/core/backend/actions/*",
-                  "@ging/core/backend/queries/*",
+                  "@ging/core/backend/actions/**",
+                  "@ging/core/backend/queries/**",
                   "!@ging/core/backend/queries/commitFileContent"
                 ],
                 "allowTypeImports": true,
