@@ -361,14 +361,11 @@ describe("loadCommits stash placement with reflog commits included", () => {
   });
 });
 
-// #102: the graph leaves out a stash it cannot place, so something else must
-// still offer it. The Stash side-view reads `listStashes`, whatever is loaded.
+// #102: the graph leaves out a stash it cannot place (`shows a stash the window
+// can never place once the whole history is loaded`, above), so something else
+// must still offer it. The Stashes view reads `listStashes`, whatever is loaded.
 describe("a stash the loaded window leaves out (#102)", () => {
-  it("is still listed, by its SHA, for the Stash side-view", async () => {
-    const graph = await load(orphanStashRepo, 2);
-    expect(graph.moreCommitsAvailable).toBe(true);
-    expect(graph.commits.some((c) => c.hash === orphanStashHash)).toBe(false);
-
+  it("is still listed, by its SHA, for the Stashes view", async () => {
     const listed = await listStashes(simpleGit(orphanStashRepo));
     expect(listed.map((s) => [s.ref, s.hash])).toEqual([["stash@{0}", orphanStashHash]]);
   });
