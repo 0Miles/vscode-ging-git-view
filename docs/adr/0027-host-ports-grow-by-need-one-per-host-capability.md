@@ -49,3 +49,11 @@ status: accepted
 - **`RunRepoMutation` 的型別搬到 ports.ts。** 它是宿主交給 core 命令服務的 hook,不在 `HostPorts` 裡;放在 ports.ts,是讓 remote 命令不必只為了一個型別去 import fetch 服務。
 
 「後果」第三條列的 fetch 與 remote 管理,現在都已經在 core。
+
+## 補記(2026-11-11,#353)
+
+**`PickItem` 長出了 `warning?`,一個語意旗標,不是圖示。core 不寫任何宿主的圖示語法;要畫成什麼,由宿主的 `Prompts` 決定。**
+
+`viewReflog` 搬進 core 的 [reflogCommand.ts](../../packages/core/src/extension/reflogCommand.ts) 時,它的 QuickPick 有一處宿主相依:dangling commit 那一列的 label 前面寫死了 VS Code 的 codicon `$(warning)`。桌面版的選單看不懂這個語法,只會把它原樣印出來。所以 port 上放的是「這一列要提醒使用者小心」這件事(dangling commit 等到 git 下次回收垃圾就可能消失),VS Code 的 `Prompts` 實作([hostPorts.ts](../../apps/vscode/src/hostPorts.ts))在 `pick` 與 `pickMany` 都把它轉成 label 前的 `$(warning) `。#352 先加的 `description` 與 `matchOnDescription` 也在這裡第一次有了呼叫端:描述是 reflog selector,dangling 的那一列則是「dangling」標籤,兩者都能拿來搜尋。
+
+同一張票要求 `packages/core/src` 裡不再有 codicon 語法,而 blame hover 的 Markdown([blameHover.ts](../../packages/core/src/extension/blameHover.ts))也寫死了三個:頭像的替身 `$(account)`,以及兩個連結前的 `$(diff)`、`$(git-commit)`。它們不是 port,是 `BlameHoverContext` 的 `icons`,由 `blameController` 交進來;hover 其餘的 VS Code 形狀(`command:` 連結、圖片的 `|width=` 寫法)不在這次的範圍內,blame 的接線依 #339 本來就留在 app。
