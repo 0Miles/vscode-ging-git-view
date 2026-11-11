@@ -29,3 +29,7 @@ _與 ADR-0009 衝突:ADR-0009 說側檢視的單一分支動作一律委派給�
 - **rename 的答案是空的或沒有改變,都視同取消,不執行 git。** 空的答案沿用圖形的規則。沒有改變的答案在圖形裡會照樣送出,可是 `renameStash` 會重建 commit 並 store 到 `stash@{0}`,結果只是在名字不變的情況下把 stash 移到最上面,所以側檢視不送。
 - **側檢視的 stash 選單項目由 `apps/vscode` 的 `STASH_ACTIONS` 宣告**,`contextMenuActionsVisibility.stash.*` 的 context key 也從那裡產生,並有一支一致性測試鎖住 `package.json` 的 when 子句(ADR-0010 的補記)。drop 遵守 `stash.drop`;rename 沒有設定鍵,恆顯示,#333 不補鍵。
 - **例外的邊界**:之後新增的側檢視動作,只有在符合上面的適用條件時才能引用這篇。圖內對話框不需要已載入的列,就照 ADR-0009 委派。
+
+## 補記(2026-11-11,#352)
+
+**「後果」第三條說 `confirm` 的形狀比照 `showError`,回答選中的那個動作。#352 把它改成 `confirm(message, { confirmLabel }) → boolean`,drop 跟著改,行為不變。** 理由見 ADR-0027 的補記:drop 只有一種說「是」的方式,#339 搬進 core 的其他確認框也是。
