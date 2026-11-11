@@ -1,6 +1,6 @@
 /**
  * Steps the core's command services share: asking yes or no, finding the
- * current repository, listing its remotes, and running a change to it — each
+ * current repository, listing its remotes, and running git against it — each
  * failure told to the user the same way, under the caller's error key.
  */
 
@@ -40,6 +40,22 @@ export function createCommandKit(deps: CommandKitDeps) {
   const toast = (errorKey: string, e: unknown) =>
     void prompts.showError(l10n.t(errorKey) + ": " + formatGitError(e));
 
+  /** What `work` resolves to, run against `repo` outside the hook — for a
+   *  read, or a change nothing on screen shows — or `undefined` after a toast
+   *  saying why not. Its client is built inside, as `mutateOrToast`'s is. */
+  const runOrToast = async <T>(
+    errorKey: string,
+    repo: string,
+    work: (git: SimpleGit) => Promise<T>
+  ): Promise<T | undefined> => {
+    try {
+      return await work(deps.gitClientFor(repo));
+    } catch (e: unknown) {
+      toast(errorKey, e);
+      return undefined;
+    }
+  };
+
   return {
     /** The current repository, or `null` after saying there is none. A path
      *  that is no longer a known repository counts as none. */
@@ -52,18 +68,11 @@ export function createCommandKit(deps: CommandKitDeps) {
       return repo;
     },
 
+    runOrToast,
+
     /** `repo`'s remotes, or `undefined` after a toast saying why not. */
-    async listRemotesOrToast(
-      errorKey: string,
-      repo: string
-    ): Promise<ConfiguredRemote[] | undefined> {
-      try {
-        return await listRemotes(deps.gitClientFor(repo));
-      } catch (e: unknown) {
-        toast(errorKey, e);
-        return undefined;
-      }
-    },
+    listRemotesOrToast: (errorKey: string, repo: string): Promise<ConfiguredRemote[] | undefined> =>
+      runOrToast(errorKey, repo, listRemotes),
 
     /** `change` run against `repo` inside the hook — its client built there
      *  too, since building one throws for a repo deleted since it was last
