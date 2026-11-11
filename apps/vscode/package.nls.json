@@ -171,6 +171,8 @@
   "view.stash.welcomeNoRepo": "No repository selected.\n[Open History View](command:ging-git-view.view)",
   "view.stash.welcomeEmpty": "This repository has no stashes.",
   "command.stash.refresh": "Refresh",
+  "command.stash.drop": "Drop Stash…",
+  "command.stash.rename": "Rename Stash…",
   "command.stash.copyName": "Copy Stash Name",
   "command.stash.openFileDiff": "View Diff",
   "command.blame.toggle": "Toggle Inline Blame",

@@ -171,6 +171,8 @@
   "view.stash.welcomeNoRepo": "未選取存放庫。\n[開啟歷史檢視](command:ging-git-view.view)",
   "view.stash.welcomeEmpty": "此存放庫沒有 stash。",
   "command.stash.refresh": "重新整理",
+  "command.stash.drop": "刪除 stash…",
+  "command.stash.rename": "重新命名 stash…",
   "command.stash.copyName": "複製 stash 名稱",
   "command.stash.openFileDiff": "檢視 Diff",
   "command.blame.toggle": "切換 inline blame",

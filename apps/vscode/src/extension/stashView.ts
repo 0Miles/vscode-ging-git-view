@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { listStashes } from "@ging/core/backend/queries/listStashes";
 import type { RepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
-  copyStashName,
+  type ListedStashHost,
   loadStashFiles,
   sameStashList,
   type StashFile,
@@ -16,6 +16,7 @@ import { vscodeClipboard, vscodeL10n, vscodePrompts } from "@ging/vscode/hostPor
 import * as l10n from "@ging/vscode/l10n";
 
 import { openCommitDiff } from "./openCommitDiff";
+import { STASH_ACTIONS, type StashAction, stashActionCommand } from "./stashActions";
 import { watchPaths } from "./watchPaths";
 
 const VIEW_ID = "ging-git-view.stash";
@@ -173,6 +174,15 @@ export function createStashView(deps: {
   });
   watch.setVisible(treeView.visible);
 
+  /** What a stash action on `node` is handed: its repository's git. */
+  const hostFor = (node: StashNode): ListedStashHost => ({
+    git: deps.gitClients.gitClientFor(node.repo),
+    clipboard: vscodeClipboard,
+    prompts: vscodePrompts,
+    l10n: vscodeL10n,
+    refresh: () => void provider.reload()
+  });
+
   const subscriptions = [
     treeView,
     provider,
@@ -191,21 +201,13 @@ export function createStashView(deps: {
         void vscode.window.showErrorMessage(l10n.t("error.unableToViewDiff"));
       }
     }),
-    // #333: a stash whose position changed is refused, not redirected (see
-    // `copyStashName`). Resolves to the outcome, for the tests.
-    vscode.commands.registerCommand("ging-git-view.stash.copyName", (node: unknown) =>
-      isStashNode(node)
-        ? copyStashName(
-            {
-              git: deps.gitClients.gitClientFor(node.repo),
-              clipboard: vscodeClipboard,
-              prompts: vscodePrompts,
-              l10n: vscodeL10n,
-              refresh: () => void provider.reload()
-            },
-            node.stash
-          )
-        : undefined
+    // One command per stash action. They run here in the host, not in the
+    // graph (ADR-0029), against the repository the item was listed for. Each
+    // resolves to its outcome, for the tests.
+    ...(Object.keys(STASH_ACTIONS) as StashAction[]).map((action) =>
+      vscode.commands.registerCommand(stashActionCommand(action), (node: unknown) =>
+        isStashNode(node) ? STASH_ACTIONS[action].run(hostFor(node), node.stash) : undefined
+      )
     )
   ];
 

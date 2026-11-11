@@ -13,6 +13,11 @@ import { loadStashFiles } from "@ging/core/extension/stashList";
 import { createStashViewWatch } from "@ging/core/extension/stashWatch";
 import { config } from "@ging/vscode/config";
 import { findGraphTabs } from "@ging/vscode/extension/graphPanelWindow";
+import {
+  STASH_ACTIONS,
+  type StashAction,
+  stashActionCommand
+} from "@ging/vscode/extension/stashActions";
 import { watchPaths } from "@ging/vscode/extension/watchPaths";
 
 import { makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
@@ -218,6 +223,26 @@ suite("Stash side-view commands (integration)", function () {
 
     assert.strictEqual(outcome, "copied");
     assert.strictEqual(await vscode.env.clipboard.readText(), "stash@{0}");
+  });
+
+  // Drop and Rename ask first, through a modal and an input box the extension
+  // host cannot answer, so what they do once asked is pinned by their core
+  // tests (`dropListedStash`, `renameListedStash`). Here: that every stash
+  // action is a registered command, and that one handed anything but a
+  // listed stash asks nothing and does nothing.
+  test("every stash action is registered, and ignores anything but a listed stash", async () => {
+    const actions = Object.keys(STASH_ACTIONS) as StashAction[];
+    const registered = new Set(await vscode.commands.getCommands(true));
+    const outcomes = await Promise.all(
+      actions.map((action) => {
+        assert.ok(registered.has(stashActionCommand(action)), action);
+        return vscode.commands.executeCommand(stashActionCommand(action), { kind: "file" });
+      })
+    );
+    assert.deepStrictEqual(
+      outcomes,
+      actions.map(() => undefined)
+    );
   });
 
   // #333: a stash whose position changed is refused, not redirected.
