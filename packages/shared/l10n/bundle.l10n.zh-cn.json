@@ -86,7 +86,7 @@
   "dialog.redundancy.noDefaultBranch": "无法判断 {0} 有没有未合并变更：这个仓库检测不到 default branch。",
   "dialog.redundancy.noMergeBase": "无法判断 {0} 有没有未合并变更：它与 default branch 没有共同的历史。",
   "dialog.redundancy.unsupported": "无法判断 {0} 有没有未合并变更：这项检查需要 git 2.38 以上。",
-  "dialog.stash.reinstateIndex": "Reinstate index（已暂存的更改）",
+  "dialog.stash.reinstateIndex": "还原 index（已暂存的更改）",
   "dialog.stash.applyConfirm": "应用 stash {0}？",
   "dialog.stash.popConfirm": "弹出 stash {0}？",
   "dialog.stash.dropConfirm": "确定要删除 stash {0} 吗？",

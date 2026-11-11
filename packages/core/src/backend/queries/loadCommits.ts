@@ -187,18 +187,18 @@ async function getUnsavedChanges(git: SimpleGit) {
  * real place only when the list *is* the whole history; otherwise the stash
  * waits for the loaded commit window to reach the commits it belongs among.
  *
- * **The -1 is a knowingly accepted trade, and it costs more than it looks.**
- * Two facts sharpen it. First, the old fallback was not holding the layout
- * together on this path: a stash appended past the end has an unloaded base, so
- * its parent is the id -1 sentinel and the walk was never at risk. This buys a
- * stable row with the stash's visibility, not with correctness. Second, the
- * graph is the only surface GING offers for a stash — `refContextMenu` keys off
- * `ref.type === "stash"`, `listStashes` is unwired, and both the README and the
- * `scrollToStash` shortcut still assume every stash is on the graph. So a stash
- * whose base is unreachable is out of reach here until the whole history is
- * loaded (`git` and VS Code's built-in Git still show it). Accepted anyway: a
- * row at a position that is invented, and that moves when the user loads more,
- * is harder to explain than a row that is not there yet.
+ * **The -1 is a knowingly accepted trade.** Two facts sharpen it. First, the
+ * old fallback was not holding the layout together on this path: a stash
+ * appended past the end has an unloaded base, so its parent is the id -1
+ * sentinel and the walk was never at risk. This buys a stable row with the
+ * stash's visibility, not with correctness. Second, what it costs is the
+ * stash's row, not the stash: the Stashes view lists the full `listStashes`,
+ * whatever the graph has loaded, and its actions follow ADR-0029 (#102). So a
+ * stash whose base is unreachable is missing only from the graph — its row,
+ * its ref context menu, and the `scrollToStash` cycle, which walks the loaded
+ * rows — until the whole history is loaded. Accepted: a row at a position that
+ * is invented, and that moves when the user loads more, is harder to explain
+ * than a row that is not there yet.
  */
 function stashInsertIndex(
   commits: GitLogEntry[],
