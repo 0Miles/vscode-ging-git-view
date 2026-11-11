@@ -14,12 +14,18 @@ import { fakePorts } from "@ging/core/tests/helpers";
 const REPO = "/repo";
 
 function harness(overrides: Partial<FetchServiceDeps> = {}) {
-  const { ports, calls } = fakePorts();
+  const { ports, calls, answers } = fakePorts();
   const settings = { prune: true, pruneTags: false, autoFetch: false, minutes: 10 };
   let gitFails = false;
   let currentRepo: string | null = REPO;
+  const remotes = ["origin"];
   const fakeGit = (repo: string) =>
     ({
+      getRemotes: async () => {
+        calls.push(["git", repo, "remote"]);
+        if (gitFails) throw new Error("fatal: not a git repository");
+        return remotes.map((name) => ({ name, refs: {} }));
+      },
       raw: async (args: string[]) => {
         calls.push(["git", repo, ...args]);
         if (gitFails) throw new Error("fatal: unable to access 'https://example.invalid/'");
@@ -50,7 +56,10 @@ function harness(overrides: Partial<FetchServiceDeps> = {}) {
   return {
     service,
     calls,
+    answers,
     settings,
+    /** The current repository's remotes. */
+    remotes,
     fakeGit,
     failGit: () => {
       gitFails = true;
@@ -155,6 +164,74 @@ describe("the Remotes side-view's fetch", () => {
       "showError",
       "error.unableToFetch: unable to access 'https://example.invalid/'"
     ]);
+  });
+});
+
+describe("the Fetch Remote command", () => {
+  it("fetches the only remote of the current repository without asking", async () => {
+    const h = harness();
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([
+      ["git", REPO, "remote"],
+      ["runRepoMutation", REPO],
+      ["git", REPO, "fetch", "--prune", "origin"],
+      ["runRepoMutation done", REPO]
+    ]);
+  });
+
+  it("asks which of several remotes, and fetches the one picked inside the hook", async () => {
+    const h = harness();
+    h.remotes.push("upstream");
+    h.answers.pick = "upstream";
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([
+      ["git", REPO, "remote"],
+      [
+        "pick",
+        [
+          { label: "origin", value: "origin" },
+          { label: "upstream", value: "upstream" }
+        ],
+        { placeholder: "fetch.pickRemote" }
+      ],
+      ["runRepoMutation", REPO],
+      ["git", REPO, "fetch", "--prune", "upstream"],
+      ["runRepoMutation done", REPO]
+    ]);
+  });
+
+  it("fetches nothing when the pick is dismissed", async () => {
+    const h = harness();
+    h.remotes.push("upstream");
+    await h.service.fetchRemoteCommand();
+    expect(h.calls.map(([name]) => name)).toEqual(["git", "pick"]);
+  });
+
+  it("says so when the repository has no remotes", async () => {
+    const h = harness();
+    h.remotes.length = 0;
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([
+      ["git", REPO, "remote"],
+      ["showInformation", "fetch.noRemotes"]
+    ]);
+  });
+
+  it("reports a failure to list the remotes as a fetch failure", async () => {
+    const h = harness();
+    h.failGit();
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([
+      ["git", REPO, "remote"],
+      ["showError", "error.unableToFetch: not a git repository"]
+    ]);
+  });
+
+  it("says so, and fetches nothing, without a current repository", async () => {
+    const h = harness();
+    h.setCurrentRepo(null);
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([["showInformation", "repoName.noRepos"]]);
   });
 });
 

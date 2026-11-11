@@ -1,10 +1,11 @@
 /**
  * Every fetch GING runs: the git call and its prune flags (ADR-0012), plus the
  * entry points that reach it from outside the graph's webview bridge — the
- * `fetch` command, the auto-fetch timer and the Remotes view's fetch — which
- * run inside the host's `runRepoMutation`. The graph's own fetches take the
- * git call alone; the bridge's `mutatesRepo` already wraps them, and the two
- * must not nest (see the VS Code host's `createRunRepoMutation`).
+ * `fetch` and `fetchRemote` commands, the auto-fetch timer and the Remotes
+ * view's fetch — which run inside the host's `runRepoMutation`. The graph's
+ * own fetches take the git call alone; the bridge's `mutatesRepo` already
+ * wraps them, and the two must not nest (see the VS Code host's
+ * `createRunRepoMutation`).
  *
  * The timer is Node's `setInterval`, not a host port. Restarting it when its
  * settings change is the host's business.
@@ -12,7 +13,11 @@
 
 import type { SimpleGit } from "simple-git";
 
-import { fetchFromRemotes, fetchRemote as gitFetchRemote } from "@ging/core/backend/actions/fetch";
+import {
+  fetchFromRemotes,
+  fetchRemote as gitFetchRemote,
+  listRemoteNames
+} from "@ging/core/backend/actions/fetch";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import type { HostConfig, L10n, Prompts } from "@ging/core/host/ports";
 
@@ -28,11 +33,11 @@ export type FetchServiceDeps = {
     HostConfig,
     "fetchAndPrune" | "fetchAndPruneTags" | "autoFetchEnabled" | "autoFetchIntervalMinutes"
   >;
-  prompts: Pick<Prompts, "showError" | "showInformation">;
+  prompts: Pick<Prompts, "showError" | "showInformation" | "pick">;
   l10n: L10n;
   gitClientFor: (repo: string) => SimpleGit;
-  /** The current repository (`CONTEXT.md`) — what the `fetch` command and the
-   *  timer fetch. `null` when there is none. */
+  /** The current repository (`CONTEXT.md`) — what the `fetch` and
+   *  `fetchRemote` commands and the timer fetch. `null` when there is none. */
   currentRepo: () => string | null;
   runRepoMutation: RunRepoMutation;
 };
@@ -57,13 +62,24 @@ export function createFetchService(deps: FetchServiceDeps) {
   const mutate = (repo: string, fetch: (git: SimpleGit) => Promise<void>) =>
     deps.runRepoMutation(repo, () => fetch(deps.gitClientFor(repo)));
 
+  /** A failure to fetch, as a toast. */
+  const toastFailure = (e: unknown) =>
+    void prompts.showError(l10n.t("error.unableToFetch") + ": " + formatGitError(e));
+
   /** `mutate`, with a failure reported as a toast. */
   const mutateOrToast = async (repo: string, fetch: (git: SimpleGit) => Promise<void>) => {
     try {
       await mutate(repo, fetch);
     } catch (e: unknown) {
-      void prompts.showError(l10n.t("error.unableToFetch") + ": " + formatGitError(e));
+      toastFailure(e);
     }
+  };
+
+  /** The current repository, or `null` after saying there is none. */
+  const currentRepoOrSay = (): string | null => {
+    const repo = deps.currentRepo();
+    if (repo === null) prompts.showInformation(l10n.t("repoName.noRepos"));
+    return repo;
   };
 
   let autoFetchTimer: ReturnType<typeof setInterval> | undefined;
@@ -87,12 +103,35 @@ export function createFetchService(deps: FetchServiceDeps) {
     /** The `fetch` command: every remote of the current repository. No
      *  repository, or a failure, is a notification. */
     async fetchCommand(): Promise<void> {
-      const repo = deps.currentRepo();
-      if (repo === null) {
-        prompts.showInformation(l10n.t("repoName.noRepos"));
+      const repo = currentRepoOrSay();
+      if (repo !== null) await mutateOrToast(repo, fetchAll);
+    },
+
+    /** The `fetchRemote` command: one remote of the current repository — the
+     *  only one without asking, or the one picked. No repository, no remotes,
+     *  or a failure, is a notification. */
+    async fetchRemoteCommand(): Promise<void> {
+      const repo = currentRepoOrSay();
+      if (repo === null) return;
+      let remotes: string[];
+      try {
+        remotes = await listRemoteNames(deps.gitClientFor(repo));
+      } catch (e: unknown) {
+        toastFailure(e);
         return;
       }
-      await mutateOrToast(repo, fetchAll);
+      if (remotes.length === 0) {
+        prompts.showInformation(l10n.t("fetch.noRemotes"));
+        return;
+      }
+      const remote =
+        remotes.length === 1
+          ? remotes[0]
+          : await prompts.pick(
+              remotes.map((name) => ({ label: name, value: name })),
+              { placeholder: l10n.t("fetch.pickRemote") }
+            );
+      if (remote !== undefined) await mutateOrToast(repo, (git) => fetchRemote(git, remote));
     },
 
     /** The Remotes view's fetch: one remote of the item's repo. A failure is a

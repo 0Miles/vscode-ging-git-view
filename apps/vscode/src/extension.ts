@@ -3,7 +3,6 @@ import * as vscode from "vscode";
 import { AvatarManager } from "@ging/core/avatarManager";
 import { createBranch } from "@ging/core/backend/actions/branch";
 import { resetToCommit } from "@ging/core/backend/actions/commit";
-import { listRemoteNames } from "@ging/core/backend/actions/fetch";
 import { getUserDetails, setUserDetails } from "@ging/core/backend/actions/userDetails";
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { getCommitFileContent } from "@ging/core/backend/queries/commitFileContent";
@@ -895,31 +894,9 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("ging-git-view.manageRemotes", () =>
       remoteCommands.manageRemotes()
     ),
-    vscode.commands.registerCommand("ging-git-view.fetchRemote", async () => {
-      // Fetch a single chosen remote, offered as a command.
-      try {
-        const git = gitClient.getInstance();
-        const remotes = await listRemoteNames(git);
-        if (remotes.length === 0) {
-          void vscode.window.showInformationMessage(l10n.t("fetch.noRemotes"));
-          return;
-        }
-        const remote =
-          remotes.length === 1
-            ? remotes[0]
-            : await vscode.window.showQuickPick(remotes, {
-                placeHolder: l10n.t("fetch.pickRemote")
-              });
-        if (remote === undefined) return; // cancelled
-        // Not yet inside `runRepoMutation` like the other fetches: S2 (#352) moves this flow.
-        await fetchService.fetchRemote(git, remote);
-        currentBridge?.post({ command: "refresh" });
-      } catch (e: unknown) {
-        void vscode.window.showErrorMessage(
-          l10n.t("error.unableToFetch") + ": " + formatGitError(e)
-        );
-      }
-    }),
+    vscode.commands.registerCommand("ging-git-view.fetchRemote", () =>
+      fetchService.fetchRemoteCommand()
+    ),
     vscode.commands.registerCommand("ging-git-view.viewReflog", async () => {
       // Browse the reflog (and commits dangling beyond it) and recover any of
       // them. A command + QuickPick, since neo has no settings widget.
