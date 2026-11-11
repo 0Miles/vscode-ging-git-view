@@ -12,7 +12,8 @@ export async function getUserDetails(git: SimpleGit): Promise<UserDetails> {
       return ""; // not configured
     }
   };
-  return { name: await read("user.name"), email: await read("user.email") };
+  const [name, email] = await Promise.all([read("user.name"), read("user.email")]);
+  return { name, email };
 }
 
 /**
