@@ -49,3 +49,14 @@ status: accepted
 - **`RunRepoMutation` 的型別搬到 ports.ts。** 它是宿主交給 core 命令服務的 hook,不在 `HostPorts` 裡;放在 ports.ts,是讓 remote 命令不必只為了一個型別去 import fetch 服務。
 
 「後果」第三條列的 fetch 與 remote 管理,現在都已經在 core。
+
+## 補記(2026-11-11,#354)
+
+**`Prompts.showInformation` 多了一個選填的 `{ modal?, actions? }`,回答按下那個動作的 `value`。沒有另開方法。**
+
+呼叫端只有一個:Version Info([infoCommands.ts](../../packages/core/src/extension/infoCommands.ts))要一個 modal 的資訊框,上面一顆「複製」。它跟 `choose` 差在語氣:`choose` 是一個要使用者做決定的警告框,版本資訊只是告知,順便給一個動作。為了一個呼叫端開第二個 modal 方法,port 上就有兩個只差圖示的方法,所以照票面做成參數。
+
+- **`actions` 的形狀跟 `choose` 一樣是 `{ label, value }`,不是 `showError` 的 label 字串。** 理由同 #352 的 `pick`:回答 `value`,兩個同名的動作也分得開。`showError` 沒有跟著改:它唯一帶動作的呼叫端(建立 pull request 時「設定這個 host」那一顆)只有一個動作,回答 label 就分得出來。
+- **回傳型別一律是 `PromiseLike<T | undefined>`,沒有用 overload 把「沒有選項」的那個寫成 `void`。** 理由同 `pick` / `pickMany` 拆開的那一條:回傳型別隨參數改變,port、VS Code 實作與 fake 就得各寫一組 overload。這裡沒有拆成兩個方法,是因為沒有選項時回答恆為 `undefined`,呼叫端照舊不必 `await`,型別不會騙人;port 的註解寫明了這一點,所以既有的四個呼叫端沒有改。
+
+命令服務共用的 [commandKit.ts](../../packages/core/src/extension/commandKit.ts) 多了 `runOrToast`:在 hook 之外對 repo 跑一段 git,失敗就照錯誤 key 跳通知。Set Git User Details 寫的是使用者身分,Statistics 只是讀,畫面上都沒有東西因此改變,所以兩者都不進 `runRepoMutation`;`listRemotesOrToast` 改成它的一個特例。
