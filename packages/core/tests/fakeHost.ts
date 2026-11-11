@@ -1,5 +1,7 @@
+import type { SimpleGit } from "simple-git";
+
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
-import type { HostPorts, PickItem } from "@ging/core/host/ports";
+import type { HostPorts, PickItem, RunRepoMutation } from "@ging/core/host/ports";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 // Fakes of what a host hands the core: its ports, and the channel to the
@@ -11,6 +13,51 @@ const shown = (items: readonly PickItem<unknown>[]) =>
 
 /** What the user answers one question with; see `fakePorts`' `replies`. */
 export type PromptReply = string | string[] | undefined;
+
+/**
+ * Git for any repo, recording each command in `calls` as
+ * `["git", repo, ...argv]`. `remotes` (name to URL) is what `git remote`
+ * lists; every other command succeeds silently. Once `failure` is set, every
+ * command rejects with it.
+ */
+export function fakeGit(calls: unknown[][]) {
+  const state = {
+    remotes: { origin: "https://example.com/origin.git" } as Record<string, string>,
+    failure: undefined as string | undefined
+  };
+  const run = (repo: string, argv: string[]) => {
+    calls.push(["git", repo, ...argv]);
+    if (state.failure !== undefined) throw new Error(state.failure);
+  };
+  const clientFor = (repo: string) =>
+    ({
+      getRemotes: async (verbose?: boolean) => {
+        run(repo, ["remote", ...(verbose ? ["-v"] : [])]);
+        return Object.entries(state.remotes).map(([name, url]) => ({
+          name,
+          refs: { fetch: url, push: url }
+        }));
+      },
+      raw: async (argv: string[]) => {
+        run(repo, argv);
+        return "";
+      }
+    }) as unknown as SimpleGit;
+  return { clientFor, state };
+}
+
+/** A `runRepoMutation` that marks in `calls` where the hook begins and where
+ *  it has finished, so a log shows what ran inside it. */
+export function recordingRunRepoMutation(calls: unknown[][]): RunRepoMutation {
+  return async (repo, work) => {
+    calls.push(["runRepoMutation", repo]);
+    try {
+      await work();
+    } finally {
+      calls.push(["runRepoMutation done", repo]);
+    }
+  };
+}
 
 /** A webview channel a test drives: `receive` delivers a request the way the
  *  webview sends one, and `posted` collects what was sent back. */
@@ -155,7 +202,8 @@ export function fakePorts() {
       getBootRepo: () => "/a",
       checkReposExist: async () => answers.reposChanged,
       dropRepo: record("dropRepo"),
-      setRepoState: record("setRepoState")
+      setRepoState: record("setRepoState"),
+      updateRepoState: record("updateRepoState")
     },
     logger: { log: record("log"), logError: record("logError"), reveal: record("reveal") }
   };

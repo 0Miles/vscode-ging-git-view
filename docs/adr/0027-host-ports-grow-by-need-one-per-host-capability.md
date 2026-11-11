@@ -43,4 +43,9 @@ status: accepted
 - **`input` 的 `placeholder`、`password` 改成選填。** 只有 askpass 會填;remote 與 stash 的輸入框都不填。
 - **`ignoreFocusOut` 不在 port 上。** 失焦也不消失本來就是 `input` 的契約(見「後果」第二條),所以 VS Code 的每個 `input` 都帶著它,呼叫端不必、也不能選。`pick` 與 `pickMany` 沒有這個保證,和搬移前的 `showQuickPick` 一樣。
 
+`Prompts` 之外還有兩處:
+
+- **`RepoSource.updateRepoState(repo, patch)`**:以寫入當下的 state 為準合併、寫入、廣播,repo 不在集合裡就什麼都不做。理由跟 `dropRepo` 相同:graph 自己留著一份 repo state,下次存任何東西時會整份寫回,沒聽到廣播的寫入就會被它蓋掉,所以寫入與廣播放在同一個方法裡。呼叫端是 Show/Hide Remotes,以及 VS Code 這邊兩處原本手寫這兩步的地方(側檢視的顯示切換、`setRepoName`)。
+- **`RunRepoMutation` 的型別搬到 ports.ts。** 它是宿主交給 core 命令服務的 hook,不在 `HostPorts` 裡;放在 ports.ts,是讓 remote 命令不必只為了一個型別去 import fetch 服務。
+
 「後果」第三條列的 fetch 與 remote 管理,現在都已經在 core。

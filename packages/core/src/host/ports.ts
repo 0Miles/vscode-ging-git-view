@@ -100,8 +100,8 @@ export interface Prompts {
   /** A modal question answered by one of `actions`, with `detail` as a second,
    *  quieter line. The host adds its own Cancel, so `actions` lists only the
    *  other answers; resolves to the `value` of the one clicked. Only buttons:
-   *  no checkbox, since the VS Code host has none. For a plain yes-or-no, see
-   *  core's `confirm`. */
+   *  no checkbox, since not every host's modal has one. For a plain
+   *  yes-or-no, see core's `confirm`. */
   choose<T>(
     message: string,
     options: { detail?: string; actions: readonly ChooseAction<T>[] }
@@ -191,7 +191,20 @@ export interface RepoSource {
   /** Remove `repo` and broadcast the set without it to everything showing it. */
   dropRepo(repo: string): void;
   setRepoState(repo: string, state: GitRepoState): void;
+  /** Merge `patch` into `repo`'s state as it is now, write it, and broadcast
+   *  the set to everything showing it; nothing when `repo` is not known. A
+   *  graph that never hears of the change writes its stale copy back the next
+   *  time it persists anything, so the two steps are one method. */
+  updateRepoState(repo: string, patch: Partial<GitRepoState>): void;
 }
+
+/** Run `work`, a change to `repo` made outside the webview bridge, the way the
+ *  host runs a repo mutation: its file watcher muted across it, and whatever
+ *  shows the repo refreshed once it has settled — whether or not `work` threw,
+ *  since a fetch of several remotes can fail half-way. Rejects with what `work`
+ *  rejected with, after that. Handed to the command services, not part of
+ *  `HostPorts`: the dispatch's changes go through the bridge's own hook. */
+export type RunRepoMutation = (repo: string, work: () => Promise<void>) => Promise<void>;
 
 /** The GING log — the Output Channel, in VS Code. */
 export interface HostLogger {

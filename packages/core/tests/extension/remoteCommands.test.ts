@@ -1,4 +1,3 @@
-import type { SimpleGit } from "simple-git";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,133 +5,60 @@ import {
   type RemoteCommandsDeps,
   type RemoteTarget
 } from "@ging/core/extension/remoteCommands";
-import type { PickItem, Prompts } from "@ging/core/host/ports";
-import type { GitRepoState } from "@ging/shared/types";
+import type { GitRepoSet } from "@ging/shared/types";
 
-import { fakePorts } from "@ging/core/tests/helpers";
+import {
+  fakeGit,
+  fakePorts,
+  type PromptReply,
+  recordingRunRepoMutation
+} from "@ging/core/tests/helpers";
 
 // The remote commands, driven the way a user drives them: each question is
 // answered in turn from a script, and one ordered log shows what was asked,
 // which git commands ran, and whether they ran inside the host's
-// `runRepoMutation`. Git is a fake that records its argv.
-
-const shown = (items: readonly PickItem<unknown>[]) =>
-  items.map(({ value: _value, ...row }) => row);
+// `runRepoMutation`.
 
 const REPO = "/repo";
-const URLS: Record<string, string> = {
+const URLS = {
   origin: "https://example.com/origin.git",
   upstream: "https://example.com/upstream.git"
 };
 
-/** What the user answers, question by question: a label (or labels, for a
- *  pick of many) for a pick, the text typed for an input, yes or no for a
- *  confirm, and `undefined` to dismiss any of them. */
-type Reply = string | string[] | boolean | undefined;
-
-function harness(
-  options: { repo?: string | null; remotes?: string[]; hiddenRemotes?: string[] } = {}
-) {
-  const { ports, calls } = fakePorts();
-  const replies: Reply[] = [];
-  /** Run once, as the next question is asked: what changes while it is open. */
-  let whileAsking: (() => void) | undefined;
-  const reply = () => {
-    whileAsking?.();
-    whileAsking = undefined;
-    if (replies.length === 0) throw new Error("asked more than the script answers");
-    return replies.shift();
-  };
-  const remotes = options.remotes ?? ["origin", "upstream"];
-  let gitFails = false;
-  let repos: Record<string, GitRepoState> = {
+function harness(options: { repo?: string | null; hiddenRemotes?: string[] } = {}) {
+  const { ports, calls, answers } = fakePorts();
+  const git = fakeGit(calls);
+  git.state.remotes = { ...URLS };
+  const repos: GitRepoSet = {
     [REPO]: { columnWidths: null, hiddenRemotes: options.hiddenRemotes ?? [] }
   };
-
-  const fakeGit = (repo: string) =>
-    ({
-      getRemotes: async (verbose?: boolean) => {
-        calls.push(["git", repo, "remote", ...(verbose ? ["-v"] : [])]);
-        if (gitFails) throw new Error("fatal: not a git repository");
-        return remotes.map((name) => ({ name, refs: { fetch: URLS[name], push: URLS[name] } }));
-      },
-      raw: async (args: string[]) => {
-        calls.push(["git", repo, ...args]);
-        if (gitFails) throw new Error("error: could not lock config file .git/config");
-        return args[1] === "get-url" ? URLS[args[2]] + "\n" : "";
-      }
-    }) as unknown as SimpleGit;
-
-  const prompts: Prompts = {
-    ...ports.prompts,
-    pick: async (items, pickOptions) => {
-      calls.push(["pick", shown(items), pickOptions]);
-      const label = reply();
-      return items.find((item) => item.label === label)?.value;
-    },
-    pickMany: async (items, pickOptions) => {
-      calls.push(["pickMany", shown(items), pickOptions]);
-      const labels = reply() as string[] | undefined;
-      return labels && items.filter((item) => labels.includes(item.label)).map((i) => i.value);
-    },
-    input: async (inputOptions) => {
-      calls.push(["input", inputOptions]);
-      return reply() as string | undefined;
-    },
-    choose: async (message, { actions }) => {
-      calls.push(["choose", message, actions.map(({ label }) => label)]);
-      return reply() === true ? actions[0].value : undefined;
-    }
-  };
-
   const deps: RemoteCommandsDeps = {
-    prompts,
+    prompts: ports.prompts,
     l10n: ports.l10n,
-    gitClientFor: fakeGit,
+    gitClientFor: git.clientFor,
     currentRepo: () => (options.repo === undefined ? REPO : options.repo),
-    repoSource: {
-      getRepos: () => repos,
-      setRepoState: (repo, state) => {
-        calls.push(["setRepoState", repo, state]);
-      }
-    },
-    broadcastRepos: () => calls.push(["broadcastRepos"]),
+    repoSource: { getRepos: () => repos, updateRepoState: ports.repoSource.updateRepoState },
     refreshGraph: () => calls.push(["refreshGraph"]),
-    runRepoMutation: async (repo, work) => {
-      calls.push(["runRepoMutation", repo]);
-      try {
-        await work();
-      } finally {
-        calls.push(["runRepoMutation done", repo]);
-      }
-    }
+    runRepoMutation: recordingRunRepoMutation(calls)
   };
   return {
     commands: createRemoteCommands(deps),
     deps,
     calls,
+    git: git.state,
     /** Queue the user's answers, in the order the questions come. */
-    answer: (...answers: Reply[]) => replies.push(...answers),
-    failGit: () => {
-      gitFails = true;
-    },
-    /** Replace the known repos, with their state, while the next question
-     *  is open. */
-    setReposWhileAsking: (next: Record<string, GitRepoState>) => {
-      whileAsking = () => {
-        repos = next;
-      };
-    }
+    answer: (...replies: PromptReply[]) => answers.replies.push(...replies)
   };
 }
 
 const ORIGIN: RemoteTarget = { repo: REPO, name: "origin", fetchUrl: URLS.origin };
+const LISTED = ["git", REPO, "remote", "-v"];
 
 /** The calls that ran git or the hook: none, for a flow that changed nothing. */
 const effects = (calls: unknown[][]) =>
   calls.filter(([name]) => name === "git" || String(name).startsWith("runRepoMutation"));
 
-describe("the side view's Add", () => {
+describe("Add", () => {
   it("asks for a name, then a URL, and adds the remote inside the hook", async () => {
     const h = harness();
     h.answer("  fork  ", " https://example.com/fork.git ");
@@ -151,14 +77,14 @@ describe("the side view's Add", () => {
     ["the name is blank", ["  "]],
     ["the URL is dismissed", ["fork", undefined]],
     ["the URL is blank", ["fork", ""]]
-  ])("changes nothing when %s", async (_case, answers) => {
+  ])("changes nothing when %s", async (_case, replies) => {
     const h = harness();
-    h.answer(...answers);
+    h.answer(...replies);
     await h.commands.add(REPO);
     expect(effects(h.calls)).toEqual([]);
   });
 
-  it("does nothing when the view shows no repository", async () => {
+  it("does nothing without a repository to add to", async () => {
     const h = harness();
     await h.commands.add(null);
     expect(h.calls).toEqual([]);
@@ -166,7 +92,7 @@ describe("the side view's Add", () => {
 
   it("reports git's failure once the hook has finished", async () => {
     const h = harness();
-    h.failGit();
+    h.git.failure = "error: could not lock config file .git/config";
     h.answer("fork", "https://example.com/fork.git");
     await h.commands.add(REPO);
     expect(h.calls.slice(-2)).toEqual([
@@ -196,7 +122,7 @@ describe("the side view's Add", () => {
   });
 });
 
-describe("the side view's Edit URL", () => {
+describe("Edit URL", () => {
   it("asks starting from the URL listed, and sets the new one inside the hook", async () => {
     const h = harness();
     h.answer("https://example.com/moved.git");
@@ -213,15 +139,15 @@ describe("the side view's Edit URL", () => {
     ["dismissed", undefined],
     ["blank", " "],
     ["unchanged", ` ${URLS.origin} `]
-  ])("changes nothing when the answer is %s", async (_case, answer) => {
+  ])("changes nothing when the answer is %s", async (_case, reply) => {
     const h = harness();
-    h.answer(answer);
+    h.answer(reply);
     await h.commands.editUrl(ORIGIN);
     expect(effects(h.calls)).toEqual([]);
   });
 });
 
-describe("the side view's Rename", () => {
+describe("Rename", () => {
   it("asks starting from the name, and renames inside the hook", async () => {
     const h = harness();
     h.answer("mine");
@@ -238,30 +164,30 @@ describe("the side view's Rename", () => {
     ["dismissed", undefined],
     ["blank", ""],
     ["unchanged", "origin "]
-  ])("changes nothing when the answer is %s", async (_case, answer) => {
+  ])("changes nothing when the answer is %s", async (_case, reply) => {
     const h = harness();
-    h.answer(answer);
+    h.answer(reply);
     await h.commands.rename(ORIGIN);
     expect(effects(h.calls)).toEqual([]);
   });
 });
 
-describe("the side view's Remove", () => {
+describe("Remove", () => {
   it("asks a modal question naming the remote, and removes it inside the hook", async () => {
     const h = harness();
-    h.answer(true);
+    h.answer("remotes.removeConfirmYes");
     await h.commands.remove(ORIGIN);
     expect(h.calls).toEqual([
-      ["choose", "remotes.removeConfirm|origin", ["remotes.removeConfirmYes"]],
+      ["choose", "remotes.removeConfirm|origin", { actions: ["remotes.removeConfirmYes"] }],
       ["runRepoMutation", REPO],
       ["git", REPO, "remote", "remove", "origin"],
       ["runRepoMutation done", REPO]
     ]);
   });
 
-  it("changes nothing when the question is dismissed", async () => {
+  it("changes nothing when the question is cancelled", async () => {
     const h = harness();
-    h.answer(false);
+    h.answer(undefined);
     await h.commands.remove(ORIGIN);
     expect(effects(h.calls)).toEqual([]);
   });
@@ -273,7 +199,7 @@ describe("Manage Remotes", () => {
     h.answer(undefined);
     await h.commands.manageRemotes();
     expect(h.calls).toEqual([
-      ["git", REPO, "remote"],
+      LISTED,
       [
         "pick",
         [{ label: "origin" }, { label: "upstream" }, { label: "remotes.add" }],
@@ -282,7 +208,7 @@ describe("Manage Remotes", () => {
     ]);
   });
 
-  it("adds a remote the way the side view does", async () => {
+  it("adds a remote as Add does", async () => {
     const h = harness();
     h.answer("remotes.add", "fork", "https://example.com/fork.git");
     await h.commands.manageRemotes();
@@ -306,15 +232,14 @@ describe("Manage Remotes", () => {
         { placeholder: "remotes.actionPrompt|upstream" }
       ]
     ]);
-    expect(effects(h.calls)).toEqual([["git", REPO, "remote"]]);
+    expect(effects(h.calls)).toEqual([LISTED]);
   });
 
-  it("edits a URL starting from the one git has now", async () => {
+  it("edits a URL starting from the one it listed", async () => {
     const h = harness();
     h.answer("upstream", "remotes.editUrl", "https://example.com/moved.git");
     await h.commands.manageRemotes();
     expect(h.calls.slice(3)).toEqual([
-      ["git", REPO, "remote", "get-url", "upstream"],
       ["input", { prompt: "remotes.urlPrompt", value: URLS.upstream }],
       ["runRepoMutation", REPO],
       ["git", REPO, "remote", "set-url", "upstream", "https://example.com/moved.git"],
@@ -336,10 +261,10 @@ describe("Manage Remotes", () => {
 
   it("removes the remote picked, once confirmed", async () => {
     const h = harness();
-    h.answer("upstream", "remotes.remove", true);
+    h.answer("upstream", "remotes.remove", "remotes.removeConfirmYes");
     await h.commands.manageRemotes();
     expect(h.calls.slice(3)).toEqual([
-      ["choose", "remotes.removeConfirm|upstream", ["remotes.removeConfirmYes"]],
+      ["choose", "remotes.removeConfirm|upstream", { actions: ["remotes.removeConfirmYes"] }],
       ["runRepoMutation", REPO],
       ["git", REPO, "remote", "remove", "upstream"],
       ["runRepoMutation done", REPO]
@@ -349,19 +274,18 @@ describe("Manage Remotes", () => {
   it.each([
     ["the URL is left as it was", ["origin", "remotes.editUrl", URLS.origin]],
     ["the new name is blank", ["origin", "remotes.rename", "  "]],
-    ["the removal is not confirmed", ["origin", "remotes.remove", false]],
+    ["the removal is cancelled", ["origin", "remotes.remove", undefined]],
     ["adding is abandoned at the URL", ["remotes.add", "fork", undefined]]
-  ])("changes nothing when %s", async (_case, answers) => {
+  ])("changes nothing when %s", async (_case, replies) => {
     const h = harness();
-    h.answer(...answers);
+    h.answer(...replies);
     await h.commands.manageRemotes();
-    expect(effects(h.calls).filter(([, , , verb]) => verb !== "get-url")).toEqual([
-      ["git", REPO, "remote"]
-    ]);
+    expect(effects(h.calls)).toEqual([LISTED]);
   });
 
   it("tells a remote named like the add row apart from the add row", async () => {
-    const h = harness({ remotes: ["remotes.add"] });
+    const h = harness();
+    h.git.remotes = { "remotes.add": URLS.origin };
     h.answer("remotes.add", undefined);
     await h.commands.manageRemotes();
     // The first row with that label is the remote, so its actions are offered.
@@ -372,18 +296,21 @@ describe("Manage Remotes", () => {
     ]);
   });
 
-  it("says so when there is no current repository", async () => {
-    const h = harness({ repo: null });
+  it.each([
+    ["there is no current repository", { repo: null }],
+    ["the current repository is not a known one", { repo: "/elsewhere" }]
+  ])("says so when %s", async (_case, options) => {
+    const h = harness(options);
     await h.commands.manageRemotes();
     expect(h.calls).toEqual([["showInformation", "repoName.noRepos"]]);
   });
 
   it("reports a failure to list the remotes", async () => {
     const h = harness();
-    h.failGit();
+    h.git.failure = "fatal: not a git repository";
     await h.commands.manageRemotes();
     expect(h.calls).toEqual([
-      ["git", REPO, "remote"],
+      LISTED,
       ["showError", "error.unableToManageRemote: not a git repository"]
     ]);
   });
@@ -391,11 +318,12 @@ describe("Manage Remotes", () => {
 
 describe("Show/Hide Remotes", () => {
   it("checks the shown remotes, and hides the ones left unchecked", async () => {
-    const h = harness({ remotes: ["origin", "upstream", "fork"], hiddenRemotes: ["fork"] });
+    const h = harness({ hiddenRemotes: ["fork"] });
+    h.git.remotes = { ...URLS, fork: "https://example.com/fork.git" };
     h.answer(["origin"]);
     await h.commands.toggleRemoteVisibility();
     expect(h.calls).toEqual([
-      ["git", REPO, "remote"],
+      LISTED,
       [
         "pickMany",
         [
@@ -405,31 +333,20 @@ describe("Show/Hide Remotes", () => {
         ],
         { placeholder: "remoteVisibility.prompt" }
       ],
-      ["setRepoState", REPO, { columnWidths: null, hiddenRemotes: ["upstream", "fork"] }],
-      ["broadcastRepos"],
+      ["updateRepoState", REPO, { hiddenRemotes: ["upstream", "fork"] }],
       ["refreshGraph"]
     ]);
   });
 
-  it("writes over the state as it is once answered, not as it was when asked", async () => {
-    const h = harness();
+  it("hides nothing when every remote is left checked", async () => {
+    const h = harness({ hiddenRemotes: ["upstream"] });
     h.answer(["origin", "upstream"]);
-    // The graph persists a column drag while the pick is open.
-    h.setReposWhileAsking({ [REPO]: { columnWidths: [1, 2, 3], hiddenRemotes: [] } });
     await h.commands.toggleRemoteVisibility();
-    expect(h.calls.find(([name]) => name === "setRepoState")).toEqual([
-      "setRepoState",
+    expect(h.calls.find(([name]) => name === "updateRepoState")).toEqual([
+      "updateRepoState",
       REPO,
-      { columnWidths: [1, 2, 3], hiddenRemotes: [] }
+      { hiddenRemotes: [] }
     ]);
-  });
-
-  it("writes nothing when the repository left the set while the pick was open", async () => {
-    const h = harness();
-    h.answer(["origin"]);
-    h.setReposWhileAsking({});
-    await h.commands.toggleRemoteVisibility();
-    expect(h.calls.map(([name]) => name)).toEqual(["git", "pickMany"]);
   });
 
   it("writes nothing when the pick is dismissed", async () => {
@@ -440,11 +357,19 @@ describe("Show/Hide Remotes", () => {
   });
 
   it("says so when the repository has no remotes", async () => {
-    const h = harness({ remotes: [] });
+    const h = harness();
+    h.git.remotes = {};
+    await h.commands.toggleRemoteVisibility();
+    expect(h.calls).toEqual([LISTED, ["showInformation", "fetch.noRemotes"]]);
+  });
+
+  it("reports a failure to list the remotes, rather than rejecting", async () => {
+    const h = harness();
+    h.git.failure = "fatal: not a git repository";
     await h.commands.toggleRemoteVisibility();
     expect(h.calls).toEqual([
-      ["git", REPO, "remote"],
-      ["showInformation", "fetch.noRemotes"]
+      LISTED,
+      ["showError", "error.unableToManageRemote: not a git repository"]
     ]);
   });
 
@@ -458,13 +383,14 @@ describe("Show/Hide Remotes", () => {
   });
 });
 
-describe("the side view's list", () => {
+describe("list", () => {
   it("lists the repo's remotes with their URLs", async () => {
-    const h = harness({ remotes: ["origin"] });
+    const h = harness();
+    h.git.remotes = { origin: URLS.origin };
     expect(await h.commands.list(REPO)).toEqual([
       { name: "origin", fetchUrl: URLS.origin, pushUrl: URLS.origin }
     ]);
-    expect(h.calls).toEqual([["git", REPO, "remote", "-v"]]);
+    expect(h.calls).toEqual([LISTED]);
   });
 
   it("rejects, rather than throws, when the repo's client cannot be built", async () => {

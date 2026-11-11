@@ -22,8 +22,3 @@ export async function fetchRemote(
   args.push(input.remote);
   await git.raw(args);
 }
-
-/** List the names of the repository's configured remotes. */
-export async function listRemoteNames(git: SimpleGit): Promise<string[]> {
-  return (await git.getRemotes()).map((r) => r.name);
-}

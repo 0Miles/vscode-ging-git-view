@@ -226,6 +226,7 @@ export function activate(context: vscode.ExtensionContext) {
     l10n: vscodeL10n,
     gitClientFor: repoGitClients.gitClientFor,
     currentRepo,
+    repoSource: repoManager,
     runRepoMutation
   });
   fetchService.restartAutoFetch();
@@ -237,7 +238,6 @@ export function activate(context: vscode.ExtensionContext) {
     gitClientFor: repoGitClients.gitClientFor,
     currentRepo,
     repoSource: repoManager,
-    broadcastRepos: () => repoManager.sendRepos(),
     refreshGraph: () => currentBridge?.post({ command: "refresh" }),
     runRepoMutation
   });
@@ -313,13 +313,9 @@ export function activate(context: vscode.ExtensionContext) {
       const state = repoManager.getRepos()[repo];
       if (state === undefined) return;
       const next = !(state[field] ?? globalDefault());
-      // Re-lists the view too, through onDidWriteRepoState.
-      repoManager.setRepoState(repo, { ...state, [field]: next });
-      // The graph keeps its own copy of the repo state and writes all of it
-      // back whenever it persists anything (a column drag is enough), so a copy
-      // that never heard of this toggle would quietly undo it. It is also what
-      // the Repository Settings drawer draws from (#183).
-      repoManager.sendRepos();
+      // Re-lists the view too, through onDidWriteRepoState. The broadcast also
+      // reaches the Repository Settings drawer, which draws from it (#183).
+      repoManager.updateRepoState(repo, { [field]: next });
       onToggled?.(next);
     };
   };
@@ -735,7 +731,7 @@ export function activate(context: vscode.ExtensionContext) {
   /** Run `command` on the remote a Remotes side-view menu was opened on;
    *  nothing when it was opened on anything else. */
   const onRemoteItem =
-    (command: (target: RemoteTarget) => Promise<void>) =>
+    (command: (target: RemoteTarget) => PromiseLike<void>) =>
     async (item: unknown): Promise<void> => {
       const target = remoteActionTarget(item);
       if (target !== null) await command(target);
@@ -877,10 +873,10 @@ export function activate(context: vscode.ExtensionContext) {
       "ging-git-view.remotes.fetchOne",
       onRemoteItem((target) => fetchService.fetchOneCommand(target.repo, target.name))
     ),
-    vscode.commands.registerCommand("ging-git-view.remotes.copyUrl", (item: unknown) => {
-      const target = remoteActionTarget(item);
-      if (target !== null) void vscode.env.clipboard.writeText(target.fetchUrl);
-    }),
+    vscode.commands.registerCommand(
+      "ging-git-view.remotes.copyUrl",
+      onRemoteItem((target) => vscode.env.clipboard.writeText(target.fetchUrl))
+    ),
     vscode.commands.registerCommand("ging-git-view.clearAvatarCache", () => {
       avatarManager.clearCache();
     }),
@@ -1009,17 +1005,7 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (name === undefined) return; // cancelled
       const trimmed = name.trim();
-      // Re-read: `repos` was captured before the quick pick and the input box,
-      // and spreading it would write back whatever the webview persisted while
-      // they were open. Same reason as `toggleRemoteVisibility` (in core's
-      // `remoteCommands`).
-      const current = repoManager.getRepos()[repo];
-      if (current === undefined) return;
-      repoManager.setRepoState(repo, {
-        ...current,
-        customName: trimmed === "" ? null : trimmed
-      });
-      repoManager.sendRepos();
+      repoManager.updateRepoState(repo, { customName: trimmed === "" ? null : trimmed });
     }),
     vscode.commands.registerCommand("ging-git-view.openExtensionSettings", () => {
       // Quick access to this extension's settings.

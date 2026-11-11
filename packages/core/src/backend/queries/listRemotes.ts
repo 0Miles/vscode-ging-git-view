@@ -1,6 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
-/** One configured remote, as the Remotes side view lists it. */
+/** One configured remote, with its URLs. */
 export type ConfiguredRemote = {
   name: string;
   /** "" when git reports none. */
