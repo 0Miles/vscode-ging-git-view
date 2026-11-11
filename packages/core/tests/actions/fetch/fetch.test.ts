@@ -6,7 +6,7 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { fetchFromRemotes, fetchRemote, listRemoteNames } from "@ging/core/backend/actions/fetch";
+import { fetchFromRemotes, fetchRemote } from "@ging/core/backend/actions/fetch";
 
 import { git, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
@@ -86,8 +86,6 @@ describe("fetchFromRemotes", () => {
     cp.execFileSync("git", ["add", "."], { cwd: other });
     cp.execFileSync("git", ["commit", "-m", "remote commit"], { cwd: other });
     cp.execFileSync("git", ["push", "origin", "main"], { cwd: other }); // `other`'s remote is origin
-
-    expect(await listRemoteNames(simpleGit(repo))).toContain("upstream");
 
     await fetchRemote(simpleGit(repo), { remote: "upstream", prune: false, pruneTags: false });
 

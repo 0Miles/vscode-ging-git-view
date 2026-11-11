@@ -1,7 +1,14 @@
 import * as vscode from "vscode";
 
 import type { DiffSide } from "@ging/core/extension/commitDiff";
-import type { Clipboard, HostStorage, L10n, Opener, Prompts } from "@ging/core/host/ports";
+import type {
+  Clipboard,
+  HostStorage,
+  L10n,
+  Opener,
+  PickOptions,
+  Prompts
+} from "@ging/core/host/ports";
 import type { Config } from "@ging/vscode/config";
 import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
 import { openCommitDiff } from "@ging/vscode/extension/openCommitDiff";
@@ -13,12 +20,30 @@ import * as l10nModule from "@ging/vscode/l10n";
 // logger, the repo manager, the file watcher — are those objects, passed as
 // they are.
 
+const quickPickOptions = ({ placeholder, matchOnDescription }: PickOptions = {}) => ({
+  placeHolder: placeholder,
+  matchOnDescription
+});
+
 export const vscodePrompts: Prompts = {
   showInformation: (message) => void vscode.window.showInformationMessage(message),
   showWarning: (message) => void vscode.window.showWarningMessage(message),
   showError: (message, ...actions) => vscode.window.showErrorMessage(message, ...actions),
-  confirm: (message, ...actions) =>
-    vscode.window.showWarningMessage(message, { modal: true }, ...actions),
+  // Each action is its own message item, so two with one label stay apart.
+  choose: async (message, { detail, actions }) =>
+    (
+      await vscode.window.showWarningMessage(
+        message,
+        { modal: true, detail },
+        ...actions.map(({ label, value }) => ({ title: label, value }))
+      )
+    )?.value,
+  pick: async (items, options) =>
+    (await vscode.window.showQuickPick(items, quickPickOptions(options)))?.value,
+  pickMany: async (items, options) =>
+    (
+      await vscode.window.showQuickPick(items, { ...quickPickOptions(options), canPickMany: true })
+    )?.map((item) => item.value),
   pickSaveLocation: async ({ saveLabel, filters, defaultPath }) =>
     (
       await vscode.window.showSaveDialog({

@@ -64,6 +64,30 @@ export interface HostStorage {
   globalStoragePath: string;
 }
 
+/** One button of a `Prompts.choose`. */
+export type ChooseAction<T> = {
+  label: string;
+  /** What clicking it answers. */
+  value: T;
+};
+
+/** One row of a `Prompts.pick` or `pickMany`. */
+export type PickItem<T> = {
+  label: string;
+  /** Shown beside the label, dimmer. */
+  description?: string;
+  /** Checked when a `pickMany` opens; ignored by `pick`. */
+  picked?: boolean;
+  /** What choosing this row answers. */
+  value: T;
+};
+
+export type PickOptions = {
+  placeholder?: string;
+  /** Filter on the descriptions as well as the labels. */
+  matchOnDescription?: boolean;
+};
+
 /** Asking the user something, or telling them. Every answer is `undefined`
  *  when they dismissed the prompt. */
 export interface Prompts {
@@ -73,10 +97,22 @@ export interface Prompts {
   showWarning(message: string): void;
   /** An error notification offering `actions`; resolves to the one chosen. */
   showError(message: string, ...actions: string[]): PromiseLike<string | undefined>;
-  /** A modal question offering `actions` — the host adds its own way to say
-   *  no, so `actions` lists only the ways to say yes; resolves to the one
-   *  chosen. Only buttons: no checkbox, since the VS Code host has none. */
-  confirm(message: string, ...actions: string[]): PromiseLike<string | undefined>;
+  /** A modal question answered by one of `actions`, with `detail` as a second,
+   *  quieter line. The host adds its own Cancel, so `actions` lists only the
+   *  other answers; resolves to the `value` of the one clicked. Only buttons:
+   *  no checkbox, since not every host's modal has one. For a plain
+   *  yes-or-no, see core's `confirm`. */
+  choose<T>(
+    message: string,
+    options: { detail?: string; actions: readonly ChooseAction<T>[] }
+  ): PromiseLike<T | undefined>;
+  /** One of `items`, filtered as the user types; resolves to its `value`.
+   *  Unlike `input`, a focus change may dismiss it. */
+  pick<T>(items: readonly PickItem<T>[], options?: PickOptions): PromiseLike<T | undefined>;
+  /** Any number of `items`, checked or unchecked, starting from their
+   *  `picked`; resolves to the `value`s of the rows checked — none is an
+   *  answer too. Dismissed as `pick` is. */
+  pickMany<T>(items: readonly PickItem<T>[], options?: PickOptions): PromiseLike<T[] | undefined>;
   /** Where to write a file; resolves to the chosen path. */
   pickSaveLocation(options: {
     saveLabel: string;
@@ -86,12 +122,13 @@ export interface Prompts {
   }): PromiseLike<string | undefined>;
   /** A line of text. The prompt stays up until it is answered or dismissed,
    *  not lost to a focus change: git may be blocked on it waiting for a
-   *  credential, and a stash's new name may be copied from elsewhere. */
+   *  credential, and a remote's URL or a stash's new name may be copied from
+   *  elsewhere. */
   input(options: {
     prompt: string;
-    placeholder: string;
+    placeholder?: string;
     /** Mask what is typed. */
-    password: boolean;
+    password?: boolean;
     /** Text the answer starts from, e.g. the name being changed. */
     value?: string;
   }): PromiseLike<string | undefined>;
@@ -154,7 +191,20 @@ export interface RepoSource {
   /** Remove `repo` and broadcast the set without it to everything showing it. */
   dropRepo(repo: string): void;
   setRepoState(repo: string, state: GitRepoState): void;
+  /** Merge `patch` into `repo`'s state as it is now, write it, and broadcast
+   *  the set to everything showing it; nothing when `repo` is not known. A
+   *  graph that never hears of the change writes its stale copy back the next
+   *  time it persists anything, so the two steps are one method. */
+  updateRepoState(repo: string, patch: Partial<GitRepoState>): void;
 }
+
+/** Run `work`, a change to `repo` made outside the webview bridge, the way the
+ *  host runs a repo mutation: its file watcher muted across it, and whatever
+ *  shows the repo refreshed once it has settled — whether or not `work` threw,
+ *  since a fetch of several remotes can fail half-way. Rejects with what `work`
+ *  rejected with, after that. Handed to the command services, not part of
+ *  `HostPorts`: the dispatch's changes go through the bridge's own hook. */
+export type RunRepoMutation = (repo: string, work: () => Promise<void>) => Promise<void>;
 
 /** The GING log — the Output Channel, in VS Code. */
 export interface HostLogger {

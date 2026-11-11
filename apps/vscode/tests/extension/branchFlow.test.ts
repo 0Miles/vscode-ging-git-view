@@ -96,6 +96,7 @@ function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps]
       l10n: fake.l10n,
       gitClientFor,
       currentRepo: () => null,
+      repoSource: fake.repoSource,
       runRepoMutation: (_repo, work) => work()
     }),
     // No interactive rebase runs in this flow; a stager that reports its todo
