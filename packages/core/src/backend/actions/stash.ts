@@ -31,13 +31,20 @@ export function stashRefusalFacts(error: unknown): StashRefusalFacts {
  * Refuse with `StashMovedError` unless `selector` still resolves to
  * `expectedHash`; return that SHA when it does.
  *
- * This narrows the window `StashTarget` describes, it does not close it. The
- * `rev-parse` here and the stash command after it are two spawns, and git has
- * no compare-and-swap for stash entries — `stash drop` takes only a
- * `stash@{n}`, never a SHA — so a push landing between the two still
- * renumbers the stack under the second one. What is gone is the long window:
- * from the moment the caller read the selector to the moment the action
- * reached the host.
+ * The consent check all four stash actions share. It cannot hold the stack
+ * still until the stash command runs — the `rev-parse` here and that command
+ * are two spawns — and how much of that window is left differs per action:
+ *
+ * - apply hands git `expectedHash` itself, so what lands in the working tree
+ *   is fixed: a push in the window cannot make it apply another stash. A stash
+ *   dropped in the window still applies, since the commit outlives its entry.
+ * - pop and drop take only a `stash@{n}`, so a push in the window still
+ *   renumbers the stack under them.
+ * - rename drops the old entry by `selector`, so a push before that drop
+ *   still makes it drop another stash.
+ *
+ * What is gone for all four is the long window: from the moment the caller
+ * read the selector to the moment the action reached the host.
  */
 async function verifyStashSelector(
   git: SimpleGit,
@@ -54,13 +61,14 @@ async function verifyStashSelector(
 /** The commit `selector` names now; null when it names nothing. */
 async function stashSelectorTarget(git: SimpleGit, selector: string): Promise<string | null> {
   // `--verify --quiet`: a selector that names nothing — past the end of the
-  // stack — exits 1 with no output, which simple-git resolves as "". Any other
-  // failure (not a repository, git missing) rejects, and is git's to report.
+  // stack — exits non-zero with no output, which simple-git resolves as "".
+  // Any other failure (not a repository, git missing) rejects, and is git's to
+  // report.
   return (await git.raw(["rev-parse", "--verify", "--quiet", selector])).trim() || null;
 }
 
 /**
- * Whether `selector` still names the stash `expectedHash` — the identity rule
+ * Whether `selector` still names the stash `expectedHash` — the consent rule
  * every stash action is held to (`verifyStashSelector`), for a caller that
  * refuses on its own terms instead of with `StashMovedError`.
  */
@@ -78,10 +86,12 @@ export async function applyStash(
   git: SimpleGit,
   input: ActionPayload<"applyStash">
 ): Promise<void> {
-  await verifyStashSelector(git, input.selector, input.expectedHash);
+  const sha = await verifyStashSelector(git, input.selector, input.expectedHash);
   const args = ["stash", "apply"];
   if (input.reinstateIndex) args.push("--index");
-  args.push(input.selector);
+  // Safe because verified above: a byte-equal full SHA. A short or all-digit
+  // token would read as something else, so the check must stay first.
+  args.push(sha);
   await git.raw(args);
 }
 
@@ -113,7 +123,7 @@ export async function renameStash(
   git: SimpleGit,
   input: ActionPayload<"renameStash">
 ): Promise<void> {
-  // A wider window than apply/pop/drop: three more spawns sit between this and the drop.
+  // A wider window than pop/drop: three more spawns sit between this and the drop.
   const sha = await verifyStashSelector(git, input.selector, input.expectedHash);
   const tree = (await git.raw(["rev-parse", `${sha}^{tree}`])).trim();
   // `rev-list --parents -n 1 <sha>` → "<sha> <parent>...": drop the commit's
