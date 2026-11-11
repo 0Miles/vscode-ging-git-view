@@ -59,6 +59,8 @@ status: accepted
 - **`actions` 的形狀跟 `choose` 一樣是 `{ label, value }`,不是 `showError` 的 label 字串。** 理由同 #352 的 `pick`:回答 `value`,兩個同名的動作也分得開。`showError` 沒有跟著改:它唯一帶動作的呼叫端(建立 pull request 時「設定這個 host」那一顆)只有一個動作,回答 label 就分得出來。
 - **回傳型別一律是 `PromiseLike<T | undefined>`,沒有用 overload 把「沒有選項」的那個寫成 `void`。** 理由同 `pick` / `pickMany` 拆開的那一條:回傳型別隨參數改變,port、VS Code 實作與 fake 就得各寫一組 overload。這裡沒有拆成兩個方法,是因為沒有選項時回答恆為 `undefined`,呼叫端照舊不必 `await`,型別不會騙人;port 的註解寫明了這一點,所以既有的四個呼叫端沒有改。
 
-命令服務共用的 [commandKit.ts](../../packages/core/src/extension/commandKit.ts) 多了 `runOrToast`:在 hook 之外對 repo 跑一段 git,失敗就照錯誤 key 跳通知。Set Git User Details 寫的是使用者身分,Statistics 只是讀,畫面上都沒有東西因此改變,所以兩者都不進 `runRepoMutation`;`listRemotesOrToast` 改成它的一個特例。
+命令服務共用的 [commandKit.ts](../../packages/core/src/extension/commandKit.ts) 多了 `tryOrToast`(失敗就照錯誤 key 跳通知)與建在它上面的 `runOrToast`(在 hook 之外對 repo 跑一段 git)。Set Git User Details 寫的是使用者身分,Statistics 只是讀，畫面上都沒有東西因此改變，所以兩者都不進 `runRepoMutation`;`listRemotesOrToast` 改成它的一個特例。
 
-kit 也多了不出聲的 `currentRepo`:Set Git User Details 在沒有 current repository 時不能像其他命令那樣說「沒有存放庫」就停,因為第一次設定時還沒有存放庫,要設的正是全域身分。所以它照樣問，只是範圍只剩「全域」。這時用的 client 是 `gitClientFor("")`,綁在沒有存放庫的地方,和 Version Info 問 `git --version` 的是同一個;`""` 的意思寫在 `CommandKitDeps.gitClientFor` 的註解上，桌面版的實作要照著做。
+`runRepoMutation` 因此從 `CommandKitDeps` 拿出來，成了只有 `createMutatingCommandKit` 要的 `MutationDeps`:只有它的 `mutateOrToast` 會用到。不改變 repo 的服務(這裡的 info 命令)就不必、也不能交一個用不到的 hook;fetch 與 remote 的服務改用 mutating kit。
+
+kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 known repository;自動 fetch 的計時器改用它，三個服務對「current repository」的判斷因此一致。Set Git User Details 在沒有 current repository 時不能像其他命令那樣說「沒有存放庫」就停，因為第一次設定時還沒有存放庫，要設的正是全域身分。所以它照樣問，只是範圍只剩「全域」。這時用的 client 是 `gitClientFor(null)`,不綁存放庫、在宿主程序所在的位置跑 git,和 Version Info 問 `git --version` 的是同一個。`null` 的意思寫在 `CommandKitDeps.gitClientFor` 與 `gitClientFactory` 上，桌面版的實作要照著做。
