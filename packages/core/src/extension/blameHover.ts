@@ -41,10 +41,14 @@ export type BlameHoverContext = BlameAnnotationContext & {
   openLineChangeCommand: string;
   /** The command the graph link runs, given its `CommitLocation`. */
   locateCommitCommand: string;
+  /** Each icon as the host's Markdown writes it: the account icon that stands
+   *  in for an avatar, and the ones before the line's change link and the
+   *  graph link. */
+  icons: { account: string; lineChange: string; locateCommit: string };
 };
 
 /**
- * The hover card of a blamed line, as Markdown with theme icons: the author's
+ * The hover card of a blamed line, as Markdown with the host's icons: the author's
  * avatar (or the account icon), the author or `labels.you`, relative and
  * absolute time, the full commit message, the commit's hunk holding the line,
  * `Changes <previous> ↔ <commit>` with each SHA a link that copies it — only
@@ -59,12 +63,12 @@ export function blameHoverMarkdown(
   details: BlameHoverDetails,
   context: BlameHoverContext
 ): string {
-  const { labels } = context;
+  const { labels, icons } = context;
   if (line.uncommitted) return escapeText(labels.uncommitted);
 
   const avatar =
     details.avatar === null
-      ? "$(account)"
+      ? icons.account
       : `![](${details.avatar}|width=${AVATAR_SIZE},height=${AVATAR_SIZE})`;
   const author = isUser(line.authorEmail, context.userEmail) ? labels.you : line.authorName;
   const relative = relativeTime(context.now / 1000 - line.authorTime, context.locale);
@@ -87,12 +91,12 @@ export function blameHoverMarkdown(
       : `${shaLink(line.previous.sha)} ↔ ${shaLink(line.sha)}`;
   sections.push(`${escapeText(labels.changes)} ${shas}`);
   sections.push(
-    `$(diff) [${escapeText(labels.openLineChange)}](command:${context.openLineChangeCommand}?` +
+    `${icons.lineChange} [${escapeText(labels.openLineChange)}](command:${context.openLineChangeCommand}?` +
       `${commandArgs(lineChangeOf(context.repo, line))})`
   );
   const location: CommitLocation = { repo: context.repo, sha: line.sha };
   sections.push(
-    `$(git-commit) [${escapeText(labels.locateCommit)}](command:${context.locateCommitCommand}?` +
+    `${icons.locateCommit} [${escapeText(labels.locateCommit)}](command:${context.locateCommitCommand}?` +
       `${commandArgs(location)})`
   );
   return sections.join("\n\n");
@@ -119,7 +123,7 @@ function diffBlock(lines: string[]): string {
 
 /**
  * `text` as Markdown that shows exactly it: every character Markdown, HTML or
- * a theme icon (`$(name)`) could read is escaped — block syntax at a line's
+ * a host's icon syntax could read is escaped — block syntax at a line's
  * start too (headings, setext `===` / `---` underlines, quotes, lists, tables)
  * — leading whitespace is kept (rather than turning the line into a code
  * block), and each line break stays one.

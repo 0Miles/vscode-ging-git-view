@@ -42,7 +42,12 @@ const NO_DETAILS: BlameHoverDetails = { message: null, hunk: null, avatar: null 
 function hover(
   l: BlameLine,
   details: Partial<BlameHoverDetails> = {},
-  opts: { locale?: string; userEmail?: string; labels?: typeof EN_LABELS } = {}
+  opts: {
+    locale?: string;
+    userEmail?: string;
+    labels?: typeof EN_LABELS;
+    icons?: typeof VSCODE_ICONS;
+  } = {}
 ) {
   return blameHoverMarkdown(
     l,
@@ -56,10 +61,18 @@ function hover(
       repo: "/repo",
       copyShaCommand: "ext.copySha",
       openLineChangeCommand: "ext.openLineChange",
-      locateCommitCommand: "ext.locateCommit"
+      locateCommitCommand: "ext.locateCommit",
+      icons: opts.icons ?? VSCODE_ICONS
     }
   );
 }
+
+/** The icons as VS Code's Markdown writes them. */
+const VSCODE_ICONS = {
+  account: "$(account)",
+  lineChange: "$(diff)",
+  locateCommit: "$(git-commit)"
+};
 
 /** The command link that opens the line's change, as the hover writes it. */
 const openLink = (change: object) =>
@@ -216,6 +229,14 @@ describe("blameHoverMarkdown", () => {
     it("shows the account icon when there is none", () => {
       expect(hover(line()).split("\n")[0]).toMatch(/^\$\(account\) \*\*Bea\*\*, /);
     });
+  });
+
+  it("draws each icon the way the host writes it", () => {
+    const icons = { account: "[you]", lineChange: "[diff]", locateCommit: "[graph]" };
+    const lines = hover(line(), {}, { icons }).split("\n");
+    expect(lines[0]).toMatch(/^\[you\] \*\*Bea\*\*, /);
+    expect(lines.at(-3)).toMatch(/^\[diff\] \[Open this line's change\]\(command:/);
+    expect(lines.at(-1)).toMatch(/^\[graph\] \[Locate in the GING graph\]\(command:/);
   });
 
   describe("hunk", () => {

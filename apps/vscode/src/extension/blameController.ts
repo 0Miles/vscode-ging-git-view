@@ -297,7 +297,9 @@ export function createBlameController(deps: {
       repo,
       copyShaCommand: COPY_SHA_COMMAND,
       openLineChangeCommand: OPEN_LINE_CHANGE_COMMAND,
-      locateCommitCommand: LOCATE_COMMIT_COMMAND
+      locateCommitCommand: LOCATE_COMMIT_COMMAND,
+      // Theme icons: the MarkdownString below is made with `supportThemeIcons`.
+      icons: { account: "$(account)", lineChange: "$(diff)", locateCommit: "$(git-commit)" }
     });
     const hover = new vscode.MarkdownString(markdown, true);
     // The SHA links, the line's change link and the graph link, and nothing
