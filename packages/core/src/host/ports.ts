@@ -91,8 +91,14 @@ export type PickOptions = {
 /** Asking the user something, or telling them. Every answer is `undefined`
  *  when they dismissed the prompt. */
 export interface Prompts {
-  /** A notification that needs no answer. */
-  showInformation(message: string): void;
+  /** A notification, needing no answer unless it offers `actions`; resolves to
+   *  the `value` of the one clicked. `modal` makes it a dialog that must be
+   *  answered or dismissed before anything else; the host adds its own Cancel
+   *  to it, as `choose`'s. A caller offering nothing need not await it. */
+  showInformation<T = never>(
+    message: string,
+    options?: { modal?: boolean; actions?: readonly ChooseAction<T>[] }
+  ): PromiseLike<T | undefined>;
   /** A notification that needs no answer, worded as a warning. */
   showWarning(message: string): void;
   /** An error notification offering `actions`; resolves to the one chosen. */

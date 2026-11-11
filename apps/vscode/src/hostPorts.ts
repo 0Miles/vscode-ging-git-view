@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 
 import type { DiffSide } from "@ging/core/extension/commitDiff";
 import type {
+  ChooseAction,
   Clipboard,
   HostStorage,
   L10n,
@@ -25,17 +26,22 @@ const quickPickOptions = ({ placeholder, matchOnDescription }: PickOptions = {})
   matchOnDescription
 });
 
+/** Each action as its own message item, so two with one label stay apart. */
+const messageItems = <T>(actions: readonly ChooseAction<T>[]) =>
+  actions.map(({ label, value }) => ({ title: label, value }));
+
 export const vscodePrompts: Prompts = {
-  showInformation: (message) => void vscode.window.showInformationMessage(message),
+  showInformation: async (message, { modal, actions = [] } = {}) =>
+    (await vscode.window.showInformationMessage(message, { modal }, ...messageItems(actions)))
+      ?.value,
   showWarning: (message) => void vscode.window.showWarningMessage(message),
   showError: (message, ...actions) => vscode.window.showErrorMessage(message, ...actions),
-  // Each action is its own message item, so two with one label stay apart.
   choose: async (message, { detail, actions }) =>
     (
       await vscode.window.showWarningMessage(
         message,
         { modal: true, detail },
-        ...actions.map(({ label, value }) => ({ title: label, value }))
+        ...messageItems(actions)
       )
     )?.value,
   pick: async (items, options) =>
