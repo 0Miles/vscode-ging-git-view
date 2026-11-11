@@ -1,6 +1,6 @@
 # GING
 
-一個 VS Code 擴充功能,在編輯器內顯示 git commit 圖形,並整合原生的原始檔控制側邊欄。同一份程式碼也用來產出獨立的桌面版 Git GUI,所以 VS Code 只是 GING 的宿主(**Host**)之一。以下標為 VS Code host 專屬的詞與小節,桌面 host 的對應說法尚未定義([#291](https://github.com/0Miles/vscode-ging-git-view/issues/291))。
+一個 VS Code 擴充功能,在編輯器內顯示 git commit 圖形,並整合原生的原始檔控制側邊欄。同一份程式碼也用來產出獨立的桌面版 Git GUI,所以 VS Code 只是 GING 的宿主(**Host**)之一。以下標為 VS Code host 專屬的詞與小節,桌面 host 不適用;標為桌面 host 專屬的反之。同一個詞在桌面 host 另有說法時,寫在該詞的 **桌面 host** 段落([#291](https://github.com/0Miles/vscode-ging-git-view/issues/291))。
 
 工作區裡常同時開著多個存放庫,而「目前是哪一個存放庫」這件事在 VS Code 和 GING 各有一套答案,兩者不一定一致。以下詞彙就是為了把它們釘開。
 
@@ -26,13 +26,23 @@ _Avoid_: current repository, focused repository
 **Current repository**:
 GING 正在處理的存放庫 —— 圖形顯示它,分支、remote 與 stash 側檢視也一併跟隨它,不跟著作用中的編輯器走,這和 inline blame 刻意不同,見 **Known repository**。它會跨工作階段保存,所以重新開啟的面板會回到同一個存放庫。它與 focused repository 各自獨立:通常同步,但在圖形內自行切換存放庫時就會分岔,而 GING 無法把 focused repository 拉回來對齊。
 跨工作階段保存下來的是一個**路徑字串**,不是一個保證仍然成立的存放庫 —— 目錄可能在兩次工作階段之間被刪除,或不再掛載。字串到 current repository 的解析由 `resolveCurrentRepo` 負責;問「現在的 current repository 是誰」一律以它的結果為準,不是 `workspaceState` 裡存著的東西。解析不通過時它是 `null`,而那個字串**留著不刪** —— 沒有任何探測能把「已被刪除」與「現在連不上」分開。
+**桌面 host**:每個 **Tab** 各有一個 current repository,跨工作階段保存的是分頁清單連同各分頁的路徑字串。
 _Avoid_: graph repository, active repo, last active repo
 
 **Known repository**:
 GING 已探索並納入管理的存放庫。來源(VS Code host 專屬)有二:工作區搜尋,以及內建 git 擴充功能已開啟的所有存放庫(含 submodule 與 worktree)。只有 known repository 能出現在存放庫選單中,但明確指名的路徑仍可繞過此集合直接開啟。
 這個集合同樣是跨工作階段保存的,所以它也可能列著已經不存在的目錄 —— 集合成員的身分不等於路徑仍然可用,兩者一樣由 `resolveCurrentRepo` 那組判準來分。圖形開機時要落在哪一個存放庫,由 host 端的 `pickBootRepo` 決定後送給 webview;webview 不從這個集合裡自己挑,它拿不到檔案系統。
 編輯器內的 inline blame 跟著編輯器走,不跟著 current repository 走:檔案一律在包含它的最深 known repository 裡 blame(submodule 與 worktree 裡的檔案因此用它自己的存放庫),不屬於任何 known repository 的檔案就不顯示;圖形在那期間顯示哪一個存放庫都不影響它。
+**桌面 host**:來源只有一個,就是**最近使用清單** —— 使用者曾開啟、clone 或 init 的資料夾,包括從命令列指名開啟的。它不掃描子目錄,所以 submodule 與 worktree 要各自明確開啟,不會像 VS Code host 那樣自動列入。
 _Avoid_: discovered repo, tracked repo
+
+**Tab**:
+桌面 host 上開著一個存放庫、有自己圖形的工作空間,它的存放庫就是它的 current repository。同一個存放庫同一時間**至多開在一個**分頁。中文寫作「分頁」—— 與 **Loaded commit window** 所避用的「分頁」(分頁載入)無關。桌面 host 專屬。
+_Avoid_: window, 視窗, panel
+
+**Welcome page**:
+桌面 host 一個 Tab 都沒有時顯示的頁面,存放庫從這裡開始開啟。對應 VS Code host 的 ADR-0011。中文寫作「歡迎頁」。桌面 host 專屬。
+_Avoid_: start page, empty state
 
 ### 分支的狀態
 
