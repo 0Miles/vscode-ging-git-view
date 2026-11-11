@@ -4,8 +4,8 @@ import type { SimpleGit } from "simple-git";
 // never contain these control bytes. We split the *output* on the real bytes,
 // but the format string must use git's `%x..` escapes — embedding a literal NUL
 // in a command-line argument truncates it.
-const RS = "\x01\x02\x03";
-const FS = "\x00";
+export const RS = "\x01\x02\x03";
+export const FS = "\x00";
 const RS_FMT = "%x01%x02%x03";
 const FS_FMT = "%x00";
 

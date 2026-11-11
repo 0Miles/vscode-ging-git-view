@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { FS, RS } from "@ging/core/backend/queries/loadReflog";
 import { createReflogCommand, type ReflogCommandDeps } from "@ging/core/extension/reflogCommand";
 
 import {
@@ -19,9 +20,8 @@ const MOVED = "1".repeat(40);
 const COMMITTED = "2".repeat(40);
 const LOST = "3".repeat(40);
 
-/** git's records, in the control-byte framing `loadReflog` asks for. */
-const records = (...rows: string[][]) =>
-  rows.map((fields) => "\x01\x02\x03" + fields.join("\x00") + "\n").join("");
+/** git's records, in the framing `loadReflog` asks for. */
+const records = (...rows: string[][]) => rows.map((fields) => RS + fields.join(FS) + "\n").join("");
 
 const REFLOG = records(
   [MOVED, "1111111", "HEAD@{0}", "checkout: moving from main to topic"],
