@@ -1,14 +1,13 @@
 import * as vscode from "vscode";
 
-import { listStashes } from "@ging/core/backend/queries/listStashes";
 import type { RepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
   type ListedStashHost,
   loadStashFiles,
+  loadStashList,
   sameStashList,
   type StashFile,
-  type StashListItem,
-  stashListItems
+  type StashListItem
 } from "@ging/core/extension/stashList";
 import { createStashViewWatch, type StashViewGit } from "@ging/core/extension/stashWatch";
 import type { EditorGroup } from "@ging/vscode/config";
@@ -76,9 +75,8 @@ class StashProvider implements vscode.TreeDataProvider<Node> {
   async reload(): Promise<void> {
     const id = ++this.fetchId;
     const repo = this.repo;
-    const stashes = repo === null ? [] : await listStashes(this.gitClients.gitClientFor(repo));
+    const items = repo === null ? [] : await loadStashList(this.gitClients.gitClientFor(repo));
     if (id !== this.fetchId) return; // superseded by a newer read
-    const items = stashListItems(stashes);
     const listed = new Set(items.map((stash) => filesKey(repo!, stash.hash)));
     for (const key of this.files.keys()) if (!listed.has(key)) this.files.delete(key);
     if (

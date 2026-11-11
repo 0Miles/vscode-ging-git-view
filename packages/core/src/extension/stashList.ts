@@ -10,6 +10,7 @@ import {
   stashSelectorResolvesTo
 } from "@ging/core/backend/actions/stash";
 import { commitDetails } from "@ging/core/backend/queries/commitDetails";
+import { listStashes } from "@ging/core/backend/queries/listStashes";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import { confirm } from "@ging/core/extension/commandKit";
 import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
@@ -50,6 +51,12 @@ export function stashListItems(stashes: ScmStashEntry[]): StashListItem[] {
       date
     };
   });
+}
+
+/** The Stash side-view's items as `git stash list` has them now; none when git
+ *  can't list them. */
+export async function loadStashList(git: SimpleGit): Promise<StashListItem[]> {
+  return stashListItems(await listStashes(git));
 }
 
 /** Whether two reads list the same stashes at the same places, so the view has

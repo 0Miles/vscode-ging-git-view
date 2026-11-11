@@ -13,6 +13,7 @@ import {
   dropListedStash,
   type ListedStashHost,
   loadStashFiles,
+  loadStashList,
   renameListedStash,
   sameStashList,
   stashListItems
@@ -117,6 +118,30 @@ function hostOn(gitClient: SimpleGit) {
   };
   return { host, calls, answers };
 }
+
+describe("loadStashList (real git)", () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmrf(repo);
+  });
+
+  it("lists the repo's stashes newest first, each named by its SHA", async () => {
+    repo = makeRepo();
+    const { older, newer } = pushTwoStashes(repo);
+
+    const items = await loadStashList(simpleGit(repo));
+    expect(items.map(({ id, selector, message }) => ({ id, selector, message }))).toEqual([
+      { id: newer, selector: "stash@{0}", message: expect.stringContaining("newer") },
+      { id: older, selector: "stash@{1}", message: expect.stringContaining("older") }
+    ]);
+  });
+
+  it("lists nothing in a repo without stashes", async () => {
+    repo = makeRepo();
+    expect(await loadStashList(simpleGit(repo))).toEqual([]);
+  });
+});
 
 describe("copyStashName (real git)", () => {
   let repo: string;
