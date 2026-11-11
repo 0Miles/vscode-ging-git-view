@@ -13,16 +13,21 @@
 import type { SimpleGit } from "simple-git";
 
 import { fetchFromRemotes, fetchRemote as gitFetchRemote } from "@ging/core/backend/actions/fetch";
-import { type CommandKitDeps, createCommandKit } from "@ging/core/extension/commandKit";
+import {
+  type CommandKitDeps,
+  createMutatingCommandKit,
+  type MutationDeps
+} from "@ging/core/extension/commandKit";
 import type { HostConfig, Prompts } from "@ging/core/host/ports";
 
-export type FetchServiceDeps = CommandKitDeps & {
-  config: Pick<
-    HostConfig,
-    "fetchAndPrune" | "fetchAndPruneTags" | "autoFetchEnabled" | "autoFetchIntervalMinutes"
-  >;
-  prompts: Pick<Prompts, "showError" | "showInformation" | "pick">;
-};
+export type FetchServiceDeps = CommandKitDeps &
+  MutationDeps & {
+    config: Pick<
+      HostConfig,
+      "fetchAndPrune" | "fetchAndPruneTags" | "autoFetchEnabled" | "autoFetchIntervalMinutes"
+    >;
+    prompts: Pick<Prompts, "showError" | "showInformation" | "pick">;
+  };
 
 export type FetchService = ReturnType<typeof createFetchService>;
 
@@ -30,7 +35,7 @@ const FETCH_FAILED = "error.unableToFetch";
 
 export function createFetchService(deps: FetchServiceDeps) {
   const { config, prompts, l10n } = deps;
-  const kit = createCommandKit(deps);
+  const kit = createMutatingCommandKit(deps);
   const pruneFlags = () => ({
     prune: config.fetchAndPrune(),
     pruneTags: config.fetchAndPruneTags()
@@ -102,7 +107,7 @@ export function createFetchService(deps: FetchServiceDeps) {
       const minutes = Math.min(60, Math.max(1, config.autoFetchIntervalMinutes()));
       autoFetchTimer = setInterval(
         () => {
-          const repo = deps.currentRepo();
+          const repo = kit.currentRepo();
           if (repo === null || autoFetchInFlight) return;
           autoFetchInFlight = true;
           deps

@@ -14,13 +14,19 @@ import {
   loadReflog,
   type ReflogEntry
 } from "@ging/core/backend/queries/loadReflog";
-import { type CommandKitDeps, confirm, createCommandKit } from "@ging/core/extension/commandKit";
+import {
+  type CommandKitDeps,
+  confirm,
+  createMutatingCommandKit,
+  type MutationDeps
+} from "@ging/core/extension/commandKit";
 import type { Clipboard, Prompts } from "@ging/core/host/ports";
 
-export type ReflogCommandDeps = CommandKitDeps & {
-  prompts: Pick<Prompts, "pick" | "choose" | "input" | "showInformation" | "showError">;
-  clipboard: Clipboard;
-};
+export type ReflogCommandDeps = CommandKitDeps &
+  MutationDeps & {
+    prompts: Pick<Prompts, "pick" | "choose" | "input" | "showInformation" | "showError">;
+    clipboard: Clipboard;
+  };
 
 export type ReflogCommand = ReturnType<typeof createReflogCommand>;
 
@@ -34,7 +40,7 @@ async function loadEntries(git: SimpleGit): Promise<ReflogEntry[]> {
 
 export function createReflogCommand(deps: ReflogCommandDeps) {
   const { prompts, l10n } = deps;
-  const kit = createCommandKit(deps);
+  const kit = createMutatingCommandKit(deps);
 
   /** A branch at `entry`, under a name asked for, not checked out. */
   const branchFrom = async (repo: string, { hash }: ReflogEntry): Promise<void> => {

@@ -17,9 +17,9 @@ export type PromptReply = string | string[] | undefined;
 /**
  * Git for any repo, recording each command in `calls` as
  * `["git", repo, ...argv]`. `remotes` (name to URL) is what `git remote`
- * lists, and `stdout` what `git <subcommand>` prints, by its subcommand; every
- * other command succeeds silently. Once `failure` is set, every command
- * rejects with it.
+ * lists, and `stdout` what a raw command prints, by its whole argv joined with
+ * spaces or else by its subcommand alone; every other command succeeds
+ * silently. Once `failure` is set, every command rejects with it.
  */
 export function fakeGit(calls: unknown[][]) {
   const state = {
@@ -27,11 +27,12 @@ export function fakeGit(calls: unknown[][]) {
     stdout: {} as Record<string, string>,
     failure: undefined as string | undefined
   };
-  const run = (repo: string, argv: string[]) => {
+  const run = (repo: string | null, argv: string[]) => {
     calls.push(["git", repo, ...argv]);
     if (state.failure !== undefined) throw new Error(state.failure);
   };
-  const clientFor = (repo: string) =>
+  /** `null` is the client bound to no repository. */
+  const clientFor = (repo: string | null) =>
     ({
       getRemotes: async (verbose?: boolean) => {
         run(repo, ["remote", ...(verbose ? ["-v"] : [])]);
@@ -42,7 +43,7 @@ export function fakeGit(calls: unknown[][]) {
       },
       raw: async (argv: string[]) => {
         run(repo, argv);
-        return state.stdout[argv[0] ?? ""] ?? "";
+        return state.stdout[argv.join(" ")] ?? state.stdout[argv[0] ?? ""] ?? "";
       }
     }) as unknown as SimpleGit;
   return { clientFor, state };
@@ -95,11 +96,14 @@ export function fakePorts() {
     };
   const answers = {
     showError: undefined as string | undefined,
-    /** Answers to the questions `choose`, `pick`, `pickMany` and `input` ask,
-     *  in the order they are asked: the label clicked or picked (labels, for a
-     *  `pickMany`), or the text typed; `undefined` dismisses. Once it runs out,
-     *  each question takes its own answer below. */
+    /** Answers to the questions `choose`, `pick`, `pickMany`, `input` and a
+     *  `showInformation` with options ask, in the order they are asked: the
+     *  label clicked or picked (labels, for a `pickMany`), or the text typed;
+     *  `undefined` dismisses. Once it runs out, each question takes its own
+     *  answer below. */
     replies: [] as PromptReply[],
+    /** The label of the action clicked on an information message. */
+    showInformation: undefined as string | undefined,
     /** The label of the action clicked. */
     choose: undefined as string | undefined,
     /** The label of the row picked. */
@@ -147,7 +151,17 @@ export function fakePorts() {
       })
     },
     prompts: {
-      showInformation: record("showInformation"),
+      // A plain notice is logged as its message alone, and asks nothing.
+      showInformation: async (message, options) => {
+        if (options === undefined) {
+          calls.push(["showInformation", message]);
+          return undefined;
+        }
+        const { modal, actions = [] } = options;
+        calls.push(["showInformation", message, { modal, actions: actions.map((a) => a.label) }]);
+        const label = reply(answers.showInformation);
+        return actions.find((action) => action.label === label)?.value;
+      },
       showWarning: record("showWarning"),
       showError: async (...args) => {
         calls.push(["showError", ...args]);

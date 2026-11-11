@@ -57,3 +57,18 @@ status: accepted
 呼叫端是 [reflogCommand.ts](../../packages/core/src/extension/reflogCommand.ts) 的 dangling commit 那一列。搬移前它的 label 前面寫死了 VS Code 的 codicon `$(warning)`,桌面版的選單看不懂,只會原樣印出來。VS Code 這邊由 [quickPickItems.ts](../../apps/vscode/src/extension/quickPickItems.ts) 轉回 `$(warning) `。#352 先加的 `description` 與 `matchOnDescription` 也在這裡有了呼叫端。
 
 同一張票要求 `packages/core/src` 裡不再有 codicon 語法,所以 blame hover([blameHover.ts](../../packages/core/src/extension/blameHover.ts))的三個圖示也改成跟宿主要:不是 port,是 `BlameHoverContext.icon(name)`,`name` 是封閉的語意名稱(`account`、`change`、`commit`),由 `blameController` 回答。hover 其餘的 VS Code 形狀(`command:` 連結、圖片的 `|width=` 寫法)不在範圍內,blame 的接線依 #339 留在 app。
+
+## 補記(2026-11-11,#354)
+
+**`Prompts.showInformation` 多了一個選填的 `{ modal?, actions? }`,回答按下那個動作的 `value`。沒有另開方法。**
+
+呼叫端只有一個:Version Info([infoCommands.ts](../../packages/core/src/extension/infoCommands.ts))要一個 modal 的資訊框,上面一顆「複製」。它跟 `choose` 差在語氣:`choose` 是一個要使用者做決定的警告框,版本資訊只是告知,順便給一個動作。為了一個呼叫端開第二個 modal 方法,port 上就有兩個只差圖示的方法,所以照票面做成參數。
+
+- **`actions` 的形狀跟 `choose` 一樣是 `{ label, value }`,不是 `showError` 的 label 字串。** 理由同 #352 的 `pick`:回答 `value`,兩個同名的動作也分得開。`showError` 沒有跟著改:它唯一帶動作的呼叫端(建立 pull request 時「設定這個 host」那一顆)只有一個動作,回答 label 就分得出來。
+- **回傳型別一律是 `PromiseLike<T | undefined>`,沒有用 overload 把「沒有選項」的那個寫成 `void`。** 理由同 `pick` / `pickMany` 拆開的那一條:回傳型別隨參數改變,port、VS Code 實作與 fake 就得各寫一組 overload。這裡沒有拆成兩個方法,是因為沒有選項時回答恆為 `undefined`,呼叫端照舊不必 `await`,型別不會騙人;port 的註解寫明了這一點,所以既有的四個呼叫端沒有改。
+
+Set Git User Details 寫的是使用者身分,Statistics 只是讀，畫面上都沒有東西因此改變，所以兩者都不進 `runRepoMutation`,失敗直接走 [commandKit.ts](../../packages/core/src/extension/commandKit.ts) 的 `tryOrToast`(#353 加的、kit 唯一的 catch)。
+
+`runRepoMutation` 因此從 `CommandKitDeps` 拿出來，成了只有 `createMutatingCommandKit` 要的 `MutationDeps`:只有它的 `mutateOrToast` 會用到。不改變 repo 的服務(這裡的 info 命令)就不必、也不能交一個用不到的 hook;fetch、remote 與 reflog 的服務改用 mutating kit。
+
+kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 known repository;自動 fetch 的計時器改用它，各個命令服務對「current repository」的判斷因此一致。Set Git User Details 在沒有 current repository 時不能像其他命令那樣說「沒有存放庫」就停，因為第一次設定時還沒有存放庫，要設的正是全域身分。所以它照樣問，只是範圍只剩「全域」。這時用的 client 是 `gitClientFor(null)`,不綁存放庫、在宿主程序所在的位置跑 git,和 Version Info 問 `git --version` 的是同一個。`null` 的意思寫在 `CommandKitDeps.gitClientFor` 與 `gitClientFactory` 上，桌面版的實作要照著做。

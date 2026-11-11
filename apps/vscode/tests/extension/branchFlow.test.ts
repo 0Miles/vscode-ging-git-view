@@ -53,7 +53,7 @@ function makeDeps(overrides: DepOverrides = {}): [HostPorts, MessageHandlerDeps]
   // and merge it correctly — a regression that silently emptied every repo.
   const gitEnv = { GIT_ASKPASS: "/some/askpass.sh", ELECTRON_RUN_AS_NODE: "1" };
   const gitClient = gitClientFactory("", config.gitPath(), undefined, gitEnv);
-  const gitClientFor = (repo: string) =>
+  const gitClientFor = (repo: string | null) =>
     gitClientFactory(repo, config.gitPath(), undefined, gitEnv).getInstance();
   const branchFacts = createBranchFacts({
     readSnapshot: createGitSnapshotReader({ gitClientFor, gitPath: config.gitPath }),

@@ -1,10 +1,8 @@
 import * as vscode from "vscode";
 
 import { AvatarManager } from "@ging/core/avatarManager";
-import { getUserDetails, setUserDetails } from "@ging/core/backend/actions/userDetails";
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { getCommitFileContent } from "@ging/core/backend/queries/commitFileContent";
-import { loadStatistics } from "@ging/core/backend/queries/loadStatistics";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import { repoContainingPath, resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
 import { AskpassManager } from "@ging/core/extension/askpass/askpassManager";
@@ -12,6 +10,7 @@ import { createBranchActionDelegate } from "@ging/core/extension/branchActionDel
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
 import { createFetchService } from "@ging/core/extension/fetchService";
+import { createInfoCommands } from "@ging/core/extension/infoCommands";
 import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
 import { createReflogCommand } from "@ging/core/extension/reflogCommand";
@@ -275,6 +274,20 @@ export function activate(context: vscode.ExtensionContext) {
     editorGroup: config.openNewTabEditorGroup
   });
   context.subscriptions.push(stashView);
+
+  // Set Git User Details, Version Info and Statistics, from the command palette.
+  const infoCommands = createInfoCommands({
+    prompts: vscodePrompts,
+    l10n: vscodeL10n,
+    clipboard: vscodeClipboard,
+    gitClientFor: repoGitClients.gitClientFor,
+    currentRepo,
+    repoSource: repoManager,
+    hostVersions: [
+      { name: "GING", version: context.extension.packageJSON.version },
+      { name: "Visual Studio Code", version: vscode.version }
+    ]
+  });
 
   /** Point every side-view at the current repository. */
   const followRepo = (repo: string | null): void => {
@@ -907,12 +920,8 @@ export function activate(context: vscode.ExtensionContext) {
     ),
     vscode.commands.registerCommand("ging-git-view.showStatistics", async () => {
       // Open a read-only stats panel (commits by author + activity heatmap).
-      try {
-        const stats = await loadStatistics(gitClient.getInstance());
-        showStatistics(stats);
-      } catch (e: unknown) {
-        void vscode.window.showErrorMessage(l10n.t("stats.unableTo") + ": " + formatGitError(e));
-      }
+      const stats = await infoCommands.statistics();
+      if (stats !== undefined) showStatistics(stats);
     }),
     vscode.commands.registerCommand("ging-git-view.exportRepoConfig", () => {
       // Export the repo's GING config to a committable .vscode file.
@@ -965,62 +974,14 @@ export function activate(context: vscode.ExtensionContext) {
         "@ext:0miles.ging-git-view"
       );
     }),
-    vscode.commands.registerCommand("ging-git-view.setGitUserDetails", async () => {
-      // neo has no Settings Widget; the local/global user name & email are set
-      // through this command instead.
-      const git = gitClient.getInstance();
-      const current = await getUserDetails(git);
-      const name = await vscode.window.showInputBox({
-        prompt: l10n.t("userDetails.namePrompt"),
-        value: current.name,
-        ignoreFocusOut: true
-      });
-      if (name === undefined) return; // cancelled
-      const email = await vscode.window.showInputBox({
-        prompt: l10n.t("userDetails.emailPrompt"),
-        value: current.email,
-        ignoreFocusOut: true
-      });
-      if (email === undefined) return;
-      const localLabel = l10n.t("userDetails.scopeLocal");
-      const globalLabel = l10n.t("userDetails.scopeGlobal");
-      const scope = await vscode.window.showQuickPick([localLabel, globalLabel], {
-        placeHolder: l10n.t("userDetails.scopePrompt")
-      });
-      if (scope === undefined) return;
-      try {
-        await setUserDetails(git, {
-          name: name.trim(),
-          email: email.trim(),
-          useGlobal: scope === globalLabel
-        });
-        void vscode.window.showInformationMessage(l10n.t("userDetails.updated"));
-      } catch (e: unknown) {
-        void vscode.window.showErrorMessage(
-          l10n.t("userDetails.unableToSet") + ": " + (e instanceof Error ? e.message : String(e))
-        );
-      }
-    }),
-    vscode.commands.registerCommand("ging-git-view.getVersionInfo", async () => {
-      let gitVersion = "git: unknown";
-      try {
-        gitVersion = (await gitClient.getInstance().raw(["--version"])).trim();
-      } catch {
-        /* git not available; report what we can */
-      }
-      const info = [
-        "GING: " + context.extension.packageJSON.version,
-        "Visual Studio Code: " + vscode.version,
-        "OS: " + process.platform + " " + process.arch,
-        gitVersion
-      ].join("\n");
-      const copy = await vscode.window.showInformationMessage(
-        info,
-        { modal: true },
-        l10n.t("versionInfo.copy")
-      );
-      if (copy !== undefined) await vscode.env.clipboard.writeText(info);
-    }),
+    // neo has no Settings Widget; the local/global user name & email are set
+    // through this command instead.
+    vscode.commands.registerCommand("ging-git-view.setGitUserDetails", () =>
+      infoCommands.setGitUserDetails()
+    ),
+    vscode.commands.registerCommand("ging-git-view.getVersionInfo", () =>
+      infoCommands.versionInfo()
+    ),
     vscode.commands.registerCommand("ging-git-view.openFileFromDiff", (uri?: vscode.Uri) => {
       // Opens the working-tree version of the file shown in a GING diff
       // editor. `uri` is supplied by the editor/title menu; fall back to the
