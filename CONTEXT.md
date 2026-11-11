@@ -24,7 +24,7 @@ VS Code 整體認定的當前存放庫 —— 取 focused repository 與「作�
 _Avoid_: current repository, focused repository
 
 **Current repository**:
-GING 正在處理的存放庫 —— 圖形顯示它,分支、remote 與 stash 側檢視也一併跟隨它。Stash 側檢視跟著它、不跟著作用中的編輯器走,這和 inline blame 的規則(見 **Known repository**)刻意不同:blame 的對象是一個檔案,所以落在包含那個檔案的存放庫;stash 側檢視的對象和分支、remote 側檢視一樣,是 GING 正在處理的那個存放庫,切換編輯器不會換掉它的清單。它會跨工作階段保存,所以重新開啟的面板會回到同一個存放庫。它與 focused repository 各自獨立:通常同步,但在圖形內自行切換存放庫時就會分岔,而 GING 無法把 focused repository 拉回來對齊。
+GING 正在處理的存放庫 —— 圖形顯示它,分支、remote 與 stash 側檢視也一併跟隨它,不跟著作用中的編輯器走,這和 inline blame 刻意不同,見 **Known repository**。它會跨工作階段保存,所以重新開啟的面板會回到同一個存放庫。它與 focused repository 各自獨立:通常同步,但在圖形內自行切換存放庫時就會分岔,而 GING 無法把 focused repository 拉回來對齊。
 跨工作階段保存下來的是一個**路徑字串**,不是一個保證仍然成立的存放庫 —— 目錄可能在兩次工作階段之間被刪除,或不再掛載。字串到 current repository 的解析由 `resolveCurrentRepo` 負責;問「現在的 current repository 是誰」一律以它的結果為準,不是 `workspaceState` 裡存著的東西。解析不通過時它是 `null`,而那個字串**留著不刪** —— 沒有任何探測能把「已被刪除」與「現在連不上」分開。
 _Avoid_: graph repository, active repo, last active repo
 
@@ -138,20 +138,15 @@ _Avoid_: page, 分頁, commit 快取, maxCommits(那是實作名)
 
 ### Stash 的身分
 
-stash 出現在兩個地方。圖形只畫得出 loaded commit window 搆得到的 stash;stash 側檢視(VS Code host 專屬)列出整個堆疊,與圖形載入了什麼無關,所以不在載入範圍內的 stash 一律從側檢視找、從側檢視操作(#102)。兩邊認 stash 的規則是同一套。
-規則要分兩個值,是因為 `stash@{n}` 看起來像名字,其實是堆疊上的位置:每一次 `git stash push`(終端機、原生 SCM、`pull --autostash`)都會把底下每一筆的編號往後推,使用者讀到的編號,到 git 執行時可能已經指著另一筆 stash。
+stash 出現在兩個地方。圖形只畫得出 loaded commit window 搆得到的 stash;stash 側檢視(VS Code host 專屬)列出整個堆疊,與圖形載入了什麼無關,所以不在載入範圍內的 stash 一律從側檢視找、從側檢視操作(#102)。兩邊認 stash 的規則是同一套,靠下面兩個值。
 
 **Stash SHA**:
-stash commit 的 SHA —— stash 的**身分**。git 實際作用的、拿來比對的都是它,一律寫完整的(`rev-parse` 印出的形式),不用縮寫。同一筆 stash 的 SHA 不會變;唯一的例外是 rename,它重建 commit,換上新的 SHA,之後重讀的清單自然列出新的那一個。
+stash commit 的 SHA —— stash 的**身分**。git 實際作用的、拿來比對的都是它。
 _Avoid_: stash 名稱(UI 的「名稱」指的是 stash selector)
 
 **Stash selector**:
-`stash@{n}` —— 使用者**同意的範圍**。對話框上寫的是它,使用者答應的也是它。動作執行前它一旦不再解析到同意時看到的那個 stash SHA,動作就**拒絕**,不改去作用在那個 SHA 現在所在的位置:只認 SHA,會作用在一個使用者沒看過的編號上;只認編號,會作用在另一筆 stash 上。拒絕的檢查只能縮小空窗,不能消除 —— pop 與 drop 只吃編號(rename 最後也是靠編號 drop 舊的那筆),git 也沒有 compare-and-swap;apply 依 SHA 執行,所以套用進來的一定是同意的那一筆。UI 的「複製 stash 名稱」複製的就是它。
+`stash@{n}` —— 看起來像名字,其實是堆疊上的位置:每一次 `git stash push` 都會把底下每一筆的編號往後推。它是使用者**同意的範圍**:對話框上寫的是它,使用者答應的也是它。它一旦不再解析到同意時看到的那個 stash SHA,動作就**拒絕**,不改去作用在那個 SHA 現在所在的位置(`StashTarget`、ADR-0029、ADR-0030)。
 _Avoid_: stash index(和 git 的 index 撞名), stash number, stash ref
-
-**Reinstate index**:
-apply 或 pop 時,把建立 stash 當時「哪些變更已暫存」也一併放回暫存區(`--index`)。預設不還原。中文寫「還原 index」(zh-cn「还原 index」),圖形的 checkbox 與側檢視的按鈕用同一個詞。
-_Avoid_: 恢復暫存, 重新暫存, 保留 index
 
 ### Find 的位置與步進
 
