@@ -46,6 +46,7 @@ import {
   dropStash,
   popStash,
   renameStash,
+  stashApplyFacts,
   stashRefusalFacts
 } from "@ging/core/backend/actions/stash";
 import { addTag, deleteTag, pushTag } from "@ging/core/backend/actions/tag";
@@ -289,12 +290,8 @@ export function registerMessageHandlers(
       stager: deps.sequenceEditor
     })
   );
-  registerAction(
-    "applyStash",
-    (msg) => applyStash(gitClient.getInstance(), msg),
-    stashRefusalFacts
-  );
-  registerAction("popStash", (msg) => popStash(gitClient.getInstance(), msg), stashRefusalFacts);
+  registerAction("applyStash", (msg) => applyStash(gitClient.getInstance(), msg), stashApplyFacts);
+  registerAction("popStash", (msg) => popStash(gitClient.getInstance(), msg), stashApplyFacts);
   registerAction("dropStash", (msg) => dropStash(gitClient.getInstance(), msg), stashRefusalFacts);
   registerAction(
     "renameStash",

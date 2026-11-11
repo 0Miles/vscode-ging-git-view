@@ -351,6 +351,16 @@
       },
       {
         "category": "GING",
+        "command": "ging-git-view.stash.apply",
+        "title": "%command.stash.apply%"
+      },
+      {
+        "category": "GING",
+        "command": "ging-git-view.stash.pop",
+        "title": "%command.stash.pop%"
+      },
+      {
+        "category": "GING",
         "command": "ging-git-view.stash.drop",
         "title": "%command.stash.drop%"
       },
@@ -578,6 +588,16 @@
           "group": "3_copy@1"
         },
         {
+          "command": "ging-git-view.stash.apply",
+          "when": "view == ging-git-view.stash && viewItem == stash && ging-git-view.cmv.stash.apply",
+          "group": "1_apply@1"
+        },
+        {
+          "command": "ging-git-view.stash.pop",
+          "when": "view == ging-git-view.stash && viewItem == stash && ging-git-view.cmv.stash.pop",
+          "group": "1_apply@2"
+        },
+        {
           "command": "ging-git-view.stash.rename",
           "when": "view == ging-git-view.stash && viewItem == stash",
           "group": "2_modify@1"
@@ -739,6 +759,14 @@
         },
         {
           "command": "ging-git-view.stash.refresh",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.stash.apply",
+          "when": "false"
+        },
+        {
+          "command": "ging-git-view.stash.pop",
           "when": "false"
         },
         {

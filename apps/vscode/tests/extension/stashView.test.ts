@@ -225,9 +225,10 @@ suite("Stash side-view commands (integration)", function () {
     assert.strictEqual(await vscode.env.clipboard.readText(), "stash@{0}");
   });
 
-  // Drop and Rename ask first, through a modal and an input box the extension
-  // host cannot answer, so what they do once asked is pinned by their core
-  // tests (`dropListedStash`, `renameListedStash`). Here: that every stash
+  // Apply, Pop, Drop and Rename ask first, through a modal and an input box
+  // the extension host cannot answer, so what they do once asked is pinned by
+  // their core tests (`applyOrPopListedStash`, `dropListedStash`,
+  // `renameListedStash`). Here: that every stash
   // action is a registered command, and that one handed anything but a
   // listed stash asks nothing and does nothing.
   test("every stash action is registered, and ignores anything but a listed stash", async () => {

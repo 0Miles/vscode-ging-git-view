@@ -310,6 +310,11 @@ export function getWebviewLocalizedStrings(t: Translate) {
     dialogBatchBusy: t("dialog.batch.busy"),
     dialogHeadMoved: t("dialog.headMoved"),
     dialogStashMoved: t("dialog.stashMoved"),
+    // An apply or pop that did not go through: the Stash side-view's words too.
+    stashApplyUnmergedBefore: t("stashApply.unmergedBefore"),
+    stashApplyConflicted: t("stashApply.conflicted"),
+    stashApplyConflictedUnlisted: t("stashApply.conflictedUnlisted"),
+    stashApplyUnchanged: t("stashApply.unchanged"),
     dialogPushRemoteGone: t("dialog.pushRemoteGone"),
     dialogPushRepoMoved: t("dialog.pushRepoMoved"),
     dialogCommitOrderBusy: t("dialog.commitOrderBusy"),

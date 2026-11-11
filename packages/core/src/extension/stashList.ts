@@ -1,8 +1,11 @@
 import type { SimpleGit } from "simple-git";
 
 import {
+  applyStash,
   dropStash,
+  popStash,
   renameStash,
+  StashApplyError,
   StashMovedError,
   stashSelectorResolvesTo
 } from "@ging/core/backend/actions/stash";
@@ -79,24 +82,62 @@ function refuseMoved(host: ListedStashHost): "refused" {
 /**
  * Run a stash action the user agreed to, then re-read the list whatever came
  * of it — even a failed rename may have dropped the old entry. A moved stash
- * is refused by the action itself (`StashMovedError`, #334).
+ * is refused by the action itself (`StashMovedError`, #334); an apply or pop
+ * that did not go through says why (`StashApplyError`, #337).
  */
-async function runAgreed(
+async function runAgreed<Failed extends string>(
   host: ListedStashHost,
-  failureKey: string,
-  action: () => Promise<void>
-): Promise<"done" | "refused" | "failed"> {
+  action: () => Promise<void>,
+  /** Tells the user why the action failed; resolves to what that came to. */
+  report: (error: unknown) => Failed
+): Promise<"done" | "refused" | Failed> {
   try {
     await action();
   } catch (error) {
     if (error instanceof StashMovedError) return refuseMoved(host);
-    void host.prompts.showError(host.l10n.t(failureKey) + ": " + formatGitError(error));
+    const outcome = report(error);
     host.refresh();
-    return "failed";
+    return outcome;
   }
   host.refresh();
   return "done";
 }
+
+/** Reports a failure as git's, under `failureKey`. */
+const reportGitFailure =
+  (host: ListedStashHost, failureKey: string) =>
+  (error: unknown): "failed" => {
+    void host.prompts.showError(host.l10n.t(failureKey) + ": " + formatGitError(error));
+    return "failed";
+  };
+
+/** Reports an apply or pop that did not go through (`StashApplyFailure`), in
+ *  the words the graph uses for it too (`handleStashResponse`). */
+const reportApplyFailure =
+  (host: ListedStashHost, failureKey: string) =>
+  (error: unknown): "refused" | "conflicted" | "failed" => {
+    const { t } = host.l10n;
+    const failure = error instanceof StashApplyError ? error.failure : null;
+    switch (failure?.kind) {
+      case "unmergedBefore":
+        host.prompts.showWarning(t("stashApply.unmergedBefore"));
+        return "refused";
+      case "conflicted":
+        host.prompts.showWarning(
+          failure.keptAs === null
+            ? t("stashApply.conflictedUnlisted")
+            : t("stashApply.conflicted", failure.keptAs)
+        );
+        return "conflicted";
+      case "unchanged":
+        void host.prompts.showError(
+          t(failureKey) + ": " + t("stashApply.unchanged") + " " + formatGitError(error)
+        );
+        return "failed";
+      case undefined:
+        return reportGitFailure(host, failureKey)(error);
+    }
+  };
 
 /** Copy Name on a listed stash: the selector it shows, if it still names the
  *  stash listed there (`stashSelectorResolvesTo`). */
@@ -126,10 +167,69 @@ export async function dropListedStash(
     host.l10n.t("action.stashDrop")
   );
   if (!agreed) return "cancelled";
-  const outcome = await runAgreed(host, "error.unableToDropStash", () =>
-    dropStash(host.git, { selector: shown.selector, expectedHash: shown.hash })
+  const outcome = await runAgreed(
+    host,
+    () => dropStash(host.git, { selector: shown.selector, expectedHash: shown.hash }),
+    reportGitFailure(host, "error.unableToDropStash")
   );
   return outcome === "done" ? "dropped" : outcome;
+}
+
+/** What apply and pop each ask with and run; the keys spelled out, so each
+ *  can be found and checked. */
+const APPLY_OR_POP = {
+  apply: {
+    run: applyStash,
+    question: "dialog.stash.applyConfirm",
+    plain: "dialog.stash.apply",
+    reinstateIndex: "dialog.stash.applyReinstateIndex",
+    failure: "error.unableToApplyStash"
+  },
+  pop: {
+    run: popStash,
+    question: "dialog.stash.popConfirm",
+    plain: "dialog.stash.pop",
+    reinstateIndex: "dialog.stash.popReinstateIndex",
+    failure: "error.unableToPopStash"
+  }
+} as const;
+
+/**
+ * The two ways to say yes to an apply or pop, in the order the modal shows
+ * them, each answering the `reinstateIndex` it stands for. The plain one comes
+ * first: it is what the graph's form sends with its box unticked (ADR-0029).
+ */
+export function applyOrPopActions(
+  l10n: Pick<L10n, "t">,
+  mode: "apply" | "pop"
+): { label: string; value: boolean }[] {
+  const keys = APPLY_OR_POP[mode];
+  return [
+    { label: l10n.t(keys.plain), value: false },
+    { label: l10n.t(keys.reinstateIndex), value: true }
+  ];
+}
+
+/** Apply or pop on a listed stash, bound like `dropListedStash`. The
+ *  side-view neither reads nor writes the graph's remembered choice
+ *  (`dialogMemory`). */
+export async function applyOrPopListedStash(
+  host: ListedStashHost,
+  shown: Pick<StashListItem, "hash" | "selector">,
+  mode: "apply" | "pop"
+): Promise<"done" | "cancelled" | "refused" | "conflicted" | "failed"> {
+  const { t } = host.l10n;
+  const { run, question, failure } = APPLY_OR_POP[mode];
+  const reinstateIndex = await host.prompts.choose(t(question, shown.selector), {
+    detail: t("dialog.stash.reinstateIndexDetail"),
+    actions: applyOrPopActions(host.l10n, mode)
+  });
+  if (reinstateIndex === undefined) return "cancelled";
+  return runAgreed(
+    host,
+    () => run(host.git, { selector: shown.selector, expectedHash: shown.hash, reinstateIndex }),
+    reportApplyFailure(host, failure)
+  );
 }
 
 /** Rename on a listed stash, bound like `dropListedStash`. An empty or
@@ -145,8 +245,10 @@ export async function renameListedStash(
     })
   )?.trim();
   if (message === undefined || message === "" || message === shown.message) return "cancelled";
-  const outcome = await runAgreed(host, "error.unableToRenameStash", () =>
-    renameStash(host.git, { selector: shown.selector, expectedHash: shown.hash, message })
+  const outcome = await runAgreed(
+    host,
+    () => renameStash(host.git, { selector: shown.selector, expectedHash: shown.hash, message }),
+    reportGitFailure(host, "error.unableToRenameStash")
   );
   return outcome === "done" ? "renamed" : outcome;
 }
