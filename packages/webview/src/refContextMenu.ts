@@ -20,7 +20,7 @@ import { ELLIPSIS, splitDisplayRemoteRef } from "./utils/git";
 /**
  * What the menu was raised on, classified once at the DOM boundary. `kind`
  * mirrors the ref chip's class (`stash` / `tag` / `head` / `remote`); `name`
- * is the display ref, exactly as the chip's label spells it (CONTEXT.md,
+ * is the display ref, exactly as the chip's label spells it (GLOSSARY.md,
  * "Ref 的兩種形") — so a remote branch is "origin/main", and the symbolic
  * "origin/HEAD" is recognised from the name itself.
  *

@@ -30,7 +30,7 @@ export type CommandKitDeps = {
   /** A client bound to `repo`; `null` binds it to none, and git runs where
    *  the host process is — for git's own questions, and the global config. */
   gitClientFor: (repo: string | null) => SimpleGit;
-  /** The current repository (`CONTEXT.md`); `null` when there is none. */
+  /** The current repository (`GLOSSARY.md`); `null` when there is none. */
   currentRepo: () => string | null;
   repoSource: Pick<RepoSource, "getRepos">;
 };

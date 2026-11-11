@@ -1,6 +1,6 @@
 /**
  * Pure (vscode-free) derivation of a repo's **cleanup candidates** — the
- * branches the cleanup dialog proposes deleting (CONTEXT.md, "Cleanup
+ * branches the cleanup dialog proposes deleting (GLOSSARY.md, "Cleanup
  * candidate").
  *
  * A candidate is a *proposal*, never a claim about the branch. The three facts

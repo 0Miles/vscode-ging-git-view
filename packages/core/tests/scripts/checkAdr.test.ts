@@ -130,13 +130,13 @@ describe("check-adr", () => {
     expect(status).toBe(1);
   });
 
-  it("checks the root-level docs, where CONTEXT.md cites ADRs", () => {
+  it("checks the root-level docs, where GLOSSARY.md cites ADRs", () => {
     const { status, output } = run(
-      makeFixture({ files: { "CONTEXT.md": body("dangling-citation") } })
+      makeFixture({ files: { "GLOSSARY.md": body("dangling-citation") } })
     );
 
     expect(output).toContain("0099 is cited but no such ADR exists");
-    expect(output).toContain("CONTEXT.md:1");
+    expect(output).toContain("GLOSSARY.md:1");
     expect(status).toBe(1);
   });
 

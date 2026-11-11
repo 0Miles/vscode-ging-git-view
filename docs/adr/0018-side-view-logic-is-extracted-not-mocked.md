@@ -35,14 +35,14 @@ status: accepted
 ## 後果
 
 - **`branchesView.ts` 的錯誤只有 code review 攔得住。**因此往這個檔案加邏輯時,預設動作是先問「這段能不能抽出去」,而不是「怎麼測它」。
-- **接線層的 bug 會以 #42 的形狀復發。**修這類 bug 時,回歸測試要釘的是抽出去的判準,不是接線本身;把判準抽出來、讓錯誤的呼叫難以寫出,才是修法。#42 最後就是這樣收的 —— `branchSelectionOf` 因此誕生,並促成 `CONTEXT.md` 的 **Branch selection** 條目補上「VS Code 回報的原始選取集不等於 branch selection」([#64](https://github.com/0Miles/vscode-ging-git-view/issues/64))。
+- **接線層的 bug 會以 #42 的形狀復發。**修這類 bug 時,回歸測試要釘的是抽出去的判準,不是接線本身;把判準抽出來、讓錯誤的呼叫難以寫出,才是修法。#42 最後就是這樣收的 —— `branchSelectionOf` 因此誕生,並促成 `GLOSSARY.md` 的 **Branch selection** 條目補上「VS Code 回報的原始選取集不等於 branch selection」([#64](https://github.com/0Miles/vscode-ging-git-view/issues/64))。
 - **這條規則會過期。**若 `branchesView.ts` 的接線密度高到 review 攔不住 —— 例如出現第二條 direct-write 路徑,或轉接層開始長出分支判斷 —— 這個決定值得重開。屆時要重估的是上面那條分界(樁抓不到的那一半有多大),不是成本。
 
 ## 補記(2026-10-30,#157)
 
 **direct write 的範圍已經擴大到 `branches.showAll`。上面那條到期條件說的「第二條 direct-write 路徑」在 #43 之前其實早已存在,#43 把它收回同一條路,決定不變。**
 
-正文把 direct write 寫成多選搜尋那一條路。[#43](https://github.com/0Miles/vscode-ging-git-view/issues/43) 之後,「Show All」(`branches.showAll`)也走同一條路:它寫的是空集合,做的卻是同一件事 —— 不經 tree selection 寫 filter、自己清掉樹的反白、吞掉清除送出的那個空選取事件。所以這個詞現在指的是這個形狀,不是哪一個手勢。定義見 `CONTEXT.md` 的 **Direct write**,以它為準。
+正文把 direct write 寫成多選搜尋那一條路。[#43](https://github.com/0Miles/vscode-ging-git-view/issues/43) 之後,「Show All」(`branches.showAll`)也走同一條路:它寫的是空集合,做的卻是同一件事 —— 不經 tree selection 寫 filter、自己清掉樹的反白、吞掉清除送出的那個空選取事件。所以這個詞現在指的是這個形狀,不是哪一個手勢。定義見 `GLOSSARY.md` 的 **Direct write**,以它為準。
 
 成因也跟著放寬。正文說這條路存在,是因為 `reveal` 只能選單一元素;「Show All」缺的是另一半 —— TreeView 也沒有清除選取的 API,`clearSelection` 是替 leaf 換 id,讓 VS Code 自己丟掉選取。兩者是同一個限制:擴充功能設定不了樹的選取。
 

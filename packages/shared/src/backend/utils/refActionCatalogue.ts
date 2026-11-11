@@ -26,7 +26,7 @@ type RemoteBranchCmvSetting = keyof ContextMenuActionsVisibility["remoteBranch"]
  *  branches, `remoteBranch` on remote-tracking ones. At least one side is
  *  always present — an action with a key on neither side declares
  *  `cmvKey: null` instead. Which side applies to a given ref follows from
- *  `refKinds` (CONTEXT.md, "Ref 的兩種形"): the `remotes/` prefix decides the
+ *  `refKinds` (GLOSSARY.md, "Ref 的兩種形"): the `remotes/` prefix decides the
  *  category, so a `refKinds: "both"` action typically declares both sides. */
 export type CmvKey =
   | { branch: BranchCmvSetting; remoteBranch?: RemoteBranchCmvSetting }
@@ -35,7 +35,7 @@ export type CmvKey =
 export type RefActionSpec = {
   /** Which branches the action applies to. On the wire, the `remotes/` prefix
    *  of the canonical ref is the fact this is checked against — no separate
-   *  remote flag travels with it (CONTEXT.md, "Ref 的兩種形"). */
+   *  remote flag travels with it (GLOSSARY.md, "Ref 的兩種形"). */
   refKinds: RefKinds;
   /** True when the action never applies to the checked-out branch — the same
    *  fact package.json expresses as `viewItem == branch-local` (rather than
@@ -43,7 +43,7 @@ export type RefActionSpec = {
    *  reports it as `skipped: checkedOut`. */
   headGuard: boolean;
   /** Whether the action splits into N independent steps and so may run against
-   *  a multi-selection (CONTEXT.md, "Batch action"). */
+   *  a multi-selection (GLOSSARY.md, "Batch action"). */
   batch: boolean;
   /** True when the action is meaningless without a remote; the webview (the
    *  only side that knows the remotes) drops it when there are none. */
@@ -207,7 +207,7 @@ export type RefAction = ActionsWhere<"runsIn", "graph">;
 
 /** An action that runs against the whole selection when several branches are
  *  selected. Membership is decided by git semantics, not UI convenience — only
- *  operations that split into N independent steps qualify (CONTEXT.md, "Batch
+ *  operations that split into N independent steps qualify (GLOSSARY.md, "Batch
  *  action"), which is why `merge` and `pull` are absent. */
 export type BatchAction = ActionsWhere<"batch", true>;
 
@@ -255,7 +255,7 @@ export function branchMenuContextKeys(
 
 /** The category a branch ref falls in for `contextMenuActionsVisibility`:
  *  `branch` for local refs, `remoteBranch` for remote-tracking ones — the
- *  `remotes/` prefix decides (CONTEXT.md, "Ref 的兩種形"). */
+ *  `remotes/` prefix decides (GLOSSARY.md, "Ref 的兩種形"). */
 export type BranchCmvCategory = "branch" | "remoteBranch";
 
 /**

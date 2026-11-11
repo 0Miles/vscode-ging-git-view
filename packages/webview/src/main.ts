@@ -402,7 +402,7 @@ const commitTarget = (hash: string): RebaseTarget => ({ value: hash, label: abbr
 
 /** The rebase target a local branch is — git and the user read the same name.
  *  Only local branches reach this: rebase is a `refKinds: "local"` action, so
- *  the display ref and the canonical ref are the one string (CONTEXT.md,
+ *  the display ref and the canonical ref are the one string (GLOSSARY.md,
  *  "Ref 的兩種形"). */
 const branchTarget = (refName: string): RebaseTarget => ({ value: refName, label: refName });
 
@@ -3677,7 +3677,7 @@ class GitGraphView {
         delete: () => this.deleteBranchAction(refName),
         merge: () => this.mergeBranchAction(refName),
         // `refName` stands as the new base as well as its label. A display ref
-        // is normally barred from flowing back as an identity (CONTEXT.md,
+        // is normally barred from flowing back as an identity (GLOSSARY.md,
         // "Ref 的兩種形"), but `kind: "branch"` has already carried that
         // identity: this is a local branch, whose two forms are the same
         // string. It is the spelling `rebaseOn` has always sent for the same
@@ -4289,7 +4289,7 @@ class GitGraphView {
    *
    *  Read the same way {@link branchPointsAt} reads it, `head` type included:
    *  a display ref is never an identity, because a local branch may genuinely
-   *  be called `origin/main` (CONTEXT.md) and matching a remote ref by name
+   *  be called `origin/main` (GLOSSARY.md) and matching a remote ref by name
    *  would answer with the wrong commit — and so with the wrong replay list.
    *  Local-only costs nothing: rebase is a `refKinds: "local"` action. */
   private commitOfRef(refName: string): string | null {
@@ -8736,7 +8736,7 @@ function updateBranchCleanup(
 
 /** The facts that put a row on the list, as words. Never collapsed into one
  *  label: merged carries git's guarantee, redundant does not, and inactive says
- *  nothing about whether deleting loses work (CONTEXT.md). */
+ *  nothing about whether deleting loses work (GLOSSARY.md). */
 function cleanupRowFacts(candidate: GG.CleanupCandidate): string {
   const words: string[] = [];
   if (candidate.facts.merged) words.push(l10n.cleanupFactMerged);

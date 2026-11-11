@@ -1728,7 +1728,7 @@ body.vscode-high-contrast-light #repoSettingsDrawer select {
   margin: 0;
 }
 /* One chip per fact that put the row on the list. Never merged into a single
-   label: the three differ in how much they promise (CONTEXT.md). */
+   label: the three differ in how much they promise (GLOSSARY.md). */
 #dialog .cleanupFact {
   display: inline-block;
   margin-left: 4px;

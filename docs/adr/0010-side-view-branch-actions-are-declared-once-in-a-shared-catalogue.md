@@ -11,7 +11,7 @@ status: accepted
 - **command 註冊是一個迴圈,不是清單。** `ging-git-view.branches.*` 的 18 條 command(14 條單一 + 4 條 `<action>Selected`)由遍歷 catalogue 產生(`batch: true` 者加註冊 `<action>Selected`,`runsIn: "host"` 者接 host-handler 表)。grep command ID 只會命中 `package.json` —— 這是刻意的:手寫清單「漏一條」正是要消滅的那類靜默失配,catalogue 有就必然註冊。
 - **head guard 在 host,不在 webview。** 直覺上防線該設在執行端,但 guard 設在 webview 意味著 host 先把圖形面板叫到前景、然後 webview 靜默丟棄 —— 使用者看到面板無故彈出。host 的 tree item 本來就帶 `isCurrent`,在 `openGraphView` 之前提早返回,批次的 checkedOut 扣除也本來就在 host,單一與批次的 guard 從此站在同一邊、讀同一份欄位。擋下時維持靜默,與選單語意一致(選單本不該提供這些項目)。
 - **錯誤策略是「開發期最早、最大聲」,沒有第二道 runtime 防線。** 不合法組合只有一種來源 —— 我們自己把選單接錯線 —— 所以 host 在送出前查 catalogue、不符就 throw;webview 的 action→handler 表宣告成 `Record<RefAction, …>`,漏列直接編譯不過。host 與 webview 同一個 bundle 出貨,不存在版本歪斜,webview 端的 runtime 再驗證防的是不會發生的事。
-- **wire 上只有 canonical ref,沒有 `isRemote`。** `remotes/` 前綴就是「遠端」這件事實(CONTEXT.md「Ref 的兩種形」),布林與前綴是同一事實的兩份拷貝,必然分岔。單一動作訊息因此從 display ref + `isRemote` 改為 canonical ref,display ref 只在呈現時套用 —— 批次訊息一直如此,單一動作才是被矯正的例外。
+- **wire 上只有 canonical ref,沒有 `isRemote`。** `remotes/` 前綴就是「遠端」這件事實(GLOSSARY.md「Ref 的兩種形」),布林與前綴是同一事實的兩份拷貝,必然分岔。單一動作訊息因此從 display ref + `isRemote` 改為 canonical ref,display ref 只在呈現時套用 —— 批次訊息一直如此,單一動作才是被矯正的例外。
 
 ## 考慮過但否決的方案
 

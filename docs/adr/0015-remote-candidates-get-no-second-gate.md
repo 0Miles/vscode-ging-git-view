@@ -33,4 +33,4 @@ status: accepted
 - **不自動 fetch。** 使用者只想看一眼有什麼可清,不該因此被要求輸入認證(askpass)。代價是他可能不按就直接刪,所以比對基準與其最後更新時間就寫在對話框上,和 ADR-0006 為 #11 記下的做法一致。
 - **`inactive` 這個事實用在遠端分支上,意思會變。** 遠端追蹤 ref 的日期是「上次 fetch 到的那個 commit 的時間」,不是遠端當下的狀態;而一條長年沒動的遠端分支很可能是**別人的**工作,刪掉是從共用遠端上抹掉他的東西。merged / redundant 至少還能宣稱「內容已在主線」,inactive 什麼都沒宣稱。這個風險在決策時被提出並權衡過,擋住它的唯一機制是 inactive **從不參與預設勾選**。
 - **「顯示遠端分支」關閉時,遠端不納入候選 —— 但要明講。** `branchFacts` 的 git 讀取以 `resolveShowRemote(repo)` 為參數,關掉時 snapshot 裡沒有遠端 ref。沿用這個開關(一個顯示開關不該偷偷擴大一個不可逆動作的範圍),但對話框必須寫出「遠端分支目前隱藏,未納入候選」,不能讓這個洞靜默存在。
-- **偵測不到 default branch 時,merged 與 redundant 兩者都不可判定**(`CONTEXT.md`:default branch 是兩者的唯一基準),清單只剩 inactive、預設一條都不勾、深度檢查鈕停用。這裡**據實回報、不靜默** —— 對話框是使用者叫出來的隨選查詢,照 `CONTEXT.md` 的約定,靜默停用只適用於被動的顯示與隱藏。
+- **偵測不到 default branch 時,merged 與 redundant 兩者都不可判定**(`GLOSSARY.md`:default branch 是兩者的唯一基準),清單只剩 inactive、預設一條都不勾、深度檢查鈕停用。這裡**據實回報、不靜默** —— 對話框是使用者叫出來的隨選查詢,照 `GLOSSARY.md` 的約定,靜默停用只適用於被動的顯示與隱藏。

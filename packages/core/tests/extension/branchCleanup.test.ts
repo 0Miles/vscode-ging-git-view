@@ -141,7 +141,7 @@ describe("resolveCleanupCandidates", () => {
     // neither merged (ancestry fails) nor inactive (the commit is new), so it is
     // absent from the list and only a scan of everything else can surface it.
     // The merged ones are skipped because every merged branch is redundant
-    // already — the answer is known (CONTEXT.md).
+    // already — the answer is known (GLOSSARY.md).
     const result = resolveCleanupCandidates({
       branches: ["main", "merged-done", "wip", "remotes/origin/wip", "release/1.x"],
       head: "main",
@@ -175,7 +175,7 @@ describe("resolveCleanupCandidates", () => {
   it("falls back to inactive alone when no default branch resolved", () => {
     // Default branch is the sole basis for merged and redundant alike, so both
     // are unanswerable. The dialog reports that rather than silently showing a
-    // short list: it is an on-demand query, and CONTEXT.md reserves silent
+    // short list: it is an on-demand query, and GLOSSARY.md reserves silent
     // disabling for the passive display.
     const result = resolveCleanupCandidates({
       branches: ["main", "was-merged", "old"],

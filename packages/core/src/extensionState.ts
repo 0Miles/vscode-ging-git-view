@@ -85,7 +85,7 @@ export class ExtensionState {
    *
    *  The predicate is membership *or* existence, not membership alone: a
    *  known repository is one this session already saw, so it needs no stat,
-   *  while `CONTEXT.md` promises that "an explicitly named path can bypass the
+   *  while `GLOSSARY.md` promises that "an explicitly named path can bypass the
    *  set and open directly" — which membership alone would break. */
   public setLastActiveRepo(repo: string | null) {
     const accepted =

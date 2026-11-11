@@ -86,4 +86,4 @@ merge 的三個處理方式沿用 #171 的代號:A 拒絕、B 只列 git 會重�
 
 - **`narrowed` 走既有的 `rebaseOnto` action,`interactive` 走新的 `rebaseInteractive`,而未動勾選走呼叫端原本那一個。** 三條路各自的參數與後果不同,共用同一個入口只會讓「未動勾選不改變任何事」變成需要證明的事,而不是看得出來的事。
 
-- **這份清單只在 webview 裡算得出來。** 它讀的是已載入的 commit 與它們的 parent,所以「範圍有多長」受限於 loaded commit window(CONTEXT.md)。窗外的部分不是空的,是未知的,而未知一律往「不可勾」倒。
+- **這份清單只在 webview 裡算得出來。** 它讀的是已載入的 commit 與它們的 parent,所以「範圍有多長」受限於 loaded commit window(GLOSSARY.md)。窗外的部分不是空的,是未知的,而未知一律往「不可勾」倒。
