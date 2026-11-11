@@ -6,13 +6,13 @@ import type {
   HostStorage,
   L10n,
   Opener,
-  PickItem,
   PickOptions,
   Prompts
 } from "@ging/core/host/ports";
 import type { Config } from "@ging/vscode/config";
 import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
 import { openCommitDiff } from "@ging/vscode/extension/openCommitDiff";
+import { quickPickItems } from "@ging/vscode/extension/quickPickItems";
 import * as l10nModule from "@ging/vscode/l10n";
 
 // The VS Code side of the host ports (see `@ging/core/host/ports`). Each is a
@@ -25,11 +25,6 @@ const quickPickOptions = ({ placeholder, matchOnDescription }: PickOptions = {})
   placeHolder: placeholder,
   matchOnDescription
 });
-
-/** The rows as QuickPick items: a `warning` row's label leads with the
- *  warning icon. */
-const quickPickItems = <T>(items: readonly PickItem<T>[]) =>
-  items.map((item) => (item.warning ? { ...item, label: `$(warning) ${item.label}` } : item));
 
 export const vscodePrompts: Prompts = {
   showInformation: (message) => void vscode.window.showInformationMessage(message),
