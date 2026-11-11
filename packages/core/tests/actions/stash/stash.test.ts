@@ -123,6 +123,56 @@ describe("stash actions", () => {
       }
     );
 
+    it("applies the agreed stash even when a push lands between the check and the apply", async () => {
+      repo = makeRepo();
+      fs.writeFileSync(path.join(repo, "f"), "older");
+      git(["stash", "push", "-m", "older"], repo);
+      const older = rev(repo, "stash@{0}");
+      let pushed = "";
+      // A push from elsewhere — the terminal, a `pull --autostash` — landing
+      // right after the check passed, before `stash apply` spawns.
+      const real = simpleGit(repo);
+      const racing = {
+        raw: async (args: string[]) => {
+          const out = await real.raw(args);
+          if (args[0] === "rev-parse" && pushed === "") {
+            fs.writeFileSync(path.join(repo, "f"), "pushed");
+            git(["stash", "push", "-m", "pushed"], repo);
+            pushed = rev(repo, "stash@{0}");
+          }
+          return out;
+        }
+      } as unknown as Parameters<typeof applyStash>[0];
+
+      await applyStash(racing, {
+        selector: "stash@{0}",
+        expectedHash: older,
+        reinstateIndex: false
+      });
+
+      expect(fs.readFileSync(path.join(repo, "f"), "utf8")).toBe("older");
+      expect(stack()).toEqual([pushed, older]);
+    });
+
+    // Pins the check in front of the apply-by-SHA: `git stash` takes an
+    // all-digit argument as a stash number, so without it this hash would
+    // apply `stash@{0}`.
+    it("refuses an expected hash the selector does not resolve to, touching nothing", async () => {
+      const { older, newer } = pushTwo();
+
+      const error = await rejection(
+        applyStash(simpleGit(repo), {
+          selector: "stash@{0}",
+          expectedHash: "0".repeat(40),
+          reinstateIndex: false
+        })
+      );
+
+      expect(error).toBeInstanceOf(StashMovedError);
+      expect(stack()).toEqual([newer, older]);
+      expect(fs.readFileSync(path.join(repo, "f"), "utf8")).toBe("x");
+    });
+
     it("acts on the stash when the hash still matches its new number", async () => {
       const { older, newer } = pushTwo();
 
