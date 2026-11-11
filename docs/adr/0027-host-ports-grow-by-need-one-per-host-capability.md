@@ -60,3 +60,5 @@ status: accepted
 - **回傳型別一律是 `PromiseLike<T | undefined>`,沒有用 overload 把「沒有選項」的那個寫成 `void`。** 理由同 `pick` / `pickMany` 拆開的那一條:回傳型別隨參數改變,port、VS Code 實作與 fake 就得各寫一組 overload。這裡沒有拆成兩個方法,是因為沒有選項時回答恆為 `undefined`,呼叫端照舊不必 `await`,型別不會騙人;port 的註解寫明了這一點,所以既有的四個呼叫端沒有改。
 
 命令服務共用的 [commandKit.ts](../../packages/core/src/extension/commandKit.ts) 多了 `runOrToast`:在 hook 之外對 repo 跑一段 git,失敗就照錯誤 key 跳通知。Set Git User Details 寫的是使用者身分,Statistics 只是讀,畫面上都沒有東西因此改變,所以兩者都不進 `runRepoMutation`;`listRemotesOrToast` 改成它的一個特例。
+
+kit 也多了不出聲的 `currentRepo`:Set Git User Details 在沒有 current repository 時不能像其他命令那樣說「沒有存放庫」就停,因為第一次設定時還沒有存放庫,要設的正是全域身分。所以它照樣問，只是範圍只剩「全域」。這時用的 client 是 `gitClientFor("")`,綁在沒有存放庫的地方,和 Version Info 問 `git --version` 的是同一個;`""` 的意思寫在 `CommandKitDeps.gitClientFor` 的註解上，桌面版的實作要照著做。
