@@ -64,6 +64,25 @@ export interface HostStorage {
   globalStoragePath: string;
 }
 
+/** One row of a `Prompts.pick`. */
+export type PickItem<T> = {
+  label: string;
+  /** Shown beside the label, dimmer. */
+  description?: string;
+  /** Checked when the pick opens; meaningful only with `canPickMany`. */
+  picked?: boolean;
+  /** What choosing this row answers. */
+  value: T;
+};
+
+export type PickOptions = {
+  placeholder?: string;
+  /** Check any number of rows, rather than choose one. */
+  canPickMany?: boolean;
+  /** Filter on the descriptions as well as the labels. */
+  matchOnDescription?: boolean;
+};
+
 /** Asking the user something, or telling them. Every answer is `undefined`
  *  when they dismissed the prompt. */
 export interface Prompts {
@@ -73,10 +92,22 @@ export interface Prompts {
   showWarning(message: string): void;
   /** An error notification offering `actions`; resolves to the one chosen. */
   showError(message: string, ...actions: string[]): PromiseLike<string | undefined>;
-  /** A modal question offering `actions` — the host adds its own way to say
-   *  no, so `actions` lists only the ways to say yes; resolves to the one
-   *  chosen. Only buttons: no checkbox, since the VS Code host has none. */
-  confirm(message: string, ...actions: string[]): PromiseLike<string | undefined>;
+  /** A modal question with one way to say yes, labelled `confirmLabel` — the
+   *  host adds its own way to say no. Resolves to whether it was said. Only
+   *  buttons: no checkbox, since the VS Code host has none. */
+  confirm(message: string, options: { confirmLabel: string }): PromiseLike<boolean>;
+  /** A choice among `items`, filtered as the user types; resolves to the
+   *  `value`s of the rows checked. Unlike `input`, a focus change may dismiss
+   *  it. */
+  pick<T>(
+    items: readonly PickItem<T>[],
+    options: PickOptions & { canPickMany: true }
+  ): PromiseLike<T[] | undefined>;
+  /** A choice of one among `items`; resolves to its `value`. */
+  pick<T>(
+    items: readonly PickItem<T>[],
+    options?: PickOptions & { canPickMany?: false }
+  ): PromiseLike<T | undefined>;
   /** Where to write a file; resolves to the chosen path. */
   pickSaveLocation(options: {
     saveLabel: string;
@@ -86,12 +117,13 @@ export interface Prompts {
   }): PromiseLike<string | undefined>;
   /** A line of text. The prompt stays up until it is answered or dismissed,
    *  not lost to a focus change: git may be blocked on it waiting for a
-   *  credential, and a stash's new name may be copied from elsewhere. */
+   *  credential, and a remote's URL or a stash's new name may be copied from
+   *  elsewhere. */
   input(options: {
     prompt: string;
-    placeholder: string;
+    placeholder?: string;
     /** Mask what is typed. */
-    password: boolean;
+    password?: boolean;
     /** Text the answer starts from, e.g. the name being changed. */
     value?: string;
   }): PromiseLike<string | undefined>;

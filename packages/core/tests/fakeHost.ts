@@ -1,5 +1,5 @@
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
-import type { HostPorts } from "@ging/core/host/ports";
+import type { HostPorts, PickItem, PickOptions } from "@ging/core/host/ports";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 // Fakes of what a host hands the core: its ports, and the channel to the
@@ -39,7 +39,9 @@ export function fakePorts() {
     };
   const answers = {
     showError: undefined as string | undefined,
-    confirm: undefined as string | undefined,
+    confirm: false,
+    /** What a `pick` answers: a value, or a list of them with `canPickMany`. */
+    pick: undefined as unknown,
     input: undefined as string | undefined,
     saveLocation: undefined as string | undefined,
     clipboard: Promise.resolve() as Promise<void>,
@@ -53,6 +55,12 @@ export function fakePorts() {
     calls.push(call);
     if (answers.openRejects) throw new Error("cannot open");
   };
+  // A declaration, not an arrow in the object: `Prompts.pick` is overloaded,
+  // and an overloaded method gives its parameters no contextual type.
+  async function pick(items: readonly PickItem<unknown>[], options?: PickOptions) {
+    calls.push(["pick", items, options]);
+    return answers.pick as never;
+  }
   const ports: HostPorts = {
     config: {
       signTags: () => false,
@@ -89,6 +97,7 @@ export function fakePorts() {
         calls.push(["confirm", ...args]);
         return answers.confirm;
       },
+      pick,
       pickSaveLocation: async (options) => {
         calls.push(["pickSaveLocation", options]);
         return answers.saveLocation;

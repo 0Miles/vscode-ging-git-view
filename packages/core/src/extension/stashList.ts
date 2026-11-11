@@ -119,12 +119,11 @@ export async function dropListedStash(
   host: ListedStashHost,
   shown: Pick<StashListItem, "hash" | "selector">
 ): Promise<"dropped" | "cancelled" | "refused" | "failed"> {
-  const drop = host.l10n.t("action.stashDrop");
-  const answer = await host.prompts.confirm(
+  const agreed = await host.prompts.confirm(
     host.l10n.t("dialog.stash.dropConfirm", shown.selector),
-    drop
+    { confirmLabel: host.l10n.t("action.stashDrop") }
   );
-  if (answer !== drop) return "cancelled";
+  if (!agreed) return "cancelled";
   const outcome = await runAgreed(host, "error.unableToDropStash", () =>
     dropStash(host.git, { selector: shown.selector, expectedHash: shown.hash })
   );
@@ -140,8 +139,6 @@ export async function renameListedStash(
   const message = (
     await host.prompts.input({
       prompt: host.l10n.t("dialog.stash.renameTitle", shown.selector),
-      placeholder: "",
-      password: false,
       value: shown.message
     })
   )?.trim();

@@ -1,7 +1,15 @@
 import * as vscode from "vscode";
 
 import type { DiffSide } from "@ging/core/extension/commitDiff";
-import type { Clipboard, HostStorage, L10n, Opener, Prompts } from "@ging/core/host/ports";
+import type {
+  Clipboard,
+  HostStorage,
+  L10n,
+  Opener,
+  PickItem,
+  PickOptions,
+  Prompts
+} from "@ging/core/host/ports";
 import type { Config } from "@ging/vscode/config";
 import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
 import { openCommitDiff } from "@ging/vscode/extension/openCommitDiff";
@@ -13,12 +21,36 @@ import * as l10nModule from "@ging/vscode/l10n";
 // logger, the repo manager, the file watcher — are those objects, passed as
 // they are.
 
+// `Prompts.pick` is overloaded on `canPickMany`, as `showQuickPick` is.
+function pick<T>(
+  items: readonly PickItem<T>[],
+  options: PickOptions & { canPickMany: true }
+): Promise<T[] | undefined>;
+function pick<T>(
+  items: readonly PickItem<T>[],
+  options?: PickOptions & { canPickMany?: false }
+): Promise<T | undefined>;
+async function pick<T>(
+  items: readonly PickItem<T>[],
+  { placeholder, canPickMany, matchOnDescription }: PickOptions = {}
+): Promise<T | T[] | undefined> {
+  const options = { placeHolder: placeholder, matchOnDescription };
+  if (canPickMany) {
+    return (await vscode.window.showQuickPick(items, { ...options, canPickMany: true }))?.map(
+      (item) => item.value
+    );
+  }
+  return (await vscode.window.showQuickPick(items, options))?.value;
+}
+
 export const vscodePrompts: Prompts = {
   showInformation: (message) => void vscode.window.showInformationMessage(message),
   showWarning: (message) => void vscode.window.showWarningMessage(message),
   showError: (message, ...actions) => vscode.window.showErrorMessage(message, ...actions),
-  confirm: (message, ...actions) =>
-    vscode.window.showWarningMessage(message, { modal: true }, ...actions),
+  confirm: async (message, { confirmLabel }) =>
+    (await vscode.window.showWarningMessage(message, { modal: true }, confirmLabel)) ===
+    confirmLabel,
+  pick,
   pickSaveLocation: async ({ saveLabel, filters, defaultPath }) =>
     (
       await vscode.window.showSaveDialog({
