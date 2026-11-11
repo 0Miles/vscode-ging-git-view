@@ -1,19 +1,17 @@
 import * as vscode from "vscode";
 
-import type { RepoGitClients } from "@ging/core/extension/repoGitClients";
+import type { ConfiguredRemote } from "@ging/core/backend/queries/listRemotes";
+import type { RemoteTarget } from "@ging/core/extension/remoteCommands";
 
-/** One configured remote of the active repo. */
-type RemoteInfo = {
-  name: string;
-  fetchUrl: string;
-  pushUrl: string;
-};
+/** A repo's configured remotes, with their URLs; rejects when they cannot be
+ *  read. */
+type ListRemotes = (repo: string) => Promise<ConfiguredRemote[]>;
 
 /** A TreeItem backed by one remote. Carries the remote and its repo so
  *  commands invoked from the context menu have everything they need. */
 class RemoteItem extends vscode.TreeItem {
   constructor(
-    public readonly remote: RemoteInfo,
+    public readonly remote: ConfiguredRemote,
     public readonly repo: string
   ) {
     super(remote.name, vscode.TreeItemCollapsibleState.None);
@@ -32,12 +30,12 @@ class RemoteItem extends vscode.TreeItem {
 class RemotesProvider implements vscode.TreeDataProvider<RemoteItem> {
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<RemoteItem | undefined | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-  private remotes: RemoteInfo[] = [];
+  private remotes: ConfiguredRemote[] = [];
   private repo: string | null = null;
   // Guards against an in-flight fetch being overwritten by a slower earlier one.
   private fetchId = 0;
 
-  constructor(private readonly gitClients: RepoGitClients) {}
+  constructor(private readonly listRemotes: ListRemotes) {}
 
   getRepo(): string | null {
     return this.repo;
@@ -69,13 +67,9 @@ class RemotesProvider implements vscode.TreeDataProvider<RemoteItem> {
       return;
     }
     try {
-      const raw = await this.gitClients.gitClientFor(repo).getRemotes(true);
+      const remotes = await this.listRemotes(repo);
       if (id !== this.fetchId) return; // superseded by a newer fetch
-      this.remotes = raw.map((r) => ({
-        name: r.name,
-        fetchUrl: r.refs.fetch ?? "",
-        pushUrl: r.refs.push ?? ""
-      }));
+      this.remotes = remotes;
     } catch {
       if (id !== this.fetchId) return;
       this.remotes = [];
@@ -97,16 +91,9 @@ class RemotesProvider implements vscode.TreeDataProvider<RemoteItem> {
   }
 }
 
-/** The remote a context-menu command operates on. */
-export type RemoteActionTarget = {
-  repo: string;
-  name: string;
-  fetchUrl: string;
-};
-
 /** Resolve the action target from a context-menu command argument (the clicked
  *  tree item), or null when it isn't a remote item. */
-export function remoteActionTarget(item: unknown): RemoteActionTarget | null {
+export function remoteActionTarget(item: unknown): RemoteTarget | null {
   if (item instanceof RemoteItem) {
     return { repo: item.repo, name: item.remote.name, fetchUrl: item.remote.fetchUrl };
   }
@@ -117,12 +104,13 @@ export type RemotesView = ReturnType<typeof createRemotesView>;
 
 /**
  * Create and wire the Remotes side-view: a flat native TreeView listing the
- * active repo's configured remotes. Mutations (add/edit/rename/remove) are
- * registered as commands in extension.ts; the view follows whichever repo is
- * active, exactly like the Branches view.
+ * active repo's configured remotes, read through `listRemotes`. Mutations
+ * (add/edit/rename/remove) are core's `remoteCommands`, registered as commands
+ * in extension.ts; the view follows whichever repo is active, exactly like the
+ * Branches view.
  */
-export function createRemotesView(gitClients: RepoGitClients) {
-  const provider = new RemotesProvider(gitClients);
+export function createRemotesView(listRemotes: ListRemotes) {
+  const provider = new RemotesProvider(listRemotes);
   const treeView = vscode.window.createTreeView<RemoteItem>("ging-git-view.remotes", {
     treeDataProvider: provider
   });

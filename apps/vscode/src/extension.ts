@@ -1,17 +1,9 @@
-import type { SimpleGit } from "simple-git";
 import * as vscode from "vscode";
 
 import { AvatarManager } from "@ging/core/avatarManager";
 import { createBranch } from "@ging/core/backend/actions/branch";
 import { resetToCommit } from "@ging/core/backend/actions/commit";
 import { listRemoteNames } from "@ging/core/backend/actions/fetch";
-import {
-  addRemote,
-  getRemoteUrl,
-  removeRemote,
-  renameRemote,
-  setRemoteUrl
-} from "@ging/core/backend/actions/remote";
 import { getUserDetails, setUserDetails } from "@ging/core/backend/actions/userDetails";
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { getCommitFileContent } from "@ging/core/backend/queries/commitFileContent";
@@ -26,6 +18,7 @@ import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
+import { createRemoteCommands, type RemoteTarget } from "@ging/core/extension/remoteCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
   resolveShowRemoteBranches,
@@ -63,11 +56,7 @@ import {
 } from "./extension/graphPanelWindow";
 import { createLogger } from "./extension/logger";
 import { managePullRequestProviders } from "./extension/pullRequestProviders";
-import {
-  createRemotesView,
-  remoteActionTarget,
-  type RemoteActionTarget
-} from "./extension/remotesView";
+import { createRemotesView, remoteActionTarget } from "./extension/remotesView";
 import { createRepoManager } from "./extension/repoManager";
 import { createRunRepoMutation } from "./extension/repoMutation";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
@@ -222,23 +211,37 @@ export function activate(context: vscode.ExtensionContext) {
     resolveExemptPatterns: config.inactiveBranchAlwaysShow,
     dateType: config.dateType
   });
-  // Every fetch, and the auto-fetch timer. The graph's own fetches take the git
-  // call alone, since its bridge mutes and refreshes around them; the `fetch`
-  // command, the timer and the Remotes view's fetch run inside this hook, which
-  // refreshes whether or not a graph is open.
+  // The changes made outside the graph's bridge — the fetch and remote commands,
+  // and the timer — run inside this hook, which refreshes whether or not a
+  // graph is open. The graph's own fetches take the git call alone, since its
+  // bridge mutes and refreshes around them.
+  const runRepoMutation = createRunRepoMutation({
+    watcher: () => currentWatcher,
+    afterMutation: () => refreshAfterRemoteChange()
+  });
+  const currentRepo = () => extensionState.getLastActiveRepo();
+  // Every fetch, and the auto-fetch timer.
   const fetchService = createFetchService({
     config,
     prompts: vscodePrompts,
     l10n: vscodeL10n,
     gitClientFor: repoGitClients.gitClientFor,
-    currentRepo: () => extensionState.getLastActiveRepo(),
-    runRepoMutation: createRunRepoMutation({
-      watcher: () => currentWatcher,
-      afterMutation: () => refreshAfterRemoteChange()
-    })
+    currentRepo,
+    runRepoMutation
   });
   fetchService.restartAutoFetch();
   context.subscriptions.push(fetchService);
+  // Remote management, from the Remotes side-view and the command palette.
+  const remoteCommands = createRemoteCommands({
+    prompts: vscodePrompts,
+    l10n: vscodeL10n,
+    gitClientFor: repoGitClients.gitClientFor,
+    currentRepo,
+    repoSource: repoManager,
+    broadcastRepos: () => repoManager.sendRepos(),
+    refreshGraph: () => currentBridge?.post({ command: "refresh" }),
+    runRepoMutation
+  });
   const branchesView = createBranchesView({
     branchFacts,
     filterStore: branchFilterStore,
@@ -264,7 +267,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Remotes side-view: a flat list of the active repo's remotes, sharing the
   // Branches view's data service and repo-following behaviour. Mutations are
   // registered as commands below.
-  const remotesView = createRemotesView(repoGitClients);
+  const remotesView = createRemotesView(remoteCommands.list);
   context.subscriptions.push(remotesView);
 
   // Stash side-view: watches the stash log itself, since the graph's watcher
@@ -717,9 +720,9 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   /** Refresh everything that may show remote state: both side-views (remote
-   *  renames/removals change remote-tracking refs) and an open graph. These
-   *  actions, and the fetches run inside `fetchService`'s hook, run against
-   *  `repoGitClients` rather than through the webview bridge, so they miss the
+   *  renames/removals change remote-tracking refs) and an open graph. The
+   *  fetch and remote commands, run inside `runRepoMutation`, go through
+   *  `repoGitClients` rather than the webview bridge, so they miss the
    *  mutation hook that would otherwise drop the cached read — and a refresh
    *  inside the coalescing window would then be served a snapshot still
    *  listing the remote-tracking branches just removed. */
@@ -730,22 +733,14 @@ export function activate(context: vscode.ExtensionContext) {
     currentBridge?.post({ command: "refresh" });
   };
 
-  // Run a Remotes side-view action against its repo's git instance, then
-  // refresh every surface that may be showing what it changed.
-  const runRemoteAction = async (
-    item: unknown,
-    errorKey: string,
-    action: (git: SimpleGit, target: RemoteActionTarget) => Promise<void>
-  ): Promise<void> => {
-    const target = remoteActionTarget(item);
-    if (target === null) return;
-    try {
-      await action(repoGitClients.gitClientFor(target.repo), target);
-      refreshAfterRemoteChange();
-    } catch (e: unknown) {
-      void vscode.window.showErrorMessage(l10n.t(errorKey) + ": " + formatGitError(e));
-    }
-  };
+  /** Run `command` on the remote a Remotes side-view menu was opened on;
+   *  nothing when it was opened on anything else. */
+  const onRemoteItem =
+    (command: (target: RemoteTarget) => Promise<void>) =>
+    async (item: unknown): Promise<void> => {
+      const target = remoteActionTarget(item);
+      if (target !== null) await command(target);
+    };
 
   // Follow the repo focused in the native Source Control view (`Repository.ui.selected`, which the
   // git API drives from the single focused repo). Open the graph on it, or switch an already-open
@@ -864,74 +859,25 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     // --- Remotes side-view commands ---
     vscode.commands.registerCommand("ging-git-view.remotes.refresh", () => remotesView.refresh()),
-    vscode.commands.registerCommand("ging-git-view.remotes.add", async () => {
-      const repo = remotesView.getActiveRepo();
-      if (repo === null) return;
-      const name = (
-        await vscode.window.showInputBox({
-          prompt: l10n.t("remotes.namePrompt"),
-          ignoreFocusOut: true
-        })
-      )?.trim();
-      if (!name) return;
-      const url = (
-        await vscode.window.showInputBox({
-          prompt: l10n.t("remotes.urlPrompt"),
-          ignoreFocusOut: true
-        })
-      )?.trim();
-      if (!url) return;
-      try {
-        await addRemote(repoGitClients.gitClientFor(repo), { name, url });
-        refreshAfterRemoteChange();
-      } catch (e: unknown) {
-        void vscode.window.showErrorMessage(
-          l10n.t("error.unableToManageRemote") + ": " + formatGitError(e)
-        );
-      }
-    }),
-    vscode.commands.registerCommand("ging-git-view.remotes.editUrl", (item: unknown) =>
-      runRemoteAction(item, "error.unableToManageRemote", async (git, target) => {
-        const url = (
-          await vscode.window.showInputBox({
-            prompt: l10n.t("remotes.urlPrompt"),
-            value: target.fetchUrl,
-            ignoreFocusOut: true
-          })
-        )?.trim();
-        if (!url || url === target.fetchUrl) return; // cancelled / unchanged
-        await setRemoteUrl(git, { name: target.name, url });
-      })
+    vscode.commands.registerCommand("ging-git-view.remotes.add", () =>
+      remoteCommands.add(remotesView.getActiveRepo())
     ),
-    vscode.commands.registerCommand("ging-git-view.remotes.rename", (item: unknown) =>
-      runRemoteAction(item, "error.unableToManageRemote", async (git, target) => {
-        const newName = (
-          await vscode.window.showInputBox({
-            prompt: l10n.t("remotes.renamePrompt"),
-            value: target.name,
-            ignoreFocusOut: true
-          })
-        )?.trim();
-        if (!newName || newName === target.name) return; // cancelled / unchanged
-        await renameRemote(git, { oldName: target.name, newName });
-      })
+    vscode.commands.registerCommand(
+      "ging-git-view.remotes.editUrl",
+      onRemoteItem(remoteCommands.editUrl)
     ),
-    vscode.commands.registerCommand("ging-git-view.remotes.remove", (item: unknown) =>
-      runRemoteAction(item, "error.unableToManageRemote", async (git, target) => {
-        const yes = l10n.t("remotes.removeConfirmYes");
-        const confirm = await vscode.window.showWarningMessage(
-          l10n.t("remotes.removeConfirm", target.name),
-          { modal: true },
-          yes
-        );
-        if (confirm !== yes) return; // cancelled
-        await removeRemote(git, { name: target.name });
-      })
+    vscode.commands.registerCommand(
+      "ging-git-view.remotes.rename",
+      onRemoteItem(remoteCommands.rename)
     ),
-    vscode.commands.registerCommand("ging-git-view.remotes.fetchOne", async (item: unknown) => {
-      const target = remoteActionTarget(item);
-      if (target !== null) await fetchService.fetchOneCommand(target.repo, target.name);
-    }),
+    vscode.commands.registerCommand(
+      "ging-git-view.remotes.remove",
+      onRemoteItem(remoteCommands.remove)
+    ),
+    vscode.commands.registerCommand(
+      "ging-git-view.remotes.fetchOne",
+      onRemoteItem((target) => fetchService.fetchOneCommand(target.repo, target.name))
+    ),
     vscode.commands.registerCommand("ging-git-view.remotes.copyUrl", (item: unknown) => {
       const target = remoteActionTarget(item);
       if (target !== null) void vscode.env.clipboard.writeText(target.fetchUrl);
@@ -944,71 +890,11 @@ export function activate(context: vscode.ExtensionContext) {
       "ging-git-view.managePullRequestProviders",
       (host?: string | null) => managePullRequestProviders(host)
     ),
-    vscode.commands.registerCommand("ging-git-view.manageRemotes", async () => {
-      // View/add/edit/delete remotes; offered as a command since neo has
-      // no settings widget.
-      const git = gitClient.getInstance();
-      try {
-        const remotes = await listRemoteNames(git);
-        const addLabel = l10n.t("remotes.add");
-        const choice = await vscode.window.showQuickPick([...remotes, addLabel], {
-          placeHolder: l10n.t("remotes.pickPrompt")
-        });
-        if (choice === undefined) return;
-        if (choice === addLabel) {
-          const name = await vscode.window.showInputBox({
-            prompt: l10n.t("remotes.namePrompt"),
-            ignoreFocusOut: true
-          });
-          if (!name) return;
-          const url = await vscode.window.showInputBox({
-            prompt: l10n.t("remotes.urlPrompt"),
-            ignoreFocusOut: true
-          });
-          if (url === undefined) return;
-          await addRemote(git, { name: name.trim(), url: url.trim() });
-        } else {
-          const editUrl = l10n.t("remotes.editUrl");
-          const rename = l10n.t("remotes.rename");
-          const remove = l10n.t("remotes.remove");
-          const action = await vscode.window.showQuickPick([editUrl, rename, remove], {
-            placeHolder: l10n.t("remotes.actionPrompt", choice)
-          });
-          if (action === undefined) return;
-          if (action === editUrl) {
-            const url = await vscode.window.showInputBox({
-              prompt: l10n.t("remotes.urlPrompt"),
-              value: await getRemoteUrl(git, choice),
-              ignoreFocusOut: true
-            });
-            if (url === undefined) return;
-            await setRemoteUrl(git, { name: choice, url: url.trim() });
-          } else if (action === rename) {
-            const newName = await vscode.window.showInputBox({
-              prompt: l10n.t("remotes.renamePrompt"),
-              value: choice,
-              ignoreFocusOut: true
-            });
-            if (!newName || newName.trim() === choice) return;
-            await renameRemote(git, { oldName: choice, newName: newName.trim() });
-          } else {
-            const yes = l10n.t("remotes.removeConfirmYes");
-            const confirm = await vscode.window.showWarningMessage(
-              l10n.t("remotes.removeConfirm", choice),
-              { modal: true },
-              yes
-            );
-            if (confirm !== yes) return;
-            await removeRemote(git, { name: choice });
-          }
-        }
-        refreshAfterRemoteChange();
-      } catch (e: unknown) {
-        void vscode.window.showErrorMessage(
-          l10n.t("error.unableToManageRemote") + ": " + (e instanceof Error ? e.message : String(e))
-        );
-      }
-    }),
+    // View/add/edit/delete remotes; offered as a command since neo has no
+    // settings widget.
+    vscode.commands.registerCommand("ging-git-view.manageRemotes", () =>
+      remoteCommands.manageRemotes()
+    ),
     vscode.commands.registerCommand("ging-git-view.fetchRemote", async () => {
       // Fetch a single chosen remote, offered as a command.
       try {
@@ -1119,49 +1005,10 @@ export function activate(context: vscode.ExtensionContext) {
         void vscode.window.showErrorMessage(l10n.t("exportConfig.failed") + ": " + error);
       }
     }),
-    vscode.commands.registerCommand("ging-git-view.toggleRemoteVisibility", async () => {
-      // Show/hide the branches of individual remotes for the current repo.
-      const repo = extensionState.getLastActiveRepo();
-      const repos = repoManager.getRepos();
-      if (!repo || !repos[repo]) {
-        void vscode.window.showInformationMessage(l10n.t("repoName.noRepos"));
-        return;
-      }
-      const remotes = await listRemoteNames(gitClient.getInstance());
-      if (remotes.length === 0) {
-        void vscode.window.showInformationMessage(l10n.t("fetch.noRemotes"));
-        return;
-      }
-      const hidden = repos[repo].hiddenRemotes ?? [];
-      const picked = await vscode.window.showQuickPick(
-        remotes.map((r) => ({ label: r, picked: !hidden.includes(r) })),
-        { canPickMany: true, placeHolder: l10n.t("remoteVisibility.prompt") }
-      );
-      if (picked === undefined) return; // cancelled
-      const visible = new Set(picked.map((p) => p.label));
-      const newHidden = remotes.filter((r) => !visible.has(r));
-      // Re-read rather than spreading `repos[repo]`, which was captured two
-      // awaits ago — before `listRemoteNames` and before the user answered the
-      // quick pick, a wait with no upper bound. Anything the webview persisted
-      // in between (a column drag, a details-panel resize, the commit ordering)
-      // is in the manager's copy and not in that snapshot, so spreading it
-      // writes those back to their old values *and* broadcasts the result as
-      // the current state. The repo can also have left the set while the pick
-      // was open, and there is nothing to update then.
-      const current = repoManager.getRepos()[repo];
-      if (current === undefined) return;
-      repoManager.setRepoState(repo, { ...current, hiddenRemotes: newHidden });
-      // The reload rides on the state, not on the refresh below. `hiddenRemotes`
-      // becomes `--exclude=<remote>/*`, which makes this a navigation, and the
-      // graph recognises it by comparing the set it receives here against the
-      // one it has been loading under (ADR-0024). The refresh is kept because a
-      // repo the graph is not currently showing still wants one, and on the
-      // shown repo it now lands on the navigation's own load and is dropped —
-      // which is the whole reason it could not be trusted to do this job: a
-      // plain refresh is droppable, and a load already out swallowed it.
-      repoManager.sendRepos();
-      currentBridge?.post({ command: "refresh" });
-    }),
+    // Show/hide the branches of individual remotes for the current repo.
+    vscode.commands.registerCommand("ging-git-view.toggleRemoteVisibility", () =>
+      remoteCommands.toggleRemoteVisibility()
+    ),
     vscode.commands.registerCommand("ging-git-view.setRepoName", async () => {
       // Custom display name for a repo in the Repo dropdown; a command
       // since neo has no settings widget.
@@ -1187,7 +1034,8 @@ export function activate(context: vscode.ExtensionContext) {
       const trimmed = name.trim();
       // Re-read: `repos` was captured before the quick pick and the input box,
       // and spreading it would write back whatever the webview persisted while
-      // they were open. Same reason as `toggleRemoteVisibility` above.
+      // they were open. Same reason as `toggleRemoteVisibility` (in core's
+      // `remoteCommands`).
       const current = repoManager.getRepos()[repo];
       if (current === undefined) return;
       repoManager.setRepoState(repo, {
