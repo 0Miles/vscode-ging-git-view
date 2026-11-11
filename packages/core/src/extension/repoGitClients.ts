@@ -18,7 +18,8 @@ export function createRepoGitClients(deps: {
   onCommand?: GitCommandHandler;
 }) {
   return {
-    gitClientFor: (repo: string): SimpleGit =>
+    /** `null` binds the client to no repository; see `gitClientFactory`. */
+    gitClientFor: (repo: string | null): SimpleGit =>
       gitClientFactory(repo, deps.gitPath(), deps.onCommand, deps.gitEnv).getInstance()
   };
 }

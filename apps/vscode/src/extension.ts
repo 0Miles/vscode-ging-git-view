@@ -285,7 +285,6 @@ export function activate(context: vscode.ExtensionContext) {
     gitClientFor: repoGitClients.gitClientFor,
     currentRepo,
     repoSource: repoManager,
-    runRepoMutation,
     hostVersions: [
       { name: "GING", version: context.extension.packageJSON.version },
       { name: "Visual Studio Code", version: vscode.version }

@@ -263,6 +263,15 @@ describe("auto-fetch", () => {
     expect(h.calls).toEqual([]);
   });
 
+  it("skips a tick, silently, when the current repository is no longer known", async () => {
+    const h = harness();
+    h.settings.autoFetch = true;
+    h.setCurrentRepo("/gone");
+    h.service.restartAutoFetch();
+    await vi.advanceTimersByTimeAsync(10 * MINUTE);
+    expect(h.calls).toEqual([]);
+  });
+
   it("skips a tick while the last tick's fetch is still running", async () => {
     let finish!: () => void;
     let started = 0;

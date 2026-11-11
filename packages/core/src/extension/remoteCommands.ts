@@ -12,7 +12,12 @@ import {
   setRemoteUrl
 } from "@ging/core/backend/actions/remote";
 import { type ConfiguredRemote, listRemotes } from "@ging/core/backend/queries/listRemotes";
-import { type CommandKitDeps, confirm, createCommandKit } from "@ging/core/extension/commandKit";
+import {
+  type CommandKitDeps,
+  confirm,
+  createMutatingCommandKit,
+  type MutationDeps
+} from "@ging/core/extension/commandKit";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
 
 /** The remote a command acts on, as it was listed. */
@@ -22,15 +27,16 @@ export type RemoteTarget = {
   fetchUrl: string;
 };
 
-export type RemoteCommandsDeps = CommandKitDeps & {
-  prompts: Pick<
-    Prompts,
-    "pick" | "pickMany" | "choose" | "input" | "showInformation" | "showError"
-  >;
-  repoSource: Pick<RepoSource, "getRepos" | "updateRepoState">;
-  /** Ask an open graph to reload. */
-  refreshGraph: () => void;
-};
+export type RemoteCommandsDeps = CommandKitDeps &
+  MutationDeps & {
+    prompts: Pick<
+      Prompts,
+      "pick" | "pickMany" | "choose" | "input" | "showInformation" | "showError"
+    >;
+    repoSource: Pick<RepoSource, "getRepos" | "updateRepoState">;
+    /** Ask an open graph to reload. */
+    refreshGraph: () => void;
+  };
 
 export type RemoteCommands = ReturnType<typeof createRemoteCommands>;
 
@@ -38,7 +44,7 @@ const MANAGE_FAILED = "error.unableToManageRemote";
 
 export function createRemoteCommands(deps: RemoteCommandsDeps) {
   const { prompts, l10n } = deps;
-  const kit = createCommandKit(deps);
+  const kit = createMutatingCommandKit(deps);
 
   /** The answer to `prompt`, trimmed, starting from `current` when there is
    *  one; `undefined` when it was dismissed, left blank or left as `current`. */

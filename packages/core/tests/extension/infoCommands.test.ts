@@ -1,17 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { createInfoCommands, type InfoCommandsDeps } from "@ging/core/extension/infoCommands";
+import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 
-import {
-  fakeGit,
-  fakePorts,
-  type PromptReply,
-  recordingRunRepoMutation
-} from "@ging/core/tests/helpers";
+import { fakeGit, fakePorts, type PromptReply } from "@ging/core/tests/helpers";
 
 // Set Git User Details, Version Info and Statistics, driven the way a user
 // drives them: each question answered in turn from a script, and one ordered
-// log showing what was asked, which git commands ran, and what was said.
+// log showing what was asked, which git commands ran, and what was said. None
+// of them is handed the host's `runRepoMutation`: none changes what a view
+// shows.
 
 const REPO = "/repo";
 
@@ -25,7 +23,6 @@ function harness(options: { repo?: string | null } = {}) {
     gitClientFor: git.clientFor,
     currentRepo: () => (options.repo === undefined ? REPO : options.repo),
     repoSource: { getRepos: () => ({ [REPO]: { columnWidths: null } }) },
-    runRepoMutation: recordingRunRepoMutation(calls),
     hostVersions: [
       { name: "GING", version: "1.2.3" },
       { name: "Visual Studio Code", version: "1.99.0" }
@@ -35,7 +32,6 @@ function harness(options: { repo?: string | null } = {}) {
     commands: createInfoCommands(deps),
     deps,
     calls,
-    answers,
     git: git.state,
     /** Queue the user's answers, in the order the questions come. */
     answer: (...replies: PromptReply[]) => answers.replies.push(...replies)
@@ -50,12 +46,8 @@ const SCOPE_PICK = [
   { placeholder: "userDetails.scopePrompt" }
 ];
 
-const ranInHook = ([name]: unknown[]) => String(name).startsWith("runRepoMutation");
+const ranGit = ([name]: unknown[]) => name === "git";
 const said = ([name]: unknown[]) => name === "showInformation";
-
-/** The calls that ran git or the hook: none, for a flow that changed nothing. */
-const effects = (calls: unknown[][]) =>
-  calls.filter((call) => call[0] === "git" || ranInHook(call));
 
 describe("Set Git User Details", () => {
   it("asks starting from the current name and email, then where, and sets them there", async () => {
@@ -79,7 +71,7 @@ describe("Set Git User Details", () => {
     const h = harness();
     h.answer("Ada", "ada@example.com", "userDetails.scopeGlobal");
     await h.commands.setGitUserDetails();
-    expect(effects(h.calls).slice(-2)).toEqual([
+    expect(h.calls.filter(ranGit).slice(-2)).toEqual([
       ["git", REPO, "config", "--global", "user.name", "Ada"],
       ["git", REPO, "config", "--global", "user.email", "ada@example.com"]
     ]);
@@ -89,16 +81,9 @@ describe("Set Git User Details", () => {
     const h = harness();
     h.answer("Ada", "  ", "userDetails.scopeLocal");
     await h.commands.setGitUserDetails();
-    expect(effects(h.calls).slice(-1)).toEqual([
+    expect(h.calls.filter(ranGit).slice(-1)).toEqual([
       ["git", REPO, "config", "--local", "--unset", "user.email"]
     ]);
-  });
-
-  it("is not a change to the repo: nothing runs inside the hook", async () => {
-    const h = harness();
-    h.answer("Ada", "ada@example.com", "userDetails.scopeLocal");
-    await h.commands.setGitUserDetails();
-    expect(h.calls.some(ranInHook)).toBe(false);
   });
 
   it.each([
@@ -109,7 +94,7 @@ describe("Set Git User Details", () => {
     const h = harness();
     h.answer(...replies);
     await h.commands.setGitUserDetails();
-    expect(effects(h.calls)).toEqual([READ_NAME, READ_EMAIL]);
+    expect(h.calls.filter(ranGit)).toEqual([READ_NAME, READ_EMAIL]);
     expect(h.calls.some(said)).toBe(false);
   });
 
@@ -131,19 +116,19 @@ describe("Set Git User Details", () => {
   it.each([
     ["there is no current repository", null],
     ["the current repository is no longer known", "/gone"]
-  ])("offers only the global config when %s", async (_case, repo) => {
+  ])("offers only the global config, on no repository, when %s", async (_case, repo) => {
     const h = harness({ repo });
     h.git.output = { "config --get user.name": "Ada\n" };
     h.answer("Ada", "ada@example.com", "userDetails.scopeGlobal");
     await h.commands.setGitUserDetails();
     expect(h.calls).toEqual([
-      ["git", "", "config", "--get", "user.name"],
-      ["git", "", "config", "--get", "user.email"],
+      ["git", null, "config", "--get", "user.name"],
+      ["git", null, "config", "--get", "user.email"],
       ["input", { prompt: "userDetails.namePrompt", value: "Ada" }],
       ["input", { prompt: "userDetails.emailPrompt", value: "" }],
       ["pick", [{ label: "userDetails.scopeGlobal" }], { placeholder: "userDetails.scopePrompt" }],
-      ["git", "", "config", "--global", "user.name", "Ada"],
-      ["git", "", "config", "--global", "user.email", "ada@example.com"],
+      ["git", null, "config", "--global", "user.name", "Ada"],
+      ["git", null, "config", "--global", "user.email", "ada@example.com"],
       ["showInformation", "userDetails.updated"]
     ]);
   });
@@ -179,7 +164,7 @@ describe("Version Info", () => {
     h.git.output = { "--version": "git version 2.47.1\n" };
     await h.commands.versionInfo();
     expect(h.calls).toEqual([
-      ["git", "", "--version"],
+      ["git", null, "--version"],
       ["showInformation", INFO, { modal: true, actions: ["versionInfo.copy"] }]
     ]);
   });
@@ -187,17 +172,28 @@ describe("Version Info", () => {
   it("copies exactly what it showed when asked to", async () => {
     const h = harness();
     h.git.output = { "--version": "git version 2.47.1\n" };
-    h.answers.showInformation = "versionInfo.copy";
+    h.answer("versionInfo.copy");
     await h.commands.versionInfo();
     expect(h.calls.at(-1)).toEqual(["writeText", INFO]);
   });
 
-  it("asks git no repository's question, so it answers with no repository at all", async () => {
+  it("asks git on no repository, so it answers with no repository at all", async () => {
     const h = harness({ repo: null });
     h.git.output = { "--version": "git version 2.47.1\n" };
     await h.commands.versionInfo();
-    expect(h.calls[0]).toEqual(["git", "", "--version"]);
+    expect(h.calls[0]).toEqual(["git", null, "--version"]);
     expect(h.calls).not.toContainEqual(["showInformation", "repoName.noRepos"]);
+  });
+
+  it("runs the real git on a client bound to no repository", async () => {
+    const h = harness();
+    const commands = createInfoCommands({
+      ...h.deps,
+      gitClientFor: createRepoGitClients({ gitPath: () => "git" }).gitClientFor
+    });
+    await commands.versionInfo();
+    const [, shown] = h.calls.at(-1) as [string, string];
+    expect(shown.split("\n").at(-1)).toMatch(/^git version \d/);
   });
 
   it("reports what it can when git cannot be run", async () => {
@@ -229,12 +225,6 @@ describe("Statistics", () => {
         { name: "Bob", count: 1 }
       ]
     });
-  });
-
-  it("is a read: nothing runs inside the hook", async () => {
-    const h = harness();
-    await h.commands.statistics();
-    expect(h.calls.some(ranInHook)).toBe(false);
   });
 
   it("answers nothing after reporting git's failure", async () => {

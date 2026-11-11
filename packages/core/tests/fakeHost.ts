@@ -27,11 +27,12 @@ export function fakeGit(calls: unknown[][]) {
     output: {} as Record<string, string>,
     failure: undefined as string | undefined
   };
-  const run = (repo: string, argv: string[]) => {
+  const run = (repo: string | null, argv: string[]) => {
     calls.push(["git", repo, ...argv]);
     if (state.failure !== undefined) throw new Error(state.failure);
   };
-  const clientFor = (repo: string) =>
+  /** `null` is the client bound to no repository. */
+  const clientFor = (repo: string | null) =>
     ({
       getRemotes: async (verbose?: boolean) => {
         run(repo, ["remote", ...(verbose ? ["-v"] : [])]);
@@ -95,13 +96,14 @@ export function fakePorts() {
     };
   const answers = {
     showError: undefined as string | undefined,
+    /** Answers to the questions `choose`, `pick`, `pickMany`, `input` and a
+     *  `showInformation` with options ask, in the order they are asked: the
+     *  label clicked or picked (labels, for a `pickMany`), or the text typed;
+     *  `undefined` dismisses. Once it runs out, each question takes its own
+     *  answer below. */
+    replies: [] as PromptReply[],
     /** The label of the action clicked on an information message. */
     showInformation: undefined as string | undefined,
-    /** Answers to the questions `choose`, `pick`, `pickMany` and `input` ask,
-     *  in the order they are asked: the label clicked or picked (labels, for a
-     *  `pickMany`), or the text typed; `undefined` dismisses. Once it runs out,
-     *  each question takes its own answer below. */
-    replies: [] as PromptReply[],
     /** The label of the action clicked. */
     choose: undefined as string | undefined,
     /** The label of the row picked. */
@@ -149,7 +151,7 @@ export function fakePorts() {
       })
     },
     prompts: {
-      // A plain notice is logged as before, as its message alone.
+      // A plain notice is logged as its message alone, and asks nothing.
       showInformation: async (message, options) => {
         if (options === undefined) {
           calls.push(["showInformation", message]);
@@ -157,7 +159,8 @@ export function fakePorts() {
         }
         const { modal, actions = [] } = options;
         calls.push(["showInformation", message, { modal, actions: actions.map((a) => a.label) }]);
-        return actions.find((action) => action.label === answers.showInformation)?.value;
+        const label = reply(answers.showInformation);
+        return actions.find((action) => action.label === label)?.value;
       },
       showWarning: record("showWarning"),
       showError: async (...args) => {

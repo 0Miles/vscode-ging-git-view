@@ -1,8 +1,8 @@
 /**
  * The commands that tell the user about their setup or set who they commit
  * as: Statistics on the current repository, Set Git User Details on it or
- * globally, and Version Info, which needs none. None changes anything a view shows,
- * so none runs inside the host's `runRepoMutation`. Statistics answers its
+ * globally, and Version Info, which needs none. None changes anything a view
+ * shows, so none needs the host's `runRepoMutation`. Statistics answers its
  * figures and leaves drawing them to the host.
  */
 
@@ -34,7 +34,7 @@ export function createInfoCommands(deps: InfoCommandsDeps) {
    *  was last seen does not make git unknown. */
   const gitVersion = async (): Promise<string> => {
     try {
-      return (await deps.gitClientFor("").raw(["--version"])).trim();
+      return (await deps.gitClientFor(null).raw(["--version"])).trim();
     } catch {
       return "git: unknown";
     }
@@ -48,7 +48,7 @@ export function createInfoCommands(deps: InfoCommandsDeps) {
      *  blank is unset. */
     async setGitUserDetails(): Promise<void> {
       const repo = kit.currentRepo();
-      const current = await kit.runOrToast(USER_DETAILS_FAILED, repo ?? "", getUserDetails);
+      const current = await kit.runOrToast(USER_DETAILS_FAILED, repo, getUserDetails);
       if (current === undefined) return;
       const name = await prompts.input({
         prompt: l10n.t("userDetails.namePrompt"),
@@ -68,10 +68,11 @@ export function createInfoCommands(deps: InfoCommandsDeps) {
         { placeholder: l10n.t("userDetails.scopePrompt") }
       );
       if (useGlobal === undefined) return;
-      await kit.runOrToast(USER_DETAILS_FAILED, repo ?? "", async (git) => {
+      const set = await kit.runOrToast(USER_DETAILS_FAILED, repo, async (git) => {
         await setUserDetails(git, { name: name.trim(), email: email.trim(), useGlobal });
-        prompts.showInformation(l10n.t("userDetails.updated"));
+        return true;
       });
+      if (set === true) prompts.showInformation(l10n.t("userDetails.updated"));
     },
 
     /** The host's versions, the OS and git's, in a modal that offers to copy

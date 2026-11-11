@@ -8,9 +8,11 @@ export type { GitCommandHandler } from "./gitSpawn";
 export type GitClient = ReturnType<typeof gitClientFactory>;
 export type GitInstance = GitClient["getInstance"];
 
-function gitOptions(repoPath: string, gitPath: string): Partial<SimpleGitOptions> {
+/** `null` is no repository: simple-git then runs git where the host process
+ *  is, for a question that is git's own or the global config's. */
+function gitOptions(repoPath: string | null, gitPath: string): Partial<SimpleGitOptions> {
   return {
-    baseDir: repoPath,
+    ...(repoPath !== null && { baseDir: repoPath }),
     binary: gitPath,
     maxConcurrentProcesses: 6,
     trimmed: false,
@@ -25,7 +27,7 @@ function gitOptions(repoPath: string, gitPath: string): Partial<SimpleGitOptions
 }
 
 export function gitClientFactory(
-  repoPath: string,
+  repoPath: string | null,
   gitPath: string,
   onCommand?: GitCommandHandler,
   // Extra environment for spawned git processes — e.g. the GIT_ASKPASS handles
@@ -35,7 +37,7 @@ export function gitClientFactory(
 ) {
   // 明確收下 baseDir 與 binary,而不是讀閉包變數:setter 因此能先建構、確定成功
   // 之後才寫回狀態(見下方)。
-  const create = (forRepoPath: string, forGitPath: string): SimpleGit => {
+  const create = (forRepoPath: string | null, forGitPath: string): SimpleGit => {
     const instance = simpleGit(gitOptions(forRepoPath, forGitPath));
     instance.env(gitChildEnv(gitEnv));
     if (onCommand !== undefined) {
