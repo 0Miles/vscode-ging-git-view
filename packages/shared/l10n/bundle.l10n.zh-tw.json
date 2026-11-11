@@ -86,7 +86,7 @@
   "dialog.redundancy.noDefaultBranch": "無法判斷 {0} 有沒有未合併變更：這個存放庫偵測不到 default branch。",
   "dialog.redundancy.noMergeBase": "無法判斷 {0} 有沒有未合併變更：它與 default branch 沒有共同的歷史。",
   "dialog.redundancy.unsupported": "無法判斷 {0} 有沒有未合併變更：這項檢查需要 git 2.38 以上。",
-  "dialog.stash.reinstateIndex": "Reinstate index（已暫存的變更）",
+  "dialog.stash.reinstateIndex": "還原 index（已暫存的變更）",
   "dialog.stash.applyConfirm": "套用 stash {0}？",
   "dialog.stash.popConfirm": "彈出 stash {0}？",
   "dialog.stash.dropConfirm": "確定要刪除 stash {0} 嗎？",
