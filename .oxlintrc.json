@@ -106,6 +106,29 @@
           }
         ]
       }
+    },
+    {
+      // apps/vscode leaves git operations to core's command services; the
+      // reasons and the whitelist are in ADR-0027's consequences.
+      "files": ["apps/vscode/src/**"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@ging/core/backend/actions/**",
+                  "@ging/core/backend/queries/**",
+                  "!@ging/core/backend/queries/commitFileContent"
+                ],
+                "allowTypeImports": true,
+                "message": "apps/vscode must not run core's git operations itself; put the flow in a core command service and register it here. Type imports are fine."
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

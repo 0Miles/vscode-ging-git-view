@@ -28,7 +28,7 @@ status: accepted
 
 - **dispatch 需要新的宿主能力時,加在對應的 port 上,並同時補 VS Code 實作與 `fakeHost`。** 先有呼叫端;找不到對應的 port、而且那件事每個宿主都會有時,才開新的 port。只有 VS Code 版才有的介面走 hook,見上。
 - **port 的註解就是契約,桌面版要照著實作。** 例如 `Prompts.input` 必須在焦點移開後仍然留著(askpass 讓 git 卡在它上面等),`Watcher.mute` 期間的變更不得觸發重新整理(ADR-0013)。
-- **還有宿主相依的 git 操作不在 core。** `extension.ts` 的命令 handler 仍直接跑 git(fetch、remote 管理、reflog、`createBranch`、`resetToCommit` 等),blame 的查詢也還在 app。這些由 #339 承接。側檢視(TreeView)與命令註冊則本來就屬於 `apps/vscode`。
+- **命令 handler 的 git 操作都在 core,`apps/vscode` 只註冊命令,這條由 lint 守住。** #339 把 `extension.ts` 命令 handler 裡的 git 流程(fetch 與自動 fetch、remote 管理、reflog、user details、version info、statistics)搬進 core 的命令服務([fetchService.ts](../../packages/core/src/extension/fetchService.ts)、[remoteCommands.ts](../../packages/core/src/extension/remoteCommands.ts)、[reflogCommand.ts](../../packages/core/src/extension/reflogCommand.ts)、[infoCommands.ts](../../packages/core/src/extension/infoCommands.ts),共用 [commandKit.ts](../../packages/core/src/extension/commandKit.ts))。`.oxlintrc.json` 對 `apps/vscode/src/**` 設了 `no-restricted-imports`:不能 value import `@ging/core/backend/actions/**` 與 `queries/**`(含更深的子路徑),`import type` 可以。白名單只有兩處。一是 `DiffDocProvider` 的 reader(`queries/commitFileContent`,在規則的 pattern 裡放行):revision 在建立 URI 之前就換算好了,剩下唯一跟宿主有關的是 VS Code 依 workspace folder scope 解析的 `fileEncoding`。二是 `blameController` 的 blame 與 `gitDirs` 查詢(在那幾行 import 上逐行關掉):查詢本身在 core,這個檔案只剩 decoration、cache、排程這些 editor 接線。規則不看 git client 的方法呼叫(例如 `.raw(`),今天 `apps/vscode/src` 沒有這種呼叫。規則也不看動態 `import()`,今天 `apps/vscode/src` 沒有任何動態 `import()`。側檢視(TreeView)與命令註冊本來就屬於 `apps/vscode`。
 - 套件分層與邊界的強制方式見 ADR-0026。
 
 ## 補記(2026-11-11,#352)
@@ -48,7 +48,7 @@ status: accepted
 - **`RepoSource.updateRepoState(repo, patch)`**:以寫入當下的 state 為準合併、寫入、廣播,repo 不在集合裡就什麼都不做。理由跟 `dropRepo` 相同:graph 自己留著一份 repo state,下次存任何東西時會整份寫回,沒聽到廣播的寫入就會被它蓋掉,所以寫入與廣播放在同一個方法裡。呼叫端是 Show/Hide Remotes,以及 VS Code 這邊兩處原本手寫這兩步的地方(側檢視的顯示切換、`setRepoName`)。
 - **`RunRepoMutation` 的型別搬到 ports.ts。** 它是宿主交給 core 命令服務的 hook,不在 `HostPorts` 裡;放在 ports.ts,是讓 remote 命令不必只為了一個型別去 import fetch 服務。
 
-「後果」第三條列的 fetch 與 remote 管理,現在都已經在 core。
+「後果」第三條原本列的 fetch 與 remote 管理,現在都已經在 core。
 
 ## 補記(2026-11-11,#353)
 

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-import { SquashMessageFormat } from "@ging/core/backend/actions/merge";
+import type { SquashMessageFormat } from "@ging/core/backend/actions/merge";
 import { resolveGitPath } from "@ging/core/backend/utils/gitPath";
 import { normalizeKeybinding } from "@ging/core/backend/utils/keybinding";
 import {
