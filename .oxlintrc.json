@@ -106,6 +106,32 @@
           }
         ]
       }
+    },
+    {
+      // apps/vscode registers commands and wires the editor; the git operations,
+      // and the flows around them, live in core (#339). Types still come over.
+      // commitFileContent is DiffDocProvider's reader: the revision is resolved
+      // before the URI is made, and all that is left is VS Code's folder-scoped
+      // fileEncoding. blameController's queries are allowed line by line there.
+      "files": ["apps/vscode/src/**"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@ging/core/backend/actions/*",
+                  "@ging/core/backend/queries/*",
+                  "!@ging/core/backend/queries/commitFileContent"
+                ],
+                "allowTypeImports": true,
+                "message": "apps/vscode must not run core's git operations itself; put the flow in a core command service and register it here. Type imports are fine."
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }
