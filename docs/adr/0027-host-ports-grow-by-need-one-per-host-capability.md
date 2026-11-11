@@ -49,3 +49,11 @@ status: accepted
 - **`RunRepoMutation` 的型別搬到 ports.ts。** 它是宿主交給 core 命令服務的 hook,不在 `HostPorts` 裡;放在 ports.ts,是讓 remote 命令不必只為了一個型別去 import fetch 服務。
 
 「後果」第三條列的 fetch 與 remote 管理,現在都已經在 core。
+
+## 補記(2026-11-11,#353)
+
+**`PickItem` 長出了 `warning?`,一個語意旗標,不是圖示。core 不寫任何宿主的圖示語法;要畫成什麼,由宿主的 `Prompts` 決定。**
+
+呼叫端是 [reflogCommand.ts](../../packages/core/src/extension/reflogCommand.ts) 的 dangling commit 那一列。搬移前它的 label 前面寫死了 VS Code 的 codicon `$(warning)`,桌面版的選單看不懂,只會原樣印出來。VS Code 這邊由 [quickPickItems.ts](../../apps/vscode/src/extension/quickPickItems.ts) 轉回 `$(warning) `。#352 先加的 `description` 與 `matchOnDescription` 也在這裡有了呼叫端。
+
+同一張票要求 `packages/core/src` 裡不再有 codicon 語法,所以 blame hover([blameHover.ts](../../packages/core/src/extension/blameHover.ts))的三個圖示也改成跟宿主要:不是 port,是 `BlameHoverContext.icon(name)`,`name` 是封閉的語意名稱(`account`、`change`、`commit`),由 `blameController` 回答。hover 其餘的 VS Code 形狀(`command:` 連結、圖片的 `|width=` 寫法)不在範圍內,blame 的接線依 #339 留在 app。

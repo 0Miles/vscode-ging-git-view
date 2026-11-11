@@ -1,7 +1,6 @@
 /**
- * Steps the core's command services share: asking yes or no, finding the
- * current repository, listing its remotes, and running a change to it — each
- * failure told to the user the same way, under the caller's error key.
+ * Steps the core's command services share, each failure told to the user the
+ * same way, under the caller's error key.
  */
 
 import type { SimpleGit } from "simple-git";
@@ -37,8 +36,18 @@ export type CommandKit = ReturnType<typeof createCommandKit>;
 
 export function createCommandKit(deps: CommandKitDeps) {
   const { prompts, l10n } = deps;
-  const toast = (errorKey: string, e: unknown) =>
-    void prompts.showError(l10n.t(errorKey) + ": " + formatGitError(e));
+  /** What `work` resolves to, or `undefined` after a toast saying why not. */
+  const tryOrToast = async <T>(
+    errorKey: string,
+    work: () => PromiseLike<T>
+  ): Promise<T | undefined> => {
+    try {
+      return await work();
+    } catch (e: unknown) {
+      void prompts.showError(l10n.t(errorKey) + ": " + formatGitError(e));
+      return undefined;
+    }
+  };
 
   return {
     /** The current repository, or `null` after saying there is none. A path
@@ -52,18 +61,11 @@ export function createCommandKit(deps: CommandKitDeps) {
       return repo;
     },
 
+    tryOrToast,
+
     /** `repo`'s remotes, or `undefined` after a toast saying why not. */
-    async listRemotesOrToast(
-      errorKey: string,
-      repo: string
-    ): Promise<ConfiguredRemote[] | undefined> {
-      try {
-        return await listRemotes(deps.gitClientFor(repo));
-      } catch (e: unknown) {
-        toast(errorKey, e);
-        return undefined;
-      }
-    },
+    listRemotesOrToast: (errorKey: string, repo: string): Promise<ConfiguredRemote[] | undefined> =>
+      tryOrToast(errorKey, () => listRemotes(deps.gitClientFor(repo))),
 
     /** `change` run against `repo` inside the hook — its client built there
      *  too, since building one throws for a repo deleted since it was last
@@ -73,11 +75,9 @@ export function createCommandKit(deps: CommandKitDeps) {
       repo: string,
       change: (git: SimpleGit) => Promise<void>
     ): Promise<void> {
-      try {
-        await deps.runRepoMutation(repo, () => change(deps.gitClientFor(repo)));
-      } catch (e: unknown) {
-        toast(errorKey, e);
-      }
+      await tryOrToast(errorKey, () =>
+        deps.runRepoMutation(repo, () => change(deps.gitClientFor(repo)))
+      );
     }
   };
 }
