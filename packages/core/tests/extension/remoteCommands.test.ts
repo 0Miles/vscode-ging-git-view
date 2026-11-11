@@ -461,4 +461,16 @@ describe("the side view's list", () => {
     ]);
     expect(h.calls).toEqual([["git", REPO, "remote", "-v"]]);
   });
+
+  it("rejects, rather than throws, when the repo's client cannot be built", async () => {
+    const h = harness();
+    const commands = createRemoteCommands({
+      ...h.deps,
+      gitClientFor: () => {
+        throw new Error("Cannot use simple-git on a directory that does not exist");
+      }
+    });
+    const listed = commands.list(REPO);
+    await expect(listed).rejects.toThrow("does not exist");
+  });
 });

@@ -263,9 +263,9 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Remotes side-view: a flat list of the active repo's remotes, sharing the
-  // Branches view's data service and repo-following behaviour. Mutations are
-  // registered as commands below.
+  // Remotes side-view: a flat list of the active repo's remotes, read through
+  // `remoteCommands` and following the active repo like the Branches view. Its
+  // menu commands are registered below.
   const remotesView = createRemotesView(remoteCommands.list);
   context.subscriptions.push(remotesView);
 

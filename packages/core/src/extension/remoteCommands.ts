@@ -114,7 +114,7 @@ export function createRemoteCommands(deps: RemoteCommandsDeps) {
   return {
     /** The Remotes side view's read: `repo`'s remotes with their URLs.
      *  Rejects when git cannot read it. */
-    list: (repo: string) => listRemotes(deps.gitClientFor(repo)),
+    list: async (repo: string) => listRemotes(deps.gitClientFor(repo)),
 
     /** The side view's Add, on the repo it shows; nothing when it shows none. */
     async add(repo: string | null): Promise<void> {
