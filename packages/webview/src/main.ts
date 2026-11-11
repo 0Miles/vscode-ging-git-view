@@ -16,7 +16,8 @@ import type {
   GitOperation,
   GitResetMode,
   GitTagDetails,
-  RedundancyCommit
+  RedundancyCommit,
+  StashApplyFailure
 } from "@ging/shared/backend/types";
 import { displayRef, REMOTE_PREFIX } from "@ging/shared/backend/utils/branchRef";
 import {
@@ -9440,6 +9441,13 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
       break;
     case "applyStash":
     case "popStash":
+      handleStashResponse(
+        msg.status,
+        msg.movedSelector,
+        l10n[ACTION_FAILURE[msg.command]],
+        msg.applyFailure
+      );
+      break;
     case "dropStash":
     case "renameStash":
       handleStashResponse(msg.status, msg.movedSelector, l10n[ACTION_FAILURE[msg.command]]);
@@ -9671,7 +9679,8 @@ function applyResponseMessage(msg: GG.ResponseMessage) {
  * here: each reports a classification as well (`notFullyMerged`,
  * `remoteUpdatedSinceCheckout`) and has a response handler built on it. The
  * four stash actions stay in although {@link handleStashResponse} handles
- * them: it reports every failure but a moved stash with the message here.
+ * them: it reports a failure with the message here unless the stash moved,
+ * or an apply or pop was refused for conflicts already there or conflicted.
  * `fetch` is included though it is not an action — its response carries
  * `status` and reports failure exactly the same way.
  *
@@ -9732,18 +9741,38 @@ function refreshGraphOrDisplayError(status: GitCommandStatus, errorMessage: stri
 
 /** Handle a stash action's response. The host's moved-stash refusal
  *  (`StashTarget`) reads as {@link GitGraphView.forStash}'s does, with no git
- *  line beneath it, since git ran nothing; the graph refreshes on dismissal. */
+ *  line beneath it, since git ran nothing; the graph refreshes on dismissal.
+ *  An apply or pop that did not go through is reported from the host's
+ *  judgement (`StashApplyFailure`), in the Stash side-view's words. */
 function handleStashResponse(
   status: GitCommandStatus,
   movedSelector: string | null,
-  failure: string
+  failure: string,
+  applyFailure: StashApplyFailure | null = null
 ) {
+  const refresh = () => gitGraph.refresh(false);
   if (movedSelector !== null) {
-    raiseAnswerError(fillTemplate(l10n.dialogStashMoved, escapeHtml(movedSelector)), null, () =>
-      gitGraph.refresh(false)
-    );
-  } else {
-    refreshGraphOrDisplayError(status, failure);
+    raiseAnswerError(fillTemplate(l10n.dialogStashMoved, escapeHtml(movedSelector)), null, refresh);
+    return;
+  }
+  switch (applyFailure?.kind) {
+    case "unmergedBefore":
+      raiseAnswerError(l10n.stashApplyUnmergedBefore, null, refresh);
+      break;
+    case "conflicted":
+      raiseAnswerError(
+        applyFailure.keptAs === null
+          ? l10n.stashApplyConflictedUnlisted
+          : fillTemplate(l10n.stashApplyConflicted, escapeHtml(applyFailure.keptAs)),
+        null,
+        refresh
+      );
+      break;
+    case "unchanged":
+      raiseAnswerError(failure + ": " + l10n.stashApplyUnchanged, status, refresh);
+      break;
+    case undefined:
+      refreshGraphOrDisplayError(status, failure);
   }
 }
 
