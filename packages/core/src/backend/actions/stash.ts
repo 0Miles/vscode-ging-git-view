@@ -167,9 +167,9 @@ async function runApplyOrPop(
   if (judged !== null) throw judged;
 }
 
-/** What to throw for a run that ended as `failed` says — null when it went
- *  through. When the judgement cannot be made, a failure is thrown as git
- *  reported it, and a success stands. */
+/** What to throw after a run, given whether it `failed` and with what
+ *  `error`; null when it went through. When the unmerged paths cannot be
+ *  read, a failure is thrown as git reported it and a success stands. */
 async function judgeRun(
   git: SimpleGit,
   sha: string,

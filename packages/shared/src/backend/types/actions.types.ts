@@ -225,7 +225,10 @@ export type StashRefusalFacts = {
  * - `conflicted`: it ran and left unmerged paths. git keeps the stash on a
  *   conflict, pop included; `keptAs` is where its SHA sits now, looked up
  *   again after the run, or null when it is no longer listed.
- * - `unchanged`: it ran, failed, and left nothing unmerged.
+ * - `unchanged`: it ran, failed, and left nothing unmerged. Read as "nothing
+ *   was changed", which holds for every refusal git makes before it merges.
+ *   One case it cannot tell apart: a pop whose apply landed cleanly but whose
+ *   drop then failed. Telling that apart would mean reading git's output.
  */
 export type StashApplyFailure =
   | { kind: "unmergedBefore" }

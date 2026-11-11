@@ -193,7 +193,7 @@ export function applyOrPopActions(
 
 /** Apply or pop a listed stash, bound like `dropListedStash`. The side-view
  *  neither reads nor writes the graph's remembered choice (`dialogMemory`):
- *  every question starts from the plain button. */
+ *  no answer carries over to the next question. */
 async function applyOrPopListed(
   host: ListedStashHost,
   shown: Pick<StashListItem, "hash" | "selector">,
