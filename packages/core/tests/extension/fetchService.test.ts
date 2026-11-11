@@ -3,29 +3,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createFetchService, type FetchServiceDeps } from "@ging/core/extension/fetchService";
 
-import { fakePorts } from "@ging/core/tests/helpers";
+import { fakeGit, fakePorts, recordingRunRepoMutation } from "@ging/core/tests/helpers";
 
-// The one fetch service and the three entry points that reach it from outside
-// the graph's webview bridge — the `fetch` command, the auto-fetch timer and
-// the Remotes side-view's fetch. Each is driven with fake ports, a fake git that
+// The one fetch service and the entry points that reach it from outside the
+// graph's webview bridge — the `fetch` and `fetchRemote` commands, the
+// auto-fetch timer and the fetch of one listed remote. Each is driven with fake ports, a fake git that
 // records its argv, and a recording `runRepoMutation`, so one ordered log shows
 // whether the git call ran inside the hook, and how a failure was reported.
 
 const REPO = "/repo";
+const UNREACHABLE = "fatal: unable to access 'https://example.invalid/'";
 
 function harness(overrides: Partial<FetchServiceDeps> = {}) {
-  const { ports, calls } = fakePorts();
+  const { ports, calls, answers } = fakePorts();
   const settings = { prune: true, pruneTags: false, autoFetch: false, minutes: 10 };
-  let gitFails = false;
+  const git = fakeGit(calls);
   let currentRepo: string | null = REPO;
-  const fakeGit = (repo: string) =>
-    ({
-      raw: async (args: string[]) => {
-        calls.push(["git", repo, ...args]);
-        if (gitFails) throw new Error("fatal: unable to access 'https://example.invalid/'");
-        return "";
-      }
-    }) as unknown as SimpleGit;
   const service = createFetchService({
     config: {
       fetchAndPrune: () => settings.prune,
@@ -35,25 +28,21 @@ function harness(overrides: Partial<FetchServiceDeps> = {}) {
     },
     prompts: ports.prompts,
     l10n: ports.l10n,
-    gitClientFor: fakeGit,
+    gitClientFor: git.clientFor,
     currentRepo: () => currentRepo,
-    runRepoMutation: async (repo, work) => {
-      calls.push(["runRepoMutation", repo]);
-      try {
-        await work();
-      } finally {
-        calls.push(["runRepoMutation done", repo]);
-      }
-    },
+    repoSource: { getRepos: () => ({ [REPO]: { columnWidths: null } }) },
+    runRepoMutation: recordingRunRepoMutation(calls),
     ...overrides
   });
   return {
     service,
     calls,
+    answers,
     settings,
-    fakeGit,
+    git: git.state,
+    fakeGit: git.clientFor,
     failGit: () => {
-      gitFails = true;
+      git.state.failure = UNREACHABLE;
     },
     setCurrentRepo: (repo: string | null) => {
       currentRepo = repo;
@@ -77,16 +66,15 @@ describe("the git call", () => {
     const h = harness();
     h.settings.prune = false;
     h.settings.pruneTags = true;
-    await h.service.fetchRemote(h.fakeGit(REPO), "upstream");
+    await h.service.fetchRemoteCommand();
     // `--prune-tags` without `--prune` is git's rule, not ours (ADR-0012).
-    expect(h.calls).toEqual([["git", REPO, "fetch", "upstream"]]);
+    expect(h.calls).toContainEqual(["git", REPO, "fetch", "origin"]);
   });
 
   it("goes around the hook, and leaves a failure to its caller", async () => {
     const h = harness();
     h.failGit();
     await expect(h.service.fetchAll(h.fakeGit(REPO))).rejects.toThrow("unable to access");
-    await expect(h.service.fetchRemote(h.fakeGit(REPO), "origin")).rejects.toThrow();
     expect(h.calls.filter(([name]) => name !== "git")).toEqual([]);
   });
 });
@@ -155,6 +143,67 @@ describe("the Remotes side-view's fetch", () => {
       "showError",
       "error.unableToFetch: unable to access 'https://example.invalid/'"
     ]);
+  });
+});
+
+describe("the Fetch Remote command", () => {
+  it("fetches the only remote of the current repository without asking", async () => {
+    const h = harness();
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([
+      ["git", REPO, "remote", "-v"],
+      ["runRepoMutation", REPO],
+      ["git", REPO, "fetch", "--prune", "origin"],
+      ["runRepoMutation done", REPO]
+    ]);
+  });
+
+  it("asks which of several remotes, and fetches the one picked inside the hook", async () => {
+    const h = harness();
+    h.git.remotes.upstream = "https://example.com/upstream.git";
+    h.answers.pick = "upstream";
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([
+      ["git", REPO, "remote", "-v"],
+      ["pick", [{ label: "origin" }, { label: "upstream" }], { placeholder: "fetch.pickRemote" }],
+      ["runRepoMutation", REPO],
+      ["git", REPO, "fetch", "--prune", "upstream"],
+      ["runRepoMutation done", REPO]
+    ]);
+  });
+
+  it("fetches nothing when the pick is dismissed", async () => {
+    const h = harness();
+    h.git.remotes.upstream = "https://example.com/upstream.git";
+    await h.service.fetchRemoteCommand();
+    expect(h.calls.map(([name]) => name)).toEqual(["git", "pick"]);
+  });
+
+  it("says so when the repository has no remotes", async () => {
+    const h = harness();
+    h.git.remotes = {};
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([
+      ["git", REPO, "remote", "-v"],
+      ["showInformation", "fetch.noRemotes"]
+    ]);
+  });
+
+  it("reports a failure to list the remotes as a fetch failure", async () => {
+    const h = harness();
+    h.git.failure = "fatal: not a git repository";
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([
+      ["git", REPO, "remote", "-v"],
+      ["showError", "error.unableToFetch: not a git repository"]
+    ]);
+  });
+
+  it("says so, and fetches nothing, without a current repository", async () => {
+    const h = harness();
+    h.setCurrentRepo(null);
+    await h.service.fetchRemoteCommand();
+    expect(h.calls).toEqual([["showInformation", "repoName.noRepos"]]);
   });
 });
 

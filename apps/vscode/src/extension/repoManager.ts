@@ -139,6 +139,15 @@ export function createRepoManager(
     for (const cb of stateWriteCallbacks) cb(repo, before, state);
   }
 
+  /** See `RepoSource.updateRepoState`: the state is read here, at the write,
+   *  not wherever the caller read it before asking the user something. */
+  function updateRepoState(repo: string, patch: Partial<GitRepoState>) {
+    const current = repos[repo];
+    if (current === undefined) return;
+    setRepoState(repo, { ...current, ...patch });
+    sendRepos();
+  }
+
   /** Listen to every repo-state write, whoever made it — so what depends on a
    *  field (the Branches side-view on its toggles) follows it without each
    *  writer having to remember to say so. */
@@ -209,6 +218,7 @@ export function createRepoManager(
     dropRepo,
     removeReposWithinFolder,
     setRepoState,
+    updateRepoState,
     onDidWriteRepoState,
     removeReposNotInWorkspace,
     checkReposExist

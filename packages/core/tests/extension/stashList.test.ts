@@ -167,13 +167,13 @@ describe("dropListedStash (real git)", () => {
     repo = makeRepo();
     const { older, newer } = pushTwoStashes(repo);
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.confirm = "action.stashDrop";
+    answers.choose = "action.stashDrop";
 
     const outcome = await dropListedStash(host, { hash: older, selector: "stash@{1}" });
 
     expect(outcome).toBe("dropped");
     expect(calls).toEqual([
-      ["confirm", "dialog.stash.dropConfirm|stash@{1}", "action.stashDrop"],
+      ["choose", "dialog.stash.dropConfirm|stash@{1}", { actions: ["action.stashDrop"] }],
       ["refresh"]
     ]);
     expect(stashList(repo).map((s) => s.hash)).toEqual([newer]);
@@ -189,7 +189,9 @@ describe("dropListedStash (real git)", () => {
 
     expect(outcome).toBe("cancelled");
     expect(touched).toEqual([]);
-    expect(calls).toEqual([["confirm", "dialog.stash.dropConfirm|stash@{1}", "action.stashDrop"]]);
+    expect(calls).toEqual([
+      ["choose", "dialog.stash.dropConfirm|stash@{1}", { actions: ["action.stashDrop"] }]
+    ]);
   });
 
   it("refuses, dropping nothing, when the stash moved before the menu was opened", async () => {
@@ -198,7 +200,7 @@ describe("dropListedStash (real git)", () => {
     // stash@{0} is now `newer`, which must survive.
     const { older, newer } = pushTwoStashes(repo);
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.confirm = "action.stashDrop";
+    answers.choose = "action.stashDrop";
 
     const outcome = await dropListedStash(host, { hash: older, selector: "stash@{0}" });
 
@@ -211,19 +213,19 @@ describe("dropListedStash (real git)", () => {
     repo = makeRepo();
     const { older, newer } = pushTwoStashes(repo);
     const { host, answers } = hostOn(simpleGit(repo));
-    answers.confirm = "action.stashDrop";
+    answers.choose = "action.stashDrop";
     let pushed = "";
     // Shown at stash@{1}; a push lands while the user reads the question, so
     // stash@{1} becomes `newer`. The selector the question named is the one
     // consented to — it is not looked up again, nor redirected to `older`.
-    const { confirm } = host.prompts;
+    const { choose } = host.prompts;
     host.prompts = {
       ...host.prompts,
-      confirm: (...args) => {
+      choose: (message, options) => {
         fs.writeFileSync(path.join(repo, "f"), "newest");
         git(["stash", "push", "-m", "newest"], repo);
         pushed = rev(repo, "stash@{0}");
-        return confirm(...args);
+        return choose(message, options);
       }
     };
 
@@ -239,7 +241,7 @@ describe("dropListedStash (real git)", () => {
     // A lock git cannot take: the reflog rewrite the drop needs fails.
     fs.writeFileSync(path.join(repo, ".git", "refs", "stash.lock"), "");
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.confirm = "action.stashDrop";
+    answers.choose = "action.stashDrop";
 
     const outcome = await dropListedStash(host, { hash: older, selector: "stash@{1}" });
 
@@ -275,15 +277,7 @@ describe("renameListedStash (real git)", () => {
 
     expect(outcome).toBe("renamed");
     expect(calls).toEqual([
-      [
-        "input",
-        {
-          prompt: "dialog.stash.renameTitle|stash@{1}",
-          placeholder: "",
-          password: false,
-          value: "On main: older"
-        }
-      ],
+      ["input", { prompt: "dialog.stash.renameTitle|stash@{1}", value: "On main: older" }],
       ["refresh"]
     ]);
     // Rebuilt under a new SHA and stored on top (see `renameStash`); `newer`
@@ -376,14 +370,14 @@ describe.each([
     `dialog.stash.${mode}Confirm|stash@{0}`,
     {
       detail: "dialog.stash.reinstateIndexDetail",
-      actions: applyOrPopActions(fakePorts().ports.l10n, mode)
+      actions: [`dialog.stash.${mode}`, `dialog.stash.${mode}ReinstateIndex`]
     }
   ];
 
   it("asks with the shown selector, a detail line and two buttons", async () => {
     const shown = stagedStash();
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.choose = false;
+    answers.choose = `dialog.stash.${mode}`;
 
     expect(await run(host, shown)).toBe(done);
     expect(calls).toEqual([question, ["refresh"]]);
@@ -392,7 +386,7 @@ describe.each([
   it("leaves the index alone on the plain button", async () => {
     const shown = stagedStash();
     const { host, answers } = hostOn(simpleGit(repo));
-    answers.choose = false;
+    answers.choose = `dialog.stash.${mode}`;
 
     await run(host, shown);
 
@@ -403,7 +397,7 @@ describe.each([
   it("reinstates the index on the second button", async () => {
     const shown = stagedStash();
     const { host, answers } = hostOn(simpleGit(repo));
-    answers.choose = true;
+    answers.choose = `dialog.stash.${mode}ReinstateIndex`;
 
     await run(host, shown);
 
@@ -425,7 +419,7 @@ describe.each([
     repo = makeRepo();
     const { older, newer } = pushTwoStashes(repo);
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.choose = false;
+    answers.choose = `dialog.stash.${mode}`;
 
     expect(await run(host, { hash: older, selector: "stash@{0}" })).toBe("refused");
     expect(stashList(repo).map((s) => s.hash)).toEqual([newer, older]);
@@ -447,7 +441,7 @@ describe.each([
     git(["commit", "-am", "mine"], repo);
     expect(() => git(["merge", "other"], repo)).toThrow();
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.choose = false;
+    answers.choose = `dialog.stash.${mode}`;
 
     expect(await run(host, shown)).toBe("refused");
     expect(calls.slice(1)).toEqual([["showWarning", "stashApply.unmergedBefore"], ["refresh"]]);
@@ -462,7 +456,7 @@ describe.each([
     fs.writeFileSync(path.join(repo, "f"), "committed");
     git(["commit", "-am", "conflicts with the stash"], repo);
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.choose = false;
+    answers.choose = `dialog.stash.${mode}`;
 
     expect(await run(host, shown)).toBe("conflicted");
     expect(calls.slice(1)).toEqual([
@@ -478,7 +472,7 @@ describe.each([
     const shown = { hash: rev(repo, "stash@{0}"), selector: "stash@{0}" };
     fs.writeFileSync(path.join(repo, "f"), "dirty");
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.choose = false;
+    answers.choose = `dialog.stash.${mode}`;
 
     expect(await run(host, shown)).toBe("failed");
     const [[kind, message], refresh] = calls.slice(1) as [string, string][];
@@ -519,7 +513,7 @@ describe("applyListedStash's report for a stash no longer listed", () => {
       }
     } as unknown as SimpleGit;
     const { host, calls, answers } = hostOn(racing);
-    answers.choose = false;
+    answers.choose = "dialog.stash.apply";
 
     expect(await applyListedStash(host, shown)).toBe("conflicted");
     expect(calls.slice(1)).toEqual([["showWarning", "stashApply.conflictedUnlisted"], ["refresh"]]);

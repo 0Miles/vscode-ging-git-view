@@ -60,6 +60,7 @@ function harness(depOverrides: Partial<MessageHandlerDeps> = {}) {
       l10n: ports.l10n,
       gitClientFor: (dir) => gitClientFactory(dir, "git").getInstance(),
       currentRepo: () => repo,
+      repoSource: ports.repoSource,
       runRepoMutation: async (dir, work) => {
         calls.push(["runRepoMutation", dir]);
         await work();

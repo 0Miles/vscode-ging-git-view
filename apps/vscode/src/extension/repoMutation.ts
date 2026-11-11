@@ -1,5 +1,4 @@
-import type { RunRepoMutation } from "@ging/core/extension/fetchService";
-import type { Watcher } from "@ging/core/host/ports";
+import type { RunRepoMutation, Watcher } from "@ging/core/host/ports";
 
 /**
  * The VS Code host's `runRepoMutation`, for the repo changes made outside the

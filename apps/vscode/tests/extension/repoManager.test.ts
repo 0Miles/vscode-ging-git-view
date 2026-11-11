@@ -95,6 +95,30 @@ suite("repoManager", () => {
     });
   });
 
+  suite("updateRepoState", () => {
+    test("merges into the state as it is now, then broadcasts the set", () => {
+      const { manager, store } = makeManager({ "/ws/a": { columnWidths: null } });
+      const broadcasts: GitRepoSet[] = [];
+      manager.registerViewCallback((r) => broadcasts.push(r));
+      // Written after a caller read the state, e.g. while it asked the user.
+      manager.setRepoState("/ws/a", { columnWidths: [1, 2] });
+      manager.updateRepoState("/ws/a", { hiddenRemotes: ["fork"] });
+      const merged = { columnWidths: [1, 2], hiddenRemotes: ["fork"] };
+      assert.deepStrictEqual(store.repos["/ws/a"], merged);
+      assert.deepStrictEqual(broadcasts, [{ "/ws/a": merged }]);
+    });
+
+    test("writes and broadcasts nothing for a repo that is not known", () => {
+      const { manager, store, getSaveCount } = makeManager({ "/ws/a": { columnWidths: null } });
+      const broadcasts: GitRepoSet[] = [];
+      manager.registerViewCallback((r) => broadcasts.push(r));
+      manager.updateRepoState("/ws/gone", { hiddenRemotes: [] });
+      assert.deepStrictEqual(Object.keys(store.repos), ["/ws/a"]);
+      assert.strictEqual(getSaveCount(), 0);
+      assert.deepStrictEqual(broadcasts, []);
+    });
+  });
+
   suite("getRepos", () => {
     test("returns repos sorted by path", () => {
       const { manager } = makeManager({

@@ -11,6 +11,7 @@ import {
 } from "@ging/core/backend/actions/stash";
 import { commitDetails } from "@ging/core/backend/queries/commitDetails";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
+import { confirm } from "@ging/core/extension/commandKit";
 import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
 import type { Clipboard, L10n, Prompts } from "@ging/core/host/ports";
 import type { GitFileChangeType, ScmStashEntry } from "@ging/shared/backend/types";
@@ -64,7 +65,7 @@ export function sameStashList(a: StashListItem[], b: StashListItem[]): boolean {
 export type ListedStashHost = {
   git: SimpleGit;
   clipboard: Pick<Clipboard, "writeText">;
-  prompts: Pick<Prompts, "confirm" | "choose" | "input" | "showWarning" | "showError">;
+  prompts: Pick<Prompts, "choose" | "input" | "showWarning" | "showError">;
   l10n: Pick<L10n, "t">;
   /** Re-read the list. */
   refresh: () => void;
@@ -160,12 +161,12 @@ export async function dropListedStash(
   host: ListedStashHost,
   shown: Pick<StashListItem, "hash" | "selector">
 ): Promise<"dropped" | "cancelled" | "refused" | "failed"> {
-  const drop = host.l10n.t("action.stashDrop");
-  const answer = await host.prompts.confirm(
+  const agreed = await confirm(
+    host.prompts,
     host.l10n.t("dialog.stash.dropConfirm", shown.selector),
-    drop
+    host.l10n.t("action.stashDrop")
   );
-  if (answer !== drop) return "cancelled";
+  if (!agreed) return "cancelled";
   const outcome = await runAgreed(
     host,
     () => dropStash(host.git, { selector: shown.selector, expectedHash: shown.hash }),
@@ -246,8 +247,6 @@ export async function renameListedStash(
   const message = (
     await host.prompts.input({
       prompt: host.l10n.t("dialog.stash.renameTitle", shown.selector),
-      placeholder: "",
-      password: false,
       value: shown.message
     })
   )?.trim();

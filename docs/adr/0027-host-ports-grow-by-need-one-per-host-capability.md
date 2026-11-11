@@ -30,3 +30,22 @@ status: accepted
 - **port 的註解就是契約,桌面版要照著實作。** 例如 `Prompts.input` 必須在焦點移開後仍然留著(askpass 讓 git 卡在它上面等),`Watcher.mute` 期間的變更不得觸發重新整理(ADR-0013)。
 - **還有宿主相依的 git 操作不在 core。** `extension.ts` 的命令 handler 仍直接跑 git(fetch、remote 管理、reflog、`createBranch`、`resetToCommit` 等),blame 的查詢也還在 app。這些由 #339 承接。側檢視(TreeView)與命令註冊則本來就屬於 `apps/vscode`。
 - 套件分層與邊界的強制方式見 ADR-0026。
+
+## 補記(2026-11-11,#352)
+
+**`Prompts` 長出了 `pick` 與 `pickMany`,`confirm` 換成更一般的 `choose`,`input` 的 `placeholder` 與 `password` 改成選填。每一項都對得到 #339 與 #337 搬進 core 的命令流程,只有 `description` 與 `matchOnDescription` 是替已排定的下一張票先加的。**
+
+「為什麼未來的讀者會困惑」第一條說 `Prompts` 沒有 quick pick 也沒有 confirm,要等 #339 的呼叫端出現。#336 先加了 `confirm` 與 `input` 的 `value`(ADR-0029);#352 把 remote 管理搬進 core 的 [remoteCommands.ts](../../packages/core/src/extension/remoteCommands.ts),`fetchRemote` 命令搬進 [fetchService.ts](../../packages/core/src/extension/fetchService.ts),其餘的就照著這些呼叫端長出來:
+
+- **`pick(items, { placeholder?, matchOnDescription? })` 與 `pickMany(items, 同上)`**,每一列是 `{ label, description?, picked?, value }`。`pick` 回答選中那一列的 `value`,`pickMany` 回答打勾那幾列的 `value`(一列都沒勾也是回答)。`pick` 的呼叫端是 Manage Remotes 的兩層選單,以及 `fetchRemote` 在幾個 remote 之間挑一個;`pickMany` 加 `picked` 的是 Show/Hide Remotes。票面原本寫的是一個 `pick` 加上 `canPickMany`,但回答的型別隨這個旗標改變,port、VS Code 實作與 fake 就得各寫一組 overload,所以拆成兩個方法。回答 `value` 而不是 label,是因為 label 不一定認得出是哪一列:Manage Remotes 的「新增」那一列,跟一個剛好同名的 remote,看 label 是分不出來的。
+- **`description` 與 `matchOnDescription` 今天沒有呼叫端。** 它們是 S3(#353)的 `viewReflog` 要的:每一列的描述是 reflog selector,而且要能用它搜尋。#352 的票面把它們一起列進來,讓 S3 不必再開一次這個 port。這是對「先有呼叫端」的一次有意的提前:呼叫端已經排定,形狀是照著現在 `viewReflog` 的 `showQuickPick` 抄的,不是猜的。
+- **`choose(message, { detail?, actions: { label, value }[] })`,固定是 modal,回答按下那個動作的 `value`,取消或 Esc 是 `undefined`。** #336 加的是 `confirm(message, ...actions)`,回答選中的那個 label;票面要的是 `confirm(message, { confirmLabel }) → boolean`。兩者都裝不下同時進行的 #337(stash 的 apply / pop):它要多一行 `detail`、兩個動作按鈕,而且要知道按的是哪一個。所以 port 上只有 `choose`;「只有一種說是的方式」這個最常見的情況,是 core 的 `confirm(prompts, message, confirmLabel)`([commandKit.ts](../../packages/core/src/extension/commandKit.ts)),只是 `choose` 上的一層糖,不是 port 方法。它的呼叫端是 Stash 側檢視的 drop 與 remote 的 Remove(兩處),S3 的 reset 也會用它。
+- **`input` 的 `placeholder`、`password` 改成選填。** 只有 askpass 會填;remote 與 stash 的輸入框都不填。
+- **`ignoreFocusOut` 不在 port 上。** 失焦也不消失本來就是 `input` 的契約(見「後果」第二條),所以 VS Code 的每個 `input` 都帶著它,呼叫端不必、也不能選。`pick` 與 `pickMany` 沒有這個保證,和搬移前的 `showQuickPick` 一樣。
+
+`Prompts` 之外還有兩處:
+
+- **`RepoSource.updateRepoState(repo, patch)`**:以寫入當下的 state 為準合併、寫入、廣播,repo 不在集合裡就什麼都不做。理由跟 `dropRepo` 相同:graph 自己留著一份 repo state,下次存任何東西時會整份寫回,沒聽到廣播的寫入就會被它蓋掉,所以寫入與廣播放在同一個方法裡。呼叫端是 Show/Hide Remotes,以及 VS Code 這邊兩處原本手寫這兩步的地方(側檢視的顯示切換、`setRepoName`)。
+- **`RunRepoMutation` 的型別搬到 ports.ts。** 它是宿主交給 core 命令服務的 hook,不在 `HostPorts` 裡;放在 ports.ts,是讓 remote 命令不必只為了一個型別去 import fetch 服務。
+
+「後果」第三條列的 fetch 與 remote 管理,現在都已經在 core。
