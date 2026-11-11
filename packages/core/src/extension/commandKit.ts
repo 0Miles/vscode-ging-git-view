@@ -26,6 +26,8 @@ export async function confirm(
 export type CommandKitDeps = {
   prompts: Pick<Prompts, "showInformation" | "showError">;
   l10n: L10n;
+  /** A client bound to `repo`. `""` binds it to none, so git runs where the
+   *  host process does: for git's own questions, and the global config. */
   gitClientFor: (repo: string) => SimpleGit;
   /** The current repository (`CONTEXT.md`); `null` when there is none. */
   currentRepo: () => string | null;
@@ -56,15 +58,20 @@ export function createCommandKit(deps: CommandKitDeps) {
     }
   };
 
+  /** The current repository, or `null` when there is none. A path that is no
+   *  longer a known repository counts as none. */
+  const currentRepo = (): string | null => {
+    const repo = deps.currentRepo();
+    return repo !== null && deps.repoSource.getRepos()[repo] !== undefined ? repo : null;
+  };
+
   return {
-    /** The current repository, or `null` after saying there is none. A path
-     *  that is no longer a known repository counts as none. */
+    currentRepo,
+
+    /** `currentRepo`, or `null` after saying there is none. */
     currentRepoOrSay(): string | null {
-      const repo = deps.currentRepo();
-      if (repo === null || deps.repoSource.getRepos()[repo] === undefined) {
-        prompts.showInformation(l10n.t("repoName.noRepos"));
-        return null;
-      }
+      const repo = currentRepo();
+      if (repo === null) prompts.showInformation(l10n.t("repoName.noRepos"));
       return repo;
     },
 

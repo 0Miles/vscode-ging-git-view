@@ -1,7 +1,7 @@
 /**
  * The commands that tell the user about their setup or set who they commit
- * as: Set Git User Details and Statistics on the current repository, and
- * Version Info, which needs none. None of them changes anything a view shows,
+ * as: Statistics on the current repository, Set Git User Details on it or
+ * globally, and Version Info, which needs none. None changes anything a view shows,
  * so none runs inside the host's `runRepoMutation`. Statistics answers its
  * figures and leaves drawing them to the host.
  */
@@ -41,13 +41,14 @@ export function createInfoCommands(deps: InfoCommandsDeps) {
   };
 
   return {
-    /** On the current repository: a name and an email, each starting from the
-     *  one in effect, and whether to set them for this repository or every
-     *  one. A field left blank is unset. */
+    /** A name and an email, each starting from the one in effect, and whether
+     *  to set them for the current repository or every one. With no current
+     *  repository, every one is the only answer: a first-run setup has no
+     *  repository yet, and the global identity is what it needs. A field left
+     *  blank is unset. */
     async setGitUserDetails(): Promise<void> {
-      const repo = kit.currentRepoOrSay();
-      if (repo === null) return;
-      const current = await kit.runOrToast(USER_DETAILS_FAILED, repo, getUserDetails);
+      const repo = kit.currentRepo();
+      const current = await kit.runOrToast(USER_DETAILS_FAILED, repo ?? "", getUserDetails);
       if (current === undefined) return;
       const name = await prompts.input({
         prompt: l10n.t("userDetails.namePrompt"),
@@ -61,13 +62,13 @@ export function createInfoCommands(deps: InfoCommandsDeps) {
       if (email === undefined) return;
       const useGlobal = await prompts.pick(
         [
-          { label: l10n.t("userDetails.scopeLocal"), value: false },
+          ...(repo !== null ? [{ label: l10n.t("userDetails.scopeLocal"), value: false }] : []),
           { label: l10n.t("userDetails.scopeGlobal"), value: true }
         ],
         { placeholder: l10n.t("userDetails.scopePrompt") }
       );
       if (useGlobal === undefined) return;
-      await kit.runOrToast(USER_DETAILS_FAILED, repo, async (git) => {
+      await kit.runOrToast(USER_DETAILS_FAILED, repo ?? "", async (git) => {
         await setUserDetails(git, { name: name.trim(), email: email.trim(), useGlobal });
         prompts.showInformation(l10n.t("userDetails.updated"));
       });
@@ -93,6 +94,7 @@ export function createInfoCommands(deps: InfoCommandsDeps) {
     async statistics(): Promise<Statistics | undefined> {
       const repo = kit.currentRepoOrSay();
       if (repo === null) return undefined;
+      // Not passed bare: its second parameter is the commit cap.
       return kit.runOrToast(STATISTICS_FAILED, repo, (git) => loadStatistics(git));
     }
   };

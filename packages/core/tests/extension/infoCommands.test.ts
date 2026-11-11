@@ -50,9 +50,12 @@ const SCOPE_PICK = [
   { placeholder: "userDetails.scopePrompt" }
 ];
 
+const ranInHook = ([name]: unknown[]) => String(name).startsWith("runRepoMutation");
+const said = ([name]: unknown[]) => name === "showInformation";
+
 /** The calls that ran git or the hook: none, for a flow that changed nothing. */
 const effects = (calls: unknown[][]) =>
-  calls.filter(([name]) => name === "git" || String(name).startsWith("runRepoMutation"));
+  calls.filter((call) => call[0] === "git" || ranInHook(call));
 
 describe("Set Git User Details", () => {
   it("asks starting from the current name and email, then where, and sets them there", async () => {
@@ -95,7 +98,7 @@ describe("Set Git User Details", () => {
     const h = harness();
     h.answer("Ada", "ada@example.com", "userDetails.scopeLocal");
     await h.commands.setGitUserDetails();
-    expect(h.calls.some(([name]) => String(name).startsWith("runRepoMutation"))).toBe(false);
+    expect(h.calls.some(ranInHook)).toBe(false);
   });
 
   it.each([
@@ -107,7 +110,7 @@ describe("Set Git User Details", () => {
     h.answer(...replies);
     await h.commands.setGitUserDetails();
     expect(effects(h.calls)).toEqual([READ_NAME, READ_EMAIL]);
-    expect(h.calls.some(([name]) => name === "showInformation")).toBe(false);
+    expect(h.calls.some(said)).toBe(false);
   });
 
   it("reports git's failure to set them, and says nothing was updated", async () => {
@@ -122,13 +125,27 @@ describe("Set Git User Details", () => {
       "showError",
       "userDetails.unableToSet: could not lock config file .git/config"
     ]);
-    expect(h.calls.some(([name]) => name === "showInformation")).toBe(false);
+    expect(h.calls.some(said)).toBe(false);
   });
 
-  it("says there is no repository, and asks nothing, when there is none", async () => {
-    const h = harness({ repo: null });
+  it.each([
+    ["there is no current repository", null],
+    ["the current repository is no longer known", "/gone"]
+  ])("offers only the global config when %s", async (_case, repo) => {
+    const h = harness({ repo });
+    h.git.output = { "config --get user.name": "Ada\n" };
+    h.answer("Ada", "ada@example.com", "userDetails.scopeGlobal");
     await h.commands.setGitUserDetails();
-    expect(h.calls).toEqual([["showInformation", "repoName.noRepos"]]);
+    expect(h.calls).toEqual([
+      ["git", "", "config", "--get", "user.name"],
+      ["git", "", "config", "--get", "user.email"],
+      ["input", { prompt: "userDetails.namePrompt", value: "Ada" }],
+      ["input", { prompt: "userDetails.emailPrompt", value: "" }],
+      ["pick", [{ label: "userDetails.scopeGlobal" }], { placeholder: "userDetails.scopePrompt" }],
+      ["git", "", "config", "--global", "user.name", "Ada"],
+      ["git", "", "config", "--global", "user.email", "ada@example.com"],
+      ["showInformation", "userDetails.updated"]
+    ]);
   });
 
   it("reports a repo whose client cannot be built, before asking anything", async () => {
@@ -217,7 +234,7 @@ describe("Statistics", () => {
   it("is a read: nothing runs inside the hook", async () => {
     const h = harness();
     await h.commands.statistics();
-    expect(h.calls.some(([name]) => String(name).startsWith("runRepoMutation"))).toBe(false);
+    expect(h.calls.some(ranInHook)).toBe(false);
   });
 
   it("answers nothing after reporting git's failure", async () => {
