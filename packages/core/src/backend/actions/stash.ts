@@ -31,21 +31,17 @@ export function stashRefusalFacts(error: unknown): StashRefusalFacts {
  * Refuse with `StashMovedError` unless `selector` still resolves to
  * `expectedHash`; return that SHA when it does.
  *
- * The consent check all four stash actions share: the number is what the user
- * agreed to, so a selector that now names another commit, or nothing, is
- * refused rather than redirected. What it cannot do is hold the stack still
- * until the stash command runs — the `rev-parse` here and that command are two
- * spawns — and how much of that window is left differs per action:
+ * The consent check all four stash actions share. It cannot hold the stack
+ * still until the stash command runs — the `rev-parse` here and that command
+ * are two spawns — and how much of that window is left differs per action:
  *
  * - apply hands git `expectedHash` itself, so what lands in the working tree
  *   is fixed: a push in the window cannot make it apply another stash. A stash
  *   dropped in the window still applies, since the commit outlives its entry.
- * - pop and drop take only a `stash@{n}`, never a SHA — git has no
- *   compare-and-swap for stash entries — so a push in the window still
- *   renumbers the stack under them. This narrows their window, it does not
- *   close it.
- * - rename rebuilds the stash from the verified SHA, but drops the old entry
- *   by `selector`: a push before that drop still makes it drop another stash.
+ * - pop and drop take only a `stash@{n}`, so a push in the window still
+ *   renumbers the stack under them.
+ * - rename drops the old entry by `selector`, so a push before that drop
+ *   still makes it drop another stash.
  *
  * What is gone for all four is the long window: from the moment the caller
  * read the selector to the moment the action reached the host.
@@ -93,10 +89,8 @@ export async function applyStash(
   const sha = await verifyStashSelector(git, input.selector, input.expectedHash);
   const args = ["stash", "apply"];
   if (input.reinstateIndex) args.push("--index");
-  // Safe because verified above: `expectedHash` matched the full `rev-parse`
-  // output byte for byte, so it is a whole SHA. Unverified, a short SHA or an
-  // all-digit value would be read by git as something else (`git stash` takes
-  // all digits as `stash@{n}`), so the check must stay before this call.
+  // Safe because verified above: a byte-equal full SHA. A short or all-digit
+  // token would read as something else, so the check must stay first.
   args.push(sha);
   await git.raw(args);
 }
