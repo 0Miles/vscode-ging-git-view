@@ -32,4 +32,4 @@ _與 ADR-0009 衝突:ADR-0009 說側檢視的單一分支動作一律委派給�
 
 ## 補記(2026-11-11,#352)
 
-**「後果」第三條說 `confirm` 的形狀比照 `showError`,回答選中的那個動作。#352 把它改成 `confirm(message, { confirmLabel }) → boolean`,drop 跟著改,行為不變。** 理由見 ADR-0027 的補記:drop 只有一種說「是」的方式,#339 搬進 core 的其他確認框也是。
+**「後果」第三條說 `Prompts` 長出了 `confirm`,形狀比照 `showError`。#352 把它換成更一般的 `Prompts.choose`(可以有 `detail` 與幾個動作,回答按下那個動作的值);drop 改用 core 架在它上面的 `confirm(prompts, message, confirmLabel)`,行為不變。** 理由見 ADR-0027 的補記:#337 的 apply / pop 要 `detail` 與兩個動作按鈕,一個布林值裝不下。

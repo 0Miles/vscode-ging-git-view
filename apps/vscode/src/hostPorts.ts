@@ -6,7 +6,6 @@ import type {
   HostStorage,
   L10n,
   Opener,
-  PickItem,
   PickOptions,
   Prompts
 } from "@ging/core/host/ports";
@@ -21,36 +20,30 @@ import * as l10nModule from "@ging/vscode/l10n";
 // logger, the repo manager, the file watcher — are those objects, passed as
 // they are.
 
-// `Prompts.pick` is overloaded on `canPickMany`, as `showQuickPick` is.
-function pick<T>(
-  items: readonly PickItem<T>[],
-  options: PickOptions & { canPickMany: true }
-): Promise<T[] | undefined>;
-function pick<T>(
-  items: readonly PickItem<T>[],
-  options?: PickOptions & { canPickMany?: false }
-): Promise<T | undefined>;
-async function pick<T>(
-  items: readonly PickItem<T>[],
-  { placeholder, canPickMany, matchOnDescription }: PickOptions = {}
-): Promise<T | T[] | undefined> {
-  const options = { placeHolder: placeholder, matchOnDescription };
-  if (canPickMany) {
-    return (await vscode.window.showQuickPick(items, { ...options, canPickMany: true }))?.map(
-      (item) => item.value
-    );
-  }
-  return (await vscode.window.showQuickPick(items, options))?.value;
-}
+const quickPickOptions = ({ placeholder, matchOnDescription }: PickOptions = {}) => ({
+  placeHolder: placeholder,
+  matchOnDescription
+});
 
 export const vscodePrompts: Prompts = {
   showInformation: (message) => void vscode.window.showInformationMessage(message),
   showWarning: (message) => void vscode.window.showWarningMessage(message),
   showError: (message, ...actions) => vscode.window.showErrorMessage(message, ...actions),
-  confirm: async (message, { confirmLabel }) =>
-    (await vscode.window.showWarningMessage(message, { modal: true }, confirmLabel)) ===
-    confirmLabel,
-  pick,
+  // Each action is its own message item, so two with one label stay apart.
+  choose: async (message, { detail, actions }) =>
+    (
+      await vscode.window.showWarningMessage(
+        message,
+        { modal: true, detail },
+        ...actions.map(({ label, value }) => ({ title: label, value }))
+      )
+    )?.value,
+  pick: async (items, options) =>
+    (await vscode.window.showQuickPick(items, quickPickOptions(options)))?.value,
+  pickMany: async (items, options) =>
+    (
+      await vscode.window.showQuickPick(items, { ...quickPickOptions(options), canPickMany: true })
+    )?.map((item) => item.value),
   pickSaveLocation: async ({ saveLabel, filters, defaultPath }) =>
     (
       await vscode.window.showSaveDialog({

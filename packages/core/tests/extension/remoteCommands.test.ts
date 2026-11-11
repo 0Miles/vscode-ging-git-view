@@ -6,7 +6,7 @@ import {
   type RemoteCommandsDeps,
   type RemoteTarget
 } from "@ging/core/extension/remoteCommands";
-import type { PickItem, PickOptions, Prompts } from "@ging/core/host/ports";
+import type { PickItem, Prompts } from "@ging/core/host/ports";
 import type { GitRepoState } from "@ging/shared/types";
 
 import { fakePorts } from "@ging/core/tests/helpers";
@@ -15,6 +15,9 @@ import { fakePorts } from "@ging/core/tests/helpers";
 // answered in turn from a script, and one ordered log shows what was asked,
 // which git commands ran, and whether they ran inside the host's
 // `runRepoMutation`. Git is a fake that records its argv.
+
+const shown = (items: readonly PickItem<unknown>[]) =>
+  items.map(({ value: _value, ...row }) => row);
 
 const REPO = "/repo";
 const URLS: Record<string, string> = {
@@ -60,23 +63,25 @@ function harness(
       }
     }) as unknown as SimpleGit;
 
-  async function pick(items: readonly PickItem<unknown>[], pickOptions?: PickOptions) {
-    calls.push(["pick", items.map(({ value: _value, ...shown }) => shown), pickOptions]);
-    const answer = reply();
-    const valueOf = (label: unknown) => items.find((item) => item.label === label)!.value;
-    if (answer === undefined) return undefined as never;
-    return (Array.isArray(answer) ? answer.map(valueOf) : valueOf(answer)) as never;
-  }
   const prompts: Prompts = {
     ...ports.prompts,
-    pick,
+    pick: async (items, pickOptions) => {
+      calls.push(["pick", shown(items), pickOptions]);
+      const label = reply();
+      return items.find((item) => item.label === label)?.value;
+    },
+    pickMany: async (items, pickOptions) => {
+      calls.push(["pickMany", shown(items), pickOptions]);
+      const labels = reply() as string[] | undefined;
+      return labels && items.filter((item) => labels.includes(item.label)).map((i) => i.value);
+    },
     input: async (inputOptions) => {
       calls.push(["input", inputOptions]);
       return reply() as string | undefined;
     },
-    confirm: async (...args) => {
-      calls.push(["confirm", ...args]);
-      return reply() === true;
+    choose: async (message, { actions }) => {
+      calls.push(["choose", message, actions.map(({ label }) => label)]);
+      return reply() === true ? actions[0].value : undefined;
     }
   };
 
@@ -247,7 +252,7 @@ describe("the side view's Remove", () => {
     h.answer(true);
     await h.commands.remove(ORIGIN);
     expect(h.calls).toEqual([
-      ["confirm", "remotes.removeConfirm|origin", { confirmLabel: "remotes.removeConfirmYes" }],
+      ["choose", "remotes.removeConfirm|origin", ["remotes.removeConfirmYes"]],
       ["runRepoMutation", REPO],
       ["git", REPO, "remote", "remove", "origin"],
       ["runRepoMutation done", REPO]
@@ -334,7 +339,7 @@ describe("Manage Remotes", () => {
     h.answer("upstream", "remotes.remove", true);
     await h.commands.manageRemotes();
     expect(h.calls.slice(3)).toEqual([
-      ["confirm", "remotes.removeConfirm|upstream", { confirmLabel: "remotes.removeConfirmYes" }],
+      ["choose", "remotes.removeConfirm|upstream", ["remotes.removeConfirmYes"]],
       ["runRepoMutation", REPO],
       ["git", REPO, "remote", "remove", "upstream"],
       ["runRepoMutation done", REPO]
@@ -392,13 +397,13 @@ describe("Show/Hide Remotes", () => {
     expect(h.calls).toEqual([
       ["git", REPO, "remote"],
       [
-        "pick",
+        "pickMany",
         [
           { label: "origin", picked: true },
           { label: "upstream", picked: true },
           { label: "fork", picked: false }
         ],
-        { canPickMany: true, placeholder: "remoteVisibility.prompt" }
+        { placeholder: "remoteVisibility.prompt" }
       ],
       ["setRepoState", REPO, { columnWidths: null, hiddenRemotes: ["upstream", "fork"] }],
       ["broadcastRepos"],
@@ -424,14 +429,14 @@ describe("Show/Hide Remotes", () => {
     h.answer(["origin"]);
     h.setReposWhileAsking({});
     await h.commands.toggleRemoteVisibility();
-    expect(h.calls.map(([name]) => name)).toEqual(["git", "pick"]);
+    expect(h.calls.map(([name]) => name)).toEqual(["git", "pickMany"]);
   });
 
   it("writes nothing when the pick is dismissed", async () => {
     const h = harness();
     h.answer(undefined);
     await h.commands.toggleRemoteVisibility();
-    expect(h.calls.map(([name]) => name)).toEqual(["git", "pick"]);
+    expect(h.calls.map(([name]) => name)).toEqual(["git", "pickMany"]);
   });
 
   it("says so when the repository has no remotes", async () => {

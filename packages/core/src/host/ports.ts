@@ -64,12 +64,19 @@ export interface HostStorage {
   globalStoragePath: string;
 }
 
-/** One row of a `Prompts.pick`. */
+/** One button of a `Prompts.choose`. */
+export type ChooseAction<T> = {
+  label: string;
+  /** What clicking it answers. */
+  value: T;
+};
+
+/** One row of a `Prompts.pick` or `pickMany`. */
 export type PickItem<T> = {
   label: string;
   /** Shown beside the label, dimmer. */
   description?: string;
-  /** Checked when the pick opens; meaningful only with `canPickMany`. */
+  /** Checked when a `pickMany` opens; ignored by `pick`. */
   picked?: boolean;
   /** What choosing this row answers. */
   value: T;
@@ -77,8 +84,6 @@ export type PickItem<T> = {
 
 export type PickOptions = {
   placeholder?: string;
-  /** Check any number of rows, rather than choose one. */
-  canPickMany?: boolean;
   /** Filter on the descriptions as well as the labels. */
   matchOnDescription?: boolean;
 };
@@ -92,22 +97,22 @@ export interface Prompts {
   showWarning(message: string): void;
   /** An error notification offering `actions`; resolves to the one chosen. */
   showError(message: string, ...actions: string[]): PromiseLike<string | undefined>;
-  /** A modal question with one way to say yes, labelled `confirmLabel` — the
-   *  host adds its own way to say no. Resolves to whether it was said. Only
-   *  buttons: no checkbox, since the VS Code host has none. */
-  confirm(message: string, options: { confirmLabel: string }): PromiseLike<boolean>;
-  /** A choice among `items`, filtered as the user types; resolves to the
-   *  `value`s of the rows checked. Unlike `input`, a focus change may dismiss
-   *  it. */
-  pick<T>(
-    items: readonly PickItem<T>[],
-    options: PickOptions & { canPickMany: true }
-  ): PromiseLike<T[] | undefined>;
-  /** A choice of one among `items`; resolves to its `value`. */
-  pick<T>(
-    items: readonly PickItem<T>[],
-    options?: PickOptions & { canPickMany?: false }
+  /** A modal question answered by one of `actions`, with `detail` as a second,
+   *  quieter line. The host adds its own Cancel, so `actions` lists only the
+   *  other answers; resolves to the `value` of the one clicked. Only buttons:
+   *  no checkbox, since the VS Code host has none. For a plain yes-or-no, see
+   *  core's `confirm`. */
+  choose<T>(
+    message: string,
+    options: { detail?: string; actions: readonly ChooseAction<T>[] }
   ): PromiseLike<T | undefined>;
+  /** One of `items`, filtered as the user types; resolves to its `value`.
+   *  Unlike `input`, a focus change may dismiss it. */
+  pick<T>(items: readonly PickItem<T>[], options?: PickOptions): PromiseLike<T | undefined>;
+  /** Any number of `items`, checked or unchecked, starting from their
+   *  `picked`; resolves to the `value`s of the rows checked — none is an
+   *  answer too. Dismissed as `pick` is. */
+  pickMany<T>(items: readonly PickItem<T>[], options?: PickOptions): PromiseLike<T[] | undefined>;
   /** Where to write a file; resolves to the chosen path. */
   pickSaveLocation(options: {
     saveLabel: string;

@@ -164,13 +164,13 @@ describe("dropListedStash (real git)", () => {
     repo = makeRepo();
     const { older, newer } = pushTwoStashes(repo);
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.confirm = true;
+    answers.choose = "action.stashDrop";
 
     const outcome = await dropListedStash(host, { hash: older, selector: "stash@{1}" });
 
     expect(outcome).toBe("dropped");
     expect(calls).toEqual([
-      ["confirm", "dialog.stash.dropConfirm|stash@{1}", { confirmLabel: "action.stashDrop" }],
+      ["choose", "dialog.stash.dropConfirm|stash@{1}", { actions: ["action.stashDrop"] }],
       ["refresh"]
     ]);
     expect(stashList(repo).map((s) => s.hash)).toEqual([newer]);
@@ -187,7 +187,7 @@ describe("dropListedStash (real git)", () => {
     expect(outcome).toBe("cancelled");
     expect(touched).toEqual([]);
     expect(calls).toEqual([
-      ["confirm", "dialog.stash.dropConfirm|stash@{1}", { confirmLabel: "action.stashDrop" }]
+      ["choose", "dialog.stash.dropConfirm|stash@{1}", { actions: ["action.stashDrop"] }]
     ]);
   });
 
@@ -197,7 +197,7 @@ describe("dropListedStash (real git)", () => {
     // stash@{0} is now `newer`, which must survive.
     const { older, newer } = pushTwoStashes(repo);
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.confirm = true;
+    answers.choose = "action.stashDrop";
 
     const outcome = await dropListedStash(host, { hash: older, selector: "stash@{0}" });
 
@@ -210,19 +210,19 @@ describe("dropListedStash (real git)", () => {
     repo = makeRepo();
     const { older, newer } = pushTwoStashes(repo);
     const { host, answers } = hostOn(simpleGit(repo));
-    answers.confirm = true;
+    answers.choose = "action.stashDrop";
     let pushed = "";
     // Shown at stash@{1}; a push lands while the user reads the question, so
     // stash@{1} becomes `newer`. The selector the question named is the one
     // consented to — it is not looked up again, nor redirected to `older`.
-    const { confirm } = host.prompts;
+    const { choose } = host.prompts;
     host.prompts = {
       ...host.prompts,
-      confirm: (...args) => {
+      choose: (message, options) => {
         fs.writeFileSync(path.join(repo, "f"), "newest");
         git(["stash", "push", "-m", "newest"], repo);
         pushed = rev(repo, "stash@{0}");
-        return confirm(...args);
+        return choose(message, options);
       }
     };
 
@@ -238,7 +238,7 @@ describe("dropListedStash (real git)", () => {
     // A lock git cannot take: the reflog rewrite the drop needs fails.
     fs.writeFileSync(path.join(repo, ".git", "refs", "stash.lock"), "");
     const { host, calls, answers } = hostOn(simpleGit(repo));
-    answers.confirm = true;
+    answers.choose = "action.stashDrop";
 
     const outcome = await dropListedStash(host, { hash: older, selector: "stash@{1}" });
 

@@ -1,9 +1,16 @@
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
-import type { HostPorts, PickItem, PickOptions } from "@ging/core/host/ports";
+import type { HostPorts, PickItem } from "@ging/core/host/ports";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 // Fakes of what a host hands the core: its ports, and the channel to the
 // graph's webview.
+
+/** The rows of a pick as the user sees them: everything but their values. */
+const shown = (items: readonly PickItem<unknown>[]) =>
+  items.map(({ value: _value, ...row }) => row);
+
+/** What the user answers one question with; see `fakePorts`' `replies`. */
+export type PromptReply = string | string[] | undefined;
 
 /** A webview channel a test drives: `receive` delivers a request the way the
  *  webview sends one, and `posted` collects what was sent back. */
@@ -39,9 +46,17 @@ export function fakePorts() {
     };
   const answers = {
     showError: undefined as string | undefined,
-    confirm: false,
-    /** What a `pick` answers: a value, or a list of them with `canPickMany`. */
-    pick: undefined as unknown,
+    /** Answers to the questions `choose`, `pick`, `pickMany` and `input` ask,
+     *  in the order they are asked: the label clicked or picked (labels, for a
+     *  `pickMany`), or the text typed; `undefined` dismisses. Once it runs out,
+     *  each question takes its own answer below. */
+    replies: [] as PromptReply[],
+    /** The label of the action clicked. */
+    choose: undefined as string | undefined,
+    /** The label of the row picked. */
+    pick: undefined as string | undefined,
+    /** The labels of the rows checked. */
+    pickMany: undefined as string[] | undefined,
     input: undefined as string | undefined,
     saveLocation: undefined as string | undefined,
     clipboard: Promise.resolve() as Promise<void>,
@@ -55,12 +70,8 @@ export function fakePorts() {
     calls.push(call);
     if (answers.openRejects) throw new Error("cannot open");
   };
-  // A declaration, not an arrow in the object: `Prompts.pick` is overloaded,
-  // and an overloaded method gives its parameters no contextual type.
-  async function pick(items: readonly PickItem<unknown>[], options?: PickOptions) {
-    calls.push(["pick", items, options]);
-    return answers.pick as never;
-  }
+  const reply = <A extends PromptReply>(own: A): A =>
+    answers.replies.length > 0 ? (answers.replies.shift() as A) : own;
   const ports: HostPorts = {
     config: {
       signTags: () => false,
@@ -93,18 +104,28 @@ export function fakePorts() {
         calls.push(["showError", ...args]);
         return answers.showError;
       },
-      confirm: async (...args) => {
-        calls.push(["confirm", ...args]);
-        return answers.confirm;
+      choose: async (message, { detail, actions }) => {
+        calls.push(["choose", message, { detail, actions: actions.map(({ label }) => label) }]);
+        const label = reply(answers.choose);
+        return actions.find((action) => action.label === label)?.value;
       },
-      pick,
+      pick: async (items, options) => {
+        calls.push(["pick", shown(items), options]);
+        const label = reply(answers.pick);
+        return items.find((item) => item.label === label)?.value;
+      },
+      pickMany: async (items, options) => {
+        calls.push(["pickMany", shown(items), options]);
+        const labels = reply(answers.pickMany);
+        return labels && items.filter((item) => labels.includes(item.label)).map((i) => i.value);
+      },
       pickSaveLocation: async (options) => {
         calls.push(["pickSaveLocation", options]);
         return answers.saveLocation;
       },
       input: async (options) => {
         calls.push(["input", options]);
-        return answers.input;
+        return reply(answers.input);
       }
     },
     opener: {

@@ -23,6 +23,7 @@ import {
 } from "@ging/core/backend/actions/remote";
 import { listRemotes } from "@ging/core/backend/queries/listRemotes";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
+import { confirm } from "@ging/core/extension/commandKit";
 import type { RunRepoMutation } from "@ging/core/extension/fetchService";
 import type { L10n, Prompts, RepoSource } from "@ging/core/host/ports";
 
@@ -34,7 +35,10 @@ export type RemoteTarget = {
 };
 
 export type RemoteCommandsDeps = {
-  prompts: Pick<Prompts, "pick" | "confirm" | "input" | "showInformation" | "showError">;
+  prompts: Pick<
+    Prompts,
+    "pick" | "pickMany" | "choose" | "input" | "showInformation" | "showError"
+  >;
   l10n: L10n;
   gitClientFor: (repo: string) => SimpleGit;
   /** The current repository (`CONTEXT.md`) — what the palette commands act
@@ -94,9 +98,11 @@ export function createRemoteCommands(deps: RemoteCommandsDeps) {
   };
 
   const remove = async (repo: string, name: string) => {
-    const agreed = await prompts.confirm(l10n.t("remotes.removeConfirm", name), {
-      confirmLabel: l10n.t("remotes.removeConfirmYes")
-    });
+    const agreed = await confirm(
+      prompts,
+      l10n.t("remotes.removeConfirm", name),
+      l10n.t("remotes.removeConfirmYes")
+    );
     if (!agreed) return;
     await mutate(repo, (git) => removeRemote(git, { name }));
   };
@@ -173,9 +179,9 @@ export function createRemoteCommands(deps: RemoteCommandsDeps) {
         return;
       }
       const hidden = deps.repoSource.getRepos()[repo]?.hiddenRemotes ?? [];
-      const visible = await prompts.pick(
+      const visible = await prompts.pickMany(
         remotes.map((name) => ({ label: name, picked: !hidden.includes(name), value: name })),
-        { canPickMany: true, placeholder: l10n.t("remoteVisibility.prompt") }
+        { placeholder: l10n.t("remoteVisibility.prompt") }
       );
       if (visible === undefined) return;
       // Read again rather than spread the state read before the pick, a wait

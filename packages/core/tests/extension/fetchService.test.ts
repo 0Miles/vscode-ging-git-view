@@ -186,14 +186,7 @@ describe("the Fetch Remote command", () => {
     await h.service.fetchRemoteCommand();
     expect(h.calls).toEqual([
       ["git", REPO, "remote"],
-      [
-        "pick",
-        [
-          { label: "origin", value: "origin" },
-          { label: "upstream", value: "upstream" }
-        ],
-        { placeholder: "fetch.pickRemote" }
-      ],
+      ["pick", [{ label: "origin" }, { label: "upstream" }], { placeholder: "fetch.pickRemote" }],
       ["runRepoMutation", REPO],
       ["git", REPO, "fetch", "--prune", "upstream"],
       ["runRepoMutation done", REPO]
