@@ -380,6 +380,24 @@ describe("apply and pop that do not go through", () => {
     expect(stashList()).toEqual([]);
   });
 
+  it("still reports a conflict when the stash list cannot be read afterwards", async () => {
+    const stash = conflictingStash();
+    const real = simpleGit(repo);
+    const noList = {
+      raw: async (args: string[]) => {
+        if (args[0] === "stash" && args[1] === "list") throw new Error("cannot read the list");
+        return real.raw(args);
+      }
+    } as unknown as Parameters<typeof applyStash>[0];
+
+    const error = await rejection(
+      applyStash(noList, { selector: "stash@{0}", expectedHash: stash, reinstateIndex: false })
+    );
+
+    expect((error as StashApplyError).failure).toEqual({ kind: "conflicted", keptAs: null });
+    expect(unmerged()).toEqual(["f"]);
+  });
+
   it.each(actions)(
     "reports a %s that failed with nothing unmerged as changing nothing",
     async (_, action) => {

@@ -176,19 +176,19 @@ async function judgeRun(
   failed: boolean,
   error: unknown
 ): Promise<unknown> {
+  let unmerged: string[];
   try {
-    if ((await unmergedPaths(git)).length === 0) {
-      return failed ? new StashApplyError({ kind: "unchanged" }, error) : null;
-    }
-    // Looked up again rather than taken from the request: a push or drop since
-    // the check moves the stash, and the selector agreed to may name another.
-    return new StashApplyError(
-      { kind: "conflicted", keptAs: await stashPosition(git, sha) },
-      error
-    );
+    unmerged = await unmergedPaths(git);
   } catch {
     return failed ? error : null;
   }
+  if (unmerged.length === 0) {
+    return failed ? new StashApplyError({ kind: "unchanged" }, error) : null;
+  }
+  // Looked up again rather than taken from the request: a push or drop since
+  // the check moves the stash, and the selector agreed to may name another.
+  const keptAs = await stashPosition(git, sha).catch(() => null);
+  return new StashApplyError({ kind: "conflicted", keptAs }, error);
 }
 
 /** Apply a stash to the working tree, keeping it in the stash list. With
