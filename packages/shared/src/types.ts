@@ -501,7 +501,7 @@ export type ResponseRunRefBatchAction = {
 /** Which of the three facts put a branch on the cleanup list. Carried per row
  *  because their strengths differ wildly — merged has git's `branch -d`
  *  guarantee, redundant has none, and inactive says nothing at all about
- *  whether deleting would lose work (CONTEXT.md, "Cleanup candidate"). */
+ *  whether deleting would lose work (GLOSSARY.md, "Cleanup candidate"). */
 export type CleanupCandidateFacts = {
   merged: boolean;
   redundant: boolean;

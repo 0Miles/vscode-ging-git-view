@@ -6,7 +6,7 @@
 
 **值得做,但不要一次做完。建議「先做一部分」:先把鍵盤、焦點、Find 與 inline CDV 從「讀 DOM 列」改成「讀 commit 索引」,再對 commit 表格的列做固定列高的虛擬化,SVG 先不動。** 要不要做由 maintainer 決定;若決定做,拆票方式見「建議」一節。
 
-這份文件裡有三個容易混的詞,分開用:**loaded commit window** 是向後端要的筆數(CONTEXT.md 的術語);**viewport** 是瀏覽器可見的那塊;**渲染範圍**是虛擬化之後實際放進 document 的那一段列。
+這份文件裡有三個容易混的詞,分開用:**loaded commit window** 是向後端要的筆數(GLOSSARY.md 的術語);**viewport** 是瀏覽器可見的那塊;**渲染範圍**是虛擬化之後實際放進 document 的那一段列。
 
 依據:
 

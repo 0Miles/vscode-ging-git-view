@@ -6,7 +6,7 @@ status: accepted
 
 ADR-0002 把 squash / rebase 的偵測留給隨選檢查,並設想那是 patch-id 掃描。實際採用的是 `git merge-tree --write-tree <default branch> <branch>`:產出的 tree OID 等於 `<default branch>^{tree}`,就代表把這個分支合併進去不會改變任何內容。一次 in-memory 合併同時涵蓋 squash、rebase 與 cherry-pick,而且它**不是啟發式** —— 那是 git 自己的合併機器算出來的答案。
 
-代價是宣稱的東西換了一件。patch-id 比對想回答的是歷史問題(它被合併過嗎),merge-tree 回答的是狀態問題(它現在還有沒有貢獻)。後者可以精確計算,前者不行,所以我們改問後者,並把這個新事實命名為 **redundant branch**(見 `CONTEXT.md`)。把改動全數 revert 掉的分支、與他人各自寫出相同修改的分支,都會被判為 redundant —— 那句話仍然是真的,它只是沒有在講歷史。
+代價是宣稱的東西換了一件。patch-id 比對想回答的是歷史問題(它被合併過嗎),merge-tree 回答的是狀態問題(它現在還有沒有貢獻)。後者可以精確計算,前者不行,所以我們改問後者,並把這個新事實命名為 **redundant branch**(見 `GLOSSARY.md`)。把改動全數 revert 掉的分支、與他人各自寫出相同修改的分支,都會被判為 redundant —— 那句話仍然是真的,它只是沒有在講歷史。
 
 ## 為什麼未來的讀者會困惑
 
@@ -26,5 +26,5 @@ ADR-0002 把 squash / rebase 的偵測留給隨選檢查,並設想那是 patch-i
 - 對話框裡每一列 commit 可以展開看完整詳細資訊,而那份資料是**點開時才抓**的。它走 `redundancyCommitDetails` 而不是既有的 `commitDetails`:後者的回應寫死在圖形展開列的比對上,不是自己要的就丟掉。
 - 兩個面板共用同一條路徑:側檢視只是多一個 `RefAction`,經 `runRefActionInGraph()` 開啟圖形後在那裡跑對話框,與其他所有分支動作一致。因此**結果永遠顯示在圖形頁**,即使是從側檢視觸發的。
 - **不做特例。** default branch 自己照跑,於是會得到「沒有未合併的變更」這種套套邏輯的答案。換來的是零新增 payload —— webview 目前刻意只收 `dimmedBranches`,不知道 default branch 是誰,要藏這個選單項就得把它送過去。
-- 找不到 default branch 時**不**靜默停用,而是照樣顯示選單項、按下去回報原因。這與 `CONTEXT.md` 對顯示/隱藏的靜默停用約定刻意不同:靜默適合被動顯示(少一個 badge 沒人會發現),不適合主動動作(按了沒反應跟壞掉一樣)。git 低於 2.38 與兩邊無共同祖先同樣照顯示、照回報,但各自說出自己的原因 —— 「你的 git 太舊」與「這兩條歷史沒有交集」是使用者要採取的兩種不同行動。
+- 找不到 default branch 時**不**靜默停用,而是照樣顯示選單項、按下去回報原因。這與 `GLOSSARY.md` 對顯示/隱藏的靜默停用約定刻意不同:靜默適合被動顯示(少一個 badge 沒人會發現),不適合主動動作(按了沒反應跟壞掉一樣)。git 低於 2.38 與兩邊無共同祖先同樣照顯示、照回報,但各自說出自己的原因 —— 「你的 git 太舊」與「這兩條歷史沒有交集」是使用者要採取的兩種不同行動。
 - 相依於 `merge-tree --write-tree`(git 2.38+)。這個相依已經由 `predictConflicts` 引入,連降級路徑都是現成的。

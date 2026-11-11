@@ -105,7 +105,7 @@ function relativeTo(file) {
  * Every file a citation could live in, ADRs included.
  *
  * The repo root is searched alongside `SEARCH_ROOTS`, on the same extensions
- * rather than a narrower set — `CONTEXT.md` is the central domain document and
+ * rather than a narrower set — `GLOSSARY.md` is the central domain document and
  * it cites ADRs, so leaving the root out made the file most likely to name a
  * decision the one file never checked for naming a decision that no longer
  * exists. Root files are not recursed into: the directories worth walking are

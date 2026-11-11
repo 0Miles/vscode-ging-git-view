@@ -188,7 +188,7 @@ export interface L10n {
   t(key: string, ...args: L10nArg[]): string;
 }
 
-/** The set of known repositories (`CONTEXT.md`), with each one's state. */
+/** The set of known repositories (`GLOSSARY.md`), with each one's state. */
 export interface RepoSource {
   getRepos(): GitRepoSet;
   /** Which repo the graph boots on; see `pickBootRepo`. */

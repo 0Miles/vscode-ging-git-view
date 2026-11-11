@@ -179,7 +179,7 @@ export function buildGroupedBranchRoots(
  * selected leaves' refs, in the order given. Folders and group headings carry
  * no ref — they are display groupings split out of the names, absent from git —
  * so a highlight sitting on nothing but those denotes an *empty* selection, not
- * a non-empty one (CONTEXT.md, "Branch selection").
+ * a non-empty one (GLOSSARY.md, "Branch selection").
  *
  * That distinction is the whole reason this is a named function rather than an
  * inline filter: the side view has to ask "is a branch selected?" in more than
