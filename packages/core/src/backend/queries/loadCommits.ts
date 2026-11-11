@@ -193,13 +193,13 @@ async function getUnsavedChanges(git: SimpleGit) {
  * sentinel and the walk was never at risk. This buys a stable row with the
  * stash's visibility, not with correctness. Second, what it costs is the
  * stash's row, not the stash: the Stash side-view lists the whole of
- * `git stash list` (`listStashes`) and runs every stash action from there,
- * whatever the graph has loaded (ADR-0029, #102). So a stash whose base is
- * unreachable is missing only from the graph — its row, its ref context menu,
- * and the `scrollToStash` cycle, which walks the loaded rows — until the whole
- * history is loaded. Accepted: a row at a position that is invented, and that
- * moves when the user loads more, is harder to explain than a row that is not
- * there yet.
+ * `git stash list` (`listStashes`) and offers the graph's stash menu there —
+ * apply, pop, drop, rename, copy name — whatever the graph has loaded
+ * (ADR-0029, #102). So a stash whose base is unreachable is missing only from
+ * the graph — its row, its ref context menu, and the `scrollToStash` cycle,
+ * which walks the loaded rows — until the whole history is loaded. Accepted: a
+ * row at a position that is invented, and that moves when the user loads more,
+ * is harder to explain than a row that is not there yet.
  */
 function stashInsertIndex(
   commits: GitLogEntry[],
