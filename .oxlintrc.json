@@ -108,11 +108,8 @@
       }
     },
     {
-      // apps/vscode registers commands and wires the editor; the git operations,
-      // and the flows around them, live in core (#339). Types still come over.
-      // commitFileContent is DiffDocProvider's reader: the revision is resolved
-      // before the URI is made, and all that is left is VS Code's folder-scoped
-      // fileEncoding. blameController's queries are allowed line by line there.
+      // apps/vscode leaves git operations to core's command services; the
+      // reasons and the whitelist are in ADR-0027's consequences.
       "files": ["apps/vscode/src/**"],
       "rules": {
         "eslint/no-restricted-imports": [

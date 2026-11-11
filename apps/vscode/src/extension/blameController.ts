@@ -2,8 +2,6 @@ import * as vscode from "vscode";
 
 import type { GitRunOptions } from "@ging/core/backend/gitRun";
 import type { GitCommandHandler } from "@ging/core/backend/gitSpawn";
-// The blame queries below are already core's; what is left here is the editor
-// wiring around them (decorations, cache, scheduling), which is VS Code's (#339).
 // oxlint-disable-next-line eslint/no-restricted-imports -- blame query, editor wiring stays here
 import {
   type BlamedCommit,
