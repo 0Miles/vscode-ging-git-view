@@ -171,6 +171,8 @@
   "view.stash.welcomeNoRepo": "未选取仓库。\n[打开历史视图](command:ging-git-view.view)",
   "view.stash.welcomeEmpty": "此仓库没有 stash。",
   "command.stash.refresh": "刷新",
+  "command.stash.apply": "应用 stash…",
+  "command.stash.pop": "弹出 stash…",
   "command.stash.drop": "删除 stash…",
   "command.stash.rename": "重命名 stash…",
   "command.stash.copyName": "复制 stash 名称",

@@ -8,7 +8,7 @@ _與 ADR-0009 衝突:ADR-0009 說側檢視的單一分支動作一律委派給�
 
 **適用條件**:某個側檢視動作在圖形裡的對話框,必須先在**已載入的列**裡找到它的對象才能運作。符合這個條件的動作,側檢視不委派給圖形,而是在 extension host 用原生 UI 詢問並執行:確認用只有按鈕的 modal(`Prompts.confirm`),文字用 `showInputBox`(`Prompts.input`)。詢問的文字與判定放在 core 的 vscode-free 模組(ADR-0018),`apps/vscode` 只剩接線。
 
-今天符合的是 Stash 側檢視的 drop 與 rename(#336)。條件刻意不寫「stash」:決定 host 執行的是「對話框靠已載入的列」這件事實,不是 ref 的種類。
+今天符合的是 Stash 側檢視的 drop 與 rename(#336),以及 apply 與 pop(#337)。條件刻意不寫「stash」:決定 host 執行的是「對話框靠已載入的列」這件事實,不是 ref 的種類。
 
 ## 為什麼未來的讀者會困惑
 
@@ -23,11 +23,11 @@ _與 ADR-0009 衝突:ADR-0009 說側檢視的單一分支動作一律委派給�
 
 ## 後果
 
-- **圖形與側檢視是兩種互動形狀,這是已接受的代價。** drop 在圖形裡是 GING 自己的確認框,在側檢視是原生 modal;rename 在圖形裡是表單,在側檢視是 `showInputBox`。S3b(#337)的 apply / pop 也會走這條例外,它的互動形狀由那張票補進這裡。
+- **圖形與側檢視是兩種互動形狀,這是已接受的代價。** drop 在圖形裡是 GING 自己的確認框,在側檢視是原生 modal;rename 在圖形裡是表單,在側檢視是 `showInputBox`。apply / pop(#337)在圖形裡是帶 checkbox 的表單,在側檢視是兩顆按鈕的原生 modal:`Apply` 回答 `reinstateIndex: false`(等於 checkbox 的預設),`Apply & Reinstate Index` 回答 `true`(core 的 `applyOrPopActions`);用按鈕,是因為 VS Code 的 stable API 沒有 modal 用的 checkbox。它們沒有成功時怎麼判定與回報,兩邊共用一份,見 ADR-0030。
 - **側檢視不讀、也不寫 `dialogMemory`。** 那是圖內對話框「記住我的選擇」的存放處,原生 modal 沒有對應的 UI。
 - **`Prompts` 長出了 `confirm` 與 `input` 的 `value`。** 這是 ADR-0027「先有呼叫端」規則下的第一個呼叫端:`confirm` 的形狀比照 `showError`(訊息加上一串動作,回傳選中的那一個),VS Code 的實作是 `showWarningMessage` 的 modal 版本。
 - **rename 的答案是空的或沒有改變,都視同取消,不執行 git。** 空的答案沿用圖形的規則。沒有改變的答案在圖形裡會照樣送出,可是 `renameStash` 會重建 commit 並 store 到 `stash@{0}`,結果只是在名字不變的情況下把 stash 移到最上面,所以側檢視不送。
-- **側檢視的 stash 選單項目由 `apps/vscode` 的 `STASH_ACTIONS` 宣告**,`contextMenuActionsVisibility.stash.*` 的 context key 也從那裡產生,並有一支一致性測試鎖住 `package.json` 的 when 子句(ADR-0010 的補記)。drop 遵守 `stash.drop`;rename 沒有設定鍵,恆顯示,#333 不補鍵。
+- **側檢視的 stash 選單項目由 `apps/vscode` 的 `STASH_ACTIONS` 宣告**,`contextMenuActionsVisibility.stash.*` 的 context key 也從那裡產生,並有一支一致性測試鎖住 `package.json` 的 when 子句(ADR-0010 的補記)。apply、pop、drop 各自遵守 `stash.apply`、`stash.pop`、`stash.drop`;rename 沒有設定鍵,恆顯示,#333 不補鍵。
 - **例外的邊界**:之後新增的側檢視動作,只有在符合上面的適用條件時才能引用這篇。圖內對話框不需要已載入的列,就照 ADR-0009 委派。
 
 ## 補記(2026-11-11,#352)

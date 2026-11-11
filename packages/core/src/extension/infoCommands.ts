@@ -48,7 +48,9 @@ export function createInfoCommands(deps: InfoCommandsDeps) {
      *  blank is unset. */
     async setGitUserDetails(): Promise<void> {
       const repo = kit.currentRepo();
-      const current = await kit.runOrToast(USER_DETAILS_FAILED, repo, getUserDetails);
+      const current = await kit.tryOrToast(USER_DETAILS_FAILED, () =>
+        getUserDetails(deps.gitClientFor(repo))
+      );
       if (current === undefined) return;
       const name = await prompts.input({
         prompt: l10n.t("userDetails.namePrompt"),
@@ -68,8 +70,9 @@ export function createInfoCommands(deps: InfoCommandsDeps) {
         { placeholder: l10n.t("userDetails.scopePrompt") }
       );
       if (useGlobal === undefined) return;
-      const set = await kit.runOrToast(USER_DETAILS_FAILED, repo, async (git) => {
-        await setUserDetails(git, { name: name.trim(), email: email.trim(), useGlobal });
+      const input = { name: name.trim(), email: email.trim(), useGlobal };
+      const set = await kit.tryOrToast(USER_DETAILS_FAILED, async () => {
+        await setUserDetails(deps.gitClientFor(repo), input);
         return true;
       });
       if (set === true) prompts.showInformation(l10n.t("userDetails.updated"));
@@ -95,8 +98,7 @@ export function createInfoCommands(deps: InfoCommandsDeps) {
     async statistics(): Promise<Statistics | undefined> {
       const repo = kit.currentRepoOrSay();
       if (repo === null) return undefined;
-      // Not passed bare: its second parameter is the commit cap.
-      return kit.runOrToast(STATISTICS_FAILED, repo, (git) => loadStatistics(git));
+      return kit.tryOrToast(STATISTICS_FAILED, () => loadStatistics(deps.gitClientFor(repo)));
     }
   };
 }

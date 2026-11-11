@@ -3,6 +3,7 @@ import * as path from "node:path";
 
 import type { SimpleGit } from "simple-git";
 
+import { unmergedFiles } from "@ging/core/backend/queries/unmergedFiles";
 import type { GitOperation } from "@ging/shared/backend/types";
 
 /** Detect an in-progress git operation by the marker files/dirs git leaves in
@@ -32,15 +33,7 @@ export async function operationState(
   if (operation === null) return { operation: null, conflictedFiles: [] };
   let conflictedFiles: string[] = [];
   try {
-    // Unmerged paths (both-modified, added/added, etc.) are diff-filter=U.
-    const out = await git.raw([
-      "-c",
-      "core.quotePath=false",
-      "diff",
-      "--name-only",
-      "--diff-filter=U"
-    ]);
-    conflictedFiles = out.split(/\r\n|\r|\n/g).filter((line) => line.length > 0);
+    conflictedFiles = await unmergedFiles(git);
   } catch {
     /* leave the list empty — the operation banner still shows continue/abort */
   }

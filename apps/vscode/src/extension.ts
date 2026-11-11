@@ -1,11 +1,8 @@
 import * as vscode from "vscode";
 
 import { AvatarManager } from "@ging/core/avatarManager";
-import { createBranch } from "@ging/core/backend/actions/branch";
-import { resetToCommit } from "@ging/core/backend/actions/commit";
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { getCommitFileContent } from "@ging/core/backend/queries/commitFileContent";
-import { loadDanglingCommits, loadReflog } from "@ging/core/backend/queries/loadReflog";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import { repoContainingPath, resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
 import { AskpassManager } from "@ging/core/extension/askpass/askpassManager";
@@ -16,6 +13,7 @@ import { createFetchService } from "@ging/core/extension/fetchService";
 import { createInfoCommands } from "@ging/core/extension/infoCommands";
 import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
+import { createReflogCommand } from "@ging/core/extension/reflogCommand";
 import { createRemoteCommands, type RemoteTarget } from "@ging/core/extension/remoteCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import {
@@ -209,10 +207,10 @@ export function activate(context: vscode.ExtensionContext) {
     resolveExemptPatterns: config.inactiveBranchAlwaysShow,
     dateType: config.dateType
   });
-  // The changes made outside the graph's bridge — the fetch and remote commands,
-  // and the timer — run inside this hook, which refreshes whether or not a
-  // graph is open. The graph's own fetches take the git call alone, since its
-  // bridge mutes and refreshes around them.
+  // The changes made outside the graph's bridge — the fetch, remote and reflog
+  // commands, and the timer — run inside this hook, which refreshes whether or
+  // not a graph is open. The graph's own fetches take the git call alone, since
+  // its bridge mutes and refreshes around them.
   const runRepoMutation = createRunRepoMutation({
     watcher: () => currentWatcher,
     afterMutation: () => refreshAfterRemoteChange()
@@ -906,67 +904,20 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("ging-git-view.fetchRemote", () =>
       fetchService.fetchRemoteCommand()
     ),
-    vscode.commands.registerCommand("ging-git-view.viewReflog", async () => {
-      // Browse the reflog (and commits dangling beyond it) and recover any of
-      // them. A command + QuickPick, since neo has no settings widget.
-      const git = gitClient.getInstance();
-      try {
-        const [reflog, dangling] = await Promise.all([loadReflog(git), loadDanglingCommits(git)]);
-        const entries = [...reflog, ...dangling];
-        if (entries.length === 0) {
-          void vscode.window.showInformationMessage(l10n.t("reflog.empty"));
-          return;
-        }
-        const danglingTag = l10n.t("reflog.danglingTag");
-        const pick = await vscode.window.showQuickPick(
-          entries.map((e) => ({
-            label: `${e.dangling ? "$(warning) " : ""}${e.shortHash}  ${e.subject}`,
-            description: e.dangling ? danglingTag : e.selector,
-            entry: e
-          })),
-          { placeHolder: l10n.t("reflog.pickPrompt"), matchOnDescription: true }
-        );
-        if (pick === undefined) return; // cancelled
-        const hash = pick.entry.hash;
-        const createBranchLabel = l10n.t("reflog.createBranch");
-        const resetLabel = l10n.t("reflog.resetHard");
-        const copyLabel = l10n.t("reflog.copyHash");
-        const action = await vscode.window.showQuickPick(
-          [createBranchLabel, resetLabel, copyLabel],
-          { placeHolder: l10n.t("reflog.actionPrompt", pick.entry.shortHash) }
-        );
-        if (action === undefined) return;
-        if (action === createBranchLabel) {
-          const name = (
-            await vscode.window.showInputBox({
-              prompt: l10n.t("reflog.branchNamePrompt"),
-              ignoreFocusOut: true
-            })
-          )?.trim();
-          if (!name) return;
-          await createBranch(git, {
-            commitHash: hash,
-            branchName: name,
-            checkout: false,
-            force: false
-          });
-        } else if (action === resetLabel) {
-          const yes = l10n.t("reflog.resetConfirmYes");
-          const confirm = await vscode.window.showWarningMessage(
-            l10n.t("reflog.resetConfirm", pick.entry.shortHash),
-            { modal: true },
-            yes
-          );
-          if (confirm !== yes) return;
-          await resetToCommit(git, { commitHash: hash, resetMode: "hard" });
-        } else {
-          await vscode.env.clipboard.writeText(hash);
-        }
-        currentBridge?.post({ command: "refresh" });
-      } catch (e: unknown) {
-        void vscode.window.showErrorMessage(l10n.t("reflog.unableTo") + ": " + formatGitError(e));
-      }
-    }),
+    // Browse the reflog (and commits dangling beyond it) and recover any of
+    // them. A command + QuickPick, since neo has no settings widget.
+    vscode.commands.registerCommand(
+      "ging-git-view.viewReflog",
+      createReflogCommand({
+        prompts: vscodePrompts,
+        clipboard: vscodeClipboard,
+        l10n: vscodeL10n,
+        gitClientFor: repoGitClients.gitClientFor,
+        currentRepo,
+        repoSource: repoManager,
+        runRepoMutation
+      }).viewReflog
+    ),
     vscode.commands.registerCommand("ging-git-view.showStatistics", async () => {
       // Open a read-only stats panel (commits by author + activity heatmap).
       const stats = await infoCommands.statistics();

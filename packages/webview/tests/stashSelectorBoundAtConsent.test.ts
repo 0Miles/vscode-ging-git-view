@@ -189,8 +189,10 @@ describe("when the host refuses because the stack moved after consent", () => {
     receive({
       command,
       status: "stash@{0} no longer refers to stash sA (it is now sNEW)",
-      movedSelector: "stash@{0}"
-    });
+      movedSelector: "stash@{0}",
+      // What apply and pop add beside it (#337); drop and rename ignore it.
+      applyFailure: null
+    } as GG.ResponseMessage);
 
     const text = document.getElementById("dialog")!.textContent;
     expect(text).toContain(L.dialogStashMoved.replace("{0}", "stash@{0}"));
@@ -289,5 +291,100 @@ describe("applying, popping or renaming the stash the form named", () => {
     expect(document.getElementById("dialog")!.textContent).toContain(
       L.dialogStashMoved.replace("{0}", "stash@{0}")
     );
+  });
+});
+
+const dialogText = () => document.getElementById("dialog")!.textContent;
+
+// #337: the graph reports an apply or pop that did not go through from the
+// host's judgement (`StashApplyFailure`) — the one the Stash side-view reports
+// from too, in the same words — not from git's output.
+describe("reporting an apply or pop that did not go through", () => {
+  beforeAll(async () => {
+    vi.resetModules();
+    mock = createVscodeMock();
+    setupHtml(viewState);
+    await import("@ging/webview/main");
+    receive(branchesResponse);
+    receive(commitsResponse(before));
+  });
+
+  it.each([
+    ["applyStash", L.unableToApplyStash],
+    ["popStash", L.unableToPopStash]
+  ] as const)(
+    "%s refused for conflicts already there reads as theirs, not the stash's",
+    (command, failure) => {
+      receive({
+        command,
+        status: "the working tree already has unmerged paths, so no stash command ran",
+        movedSelector: null,
+        applyFailure: { kind: "unmergedBefore" }
+      });
+
+      expect(dialogText()).toContain(L.stashApplyUnmergedBefore);
+      expect(dialogText()).not.toContain(failure);
+      expect(dialogText()).not.toContain(L.stashApplyConflicted.split("{0}")[0]);
+      clickId("dialogDismiss");
+    }
+  );
+
+  it.each(["applyStash", "popStash"] as const)(
+    "%s that conflicted names where the stash is kept now",
+    (command) => {
+      receive({
+        command,
+        status: "CONFLICT (content): Merge conflict in f",
+        movedSelector: null,
+        applyFailure: { kind: "conflicted", keptAs: "stash@{1}" }
+      });
+
+      expect(dialogText()).toContain(L.stashApplyConflicted.replace("{0}", "stash@{1}"));
+      clickId("dialogDismiss");
+    }
+  );
+
+  it("says so when the stash that conflicted is no longer listed", () => {
+    receive({
+      command: "applyStash",
+      status: "CONFLICT (content): Merge conflict in f",
+      movedSelector: null,
+      applyFailure: { kind: "conflicted", keptAs: null }
+    });
+
+    expect(dialogText()).toContain(L.stashApplyConflictedUnlisted);
+    expect(dialogText()).not.toContain("stash@{");
+    clickId("dialogDismiss");
+  });
+
+  it.each([
+    ["applyStash", L.unableToApplyStash],
+    ["popStash", L.unableToPopStash]
+  ] as const)("%s that failed with nothing unmerged says nothing changed", (command, failure) => {
+    receive({
+      command,
+      status: "Your local changes to the following files would be overwritten by merge:",
+      movedSelector: null,
+      applyFailure: { kind: "unchanged" }
+    });
+
+    expect(dialogText()).toContain(failure);
+    expect(dialogText()).toContain(L.stashApplyUnchanged);
+    expect(dialogText()).toContain("would be overwritten");
+    clickId("dialogDismiss");
+  });
+
+  it("reports a failure the judgement could not read as git's", () => {
+    receive({
+      command: "applyStash",
+      status: "fatal: something else",
+      movedSelector: null,
+      applyFailure: null
+    });
+
+    expect(dialogText()).toContain(L.unableToApplyStash);
+    expect(dialogText()).toContain("fatal: something else");
+    expect(dialogText()).not.toContain(L.stashApplyUnchanged);
+    clickId("dialogDismiss");
   });
 });

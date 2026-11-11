@@ -52,7 +52,7 @@ const said = ([name]: unknown[]) => name === "showInformation";
 describe("Set Git User Details", () => {
   it("asks starting from the current name and email, then where, and sets them there", async () => {
     const h = harness();
-    h.git.output = { "config --get user.name": "Ada\n", "config --get user.email": "ada@x.io\n" };
+    h.git.stdout = { "config --get user.name": "Ada\n", "config --get user.email": "ada@x.io\n" };
     h.answer(" Ada Lovelace ", " ada@example.com ", "userDetails.scopeLocal");
     await h.commands.setGitUserDetails();
     expect(h.calls).toEqual([
@@ -118,7 +118,7 @@ describe("Set Git User Details", () => {
     ["the current repository is no longer known", "/gone"]
   ])("offers only the global config, on no repository, when %s", async (_case, repo) => {
     const h = harness({ repo });
-    h.git.output = { "config --get user.name": "Ada\n" };
+    h.git.stdout = { "config --get user.name": "Ada\n" };
     h.answer("Ada", "ada@example.com", "userDetails.scopeGlobal");
     await h.commands.setGitUserDetails();
     expect(h.calls).toEqual([
@@ -161,7 +161,7 @@ describe("Version Info", () => {
 
   it("shows the host's versions, the OS and git's in a modal offering to copy them", async () => {
     const h = harness();
-    h.git.output = { "--version": "git version 2.47.1\n" };
+    h.git.stdout = { "--version": "git version 2.47.1\n" };
     await h.commands.versionInfo();
     expect(h.calls).toEqual([
       ["git", null, "--version"],
@@ -171,7 +171,7 @@ describe("Version Info", () => {
 
   it("copies exactly what it showed when asked to", async () => {
     const h = harness();
-    h.git.output = { "--version": "git version 2.47.1\n" };
+    h.git.stdout = { "--version": "git version 2.47.1\n" };
     h.answer("versionInfo.copy");
     await h.commands.versionInfo();
     expect(h.calls.at(-1)).toEqual(["writeText", INFO]);
@@ -179,7 +179,7 @@ describe("Version Info", () => {
 
   it("asks git on no repository, so it answers with no repository at all", async () => {
     const h = harness({ repo: null });
-    h.git.output = { "--version": "git version 2.47.1\n" };
+    h.git.stdout = { "--version": "git version 2.47.1\n" };
     await h.commands.versionInfo();
     expect(h.calls[0]).toEqual(["git", null, "--version"]);
     expect(h.calls).not.toContainEqual(["showInformation", "repoName.noRepos"]);
@@ -211,7 +211,7 @@ describe("Statistics", () => {
 
   it("answers the current repository's statistics", async () => {
     const h = harness();
-    h.git.output = {
+    h.git.stdout = {
       [LOG.join(" ")]: "Ada\u00002026-11-09T10:00:00+08:00\nBob\u00002026-11-10T23:30:00+00:00\n"
     };
     const stats = await h.commands.statistics();

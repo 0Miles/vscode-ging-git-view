@@ -13,6 +13,7 @@ import type {
 import type { Config } from "@ging/vscode/config";
 import { encodeDiffDocUri } from "@ging/vscode/diffDocProvider";
 import { openCommitDiff } from "@ging/vscode/extension/openCommitDiff";
+import { quickPickItems } from "@ging/vscode/extension/quickPickItems";
 import * as l10nModule from "@ging/vscode/l10n";
 
 // The VS Code side of the host ports (see `@ging/core/host/ports`). Each is a
@@ -45,10 +46,13 @@ export const vscodePrompts: Prompts = {
       )
     )?.value,
   pick: async (items, options) =>
-    (await vscode.window.showQuickPick(items, quickPickOptions(options)))?.value,
+    (await vscode.window.showQuickPick(quickPickItems(items), quickPickOptions(options)))?.value,
   pickMany: async (items, options) =>
     (
-      await vscode.window.showQuickPick(items, { ...quickPickOptions(options), canPickMany: true })
+      await vscode.window.showQuickPick(quickPickItems(items), {
+        ...quickPickOptions(options),
+        canPickMany: true
+      })
     )?.map((item) => item.value),
   pickSaveLocation: async ({ saveLabel, filters, defaultPath }) =>
     (

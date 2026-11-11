@@ -10,6 +10,8 @@ import {
   applyStash,
   dropStash,
   popStash,
+  StashApplyError,
+  stashApplyFacts,
   StashMovedError,
   stashSelectorResolvesTo
 } from "@ging/core/backend/actions/stash";
@@ -221,5 +223,257 @@ describe("stashSelectorResolvesTo", () => {
     repo = makeRepo();
     const { older } = pushTwoStashes(repo);
     expect(await stashSelectorResolvesTo(simpleGit(repo), "stash@{2}", older)).toBe(false);
+  });
+});
+
+/**
+ * #337: how an apply or pop that did not go through is told apart — by the
+ * unmerged paths before and after, never by what git printed.
+ */
+describe("apply and pop that do not go through", () => {
+  /** The stack, top first, as `stash@{n} <SHA>`. */
+  function stashList(): string[] {
+    const out = cp
+      .execFileSync("git", ["stash", "list", "--format=%gd %H"], { cwd: repo })
+      .toString()
+      .trim();
+    return out === "" ? [] : out.split("\n");
+  }
+
+  const unmerged = () =>
+    cp
+      .execFileSync("git", ["diff", "--name-only", "--diff-filter=U"], { cwd: repo })
+      .toString()
+      .split("\n")
+      .filter((line) => line !== "");
+
+  /** `simpleGit(repo)`, logging every command it is asked to run; `after`
+   *  runs once, when the first command matching `when` has finished. */
+  function recordingGit(hook?: { when: (args: string[]) => boolean; after: () => void }) {
+    const real = simpleGit(repo);
+    const ran: string[][] = [];
+    let hooked = false;
+    const client = {
+      raw: async (args: string[]) => {
+        ran.push(args);
+        try {
+          return await real.raw(args);
+        } finally {
+          if (hook !== undefined && !hooked && hook.when(args)) {
+            hooked = true;
+            hook.after();
+          }
+        }
+      }
+    } as unknown as Parameters<typeof applyStash>[0];
+    return { client, ran };
+  }
+
+  /** A stash of "f" whose change conflicts with a commit made on top of its
+   *  base, so applying it leaves "f" unmerged. */
+  function conflictingStash(): string {
+    repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "f"), "stashed");
+    git(["stash", "push", "-m", "wip"], repo);
+    fs.writeFileSync(path.join(repo, "f"), "committed");
+    git(["commit", "-am", "conflicts with the stash"], repo);
+    return rev(repo, "stash@{0}");
+  }
+
+  const actions = [
+    ["apply", applyStash],
+    ["pop", popStash]
+  ] as const;
+
+  // The ticket's fixture: a `-u` stash, then a merge left in conflict, then
+  // the apply. git would refuse it ("needs merge") and leave the merge's
+  // unmerged path behind, which, read after the fact, looks just like a
+  // conflict the stash caused.
+  it.each(actions)(
+    "refuses to %s while unmerged paths are already there, running no stash command",
+    async (_, action) => {
+      repo = makeRepo();
+      fs.writeFileSync(path.join(repo, "f"), "stashed");
+      fs.writeFileSync(path.join(repo, "untracked.txt"), "u");
+      git(["stash", "push", "-u", "-m", "wip"], repo);
+      const stash = rev(repo, "stash@{0}");
+      git(["checkout", "-b", "other"], repo);
+      fs.writeFileSync(path.join(repo, "f"), "other");
+      git(["commit", "-am", "other"], repo);
+      git(["checkout", "main"], repo);
+      fs.writeFileSync(path.join(repo, "f"), "mine");
+      git(["commit", "-am", "mine"], repo);
+      expect(() => git(["merge", "other"], repo)).toThrow();
+      expect(unmerged()).toEqual(["f"]);
+      const { client, ran } = recordingGit();
+
+      const error = await rejection(
+        action(client, { selector: "stash@{0}", expectedHash: stash, reinstateIndex: false })
+      );
+
+      expect(error).toBeInstanceOf(StashApplyError);
+      expect((error as StashApplyError).failure).toEqual({ kind: "unmergedBefore" });
+      expect(ran.filter((args) => args[0] === "stash")).toEqual([]);
+      expect(stashList()).toEqual([`stash@{0} ${stash}`]);
+      expect(fs.existsSync(path.join(repo, "untracked.txt"))).toBe(false);
+    }
+  );
+
+  // The two checks run together; the one about the working tree wins, since
+  // the stash being where it was would not make the apply any safer.
+  it("refuses for conflicts already there before refusing a stash that moved", async () => {
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+    git(["checkout", "-b", "other"], repo);
+    fs.writeFileSync(path.join(repo, "f"), "other");
+    git(["commit", "-am", "other"], repo);
+    git(["checkout", "main"], repo);
+    fs.writeFileSync(path.join(repo, "f"), "mine");
+    git(["commit", "-am", "mine"], repo);
+    expect(() => git(["merge", "other"], repo)).toThrow();
+
+    const error = await rejection(
+      applyStash(simpleGit(repo), {
+        selector: "stash@{0}",
+        expectedHash: older,
+        reinstateIndex: false
+      })
+    );
+
+    expect(error).toBeInstanceOf(StashApplyError);
+    expect((error as StashApplyError).failure).toEqual({ kind: "unmergedBefore" });
+  });
+
+  it.each(actions)(
+    "reports a %s that left conflicts, with the stash kept where it sits",
+    async (_, action) => {
+      const stash = conflictingStash();
+
+      const error = await rejection(
+        action(simpleGit(repo), {
+          selector: "stash@{0}",
+          expectedHash: stash,
+          reinstateIndex: false
+        })
+      );
+
+      expect(error).toBeInstanceOf(StashApplyError);
+      expect((error as StashApplyError).failure).toEqual({
+        kind: "conflicted",
+        keptAs: "stash@{0}"
+      });
+      expect(unmerged()).toEqual(["f"]);
+      expect(stashList()).toEqual([`stash@{0} ${stash}`]);
+    }
+  );
+
+  it("names where the stash sits after the apply, not the selector agreed to", async () => {
+    const stash = conflictingStash();
+    // A stash pushed from elsewhere after the check: the agreed stash@{0} is
+    // stash@{1} by the time the conflict is reported.
+    fs.writeFileSync(path.join(repo, "f"), "pushed");
+    const pushed = cp.execFileSync("git", ["stash", "create"], { cwd: repo }).toString().trim();
+    git(["checkout", "--", "f"], repo);
+    const { client } = recordingGit({
+      when: (args) => args[0] === "rev-parse",
+      after: () => git(["stash", "store", "-m", "pushed", pushed], repo)
+    });
+
+    const error = await rejection(
+      applyStash(client, { selector: "stash@{0}", expectedHash: stash, reinstateIndex: false })
+    );
+
+    expect((error as StashApplyError).failure).toEqual({ kind: "conflicted", keptAs: "stash@{1}" });
+    expect(stashList()).toEqual([`stash@{0} ${pushed}`, `stash@{1} ${stash}`]);
+  });
+
+  it("names no position for a stash dropped after the check that still conflicted", async () => {
+    const stash = conflictingStash();
+    // Dropped from elsewhere after the check: apply runs on the SHA (#365),
+    // so it still applies, but the stash is no longer listed anywhere.
+    const { client } = recordingGit({
+      when: (args) => args[0] === "rev-parse",
+      after: () => git(["stash", "drop", "stash@{0}"], repo)
+    });
+
+    const error = await rejection(
+      applyStash(client, { selector: "stash@{0}", expectedHash: stash, reinstateIndex: false })
+    );
+
+    expect((error as StashApplyError).failure).toEqual({ kind: "conflicted", keptAs: null });
+    expect(unmerged()).toEqual(["f"]);
+    expect(stashList()).toEqual([]);
+  });
+
+  it("still reports a conflict when the stash list cannot be read afterwards", async () => {
+    const stash = conflictingStash();
+    const real = simpleGit(repo);
+    const noList = {
+      raw: async (args: string[]) => {
+        if (args[0] === "stash" && args[1] === "list") throw new Error("cannot read the list");
+        return real.raw(args);
+      }
+    } as unknown as Parameters<typeof applyStash>[0];
+
+    const error = await rejection(
+      applyStash(noList, { selector: "stash@{0}", expectedHash: stash, reinstateIndex: false })
+    );
+
+    expect((error as StashApplyError).failure).toEqual({ kind: "conflicted", keptAs: null });
+    expect(unmerged()).toEqual(["f"]);
+  });
+
+  it.each(actions)(
+    "reports a %s that failed with nothing unmerged as changing nothing",
+    async (_, action) => {
+      repo = makeRepo();
+      fs.writeFileSync(path.join(repo, "f"), "stashed");
+      git(["stash", "push", "-m", "wip"], repo);
+      const stash = rev(repo, "stash@{0}");
+      // A local change the apply would overwrite: git refuses before merging.
+      fs.writeFileSync(path.join(repo, "f"), "dirty");
+
+      const error = await rejection(
+        action(simpleGit(repo), {
+          selector: "stash@{0}",
+          expectedHash: stash,
+          reinstateIndex: false
+        })
+      );
+
+      expect(error).toBeInstanceOf(StashApplyError);
+      expect((error as StashApplyError).failure).toEqual({ kind: "unchanged" });
+      // git's own words stay on the error, for the report to show.
+      expect(String(error)).toMatch(/overwritten/);
+      expect(fs.readFileSync(path.join(repo, "f"), "utf8")).toBe("dirty");
+      expect(stashList()).toEqual([`stash@{0} ${stash}`]);
+    }
+  );
+
+  it("reports a moved stash as moved, not as an apply that failed", async () => {
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+
+    const error = await rejection(
+      applyStash(simpleGit(repo), {
+        selector: "stash@{0}",
+        expectedHash: older,
+        reinstateIndex: false
+      })
+    );
+
+    expect(error).toBeInstanceOf(StashMovedError);
+    expect(stashApplyFacts(error)).toEqual({ movedSelector: "stash@{0}", applyFailure: null });
+  });
+
+  it("carries the failure into the facts a response reports", () => {
+    expect(stashApplyFacts(null)).toEqual({ movedSelector: null, applyFailure: null });
+    expect(
+      stashApplyFacts(new StashApplyError({ kind: "conflicted", keptAs: "stash@{2}" }, null))
+    ).toEqual({ movedSelector: null, applyFailure: { kind: "conflicted", keptAs: "stash@{2}" } });
+    expect(stashApplyFacts(new Error("anything else"))).toEqual({
+      movedSelector: null,
+      applyFailure: null
+    });
   });
 });

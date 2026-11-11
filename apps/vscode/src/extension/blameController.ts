@@ -26,6 +26,7 @@ import { type BlameAvatarDeps, createBlameAvatars } from "@ging/core/extension/b
 import { createBlameCache } from "@ging/core/extension/blameCache";
 import {
   type BlameHoverDetails,
+  type BlameHoverIcon,
   blameHoverMarkdown,
   copyableSha,
   createLastHoverDetails
@@ -44,6 +45,14 @@ import * as l10n from "@ging/vscode/l10n";
 
 import { openCommitDiff } from "./openCommitDiff";
 import { watchPaths } from "./watchPaths";
+
+/** The hover's icons as theme icons, which its MarkdownString is made to
+ *  draw (`supportThemeIcons`). */
+const HOVER_ICONS: Record<BlameHoverIcon, string> = {
+  account: "$(account)",
+  change: "$(diff)",
+  commit: "$(git-commit)"
+};
 
 const SECTION = "ging-git-view";
 const ENABLED_KEY = "blame.enabled";
@@ -297,7 +306,8 @@ export function createBlameController(deps: {
       repo,
       copyShaCommand: COPY_SHA_COMMAND,
       openLineChangeCommand: OPEN_LINE_CHANGE_COMMAND,
-      locateCommitCommand: LOCATE_COMMIT_COMMAND
+      locateCommitCommand: LOCATE_COMMIT_COMMAND,
+      icon: (name) => HOVER_ICONS[name]
     });
     const hover = new vscode.MarkdownString(markdown, true);
     // The SHA links, the line's change link and the graph link, and nothing

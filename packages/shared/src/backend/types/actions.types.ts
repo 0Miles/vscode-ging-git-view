@@ -179,8 +179,8 @@ export type BatchResultOf<T extends keyof BatchActionPayloads> =
  * sent as its own field.
  */
 type ActionResponseExtras = {
-  applyStash: StashRefusalFacts;
-  popStash: StashRefusalFacts;
+  applyStash: StashApplyFacts;
+  popStash: StashApplyFacts;
   dropStash: StashRefusalFacts;
   renameStash: StashRefusalFacts;
   deleteBranch: {
@@ -214,6 +214,29 @@ export type StashRefusalFacts = {
    *  (`StashMovedError`), or null for any other outcome. Carried so the
    *  refusal can name the selector the user agreed to. */
   movedSelector: string | null;
+};
+
+/**
+ * Why an apply or pop did not go through, judged from the unmerged paths
+ * before and after it (ADR-0030):
+ *
+ * - `unmergedBefore`: some were there already, so no stash command ran; read
+ *   afterwards, they would pass for a conflict the stash caused.
+ * - `conflicted`: the run left some. git keeps the stash then, pop included;
+ *   `keptAs` is where it is listed now, or null when it no longer is.
+ * - `unchanged`: the run failed and left none, read as "nothing changed". A
+ *   pop whose apply landed but whose drop failed reads this way too.
+ */
+export type StashApplyFailure =
+  | { kind: "unmergedBefore" }
+  | { kind: "conflicted"; keptAs: string | null }
+  | { kind: "unchanged" };
+
+/** What an apply or pop reports beside its status. */
+export type StashApplyFacts = StashRefusalFacts & {
+  /** Why it did not go through, or null when it did — or was refused as
+   *  moved, or failed in a way the judgement could not read. */
+  applyFailure: StashApplyFailure | null;
 };
 
 /** The extra response fields action `T` carries — `never` for the actions that

@@ -17,14 +17,14 @@ export type PromptReply = string | string[] | undefined;
 /**
  * Git for any repo, recording each command in `calls` as
  * `["git", repo, ...argv]`. `remotes` (name to URL) is what `git remote`
- * lists, and `output` what a raw command prints, by its argv joined with
- * spaces; every other command succeeds silently. Once `failure` is set, every
- * command rejects with it.
+ * lists, and `stdout` what a raw command prints, by its whole argv joined with
+ * spaces or else by its subcommand alone; every other command succeeds
+ * silently. Once `failure` is set, every command rejects with it.
  */
 export function fakeGit(calls: unknown[][]) {
   const state = {
     remotes: { origin: "https://example.com/origin.git" } as Record<string, string>,
-    output: {} as Record<string, string>,
+    stdout: {} as Record<string, string>,
     failure: undefined as string | undefined
   };
   const run = (repo: string | null, argv: string[]) => {
@@ -43,7 +43,7 @@ export function fakeGit(calls: unknown[][]) {
       },
       raw: async (argv: string[]) => {
         run(repo, argv);
-        return state.output[argv.join(" ")] ?? "";
+        return state.stdout[argv.join(" ")] ?? state.stdout[argv[0] ?? ""] ?? "";
       }
     }) as unknown as SimpleGit;
   return { clientFor, state };
