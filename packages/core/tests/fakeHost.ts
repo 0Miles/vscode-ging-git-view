@@ -39,6 +39,8 @@ export function fakePorts() {
     };
   const answers = {
     showError: undefined as string | undefined,
+    confirm: undefined as string | undefined,
+    input: undefined as string | undefined,
     saveLocation: undefined as string | undefined,
     clipboard: Promise.resolve() as Promise<void>,
     reposChanged: false,
@@ -64,6 +66,8 @@ export function fakePorts() {
       inactiveBranchAlwaysShow: () => [],
       fetchAndPrune: () => true,
       fetchAndPruneTags: () => false,
+      autoFetchEnabled: () => false,
+      autoFetchIntervalMinutes: () => 10,
       pullRequestProviders: () => [],
       showRemoteBranches: () => false,
       repoSettingDefaults: () => ({
@@ -81,11 +85,18 @@ export function fakePorts() {
         calls.push(["showError", ...args]);
         return answers.showError;
       },
+      confirm: async (...args) => {
+        calls.push(["confirm", ...args]);
+        return answers.confirm;
+      },
       pickSaveLocation: async (options) => {
         calls.push(["pickSaveLocation", options]);
         return answers.saveLocation;
       },
-      input: async () => undefined
+      input: async (options) => {
+        calls.push(["input", options]);
+        return answers.input;
+      }
     },
     opener: {
       openFile: async (...args) => opened(["openFile", ...args]),

@@ -17,6 +17,8 @@ export const vscodePrompts: Prompts = {
   showInformation: (message) => void vscode.window.showInformationMessage(message),
   showWarning: (message) => void vscode.window.showWarningMessage(message),
   showError: (message, ...actions) => vscode.window.showErrorMessage(message, ...actions),
+  confirm: (message, ...actions) =>
+    vscode.window.showWarningMessage(message, { modal: true }, ...actions),
   pickSaveLocation: async ({ saveLabel, filters, defaultPath }) =>
     (
       await vscode.window.showSaveDialog({
@@ -25,11 +27,12 @@ export const vscodePrompts: Prompts = {
         defaultUri: vscode.Uri.file(defaultPath)
       })
     )?.fsPath,
-  input: ({ prompt, placeholder, password }) =>
+  input: ({ prompt, placeholder, password, value }) =>
     vscode.window.showInputBox({
       placeHolder: placeholder,
       prompt,
       password,
+      value,
       // The port's prompt stays up until it is answered (see `Prompts.input`).
       ignoreFocusOut: true
     })

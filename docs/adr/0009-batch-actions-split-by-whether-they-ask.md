@@ -6,6 +6,8 @@ status: accepted
 
 側檢視的**單一**分支動作一律委派給圖形 webview 執行(`runRefAction`)。**批次**動作不照抄這條規則,而是分流:任何會跳出確認、或需要選參數的批次動作(delete、push、fast-forward)仍然委派給 webview,並為批次**新寫**一組對話框(不是把單一對話框跑 N 次);完全不需要詢問的(copy name)直接在 extension host 跑完,不驚動圖形面板。
 
+_有邊界的例外:圖內對話框要靠已載入的列才能運作的動作,側檢視不委派,改在 host 原生執行,見 ADR-0029(今天是 Stash 側檢視的動作)。_
+
 ## 為什麼未來的讀者會困惑
 
 `copyName` 的批次實作在 `apps/vscode/src/extension.ts`,`delete` 的批次實作在 `packages/webview/src/main.ts` —— 同一個右鍵選單上的兩個項目落在兩個不同的行程裡,看起來像是有人偷懶沒統一。

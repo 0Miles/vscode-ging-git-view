@@ -17,8 +17,9 @@ import type { CommitDiffRequest, DiffSide } from "@ging/core/extension/commitDif
 import type { CommitOrdering, DateType } from "@ging/shared/backend/types";
 import type { GitRepoSet, GitRepoState, RepoScopeSettings } from "@ging/shared/types";
 
-/** The settings the dispatch reads, each read at the moment it is needed — a
- *  setting changed between two requests reaches the second. */
+/** The settings the dispatch and the core services beside it read, each read
+ *  at the moment it is needed — a setting changed between two requests reaches
+ *  the second. */
 export interface HostConfig {
   signTags(): boolean;
   signCommits(): boolean;
@@ -32,6 +33,12 @@ export interface HostConfig {
   inactiveBranchAlwaysShow(): string[];
   fetchAndPrune(): boolean;
   fetchAndPruneTags(): boolean;
+  /** Whether the current repository is fetched on a timer. Unlike the rest,
+   *  read only when the timer is armed: the host calls
+   *  `FetchService.restartAutoFetch` when either auto-fetch setting changes. */
+  autoFetchEnabled(): boolean;
+  /** How often, in minutes; clamped to 1–60 by the timer. */
+  autoFetchIntervalMinutes(): number;
   pullRequestProviders(): PullRequestProvider[];
   /** "Show remote branches" for a repo that has not overridden it. */
   showRemoteBranches(): boolean;
@@ -66,6 +73,10 @@ export interface Prompts {
   showWarning(message: string): void;
   /** An error notification offering `actions`; resolves to the one chosen. */
   showError(message: string, ...actions: string[]): PromiseLike<string | undefined>;
+  /** A modal question offering `actions` — the host adds its own way to say
+   *  no, so `actions` lists only the ways to say yes; resolves to the one
+   *  chosen. Only buttons: no checkbox, since the VS Code host has none. */
+  confirm(message: string, ...actions: string[]): PromiseLike<string | undefined>;
   /** Where to write a file; resolves to the chosen path. */
   pickSaveLocation(options: {
     saveLabel: string;
@@ -73,14 +84,16 @@ export interface Prompts {
     filters: Record<string, string[]>;
     defaultPath: string;
   }): PromiseLike<string | undefined>;
-  /** A line of text. The prompt stays up until it is answered or dismissed —
-   *  not lost to a focus change — because what asks may be blocked on it (git
-   *  waiting for a credential, today's only caller). */
+  /** A line of text. The prompt stays up until it is answered or dismissed,
+   *  not lost to a focus change: git may be blocked on it waiting for a
+   *  credential, and a stash's new name may be copied from elsewhere. */
   input(options: {
     prompt: string;
     placeholder: string;
     /** Mask what is typed. */
     password: boolean;
+    /** Text the answer starts from, e.g. the name being changed. */
+    value?: string;
   }): PromiseLike<string | undefined>;
 }
 
