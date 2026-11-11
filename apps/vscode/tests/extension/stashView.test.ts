@@ -7,9 +7,8 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import * as vscode from "vscode";
 
-import { listStashes } from "@ging/core/backend/queries/listStashes";
 import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths";
-import { loadStashFiles } from "@ging/core/extension/stashList";
+import { loadStashFiles, loadStashList } from "@ging/core/extension/stashList";
 import { createStashViewWatch } from "@ging/core/extension/stashWatch";
 import { config } from "@ging/vscode/config";
 import { findGraphTabs } from "@ging/vscode/extension/graphPanelWindow";
@@ -76,8 +75,8 @@ suite("Stash side-view watch (graph panel closed)", function () {
       watch: (target, onEvent) => watchPaths([target], onEvent),
       refresh: () => {
         state.refreshes++;
-        void listStashes(simpleGit(repo)).then((stashes) => {
-          state.messages = stashes.map((s) => s.message);
+        void loadStashList(simpleGit(repo)).then((items) => {
+          state.messages = items.map((item) => item.message);
         });
       }
     });
