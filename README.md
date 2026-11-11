@@ -51,7 +51,7 @@ tradeoffs, and release process clearer.
 - **Branches view**: A sidebar view with search, multi-select, remote/local grouping, and independent filters for inactive and already-merged branches
 - **Merged-branch marking**: Branches already merged into the repo's default branch are badged in the sidebar and dimmed in the graph, so you can see what is safe to delete (ancestry only — squash and rebase merges are not detected)
 - **Remotes view**: Add, edit, rename, and remove remotes from the sidebar
-- **Stashes view**: Every stash in the repository, whether or not the graph has loaded the commit it was made on. Expand a stash to list its files and open their diffs; apply, pop, drop, rename, or copy its name from the context menu
+- **Stashes view**: Every stash in the repository. Expand a stash to list its files and open their diffs; apply, pop, drop, rename, or copy its name from the context menu
 - **Source Control integration**: History follows the repository selected in the Source Control view
 - **Multi-repo**: Work with multiple repositories in one workspace
 - **Graph view**: See branches, tags, stashes, and uncommitted changes in one graph
@@ -76,10 +76,9 @@ what the graph loads — first parent only, reflog commits, stashes, tag-only co
 remote HEADs — for the current repository alone, next to its commit order, its name, and the Branches
 view's inactive and merged filters. Each change applies as you make it.
 
-A stash is drawn on the graph once the graph has loaded the commits it belongs among. A stash made
-on an old commit, or on one no branch reaches any more (after a `reset --hard`, say), may not be on
-the graph until the whole history is loaded. The **Stashes** view lists every stash either way, and
-the stashes setting above does not affect it.
+The graph draws a stash only once it has loaded the commits the stash belongs among. The **Stashes**
+view lists every stash whatever the graph has loaded, and the stashes setting above does not affect
+it.
 
 A few commonly adjusted settings:
 
