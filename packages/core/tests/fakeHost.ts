@@ -40,6 +40,8 @@ export function fakePorts() {
   const answers = {
     showError: undefined as string | undefined,
     confirm: undefined as string | undefined,
+    /** The `value` a `choose` answers; undefined is Cancel or Esc. */
+    choose: undefined as unknown,
     input: undefined as string | undefined,
     saveLocation: undefined as string | undefined,
     clipboard: Promise.resolve() as Promise<void>,
@@ -88,6 +90,11 @@ export function fakePorts() {
       confirm: async (...args) => {
         calls.push(["confirm", ...args]);
         return answers.confirm;
+      },
+      // STAND-IN for #352's fake `choose`; drop it in favour of #352's.
+      choose: async (message, options) => {
+        calls.push(["choose", message, options]);
+        return answers.choose as never;
       },
       pickSaveLocation: async (options) => {
         calls.push(["pickSaveLocation", options]);

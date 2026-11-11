@@ -58,11 +58,9 @@ const ACTIONS = Object.keys(STASH_ACTIONS) as StashAction[];
 /** Widen the const table's literal to its declared type. */
 const cmvKeyOf = (action: StashAction): string | null => STASH_ACTIONS[action].cmvKey;
 
-/**
- * Stash settings keys no side-view action claims yet. Apply and pop reach the
- * Stash side-view in #337 (S3b); that ticket empties this list.
- */
-const NOT_YET_IN_SIDE_VIEW = ["apply", "pop"];
+/** Stash settings keys no side-view action claims yet. Empty since #337 (S3b)
+ *  brought apply and pop to the Stash side-view. */
+const NOT_YET_IN_SIDE_VIEW: string[] = [];
 
 const byCommand = (a: { command: string }, b: { command: string }) =>
   a.command.localeCompare(b.command);

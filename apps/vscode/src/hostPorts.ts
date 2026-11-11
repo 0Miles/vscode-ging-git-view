@@ -19,6 +19,15 @@ export const vscodePrompts: Prompts = {
   showError: (message, ...actions) => vscode.window.showErrorMessage(message, ...actions),
   confirm: (message, ...actions) =>
     vscode.window.showWarningMessage(message, { modal: true }, ...actions),
+  // STAND-IN for #352's `choose`; drop it in favour of #352's.
+  choose: async (message, { detail, actions }) => {
+    const label = await vscode.window.showWarningMessage(
+      message,
+      { modal: true, detail },
+      ...actions.map((action) => action.label)
+    );
+    return actions.find((action) => action.label === label)?.value;
+  },
   pickSaveLocation: async ({ saveLabel, filters, defaultPath }) =>
     (
       await vscode.window.showSaveDialog({

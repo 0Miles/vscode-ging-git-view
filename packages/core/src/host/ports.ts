@@ -77,6 +77,16 @@ export interface Prompts {
    *  no, so `actions` lists only the ways to say yes; resolves to the one
    *  chosen. Only buttons: no checkbox, since the VS Code host has none. */
   confirm(message: string, ...actions: string[]): PromiseLike<string | undefined>;
+  // STAND-IN for #352's `Prompts.choose`, same signature; drop it in favour of
+  // #352's when that lands on main.
+  /** A modal choice among `actions`, offered in the order given, with an
+   *  optional `detail` line under the message. The host adds its own way to
+   *  say no; resolves to the chosen action's `value`, or undefined for Cancel
+   *  or Esc. */
+  choose<T>(
+    message: string,
+    options: { detail?: string; actions: readonly { label: string; value: T }[] }
+  ): PromiseLike<T | undefined>;
   /** Where to write a file; resolves to the chosen path. */
   pickSaveLocation(options: {
     saveLabel: string;

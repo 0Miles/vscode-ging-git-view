@@ -7,10 +7,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { commitDiffView } from "@ging/core/extension/commitDiff";
 import {
+  applyListedStash,
+  applyOrPopActions,
   copyStashName,
   dropListedStash,
   type ListedStashHost,
   loadStashFiles,
+  popListedStash,
   renameListedStash,
   sameStashList,
   stashListItems
@@ -323,6 +326,203 @@ describe("renameListedStash (real git)", () => {
       { hash: older, subject: "On main: older" }
     ]);
     expect(calls.slice(1)).toEqual([["showWarning", "stashView.stashMoved"], ["refresh"]]);
+  });
+});
+
+describe("applyOrPopActions", () => {
+  const { l10n } = fakePorts().ports;
+
+  // Apply first: what the graph's form sends with its checkbox unticked.
+  it("offers Apply as reinstateIndex: false, then Apply & Reinstate Index as true", () => {
+    expect(applyOrPopActions(l10n, "apply")).toEqual([
+      { label: "dialog.stash.apply", value: false },
+      { label: "dialog.stash.applyReinstateIndex", value: true }
+    ]);
+  });
+
+  it("offers Pop and Pop & Reinstate Index the same way", () => {
+    expect(applyOrPopActions(l10n, "pop")).toEqual([
+      { label: "dialog.stash.pop", value: false },
+      { label: "dialog.stash.popReinstateIndex", value: true }
+    ]);
+  });
+});
+
+describe.each([
+  ["apply", applyListedStash, "applied"],
+  ["pop", popListedStash, "popped"]
+] as const)("%sListedStash (real git)", (mode, run, done) => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmrf(repo);
+  });
+
+  /** What `git diff --cached` names. */
+  const staged = () =>
+    cp.execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: repo }).toString().trim();
+
+  /** One stash of a staged change to "f", listed at stash@{0}. */
+  function stagedStash() {
+    repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "f"), "staged");
+    git(["add", "f"], repo);
+    git(["stash", "push", "-m", "staged"], repo);
+    return { hash: rev(repo, "stash@{0}"), selector: "stash@{0}" };
+  }
+
+  const question = [
+    "choose",
+    `dialog.stash.${mode}Confirm|stash@{0}`,
+    {
+      detail: "dialog.stash.reinstateIndexDetail",
+      actions: applyOrPopActions(fakePorts().ports.l10n, mode)
+    }
+  ];
+
+  it("asks with the shown selector, a detail line and two buttons", async () => {
+    const shown = stagedStash();
+    const { host, calls, answers } = hostOn(simpleGit(repo));
+    answers.choose = false;
+
+    expect(await run(host, shown)).toBe(done);
+    expect(calls).toEqual([question, ["refresh"]]);
+  });
+
+  it("leaves the index alone on the plain button", async () => {
+    const shown = stagedStash();
+    const { host, answers } = hostOn(simpleGit(repo));
+    answers.choose = false;
+
+    await run(host, shown);
+
+    expect(fs.readFileSync(path.join(repo, "f"), "utf8")).toBe("staged");
+    expect(staged()).toBe("");
+  });
+
+  it("reinstates the index on the second button", async () => {
+    const shown = stagedStash();
+    const { host, answers } = hostOn(simpleGit(repo));
+    answers.choose = true;
+
+    await run(host, shown);
+
+    expect(staged()).toBe("f");
+  });
+
+  it("does not touch git when the question is cancelled", async () => {
+    repo = makeRepo();
+    const { older } = pushTwoStashes(repo);
+    const { client: noGit, touched } = untouchableGit();
+    const { host, calls } = hostOn(noGit);
+
+    expect(await run(host, { hash: older, selector: "stash@{1}" })).toBe("cancelled");
+    expect(touched).toEqual([]);
+    expect(calls.map(([name]) => name)).toEqual(["choose"]);
+  });
+
+  it("refuses, touching nothing, once the stash has moved", async () => {
+    repo = makeRepo();
+    const { older, newer } = pushTwoStashes(repo);
+    const { host, calls, answers } = hostOn(simpleGit(repo));
+    answers.choose = false;
+
+    expect(await run(host, { hash: older, selector: "stash@{0}" })).toBe("refused");
+    expect(stashList(repo).map((s) => s.hash)).toEqual([newer, older]);
+    expect(calls.slice(1)).toEqual([["showWarning", "stashView.stashMoved"], ["refresh"]]);
+  });
+
+  // The ticket's fixture: a `-u` stash, then a merge left in conflict.
+  it("refuses while conflicts are already there, not reporting them as the stash's", async () => {
+    repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "f"), "stashed");
+    fs.writeFileSync(path.join(repo, "untracked.txt"), "u");
+    git(["stash", "push", "-u", "-m", "wip"], repo);
+    const shown = { hash: rev(repo, "stash@{0}"), selector: "stash@{0}" };
+    git(["checkout", "-b", "other"], repo);
+    fs.writeFileSync(path.join(repo, "f"), "other");
+    git(["commit", "-am", "other"], repo);
+    git(["checkout", "main"], repo);
+    fs.writeFileSync(path.join(repo, "f"), "mine");
+    git(["commit", "-am", "mine"], repo);
+    expect(() => git(["merge", "other"], repo)).toThrow();
+    const { host, calls, answers } = hostOn(simpleGit(repo));
+    answers.choose = false;
+
+    expect(await run(host, shown)).toBe("refused");
+    expect(calls.slice(1)).toEqual([["showWarning", "stashApply.unmergedBefore"], ["refresh"]]);
+    expect(stashList(repo).map((s) => s.hash)).toEqual([shown.hash]);
+  });
+
+  it("says where the stash is kept when it conflicted", async () => {
+    repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "f"), "stashed");
+    git(["stash", "push", "-m", "wip"], repo);
+    const shown = { hash: rev(repo, "stash@{0}"), selector: "stash@{0}" };
+    fs.writeFileSync(path.join(repo, "f"), "committed");
+    git(["commit", "-am", "conflicts with the stash"], repo);
+    const { host, calls, answers } = hostOn(simpleGit(repo));
+    answers.choose = false;
+
+    expect(await run(host, shown)).toBe("conflicted");
+    expect(calls.slice(1)).toEqual([
+      ["showWarning", "stashApply.conflicted|stash@{0}"],
+      ["refresh"]
+    ]);
+  });
+
+  it("says nothing was changed when it failed with nothing unmerged", async () => {
+    repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "f"), "stashed");
+    git(["stash", "push", "-m", "wip"], repo);
+    const shown = { hash: rev(repo, "stash@{0}"), selector: "stash@{0}" };
+    fs.writeFileSync(path.join(repo, "f"), "dirty");
+    const { host, calls, answers } = hostOn(simpleGit(repo));
+    answers.choose = false;
+
+    expect(await run(host, shown)).toBe("failed");
+    const [[kind, message], refresh] = calls.slice(1) as [string, string][];
+    expect(kind).toBe("showError");
+    const failure = mode === "apply" ? "error.unableToApplyStash" : "error.unableToPopStash";
+    expect(message.startsWith(`${failure}: stashApply.unchanged `)).toBe(true);
+    expect(message).toMatch(/overwritten/);
+    expect(refresh).toEqual(["refresh"]);
+  });
+});
+
+describe("applyListedStash's report for a stash no longer listed", () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmrf(repo);
+  });
+
+  it("names no position when the conflicted stash was dropped meanwhile", async () => {
+    repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "f"), "stashed");
+    git(["stash", "push", "-m", "wip"], repo);
+    const shown = { hash: rev(repo, "stash@{0}"), selector: "stash@{0}" };
+    fs.writeFileSync(path.join(repo, "f"), "committed");
+    git(["commit", "-am", "conflicts with the stash"], repo);
+    // Dropped from elsewhere right after the check; apply still runs on the
+    // SHA (#365), and conflicts.
+    const real = simpleGit(repo);
+    let dropped = false;
+    const racing = {
+      raw: async (args: string[]) => {
+        const out = await real.raw(args);
+        if (args[0] === "rev-parse" && !dropped) {
+          dropped = true;
+          git(["stash", "drop", "stash@{0}"], repo);
+        }
+        return out;
+      }
+    } as unknown as SimpleGit;
+    const { host, calls, answers } = hostOn(racing);
+    answers.choose = false;
+
+    expect(await applyListedStash(host, shown)).toBe("conflicted");
+    expect(calls.slice(1)).toEqual([["showWarning", "stashApply.conflictedUnlisted"], ["refresh"]]);
   });
 });
 

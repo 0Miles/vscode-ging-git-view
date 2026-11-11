@@ -1,8 +1,11 @@
 import type { SimpleGit } from "simple-git";
 
 import {
+  applyStash,
   dropStash,
+  popStash,
   renameStash,
+  StashApplyError,
   StashMovedError,
   stashSelectorResolvesTo
 } from "@ging/core/backend/actions/stash";
@@ -61,7 +64,7 @@ export function sameStashList(a: StashListItem[], b: StashListItem[]): boolean {
 export type ListedStashHost = {
   git: SimpleGit;
   clipboard: Pick<Clipboard, "writeText">;
-  prompts: Pick<Prompts, "confirm" | "input" | "showWarning" | "showError">;
+  prompts: Pick<Prompts, "confirm" | "choose" | "input" | "showWarning" | "showError">;
   l10n: Pick<L10n, "t">;
   /** Re-read the list. */
   refresh: () => void;
@@ -78,24 +81,62 @@ function refuseMoved(host: ListedStashHost): "refused" {
 /**
  * Run a stash action the user agreed to, then re-read the list whatever came
  * of it — even a failed rename may have dropped the old entry. A moved stash
- * is refused by the action itself (`StashMovedError`, #334).
+ * is refused by the action itself (`StashMovedError`, #334); an apply or pop
+ * that did not go through says why (`StashApplyError`, #337).
  */
-async function runAgreed(
+async function runAgreed<Failed extends string>(
   host: ListedStashHost,
-  failureKey: string,
-  action: () => Promise<void>
-): Promise<"done" | "refused" | "failed"> {
+  action: () => Promise<void>,
+  /** Tells the user why the action failed; resolves to what that came to. */
+  report: (error: unknown) => Failed
+): Promise<"done" | "refused" | Failed> {
   try {
     await action();
   } catch (error) {
     if (error instanceof StashMovedError) return refuseMoved(host);
-    void host.prompts.showError(host.l10n.t(failureKey) + ": " + formatGitError(error));
+    const outcome = report(error);
     host.refresh();
-    return "failed";
+    return outcome;
   }
   host.refresh();
   return "done";
 }
+
+/** Reports a failure as git's, under `failureKey`. */
+const reportGitFailure =
+  (host: ListedStashHost, failureKey: string) =>
+  (error: unknown): "failed" => {
+    void host.prompts.showError(host.l10n.t(failureKey) + ": " + formatGitError(error));
+    return "failed";
+  };
+
+/** Reports an apply or pop that did not go through (`StashApplyFailure`), in
+ *  the words the graph uses for it too (`handleStashResponse`). */
+const reportApplyFailure =
+  (host: ListedStashHost, failureKey: string) =>
+  (error: unknown): "refused" | "conflicted" | "failed" => {
+    const { t } = host.l10n;
+    const failure = error instanceof StashApplyError ? error.failure : null;
+    switch (failure?.kind) {
+      case "unmergedBefore":
+        host.prompts.showWarning(t("stashApply.unmergedBefore"));
+        return "refused";
+      case "conflicted":
+        host.prompts.showWarning(
+          failure.keptAs === null
+            ? t("stashApply.conflictedUnlisted")
+            : t("stashApply.conflicted", failure.keptAs)
+        );
+        return "conflicted";
+      case "unchanged":
+        void host.prompts.showError(
+          t(failureKey) + ": " + t("stashApply.unchanged") + " " + formatGitError(error)
+        );
+        return "failed";
+      case undefined:
+        return reportGitFailure(host, failureKey)(error);
+    }
+  };
 
 /** Copy Name on a listed stash: the selector it shows, if it still names the
  *  stash listed there (`stashSelectorResolvesTo`). */
@@ -125,10 +166,75 @@ export async function dropListedStash(
     drop
   );
   if (answer !== drop) return "cancelled";
-  const outcome = await runAgreed(host, "error.unableToDropStash", () =>
-    dropStash(host.git, { selector: shown.selector, expectedHash: shown.hash })
+  const outcome = await runAgreed(
+    host,
+    () => dropStash(host.git, { selector: shown.selector, expectedHash: shown.hash }),
+    reportGitFailure(host, "error.unableToDropStash")
   );
   return outcome === "done" ? "dropped" : outcome;
+}
+
+/**
+ * The two ways to say yes to an apply or pop, in the order the modal shows
+ * them. The plain one comes first: it is what the graph's form sends with its
+ * "reinstate the index" box unticked, as it opens. VS Code's stable API has no
+ * checkbox for a modal, so the choice is a second button (ADR-0029). Each
+ * answers the `reinstateIndex` it stands for; Cancel and Esc are the host's.
+ */
+export function applyOrPopActions(
+  l10n: Pick<L10n, "t">,
+  mode: "apply" | "pop"
+): { label: string; value: boolean }[] {
+  return [
+    { label: l10n.t(`dialog.stash.${mode}`), value: false },
+    { label: l10n.t(`dialog.stash.${mode}ReinstateIndex`), value: true }
+  ];
+}
+
+/** Apply or pop a listed stash, bound like `dropListedStash`. The side-view
+ *  neither reads nor writes the graph's remembered choice (`dialogMemory`):
+ *  every question starts from the plain button. */
+async function applyOrPopListed(
+  host: ListedStashHost,
+  shown: Pick<StashListItem, "hash" | "selector">,
+  mode: "apply" | "pop"
+): Promise<"done" | "cancelled" | "refused" | "conflicted" | "failed"> {
+  const { t } = host.l10n;
+  const reinstateIndex = await host.prompts.choose(
+    t(`dialog.stash.${mode}Confirm`, shown.selector),
+    { detail: t("dialog.stash.reinstateIndexDetail"), actions: applyOrPopActions(host.l10n, mode) }
+  );
+  if (reinstateIndex === undefined) return "cancelled";
+  const target = { selector: shown.selector, expectedHash: shown.hash, reinstateIndex };
+  return mode === "apply"
+    ? runAgreed(
+        host,
+        () => applyStash(host.git, target),
+        reportApplyFailure(host, "error.unableToApplyStash")
+      )
+    : runAgreed(
+        host,
+        () => popStash(host.git, target),
+        reportApplyFailure(host, "error.unableToPopStash")
+      );
+}
+
+/** Apply on a listed stash: see `applyOrPopListed`. */
+export async function applyListedStash(
+  host: ListedStashHost,
+  shown: Pick<StashListItem, "hash" | "selector">
+): Promise<"applied" | "cancelled" | "refused" | "conflicted" | "failed"> {
+  const outcome = await applyOrPopListed(host, shown, "apply");
+  return outcome === "done" ? "applied" : outcome;
+}
+
+/** Pop on a listed stash: see `applyOrPopListed`. */
+export async function popListedStash(
+  host: ListedStashHost,
+  shown: Pick<StashListItem, "hash" | "selector">
+): Promise<"popped" | "cancelled" | "refused" | "conflicted" | "failed"> {
+  const outcome = await applyOrPopListed(host, shown, "pop");
+  return outcome === "done" ? "popped" : outcome;
 }
 
 /** Rename on a listed stash, bound like `dropListedStash`. An empty or
@@ -146,8 +252,10 @@ export async function renameListedStash(
     })
   )?.trim();
   if (message === undefined || message === "" || message === shown.message) return "cancelled";
-  const outcome = await runAgreed(host, "error.unableToRenameStash", () =>
-    renameStash(host.git, { selector: shown.selector, expectedHash: shown.hash, message })
+  const outcome = await runAgreed(
+    host,
+    () => renameStash(host.git, { selector: shown.selector, expectedHash: shown.hash, message }),
+    reportGitFailure(host, "error.unableToRenameStash")
   );
   return outcome === "done" ? "renamed" : outcome;
 }
