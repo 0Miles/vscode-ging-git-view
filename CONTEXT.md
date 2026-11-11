@@ -24,7 +24,7 @@ VS Code 整體認定的當前存放庫 —— 取 focused repository 與「作�
 _Avoid_: current repository, focused repository
 
 **Current repository**:
-GING 正在處理的存放庫 —— 圖形顯示它,分支與 remote 側檢視也一併跟隨它。它會跨工作階段保存,所以重新開啟的面板會回到同一個存放庫。它與 focused repository 各自獨立:通常同步,但在圖形內自行切換存放庫時就會分岔,而 GING 無法把 focused repository 拉回來對齊。
+GING 正在處理的存放庫 —— 圖形顯示它,分支、remote 與 stash 側檢視也一併跟隨它。Stash 側檢視跟著它、不跟著作用中的編輯器走,這和 inline blame 的規則(見 **Known repository**)刻意不同:blame 的對象是一個檔案,所以落在包含那個檔案的存放庫;stash 側檢視的對象和分支、remote 側檢視一樣,是 GING 正在處理的那個存放庫,切換編輯器不會換掉它的清單。它會跨工作階段保存,所以重新開啟的面板會回到同一個存放庫。它與 focused repository 各自獨立:通常同步,但在圖形內自行切換存放庫時就會分岔,而 GING 無法把 focused repository 拉回來對齊。
 跨工作階段保存下來的是一個**路徑字串**,不是一個保證仍然成立的存放庫 —— 目錄可能在兩次工作階段之間被刪除,或不再掛載。字串到 current repository 的解析由 `resolveCurrentRepo` 負責;問「現在的 current repository 是誰」一律以它的結果為準,不是 `workspaceState` 裡存著的東西。解析不通過時它是 `null`,而那個字串**留著不刪** —— 沒有任何探測能把「已被刪除」與「現在連不上」分開。
 _Avoid_: graph repository, active repo, last active repo
 
@@ -135,6 +135,22 @@ _Avoid_: 切換, 重新載入, reload, repo switch
 **Loaded commit window**:
 圖形當下向後端索取的 commit 筆數上限。它只會因為明確的請求而變大 —— 按下載入更多、搜尋為了觸及匹配的 commit 而擴大,或是 blame hover 的「在 GING 圖形中定位」為了畫出那個 commit 而擴大(和搜尋一樣,依它在 `git log` 中的位置一次撐到剛好的長度)—— 只會整個彈回開場筆數而變小,不會停在中間值。縮回有兩條路:圖形頁尾那個唯一為此而設的重設入口,以及那些為了別的目的而做、順帶把視窗清掉的導覽。**分界是抵達的路,不是導覽的種類** —— 由面板自己呼叫的那些(換存放庫、換分支篩選、切換遠端分支顯示、從欄位標題選單改 commit 排序、從 Repository Settings 抽屜改載入範圍)清;由 host 改寫 repo state 後靠比對認出來的那些,以及 host 送來的 Repository Setting 預設值變更,不清。commit 排序兩條路都走得到,所以它從選單改會清、從面板外抵達不會清,這是同一個欄位的兩條路,不是矛盾。不清的理由也在路上而不在欄位上:那條路會為使用者沒動手的變更觸發(可分享的設定檔、第二個圖形面板),收掉他撐大的圖形是他無從歸因的損失 —— 預設值那一條使用者是動了手,但改的是每個沒覆寫的存放庫共用的值,不是對眼前這張圖形下的指令;而且「導覽,不縮」是這個泛化唯一安全的預設值 —— 反過來的話,以後每個被加進比較的欄位都自動繼承一個破壞性副作用(ADR-0024)。它跨面板重載保存,而面板每次重新變得可見就是一次重載,所以撐大的視窗會一路跟著使用者回來;正因如此,它一超過開場筆數,頁尾就顯示它當下的數值與一個把它縮回去的控制項,停在開場筆數時則什麼都不顯示。
 _Avoid_: page, 分頁, commit 快取, maxCommits(那是實作名)
+
+### Stash 的身分
+
+`stash@{n}` 看起來像名字,其實是堆疊上的位置:每一次 `git stash push`(終端機、原生 SCM、`pull --autostash`)都會把底下每一筆的編號往後推,所以使用者讀到的編號,到 git 執行時可能已經指著另一筆 stash。一筆 stash 因此有兩個值,各管一件事。圖形只畫得出 loaded commit window 搆得到的 stash;stash 側檢視(VS Code host 專屬)列出整個堆疊,與圖形載入了什麼無關(#102),所以不在載入範圍內的 stash 一律從側檢視找、從側檢視操作。兩邊用的是同一套身分規則。
+
+**Stash SHA**:
+stash commit 的 SHA —— stash 的**身分**。git 實際作用的、拿來比對的都是它,一律寫完整的(`rev-parse` 印出的形式),不用縮寫。同一筆 stash 的 SHA 不會變;唯一的例外是 rename,它重建 commit,換上新的 SHA,之後重讀的清單自然列出新的那一個。
+_Avoid_: stash 名稱(UI 的「名稱」指的是 stash selector)
+
+**Stash selector**:
+`stash@{n}` —— 使用者**同意的範圍**。對話框上寫的是它,使用者答應的也是它。動作執行前它一旦不再解析到同意時看到的那個 stash SHA,動作就**拒絕**,不改去作用在那個 SHA 現在所在的位置:只認 SHA,會作用在一個使用者沒看過的編號上;只認編號,會作用在另一筆 stash 上。拒絕的檢查只能縮小空窗,不能消除 —— pop 與 drop 只吃編號(rename 最後也是靠編號 drop 舊的那筆),git 也沒有 compare-and-swap;apply 依 SHA 執行,所以套用進來的一定是同意的那一筆。UI 的「複製 stash 名稱」複製的就是它。
+_Avoid_: stash index(和 git 的 index 撞名), stash number, stash ref
+
+**Reinstate index**:
+apply 或 pop 時,把建立 stash 當時「哪些變更已暫存」也一併放回暫存區(`--index`)。預設不還原。中文寫「還原 index」(zh-cn「还原 index」),圖形的 checkbox 與側檢視的按鈕用同一個詞。
+_Avoid_: 恢復暫存, 重新暫存, 保留 index
 
 ### Find 的位置與步進
 
