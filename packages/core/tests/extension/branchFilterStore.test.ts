@@ -1,39 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { BranchFilterChange } from "@ging/core/extension/branchFilter";
-import { createBranchFilterStore } from "@ging/vscode/extension/branchFilterStore";
+import { createBranchFilterStore } from "@ging/core/extension/branchFilterStore";
 
-// The store's only vscode dependency is its event emitter. This mock models
-// VS Code's: delivery is synchronous, a subscription can be disposed on its
-// own, a disposed emitter delivers nothing, and a throwing listener neither
-// stops the others nor reaches the code that fired.
-vi.mock("vscode", () => ({
-  EventEmitter: class<T> {
-    private listeners = new Set<(e: T) => void>();
-    private disposed = false;
-    event = (listener: (e: T) => void) => {
-      if (this.disposed) return { dispose: () => {} };
-      const own = (e: T) => listener(e);
-      this.listeners.add(own);
-      return { dispose: () => this.listeners.delete(own) };
-    };
-    fire(e: T) {
-      for (const listener of Array.from(this.listeners)) {
-        try {
-          listener(e);
-        } catch (err) {
-          setTimeout(() => {
-            throw err;
-          });
-        }
-      }
-    }
-    dispose() {
-      this.disposed = true;
-      this.listeners.clear();
-    }
-  }
-}));
+// Characterization of the store as it was in apps/vscode, where its event
+// emitter was VS Code's (#385): those tests ran against a mock modelling that
+// emitter, and now run against the store's own.
 
 function storeWithLog() {
   const store = createBranchFilterStore();
@@ -112,6 +84,18 @@ describe("branchFilterStore", () => {
     store.set("/repo", ["dev"]);
     expect(first).toEqual([["main"]]);
     expect(second).toEqual([["main"], ["dev"]]);
+  });
+
+  it("tells a listener that subscribes mid-announcement of the next change, not this one", () => {
+    const store = createBranchFilterStore();
+    const late: string[][] = [];
+    store.onDidChangeFilter(() => {
+      store.onDidChangeFilter(({ branches }) => late.push(branches));
+    });
+    store.set("/repo", ["main"]);
+    expect(late).toEqual([]);
+    store.set("/repo", ["dev"]);
+    expect(late).toEqual([["dev"]]);
   });
 
   it("still records and announces to the rest when a listener throws", () => {

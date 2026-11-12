@@ -9,6 +9,7 @@ import { AskpassManager } from "@ging/core/extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "@ging/core/extension/branchActionDelegate";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
+import { createBranchFilterStore } from "@ging/core/extension/branchFilterStore";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { createInfoCommands } from "@ging/core/extension/infoCommands";
 import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
@@ -44,7 +45,6 @@ import {
   registerBlameToggle
 } from "./extension/blameController";
 import { branchActionTarget, createBranchesView } from "./extension/branchesView";
-import { createBranchFilterStore } from "./extension/branchFilterStore";
 import {
   findGraphTabs,
   GRAPH_VIEW_TYPE,
