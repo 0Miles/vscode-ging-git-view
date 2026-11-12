@@ -12,7 +12,7 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **[main.ts](../../packages/webview/src/main.ts)**:VS Code 入口,`apps/vscode/esbuild.js` 打成 `out/web.min.js` 的那一支。內容只剩 import 加上呼叫 `startGitGraphView()`,所以載入就執行、行為不變。拆分前的 116 支 webview 測試檔一行都沒改,其中驅動圖形的那些照舊用 side-effect import 載入 `@ging/webview/main`。
 - **[desktop/main.ts](../../packages/webview/src/desktop/main.ts)**:桌面入口,只有 `apps/desktop`(#386)會打包。今天它只做兩件事:在 `<html>` 寫上 `data-ging-entry="ging-desktop-entry"`(標記字串),然後啟動同一個圖形。標記是寫進頁面的,不只是宣告,所以 tree-shaking 拿不掉它。
 
-[webviewEntries.test.ts](../../apps/vscode/tests/backend/webviewEntries.test.ts) 用 production 的 esbuild 選項把兩個入口各打一次:VS Code 的 bundle 裡找不到標記,桌面的找得到。後者是對照組 —— 沒有它,標記若在兩邊都被 tree-shake 掉,前者也會綠。
+[webviewEntries.test.ts](../../apps/vscode/tests/backend/webviewEntries.test.ts) 用 production 的 esbuild 選項把兩個入口一起打包,守兩件事。一是邊界本身:從 metafile 讀出每個 bundle 吃進了哪些模組,VS Code 的 bundle 不得有任何 `src/desktop/` 底下的檔案,不管那個檔案帶不帶標記。二是標記:VS Code 的 bundle 裡找不到,桌面的找得到。兩件事都有桌面那一側當對照組 —— 沒有它,讀法壞掉或標記在兩邊都被 tree-shake 掉,VS Code 那一側也會綠。
 
 ## 為什麼未來的讀者會困惑
 
@@ -39,7 +39,7 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 
 ## 後果
 
-- **桌面專屬的畫面、訊息型別與 listener 放在 `packages/webview/src/desktop/` 底下,只從 `desktop/main.ts` 被 import。** VS Code 入口與 `gitGraphView.ts` 都不得 import `desktop/` 底下的東西。`webviewEntries.test.ts` 會在標記字串出現在 VS Code 的 bundle 時失敗;它只認得這一個標記,所以之後的大塊依賴(例如 Monaco)要各自加上同樣的檢查。
+- **桌面專屬的畫面、訊息型別與 listener 放在 `packages/webview/src/desktop/` 底下,只從 `desktop/main.ts` 被 import。** VS Code 入口與 `gitGraphView.ts` 都不得 import `desktop/` 底下的東西。`webviewEntries.test.ts` 會在任何 `desktop/` 底下的模組、或標記字串進到 VS Code 的 bundle 時失敗。它看的是 `desktop/` 這個資料夾,所以不在那裡面的大塊依賴(例如 `apps/desktop` 注入的 Monaco,#404)要在同一支測試裡補上自己的檢查。
 - **`gitGraphView.ts` 必須維持「import 不碰頁面」。** 新的全域 listener 或任何讀 `viewState`、`l10n`、DOM 的模組層級初始化,一律放進 `startGitGraphView()`。
 - **桌面入口今天沒有自己的 listener,也沒有 `HostPromptMessage` 型別。** 它們由 #390 帶著第一個呼叫端加進 `desktop/`。屆時要讓 `HostPromptMessage` 的 command 名稱與 `ResponseMessage` 的不重疊成為型別檢查(例如兩者 `command` 的交集必須是 `never`):共用一個 `message` 事件,command 撞名時圖形的 dispatch 會把桌面的訊息當成自己的。
 - **docked Commit Details View 與 `#scrollShadow` 今天橫跨整個視窗寬度(`left: 0; right: 0` / `width: 100%`)。** 側檢視或 working tree 的直欄一出現,它們會疊到直欄上。兩張票各管自己那一側:#399 把它們的左緣讓出側檢視的寬度,#403 把右緣讓出 working tree 的寬度,誰先合併都只動自己那一邊,而且改的是桌面樣式表,不是 `main.css`。

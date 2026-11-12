@@ -8125,9 +8125,6 @@ class GitGraphView {
   }
 }
 
-// The page's own elements, looked up by `startGitGraphView` and never
-// reassigned after; module scope holds them so every function below reads the
-// same ones.
 let contextMenu: HTMLElement,
   contextMenuSource: HTMLElement | null = null,
   // Whether the open menu's source was made focusable for the occasion, so that
