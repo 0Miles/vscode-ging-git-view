@@ -72,3 +72,16 @@ Set Git User Details 寫的是使用者身分,Statistics 只是讀，畫面上�
 `runRepoMutation` 因此從 `CommandKitDeps` 拿出來，成了只有 `createMutatingCommandKit` 要的 `MutationDeps`:只有它的 `mutateOrToast` 會用到。不改變 repo 的服務(這裡的 info 命令)就不必、也不能交一個用不到的 hook;fetch、remote 與 reflog 的服務改用 mutating kit。
 
 kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 known repository;自動 fetch 的計時器改用它，各個命令服務對「current repository」的判斷因此一致。Set Git User Details 在沒有 current repository 時不能像其他命令那樣說「沒有存放庫」就停，因為第一次設定時還沒有存放庫，要設的正是全域身分。所以它照樣問，只是範圍只剩「全域」。這時用的 client 是 `gitClientFor(null)`,不綁存放庫、在宿主程序所在的位置跑 git,和 Version Info 問 `git --version` 的是同一個。`null` 的意思寫在 `CommandKitDeps.gitClientFor` 與 `gitClientFactory` 上，桌面版的實作要照著做。
+
+## 補記(2026-11-12,#385)
+
+**`HostConfig` 多了 39 個方法,全是圖形頁面的 view state 要讀的設定;`repoSettingDefaults()` 的回傳型別從 `RepoScopeSettings` 放寬成 `RepoSettingDefaults`。呼叫端是 core 的 [graphViewState.ts](../../packages/core/src/extension/graphViewState.ts)。**
+
+`GitGraphViewState` 原本由 `apps/vscode` 的 `webviewHtml.ts` 從 `Config` 逐欄位組出來。兩個宿主都要組同一份,各寫一份就會漂移,所以組裝搬進 core 的 `buildGraphViewState`,只依賴 `HostConfig`、`RepoSource` 與 `ExtensionState`。CSP、nonce、`<script>` 注入這些頁面骨架仍是宿主的事。
+
+- **沒有另開一個「view state 設定」port。** 這些都是設定,而設定這種能力已經有 `HostConfig`;另開一個 port,宿主就得把同一處實作(VS Code 是 `Config`)交兩次。代價是 `HostConfig` 變長。新方法在 ports.ts 裡集中成一段,註明只有 `buildGraphViewState` 會讀:每個方法對應 view state 裡同名的欄位,型別也照那個欄位。
+- **`repoSettingDefaults()` 放寬,不是新增方法。** view state 要的是連同兩個隱藏開關的整份預設值(Repository Settings 抽屜要顯示它們),dispatch 用的 `resolveRepoScope` 只看其中的 load scope。VS Code 的 `Config` 本來就回答整份,所以實作沒有改。
+- **`scmMultiRepoSelection()` 是 VS Code 的原始檔控制檢視的模式,但仍放在 `HostConfig`。** webview 只用它決定要不要給存放庫下拉選單;沒有原始檔控制檢視的宿主照自己的選單回答。
+- **`fetchAvatars()` 只是設定本身。** view state 的 `fetchAvatars` 還要有地方放頭像(`ExtensionState.isAvatarStorageAvailable`),這條在 core 算。
+
+同一張票把 `branchFilterStore` 搬進 core([branchFilterStore.ts](../../packages/core/src/extension/branchFilterStore.ts))。它不是 port:是 core 的服務,側檢視與 dispatch 共用同一個實例,宿主只負責建立它。它唯一的 VS Code 依賴是 `vscode.EventEmitter`,現在自己通知 listener,語意照 VS Code 的 emitter,寫在它的註解裡。

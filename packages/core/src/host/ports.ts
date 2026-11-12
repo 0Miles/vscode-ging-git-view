@@ -14,8 +14,19 @@
 import type { SquashMessageFormat } from "@ging/core/backend/actions/merge";
 import type { PullRequestProvider } from "@ging/core/backend/utils/pullRequest";
 import type { CommitDiffRequest, DiffSide } from "@ging/core/extension/commitDiff";
-import type { CommitOrdering, DateType } from "@ging/shared/backend/types";
-import type { GitRepoSet, GitRepoState, RepoScopeSettings } from "@ging/shared/types";
+import type { CommitOrdering, DateType, GitResetMode } from "@ging/shared/backend/types";
+import type {
+  ContextMenuActionsVisibility,
+  DateFormat,
+  FileViewType,
+  GitGraphViewState,
+  GitRepoSet,
+  GitRepoState,
+  GraphStyle,
+  KeybindingConfig,
+  RefSpaceSubstitution,
+  RepoSettingDefaults
+} from "@ging/shared/types";
 
 /** The settings the dispatch and the core services beside it read, each read
  *  at the moment it is needed — a setting changed between two requests reaches
@@ -42,8 +53,63 @@ export interface HostConfig {
   pullRequestProviders(): PullRequestProvider[];
   /** "Show remote branches" for a repo that has not overridden it. */
   showRemoteBranches(): boolean;
-  /** The load scope of a repo that has not overridden it. */
-  repoSettingDefaults(): RepoScopeSettings;
+  /** What a repo that has not overridden its Repository Settings gets: the
+   *  load scope, and the two hide toggles. */
+  repoSettingDefaults(): RepoSettingDefaults;
+
+  // The settings below are read only by `buildGraphViewState`, when the
+  // graph's page is built: each is a field of the view state of the same
+  // name, which the webview reads instead of asking.
+
+  autoCenterCommitDetailsView(): boolean;
+  commitDetailsViewLocation(): GitGraphViewState["commitDetailsViewLocation"];
+  referenceLabelAlignment(): GitGraphViewState["referenceLabelAlignment"];
+  combineLocalAndRemoteBranchLabels(): boolean;
+  /** The dialogs' default options, before "Remember my choice" applies. */
+  dialogDeleteBranchForceDelete(): boolean;
+  dialogCherryPickNoCommit(): boolean;
+  dialogAddTagType(): GitGraphViewState["dialogAddTagType"];
+  dialogCreateBranchCheckOut(): boolean;
+  dialogMergeNoFastForward(): boolean;
+  dialogMergeSquash(): boolean;
+  dialogResetMode(): GitResetMode;
+  /** Every action present, the user's choices merged over the defaults. */
+  contextMenuActionsVisibility(): ContextMenuActionsVisibility;
+  /** Only well-formed patterns, each with a non-empty glob. */
+  customBranchGlobPatterns(): { name: string; glob: string }[];
+  /** Shortcode (without colons) to emoji. */
+  customEmojiShortcodeMappings(): { [code: string]: string };
+  dateFormat(): DateFormat;
+  dateCustomFormat(): string;
+  defaultColumnVisibility(): { date: boolean; author: boolean; commit: boolean };
+  enhancedAccessibility(): boolean;
+  /** The setting alone: the view state also needs somewhere to keep them. */
+  fetchAvatars(): boolean;
+  fileTreeCompactFolders(): boolean;
+  fileViewType(): FileViewType;
+  /** Only valid colours, in order. */
+  graphColours(): string[];
+  graphStyle(): GraphStyle;
+  initialLoadCommits(): number;
+  issueLinkingRegex(): string;
+  issueLinkingUrl(): string;
+  /** Normalised; `null` is a shortcut turned off. */
+  keybindings(): KeybindingConfig;
+  loadMoreAutomatically(): boolean;
+  loadMoreCount(): number;
+  markdown(): boolean;
+  muteCommitsNotAncestorsOfHead(): boolean;
+  muteMergeCommits(): boolean;
+  onLoadScrollToHead(): boolean;
+  referenceInputSpaceSubstitution(): RefSpaceSubstitution;
+  /** Whether the host's source-control view lets several repos be selected
+   *  at once, which is what offers the graph's repo dropdown. */
+  scmMultiRepoSelection(): boolean;
+  showCurrentBranchByDefault(): boolean;
+  uncommittedChangesAtHead(): boolean;
+  /** Only strings. */
+  showSpecificBranches(): string[];
+  showTags(): boolean;
 }
 
 /** One tier of persisted key-value state. Writes are not awaited by anyone: a
