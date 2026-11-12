@@ -14,9 +14,7 @@
  * with nothing available to detect it.
  *
  * Kept free of any `vscode` import so it runs in the fast backend test project,
- * like the three classifiers it drives. The branch-filter store is therefore
- * taken as a narrow structural view rather than its concrete (vscode-bearing)
- * type.
+ * like the three classifiers it drives.
  */
 
 import type { SimpleGit } from "simple-git";
@@ -26,6 +24,7 @@ import { loadBranches } from "@ging/core/backend/queries/loadBranches";
 import { classifyInactive } from "./branchActivity";
 import { type BranchClassification, type BranchExemptions } from "./branchExempt";
 import { resolveBranchFilter } from "./branchFilter";
+import { type BranchFilterStore } from "./branchFilterStore";
 import { classifyMerged } from "./branchMerged";
 
 /** One git read of a repo's branches — the only part of the facts that costs
@@ -64,18 +63,10 @@ export type BranchFactsResult = {
   hidable: ReadonlySet<string>;
 };
 
-/** The part of the branch-filter store this module needs. Structural on purpose
- *  (see the module note): the real store imports `vscode`. */
-export type BranchFilterStoreView = {
-  has: (repo: string) => boolean;
-  get: (repo: string) => string[];
-  set: (repo: string, branches: readonly string[], opts?: { silent?: boolean }) => boolean;
-};
-
 export type BranchFactsDeps = {
   /** Perform the git read. Injected so the module stays testable without git. */
   readSnapshot: (repo: string, showRemoteBranches: boolean) => Promise<BranchSnapshot>;
-  filterStore: BranchFilterStoreView;
+  filterStore: Pick<BranchFilterStore, "has" | "get" | "set">;
   /** The repo's "show remote branches" state. Resolved here rather than taken
    *  from the caller: the webview's copy is a one-way echo of this value and
    *  can only ever be staler, and two callers passing their own is exactly the

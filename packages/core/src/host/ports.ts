@@ -2,8 +2,10 @@
  * The host ports: what the message dispatch (and the core services built
  * beside it) asks of whatever editor or app is hosting GING.
  *
- * Each port is one host capability, and carries only the methods the dispatch
- * calls. They are plain structural interfaces, in the shape of
+ * Each port is one host capability, and carries only the methods core calls:
+ * the dispatch, the services built beside it, and `buildGraphViewState`,
+ * which assembles the graph page's view state. They are plain structural
+ * interfaces, in the shape of
  * `AvatarConfig`/`AvatarStore`, so a host can often hand over an object it
  * already has.
  *
@@ -14,12 +16,31 @@
 import type { SquashMessageFormat } from "@ging/core/backend/actions/merge";
 import type { PullRequestProvider } from "@ging/core/backend/utils/pullRequest";
 import type { CommitDiffRequest, DiffSide } from "@ging/core/extension/commitDiff";
-import type { CommitOrdering, DateType } from "@ging/shared/backend/types";
-import type { GitRepoSet, GitRepoState, RepoScopeSettings } from "@ging/shared/types";
+import type { CommitOrdering, DateType, GitResetMode } from "@ging/shared/backend/types";
+import type {
+  ContextMenuActionsVisibility,
+  DateFormat,
+  FileViewType,
+  GitGraphViewState,
+  GitRepoSet,
+  GitRepoState,
+  GraphStyle,
+  KeybindingConfig,
+  RefSpaceSubstitution,
+  RepoSettingDefaults
+} from "@ging/shared/types";
 
-/** The settings the dispatch and the core services beside it read, each read
- *  at the moment it is needed — a setting changed between two requests reaches
- *  the second. */
+/** The settings core reads, in two groups that are read at different times.
+ *
+ *  The first group is read by the dispatch and the core services beside it,
+ *  each setting at the moment it is needed — a setting changed between two
+ *  requests reaches the second.
+ *
+ *  The second group (marked below) is read only by `buildGraphViewState`, once,
+ *  when the host builds the graph's page. A change to one of those reaches the
+ *  graph the next time the host builds the page, not before.
+ *  `showRemoteBranches`, `repoSettingDefaults` and `signCommits` sit in the
+ *  first group but are read by both. */
 export interface HostConfig {
   signTags(): boolean;
   signCommits(): boolean;
@@ -42,8 +63,70 @@ export interface HostConfig {
   pullRequestProviders(): PullRequestProvider[];
   /** "Show remote branches" for a repo that has not overridden it. */
   showRemoteBranches(): boolean;
-  /** The load scope of a repo that has not overridden it. */
-  repoSettingDefaults(): RepoScopeSettings;
+  /** What a repo that has not overridden its Repository Settings gets: the
+   *  load scope, and the two hide toggles. */
+  repoSettingDefaults(): RepoSettingDefaults;
+
+  // The second group: read only by `buildGraphViewState`, once per page build
+  // (see the interface note). Each is the field of the view state of the same
+  // name, which the webview reads instead of asking.
+
+  autoCenterCommitDetailsView(): boolean;
+  commitDetailsViewLocation(): GitGraphViewState["commitDetailsViewLocation"];
+  referenceLabelAlignment(): GitGraphViewState["referenceLabelAlignment"];
+  combineLocalAndRemoteBranchLabels(): boolean;
+  /** The dialogs' default options, before "Remember my choice" applies. */
+  dialogDeleteBranchForceDelete(): boolean;
+  dialogCherryPickNoCommit(): boolean;
+  dialogAddTagType(): GitGraphViewState["dialogAddTagType"];
+  dialogCreateBranchCheckOut(): boolean;
+  dialogMergeNoFastForward(): boolean;
+  dialogMergeSquash(): boolean;
+  dialogResetMode(): GitResetMode;
+  /** Every action present, the user's choices merged over the defaults. */
+  contextMenuActionsVisibility(): ContextMenuActionsVisibility;
+  /** Only well-formed patterns, each with a non-empty glob. */
+  customBranchGlobPatterns(): GitGraphViewState["customBranchGlobPatterns"];
+  /** Shortcode (without colons) to emoji. */
+  customEmojiShortcodeMappings(): GitGraphViewState["customEmojiShortcodeMappings"];
+  dateFormat(): DateFormat;
+  dateCustomFormat(): string;
+  defaultColumnVisibility(): GitGraphViewState["defaultColumnVisibility"];
+  enhancedAccessibility(): boolean;
+  /** Whether the user wants commit authors' avatars fetched. The setting
+   *  alone: the view state turns it off when the host has nowhere to store
+   *  avatars (`ExtensionState.isAvatarStorageAvailable`). */
+  fetchAvatars(): boolean;
+  fileTreeCompactFolders(): boolean;
+  fileViewType(): FileViewType;
+  /** Only valid colours, in order. */
+  graphColours(): string[];
+  graphStyle(): GraphStyle;
+  /** How many commits the graph's first load of a repo asks for. */
+  initialLoadCommits(): number;
+  /** A pattern for issue references in commit messages, `""` for none, and
+   *  the URL each links to, with `$1`… standing for the pattern's groups. */
+  issueLinkingRegex(): string;
+  issueLinkingUrl(): string;
+  /** Normalised; `null` is a shortcut turned off. */
+  keybindings(): KeybindingConfig;
+  loadMoreAutomatically(): boolean;
+  /** How many more commits each "load more" asks for. */
+  loadMoreCount(): number;
+  markdown(): boolean;
+  muteCommitsNotAncestorsOfHead(): boolean;
+  muteMergeCommits(): boolean;
+  onLoadScrollToHead(): boolean;
+  referenceInputSpaceSubstitution(): RefSpaceSubstitution;
+  /** Whether the host's source-control view lets several repos be selected
+   *  at once, which is what offers the graph's repo dropdown. */
+  scmMultiRepoSelection(): boolean;
+  showCurrentBranchByDefault(): boolean;
+  uncommittedChangesAtHead(): boolean;
+  /** The branches selected when a repo is first opened. Entries in the
+   *  setting that are not strings are dropped. */
+  showSpecificBranches(): string[];
+  showTags(): boolean;
 }
 
 /** One tier of persisted key-value state. Writes are not awaited by anyone: a
