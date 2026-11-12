@@ -90,12 +90,16 @@ export interface HostConfig {
   /** Only valid colours, in order. */
   graphColours(): string[];
   graphStyle(): GraphStyle;
+  /** How many commits the graph's first load of a repo asks for. */
   initialLoadCommits(): number;
+  /** A pattern for issue references in commit messages, `""` for none, and
+   *  the URL each links to, with `$1`… standing for the pattern's groups. */
   issueLinkingRegex(): string;
   issueLinkingUrl(): string;
   /** Normalised; `null` is a shortcut turned off. */
   keybindings(): KeybindingConfig;
   loadMoreAutomatically(): boolean;
+  /** How many more commits each "load more" asks for. */
   loadMoreCount(): number;
   markdown(): boolean;
   muteCommitsNotAncestorsOfHead(): boolean;

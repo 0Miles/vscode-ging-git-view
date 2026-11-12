@@ -1,16 +1,20 @@
 import { type BranchFilterChange, branchFilterEquals } from "@ging/core/extension/branchFilter";
 
 /**
- * The single source of truth for each repo's branch-filter selection, owned by
+ * The single source of truth for each repo's branch filter, owned by
  * the host. The Branches side-view writes to it (user selection / "Show All");
  * the Graph webview panel subscribes and re-filters the graph. Decoupling the
  * two through this store means neither needs a reference to the other, and the
- * selection survives the panel being closed and reopened.
+ * filter survives the panel being closed and reopened.
  *
  * Its listeners are told the way VS Code's `EventEmitter` told them, which is
  * what it used before it moved here (#385): synchronously, each in turn, and a
  * listener that throws neither stops the rest nor makes `set` throw — its
- * error is rethrown on its own, after `set` has returned.
+ * error is rethrown on its own, after `set` has returned, for the host's
+ * uncaught-error handling to report. One difference: a listener that changes a
+ * filter while being told of a change has the new change told to everyone
+ * before the rest hear the first, where VS Code finishes the first. No
+ * listener does that today.
  */
 export function createBranchFilterStore() {
   const filters = new Map<string, string[]>();
@@ -42,13 +46,13 @@ export function createBranchFilterStore() {
       return { dispose: () => listeners.delete(entry) };
     },
 
-    /** Whether a selection has ever been recorded for `repo`. */
+    /** Whether a filter has ever been recorded for `repo`. */
     has: (repo: string): boolean => filters.has(repo),
 
-    /** The current selection for `repo` ([] = show all, also for unknown repos). */
+    /** The current filter for `repo` ([] = show all, also for unknown repos). */
     get: (repo: string): string[] => filters.get(repo) ?? [],
 
-    /** Record a selection. Fires `onDidChangeFilter` when the value actually
+    /** Record a filter. Fires `onDidChangeFilter` when the value actually
      *  changes, unless `silent` (used when seeding from a value already being
      *  delivered to the panel, to avoid a redundant reload). Returns whether
      *  the stored value changed. */
@@ -61,7 +65,7 @@ export function createBranchFilterStore() {
       return true;
     },
 
-    /** Stop telling listeners anything. The selections stay readable. */
+    /** Stop telling listeners anything. The filters stay readable. */
     dispose: () => {
       disposed = true;
       listeners.clear();

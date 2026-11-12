@@ -15,13 +15,13 @@ function storeWithLog() {
 }
 
 describe("branchFilterStore", () => {
-  it("knows no selection for a repo it was never told about, and reads it as show-all", () => {
+  it("knows no filter for a repo it was never told about, and reads it as show-all", () => {
     const { store } = storeWithLog();
     expect(store.has("/repo")).toBe(false);
     expect(store.get("/repo")).toEqual([]);
   });
 
-  it("records a selection and announces it", () => {
+  it("records a filter and announces it", () => {
     const { store, fired } = storeWithLog();
     expect(store.set("/repo", ["main", "dev"])).toBe(true);
     expect(store.has("/repo")).toBe(true);
@@ -29,14 +29,14 @@ describe("branchFilterStore", () => {
     expect(fired).toEqual([{ repo: "/repo", branches: ["main", "dev"] }]);
   });
 
-  it("records an empty selection as a selection: show-all, chosen", () => {
+  it("records an empty filter as a filter: show-all, chosen", () => {
     const { store, fired } = storeWithLog();
     expect(store.set("/repo", [])).toBe(true);
     expect(store.has("/repo")).toBe(true);
     expect(fired).toEqual([{ repo: "/repo", branches: [] }]);
   });
 
-  it("ignores a selection equal to the one held, in any order", () => {
+  it("ignores a filter equal to the one held, in any order", () => {
     const { store, fired } = storeWithLog();
     store.set("/repo", ["main", "dev"]);
     expect(store.set("/repo", ["dev", "main"])).toBe(false);
@@ -44,14 +44,14 @@ describe("branchFilterStore", () => {
     expect(fired).toHaveLength(1);
   });
 
-  it("records a silent selection without announcing it", () => {
+  it("records a silent filter without announcing it", () => {
     const { store, fired } = storeWithLog();
     expect(store.set("/repo", ["main"], { silent: true })).toBe(true);
     expect(store.get("/repo")).toEqual(["main"]);
     expect(fired).toEqual([]);
   });
 
-  it("keeps each repo's selection apart", () => {
+  it("keeps each repo's filter apart", () => {
     const { store, fired } = storeWithLog();
     store.set("/a", ["main"]);
     store.set("/b", ["main"]);
@@ -127,7 +127,7 @@ describe("branchFilterStore", () => {
     }
   });
 
-  it("announces nothing once disposed, but still holds the selections", () => {
+  it("announces nothing once disposed, but still holds the filters", () => {
     const { store, fired } = storeWithLog();
     store.set("/repo", ["main"]);
     store.dispose();
