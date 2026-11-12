@@ -115,6 +115,16 @@ export function toRepoPath(p: string): string {
 }
 
 /**
+ * A fresh temp directory, spelled the way git reports it. `os.tmpdir()` can be
+ * an 8.3 short name on Windows (C:/Users/RUNNER~1) and a symlink on macOS
+ * (/var -> /private/var), while git prints the long, resolved path. Only
+ * `realpathSync.native` expands the short name.
+ */
+export function makeTempDir(prefix: string): string {
+  return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+}
+
+/**
  * Settings every test repo carries in its own `.git/config`.
  *
  * Git for Windows defaults `core.autocrlf` to true, which rewrites LF to CRLF on
@@ -150,7 +160,7 @@ const REPO_CONFIG = `[user]
  * `init -b` needs git 2.28; setup.ts already relies on GIT_CONFIG_COUNT (2.31).
  */
 export function makeRepo(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-"));
+  const dir = makeTempDir("ngg-test-");
   git(["init", "--template=", "-b", "main"], dir);
   fs.appendFileSync(path.join(dir, ".git", "config"), REPO_CONFIG);
   fs.writeFileSync(path.join(dir, "f"), "x");
@@ -193,7 +203,7 @@ export function pushTwoStashes(repo: string): { older: string; newer: string } {
  * reports the file modified.
  */
 export function copyRepo(seed: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-test-"));
+  const dir = makeTempDir("ngg-test-");
   fs.cpSync(seed, dir, { recursive: true });
   git(["update-index", "-q", "--refresh"], dir);
   return dir;
