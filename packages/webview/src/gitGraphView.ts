@@ -87,15 +87,26 @@ import { svgIcons } from "./utils/icons";
 import { RovingTabStop, stepWithinGroup } from "./utils/rovingFocus";
 import { getVSCodeStyle, sendMessage, vscode } from "./utils/vscode";
 
+/* The graph view, for every entry that shows one: `main.ts` (the VS Code
+ * entry) and `desktop/main.ts` (ADR-0031). Importing this module builds nothing
+ * and reads nothing of the page — no `viewState`, no `vscode.getState()`, no
+ * listener on `window` or `document` — so an entry can import it and still
+ * decide what runs first. Everything that touches the page happens in
+ * {@link startGitGraphView}, at the bottom of the file, once.
+ *
+ * The one exception sits in an import: `./utils/vscode` calls
+ * `acquireVsCodeApi()` as it is evaluated, so whichever host loads an entry has
+ * to have provided it already (the desktop preload does, #386). */
+
 /** Where every failure this view cannot handle goes: to the host, and from
- *  there into the GING Output Channel (ADR-0016). Armed as this module's first
- *  statement, so the failures thrown while the view is being built below are
- *  reported too — though not one thrown while an imported module above is
- *  evaluating, which is earlier than anything here can reach. */
+ *  there into the GING Output Channel (ADR-0016). Armed as the first thing
+ *  {@link startGitGraphView} does, so the failures thrown while the view is
+ *  being built are reported too — though not one thrown while an imported
+ *  module above is evaluating, which is earlier than anything here can
+ *  reach. */
 const errorReporter = createErrorReporter((report) =>
   sendMessage({ command: "reportError", report })
 );
-errorReporter.watchGlobals(window);
 
 /** Everything in the graph that keyboard focus can land on. Each is also a
  *  context-menu source, which is the point: a menu that only `contextmenu` can
@@ -8113,15 +8124,18 @@ class GitGraphView {
   }
 }
 
-let contextMenu = document.getElementById("contextMenu")!,
+// The page's own elements, looked up by `startGitGraphView` and never
+// reassigned after; module scope holds them so every function below reads the
+// same ones.
+let contextMenu: HTMLElement,
   contextMenuSource: HTMLElement | null = null,
   // Whether the open menu's source was made focusable for the occasion, so that
   // closing removes only what opening added. The graph's own sources carry a
   // tabindex permanently now; a commit-message link is an <a href> and needs
   // none. What's left is anything else that grows a menu later.
   contextMenuSourceBorrowedFocus = false;
-let dialog = document.getElementById("dialog")!,
-  dialogBacking = document.getElementById("dialogBacking")!,
+let dialog: HTMLElement,
+  dialogBacking: HTMLElement,
   dialogMenuSource: HTMLElement | null = null,
   /** The open dialog's dismissal hook, if it declared one.
    *
@@ -8272,51 +8286,57 @@ const lateBackgroundObserver = new MutationObserver((records) => {
 });
 // "Remember my choice" values per dialog key, seeded from the extension host at
 // load and updated optimistically on each confirm (the save message is one-way).
-let dialogMemory: GG.DialogMemoryStore = viewState.dialogMemory ?? {};
-let gitGraph = new GitGraphView(
-  viewState.repos,
-  viewState.lastActiveRepo,
-  {
-    autoCenterCommitDetailsView: viewState.autoCenterCommitDetailsView,
-    commitDetailsViewLocation: viewState.commitDetailsViewLocation,
-    branchLabelsAlignedToGraph:
-      viewState.referenceLabelAlignment === "Branches (aligned to the graph) & Tags (on the right)",
-    tagLabelsRightAligned: viewState.referenceLabelAlignment !== "Normal",
-    combineLocalAndRemoteBranchLabels: viewState.combineLocalAndRemoteBranchLabels,
-    dialogDeleteBranchForceDelete: viewState.dialogDeleteBranchForceDelete,
-    dialogCherryPickNoCommit: viewState.dialogCherryPickNoCommit,
-    dialogAddTagType: viewState.dialogAddTagType,
-    dialogCreateBranchCheckOut: viewState.dialogCreateBranchCheckOut,
-    dialogMergeNoFastForward: viewState.dialogMergeNoFastForward,
-    dialogMergeSquash: viewState.dialogMergeSquash,
-    dialogResetMode: viewState.dialogResetMode,
-    customBranchGlobPatterns: viewState.customBranchGlobPatterns,
-    customEmojiShortcodeMappings: viewState.customEmojiShortcodeMappings,
-    enhancedAccessibility: viewState.enhancedAccessibility,
-    fetchAvatars: viewState.fetchAvatars,
-    fileTreeCompactFolders: viewState.fileTreeCompactFolders,
-    fileViewType: viewState.fileViewType,
-    graphColours: viewState.graphColours,
-    graphStyle: viewState.graphStyle,
-    grid: { x: 16, y: 24, offsetX: 8, offsetY: 12, expandY: 250 },
-    initialLoadCommits: viewState.initialLoadCommits,
-    issueLinkingRegex: viewState.issueLinkingRegex,
-    issueLinkingUrl: viewState.issueLinkingUrl,
-    loadMoreAutomatically: viewState.loadMoreAutomatically,
-    loadMoreCount: viewState.loadMoreCount,
-    markdown: viewState.markdown,
-    muteCommitsNotAncestorsOfHead: viewState.muteCommitsNotAncestorsOfHead,
-    muteMergeCommits: viewState.muteMergeCommits,
-    signCommits: viewState.signCommits,
-    onLoadScrollToHead: viewState.onLoadScrollToHead,
-    showCurrentBranchByDefault: viewState.showCurrentBranchByDefault,
-    uncommittedChangesAtHead: viewState.uncommittedChangesAtHead,
-    showSpecificBranches: viewState.showSpecificBranches,
-    showRemoteBranches: viewState.showRemoteBranches,
-    showTags: viewState.showTags
-  },
-  vscode.getState() ?? null
-);
+let dialogMemory: GG.DialogMemoryStore;
+let gitGraph: GitGraphView;
+/** The graph view the host's `viewState` and the webview's saved state
+ *  describe — built once, by {@link startGitGraphView}. */
+function createGitGraphView(): GitGraphView {
+  return new GitGraphView(
+    viewState.repos,
+    viewState.lastActiveRepo,
+    {
+      autoCenterCommitDetailsView: viewState.autoCenterCommitDetailsView,
+      commitDetailsViewLocation: viewState.commitDetailsViewLocation,
+      branchLabelsAlignedToGraph:
+        viewState.referenceLabelAlignment ===
+        "Branches (aligned to the graph) & Tags (on the right)",
+      tagLabelsRightAligned: viewState.referenceLabelAlignment !== "Normal",
+      combineLocalAndRemoteBranchLabels: viewState.combineLocalAndRemoteBranchLabels,
+      dialogDeleteBranchForceDelete: viewState.dialogDeleteBranchForceDelete,
+      dialogCherryPickNoCommit: viewState.dialogCherryPickNoCommit,
+      dialogAddTagType: viewState.dialogAddTagType,
+      dialogCreateBranchCheckOut: viewState.dialogCreateBranchCheckOut,
+      dialogMergeNoFastForward: viewState.dialogMergeNoFastForward,
+      dialogMergeSquash: viewState.dialogMergeSquash,
+      dialogResetMode: viewState.dialogResetMode,
+      customBranchGlobPatterns: viewState.customBranchGlobPatterns,
+      customEmojiShortcodeMappings: viewState.customEmojiShortcodeMappings,
+      enhancedAccessibility: viewState.enhancedAccessibility,
+      fetchAvatars: viewState.fetchAvatars,
+      fileTreeCompactFolders: viewState.fileTreeCompactFolders,
+      fileViewType: viewState.fileViewType,
+      graphColours: viewState.graphColours,
+      graphStyle: viewState.graphStyle,
+      grid: { x: 16, y: 24, offsetX: 8, offsetY: 12, expandY: 250 },
+      initialLoadCommits: viewState.initialLoadCommits,
+      issueLinkingRegex: viewState.issueLinkingRegex,
+      issueLinkingUrl: viewState.issueLinkingUrl,
+      loadMoreAutomatically: viewState.loadMoreAutomatically,
+      loadMoreCount: viewState.loadMoreCount,
+      markdown: viewState.markdown,
+      muteCommitsNotAncestorsOfHead: viewState.muteCommitsNotAncestorsOfHead,
+      muteMergeCommits: viewState.muteMergeCommits,
+      signCommits: viewState.signCommits,
+      onLoadScrollToHead: viewState.onLoadScrollToHead,
+      showCurrentBranchByDefault: viewState.showCurrentBranchByDefault,
+      uncommittedChangesAtHead: viewState.uncommittedChangesAtHead,
+      showSpecificBranches: viewState.showSpecificBranches,
+      showRemoteBranches: viewState.showRemoteBranches,
+      showTags: viewState.showTags
+    },
+    vscode.getState() ?? null
+  );
+}
 
 /* Conflict prediction (merge dialogs) */
 // Correlates an async predictConflicts response with the dialog that asked for
@@ -9374,13 +9394,14 @@ function dialogFileRowKeydown(fileList: HTMLElement, row: HTMLElement, key: stri
 }
 
 /* Command Processing */
-window.addEventListener("message", (event) => {
+function receiveResponseMessage(event: MessageEvent) {
   const msg: GG.ResponseMessage = event.data;
   // Applying a message is the only path that can name the operation it was
   // half-way through, so it is the one that catches; the two global handlers
-  // armed above cover everything that runs outside this call stack (ADR-0016).
+  // armed by `startGitGraphView` cover everything that runs outside this call
+  // stack (ADR-0016).
   errorReporter.whileHandling(msg.command, () => applyResponseMessage(msg));
-});
+}
 
 function applyResponseMessage(msg: GG.ResponseMessage) {
   // An answer belonging to a navigation the panel has left, dropped before it
@@ -10847,14 +10868,14 @@ function hideReloadOwnedOverlays() {
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
-/* Global Listeners */
+/* Global Listeners — registered by `startGitGraphView` */
 // However focus arrives — a click, Tab, or the arrow keys — the group it landed
 // in points its tab stop at it, so Tab comes back to where the user left off.
-document.addEventListener("focusin", (e) => {
+function documentFocusin(e: FocusEvent) {
   gitGraph.syncTabStop(e.target);
   syncDialogTabStop(e.target);
-});
-document.addEventListener("keyup", (e) => {
+}
+function documentKeyup(e: KeyboardEvent) {
   // A dialog without Dismiss offers no way out, and Escape is not one either.
   if (
     e.key === "Escape" &&
@@ -10862,7 +10883,7 @@ document.addEventListener("keyup", (e) => {
   ) {
     hideDialogAndContextMenu("user");
   }
-});
+}
 // Rows of overlap kept when Page Up/Down jumps a screenful, so the user has
 // something to re-orient against on the far side of the jump. Up/Down no longer
 // scroll at all — they move focus between rows (see ADR-0014).
@@ -10877,7 +10898,7 @@ function pageScrollStep() {
   const visible = window.innerHeight - frozenHeaderHeight() - dockedCdvHeight();
   return Math.max(visible - PAGE_SCROLL_OVERLAP, PAGE_SCROLL_OVERLAP);
 }
-document.addEventListener("keydown", (e) => {
+function documentKeydown(e: KeyboardEvent) {
   if (isDialogOpen()) {
     if (e.key === "Tab") {
       // The background is inert, so the browser's own Tab would walk off the
@@ -10989,14 +11010,41 @@ document.addEventListener("keydown", (e) => {
       active.dispatchEvent(new Event(MENU_KEY_EVENT, { bubbles: true }));
     }
   }
-});
-document.addEventListener("click", hideContextMenuListener);
-document.addEventListener("contextmenu", hideContextMenuListener);
-document.addEventListener("mouseleave", hideContextMenuListener);
-// A click on the context menu itself but not on a specific item (e.g. a divider
-// or the padding) should keep it open so the user can re-aim, rather than
-// bubbling to the document listener that closes it.
-contextMenu.addEventListener("click", (e) => e.stopPropagation());
+}
 function hideContextMenuListener() {
   if (contextMenu.classList.contains("active")) hideContextMenu();
+}
+
+/**
+ * Build the graph view into the page and start listening — what loading the
+ * VS Code entry did before this module could be imported (ADR-0031). Once per
+ * page: the view and its listeners live in this module's scope, so a second
+ * call would build a second view over the first, both listening.
+ *
+ * The page has to be ready for it: the markup of `buildWebviewMarkup` in
+ * `<body>`, and the host's `viewState` and `l10n` globals set. The order below
+ * is the order the statements ran in at load before, and some of it matters:
+ * the error reporter is armed before anything that can throw, and the view
+ * exists before the first message or key can reach it.
+ */
+export function startGitGraphView(): void {
+  errorReporter.watchGlobals(window);
+
+  contextMenu = document.getElementById("contextMenu")!;
+  dialog = document.getElementById("dialog")!;
+  dialogBacking = document.getElementById("dialogBacking")!;
+  dialogMemory = viewState.dialogMemory ?? {};
+  gitGraph = createGitGraphView();
+
+  window.addEventListener("message", receiveResponseMessage);
+  document.addEventListener("focusin", documentFocusin);
+  document.addEventListener("keyup", documentKeyup);
+  document.addEventListener("keydown", documentKeydown);
+  document.addEventListener("click", hideContextMenuListener);
+  document.addEventListener("contextmenu", hideContextMenuListener);
+  document.addEventListener("mouseleave", hideContextMenuListener);
+  // A click on the context menu itself but not on a specific item (e.g. a
+  // divider or the padding) should keep it open so the user can re-aim, rather
+  // than bubbling to the document listener that closes it.
+  contextMenu.addEventListener("click", (e) => e.stopPropagation());
 }
