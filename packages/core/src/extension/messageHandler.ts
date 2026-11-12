@@ -73,7 +73,7 @@ import { acknowledgeShowAll } from "@ging/core/extension/blameLocate";
 import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
 import { type BranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { type BranchFacts } from "@ging/core/extension/branchFacts";
-import { type BranchFilterChange } from "@ging/core/extension/branchFilter";
+import { type BranchFilterStore } from "@ging/core/extension/branchFilterStore";
 import { type FetchService } from "@ging/core/extension/fetchService";
 import { resolveRepoScope, resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { type WebviewBridge } from "@ging/core/extension/webviewBridge";
@@ -99,9 +99,7 @@ export type MessageHandlerDeps = {
   avatarManager: Pick<AvatarManager, "fetchAvatarImage">;
   /** The per-repo branch filters the side-view writes; the graph showing a
    *  repo follows its filter. */
-  branchFilterStore: {
-    onDidChangeFilter(listener: (change: BranchFilterChange) => void): { dispose(): void };
-  };
+  branchFilterStore: Pick<BranchFilterStore, "onDidChangeFilter">;
   /** The shared classification facts, consumed by `loadBranches` and by the
    *  Branches side-view alike. */
   branchFacts: BranchFacts;

@@ -2,6 +2,7 @@ import type { SimpleGit } from "simple-git";
 
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
 import type { HostPorts, PickItem, RunRepoMutation } from "@ging/core/host/ports";
+import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@ging/shared/backend/utils/contextMenuVisibility";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 // Fakes of what a host hands the core: its ports, and the channel to the
@@ -147,8 +148,50 @@ export function fakePorts() {
         includeReflogCommits: false,
         showStashes: false,
         showTagOnlyCommits: false,
-        showRemoteHeads: false
-      })
+        showRemoteHeads: false,
+        showInactiveBranches: false,
+        showMergedBranches: false
+      }),
+      // What only the graph's view state reads.
+      autoCenterCommitDetailsView: () => true,
+      commitDetailsViewLocation: () => "Docked to Bottom",
+      referenceLabelAlignment: () => "Branches (on the left) & Tags (on the right)",
+      combineLocalAndRemoteBranchLabels: () => true,
+      dialogDeleteBranchForceDelete: () => false,
+      dialogCherryPickNoCommit: () => true,
+      dialogAddTagType: () => "lightweight",
+      dialogCreateBranchCheckOut: () => true,
+      dialogMergeNoFastForward: () => false,
+      dialogMergeSquash: () => true,
+      dialogResetMode: () => "hard",
+      contextMenuActionsVisibility: () => DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
+      customBranchGlobPatterns: () => [{ name: "Features", glob: "feature/*" }],
+      customEmojiShortcodeMappings: () => ({ ship: "🚢" }),
+      dateFormat: () => "ISO Date Only",
+      dateCustomFormat: () => "YYYY-MM-DD",
+      defaultColumnVisibility: () => ({ date: true, author: false, commit: true }),
+      enhancedAccessibility: () => false,
+      fetchAvatars: () => true,
+      fileTreeCompactFolders: () => false,
+      fileViewType: () => "File List",
+      graphColours: () => ["#0085d9", "#d9008f"],
+      graphStyle: () => "angular",
+      initialLoadCommits: () => 300,
+      issueLinkingRegex: () => "#(\\d+)",
+      issueLinkingUrl: () => "https://example.com/issues/$1",
+      keybindings: () => ({ find: "f", refresh: "r", scrollToHead: null, scrollToStash: "s" }),
+      loadMoreAutomatically: () => true,
+      loadMoreCount: () => 100,
+      markdown: () => false,
+      muteCommitsNotAncestorsOfHead: () => true,
+      muteMergeCommits: () => false,
+      onLoadScrollToHead: () => true,
+      referenceInputSpaceSubstitution: () => "Hyphen",
+      scmMultiRepoSelection: () => true,
+      showCurrentBranchByDefault: () => false,
+      uncommittedChangesAtHead: () => true,
+      showSpecificBranches: () => ["main"],
+      showTags: () => false
     },
     prompts: {
       // A plain notice is logged as its message alone, and asks nothing.

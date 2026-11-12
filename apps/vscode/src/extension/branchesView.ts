@@ -9,6 +9,7 @@ import { relativeAge } from "@ging/core/extension/branchActivity";
 import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
 import { type BranchFacts } from "@ging/core/extension/branchFacts";
 import { showAllRepo } from "@ging/core/extension/branchFilter";
+import { type BranchFilterStore } from "@ging/core/extension/branchFilterStore";
 import {
   createBranchSelectionReconciler,
   createDirectFilterWriter
@@ -22,8 +23,6 @@ import {
 import { displayRef, REMOTE_PREFIX } from "@ging/shared/backend/utils/branchRef";
 import type { BatchAction } from "@ging/shared/types";
 import * as l10n from "@ging/vscode/l10n";
-
-import { BranchFilterStore } from "./branchFilterStore";
 
 /** Scheme of the opaque per-branch URIs carrying a leaf's decoration flags, so
  *  the FileDecorationProvider below can dim it and/or badge it. */
