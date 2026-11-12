@@ -1,18 +1,12 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-
 import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { listWorktrees, parseWorktreeList } from "@ging/core/backend/queries/listWorktrees";
 
-import { git, makeRepo, rmrf, toRepoPath } from "@ging/core/tests/helpers";
+import { git, makeRepo, makeTempDir, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
-// Resolve symlinks up front: on macOS `os.tmpdir()` lives under /var -> /private/var, and
-// `git worktree list` reports the realpath. Comparing realpath-to-realpath avoids false misses.
-// `toRepoPath` covers the other half of that: git reports "/" separators even on Windows,
-// where `realpathSync` hands back "\".
+// `makeTempDir` (behind `makeRepo` too) spells the temp paths the way git reports them;
+// `toRepoPath` covers the separators, since git reports "/" even on Windows.
 let repo: string;
 let featureWt: string;
 let detachedWt: string;
@@ -20,13 +14,13 @@ let soloRepo: string;
 let notARepo: string;
 
 beforeAll(() => {
-  repo = toRepoPath(fs.realpathSync(makeRepo()));
+  repo = toRepoPath(makeRepo());
   featureWt = `${repo}-wt-feature`;
   detachedWt = `${repo}-wt-detached`;
   git(["worktree", "add", featureWt, "-b", "feature/x"], repo);
   git(["worktree", "add", "--detach", detachedWt], repo);
-  soloRepo = toRepoPath(fs.realpathSync(makeRepo()));
-  notARepo = toRepoPath(fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ngg-not-a-repo-"))));
+  soloRepo = toRepoPath(makeRepo());
+  notARepo = toRepoPath(makeTempDir("ngg-not-a-repo-"));
 });
 
 afterAll(() => {

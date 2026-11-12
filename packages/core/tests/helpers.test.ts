@@ -1,5 +1,4 @@
 import * as cp from "node:child_process";
-import * as fs from "node:fs";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -83,7 +82,7 @@ describe("copyRepo", () => {
   it("hands back a repo of its own, at the seed's commit", () => {
     repo = copyRepo(seed);
     expect(repo).not.toBe(seed);
-    expect(run(["rev-parse", "--show-toplevel"], repo)).toBe(toRepoPath(fs.realpathSync(repo)));
+    expect(run(["rev-parse", "--show-toplevel"], repo)).toBe(toRepoPath(repo));
     expect(run(["rev-parse", "HEAD"], repo)).toBe(run(["rev-parse", "HEAD"], seed));
     expect(localConfig(repo, "user.email")).toBe("t@t.com");
   });
