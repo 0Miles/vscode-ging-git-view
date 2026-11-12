@@ -34,10 +34,11 @@ beforeAll(async () => {
     logLevel: "silent"
   });
   const bundleOf = (name: "vscode" | "desktop"): Bundle => {
-    const file = result.outputFiles.find((f) => f.path.endsWith(`${name}.js`))!;
-    const output = Object.entries(result.metafile.outputs).find(([p]) =>
-      p.endsWith(`${name}.js`)
-    )![1];
+    // outputFiles carry absolute paths, the metafile relative ones; both end
+    // in the entry's name.
+    const isIt = (path: string) => path.endsWith(`${name}.js`);
+    const file = result.outputFiles.find((f) => isIt(f.path))!;
+    const output = Object.entries(result.metafile.outputs).find(([p]) => isIt(p))![1];
     return { text: file.text, inputs: Object.keys(output.inputs) };
   };
   bundles = { vscode: bundleOf("vscode"), desktop: bundleOf("desktop") };

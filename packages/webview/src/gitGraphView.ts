@@ -1,3 +1,15 @@
+/* The graph view, for every entry that shows one: `main.ts` (the VS Code
+ * entry) and `desktop/main.ts` (ADR-0031). Importing this module builds nothing
+ * and reads nothing of the page — no `viewState`, no `vscode.getState()`, no
+ * listener on `window` or `document` — so an entry can import it and still
+ * decide what runs first. Everything that touches the page happens in
+ * {@link startGitGraphView}, at the bottom of the file, once.
+ *
+ * The one exception sits in an import: `./utils/vscode` calls
+ * `acquireVsCodeApi()` as it is evaluated, so whichever Host loads an entry
+ * has to have provided it already — VS Code does, and so does the desktop
+ * host's preload (#386). */
+
 import type {
   ActionPayload,
   ActionRequest,
@@ -86,17 +98,6 @@ import {
 import { svgIcons } from "./utils/icons";
 import { RovingTabStop, stepWithinGroup } from "./utils/rovingFocus";
 import { getVSCodeStyle, sendMessage, vscode } from "./utils/vscode";
-
-/* The graph view, for every entry that shows one: `main.ts` (the VS Code
- * entry) and `desktop/main.ts` (ADR-0031). Importing this module builds nothing
- * and reads nothing of the page — no `viewState`, no `vscode.getState()`, no
- * listener on `window` or `document` — so an entry can import it and still
- * decide what runs first. Everything that touches the page happens in
- * {@link startGitGraphView}, at the bottom of the file, once.
- *
- * The one exception sits in an import: `./utils/vscode` calls
- * `acquireVsCodeApi()` as it is evaluated, so whichever host loads an entry has
- * to have provided it already (the desktop preload does, #386). */
 
 /** Where every failure this view cannot handle goes: to the host, and from
  *  there into the GING Output Channel (ADR-0016). Armed as the first thing
@@ -8286,7 +8287,7 @@ const lateBackgroundObserver = new MutationObserver((records) => {
 // load and updated optimistically on each confirm (the save message is one-way).
 let dialogMemory: GG.DialogMemoryStore;
 let gitGraph: GitGraphView;
-/** The graph view the host's `viewState` and the webview's saved state
+/** The graph view the page's `viewState` and the webview's saved state
  *  describe — built once, by {@link startGitGraphView}. */
 function createGitGraphView(): GitGraphView {
   return new GitGraphView(
@@ -11020,7 +11021,8 @@ function hideContextMenuListener() {
  * call would build a second view over the first, both listening.
  *
  * The page has to be ready for it: the markup of `buildWebviewMarkup` in
- * `<body>`, and the host's `viewState` and `l10n` globals set. The order below
+ * `<body>`, and the `viewState` and `l10n` globals set — both written into the
+ * page by whichever Host serves it, VS Code or the desktop host. The order below
  * is the order the statements ran in at load before, and some of it matters:
  * the error reporter is armed before anything that can throw, and the view
  * exists before the first message or key can reach it.

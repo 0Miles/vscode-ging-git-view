@@ -7,8 +7,9 @@ import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from ".
 // The desktop entry (#384) is the bundle only the desktop host ships. What it
 // owes the desktop host today is two things: the same graph view the VS Code
 // entry boots, and a marker that says which entry the page loaded — the string
-// #386's E2E looks for, and the one `pnpm run compile` must not find in the
-// extension's bundle (apps/vscode/tests/backend/webviewEntries.test.ts).
+// #386's E2E looks for. Keeping it out of the extension's bundle is not this
+// file's job: apps/vscode/tests/backend/webviewEntries.test.ts bundles both
+// entries itself and holds the extension's to that.
 //
 // One webview is booted for the whole file, as in busyLoads: re-importing per
 // scenario would leave the previous instance listening on `window`.

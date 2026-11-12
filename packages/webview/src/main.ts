@@ -2,6 +2,6 @@
  * `out/web.min.js`. Loading it starts the graph view. It never imports
  * anything under `desktop/` (ADR-0031). */
 
-import { startGitGraphView } from "./gitGraphView";
+import { startGitGraphView } from "@ging/webview/gitGraphView";
 
 startGitGraphView();
