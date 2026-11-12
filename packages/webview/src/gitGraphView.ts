@@ -101,9 +101,10 @@ import { getVSCodeStyle, sendMessage, vscode } from "./utils/vscode";
 /** Where every failure this view cannot handle goes: to the host, and from
  *  there into the GING Output Channel (ADR-0016). Armed as the first thing
  *  {@link startGitGraphView} does, so the failures thrown while the view is
- *  being built are reported too — though not one thrown while an imported
- *  module above is evaluating, which is earlier than anything here can
- *  reach. */
+ *  being built are reported too — though not one thrown before that call:
+ *  while this module or one it imports is evaluating, or in whatever an entry
+ *  does before starting the view. All of that is earlier than anything here
+ *  can reach, and none of it reads the page. */
 const errorReporter = createErrorReporter((report) =>
   sendMessage({ command: "reportError", report })
 );

@@ -9,7 +9,7 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 #384 把它拆成三個檔案:
 
 - **[gitGraphView.ts](../../packages/webview/src/gitGraphView.ts)**:原本 `main.ts` 的全部內容(用 `git mv` 搬,保留歷史)。import 它不會碰頁面;所有碰頁面的事 —— 武裝 error reporter、找 `#contextMenu` / `#dialog`、建 `GitGraphView`、掛 listener —— 都收進 `startGitGraphView()`,順序與原本載入時一樣。
-- **[main.ts](../../packages/webview/src/main.ts)**:VS Code 入口,`apps/vscode/esbuild.js` 打成 `out/web.min.js` 的那一支。內容只剩 import 加上呼叫 `startGitGraphView()`,所以載入就執行、行為不變。116 支 webview 測試照舊用 side-effect import 載入 `@ging/webview/main`,一行都沒改。
+- **[main.ts](../../packages/webview/src/main.ts)**:VS Code 入口,`apps/vscode/esbuild.js` 打成 `out/web.min.js` 的那一支。內容只剩 import 加上呼叫 `startGitGraphView()`,所以載入就執行、行為不變。拆分前的 116 支 webview 測試檔一行都沒改,其中驅動圖形的那些照舊用 side-effect import 載入 `@ging/webview/main`。
 - **[desktop/main.ts](../../packages/webview/src/desktop/main.ts)**:桌面入口,只有 `apps/desktop`(#386)會打包。今天它只做兩件事:在 `<html>` 寫上 `data-ging-entry="ging-desktop-entry"`(標記字串),然後啟動同一個圖形。標記是寫進頁面的,不只是宣告,所以 tree-shaking 拿不掉它。
 
 [webviewEntries.test.ts](../../apps/vscode/tests/backend/webviewEntries.test.ts) 用 production 的 esbuild 選項把兩個入口各打一次:VS Code 的 bundle 裡找不到標記,桌面的找得到。後者是對照組 —— 沒有它,標記若在兩邊都被 tree-shake 掉,前者也會綠。
@@ -23,11 +23,11 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **Monaco 不由 `packages/webview` import,連依賴都不列。** `packages/webview` 只定義 editor 與 diff viewer 的**工廠介面**,`apps/desktop` 實作(那裡才 import Monaco)後注入桌面入口。只要 `packages/webview` 的 `package.json` 列了 Monaco,VS Code 入口就解析得到它,「Monaco 不進 `.vsix`」就只剩 review 在守;不列的話,照 ADR-0026 的邊界,VS Code 入口一 import 就是 TS2307。介面的形狀與注入點現在**不**先寫:依 ADR-0027「先有呼叫端」,它們隨第一個呼叫端 #404 一起長出來,而 #404 要像本票一樣,確認 Monaco 的標記字串不在 VS Code 的 bundle 裡。
 - **桌面外殼的版面骨架在這裡劃好,但沒有任何區域的程式碼。** 區域由各自的票填:側檢視(#399)與 working tree(#403)誰先合併,都不替另一個決定位置、寬度或捲動方式。骨架如下:
   - **圖形區**:頁面本身。圖形量的是 `window` 的捲動(`scrollY`、`innerHeight`、`document.body.offsetHeight` 的接近底部門檻)、frozen header 與 docked Commit Details View 都是 `position: fixed`,所以圖形繼續擁有文件的捲動,不搬進一個會捲動的容器。
-  - **側檢視區**(#399):左側、與視窗等高的 `position: fixed` 直欄,`id="desktopSideView"`。它擁有 `body` 的 `padding-left`,用來讓出圖形區的寬度。
-  - **working tree 區**(#403):右側、與視窗等高的 `position: fixed` 直欄,`id="desktopWorkingTree"`。它擁有 `body` 的 `padding-right`。
+  - **側檢視區**(#399):左側、與視窗等高的 `position: fixed` 直欄。它擁有 `body` 的 `padding-left`,用來讓出圖形區的寬度。
+  - **working tree 區**(#403):右側、與視窗等高的 `position: fixed` 直欄。它擁有 `body` 的 `padding-right`。
   - **host prompt overlay**(#390):最上層,蓋在 `#dialog`(z-index 401)之上,不取代也不關閉它。
   - diff viewer(#404)不另佔一欄,開在圖形區之上;怎麼開由 #404 決定,但不得改變上面兩欄的位置。
-  - 每個區域的元素與樣式由填它的那一張票建立。樣式放在只有桌面會載入的樣式表,不放進 `media/main.css` —— 那一份會被複製進 `.vsix`。
+  - 每個區域的元素(連同 id)與樣式由填它的那一張票建立;這裡定的只有哪一側、誰擁有哪一邊的 padding、誰在最上層,其餘依「先有呼叫端」留給那張票。樣式放在只有桌面會載入的樣式表,不放進 `media/main.css` —— 那一份會被複製進 `.vsix`。
 
 ## 考慮過但否決的方案
 
