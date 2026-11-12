@@ -23,6 +23,21 @@ jobs:
       - run: pnpm run adr:check
       - run: pnpm run test
 
+  # The Windows-only code paths (ADR-0028's taskkill, the askpass script path)
+  # only run here. `format` stays on ubuntu: `.gitattributes` line-ending rules
+  # make it noisy on a Windows checkout.
+  windows-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test
+
   extension-tests:
     runs-on: ubuntu-latest
     steps:
