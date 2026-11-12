@@ -11,10 +11,12 @@ import { type BranchFilterChange, branchFilterEquals } from "@ging/core/extensio
  * what it used before it moved here (#385): synchronously, each in turn, and a
  * listener that throws neither stops the rest nor makes `set` throw — its
  * error is rethrown on its own, after `set` has returned, for the host's
- * uncaught-error handling to report. One difference: a listener that changes a
- * filter while being told of a change has the new change told to everyone
- * before the rest hear the first, where VS Code finishes the first. No
- * listener does that today.
+ * uncaught-error handling to report. Two differences, neither of which any
+ * caller relies on today: a listener that changes a filter while being told of
+ * a change has the new change told to everyone before the rest hear the first,
+ * where VS Code finishes the first; and one function subscribed twice is one
+ * subscription, told once and let go by either `dispose`, where VS Code counts
+ * two.
  */
 export function createBranchFilterStore() {
   const filters = new Map<string, string[]>();

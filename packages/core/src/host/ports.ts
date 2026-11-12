@@ -2,8 +2,10 @@
  * The host ports: what the message dispatch (and the core services built
  * beside it) asks of whatever editor or app is hosting GING.
  *
- * Each port is one host capability, and carries only the methods the dispatch
- * calls. They are plain structural interfaces, in the shape of
+ * Each port is one host capability, and carries only the methods core calls:
+ * the dispatch, the services built beside it, and `buildGraphViewState`,
+ * which assembles the graph page's view state. They are plain structural
+ * interfaces, in the shape of
  * `AvatarConfig`/`AvatarStore`, so a host can often hand over an object it
  * already has.
  *
@@ -28,9 +30,17 @@ import type {
   RepoSettingDefaults
 } from "@ging/shared/types";
 
-/** The settings the dispatch and the core services beside it read, each read
- *  at the moment it is needed — a setting changed between two requests reaches
- *  the second. */
+/** The settings core reads, in two groups that are read at different times.
+ *
+ *  The first group is read by the dispatch and the core services beside it,
+ *  each setting at the moment it is needed — a setting changed between two
+ *  requests reaches the second.
+ *
+ *  The second group (marked below) is read only by `buildGraphViewState`, once,
+ *  when the host builds the graph's page. A change to one of those reaches the
+ *  graph the next time the host builds the page, not before.
+ *  `showRemoteBranches`, `repoSettingDefaults` and `signCommits` sit in the
+ *  first group but are read by both. */
 export interface HostConfig {
   signTags(): boolean;
   signCommits(): boolean;
@@ -57,8 +67,8 @@ export interface HostConfig {
    *  load scope, and the two hide toggles. */
   repoSettingDefaults(): RepoSettingDefaults;
 
-  // The settings below are read only by `buildGraphViewState`, when the
-  // graph's page is built: each is a field of the view state of the same
+  // The second group: read only by `buildGraphViewState`, once per page build
+  // (see the interface note). Each is the field of the view state of the same
   // name, which the webview reads instead of asking.
 
   autoCenterCommitDetailsView(): boolean;
@@ -83,7 +93,9 @@ export interface HostConfig {
   dateCustomFormat(): string;
   defaultColumnVisibility(): GitGraphViewState["defaultColumnVisibility"];
   enhancedAccessibility(): boolean;
-  /** The setting alone: the view state also needs somewhere to keep them. */
+  /** Whether the user wants commit authors' avatars fetched. The setting
+   *  alone: the view state turns it off when the host has nowhere to store
+   *  avatars (`ExtensionState.isAvatarStorageAvailable`). */
   fetchAvatars(): boolean;
   fileTreeCompactFolders(): boolean;
   fileViewType(): FileViewType;
@@ -111,7 +123,8 @@ export interface HostConfig {
   scmMultiRepoSelection(): boolean;
   showCurrentBranchByDefault(): boolean;
   uncommittedChangesAtHead(): boolean;
-  /** Only strings. */
+  /** The branches selected when a repo is first opened. Entries in the
+   *  setting that are not strings are dropped. */
   showSpecificBranches(): string[];
   showTags(): boolean;
 }
