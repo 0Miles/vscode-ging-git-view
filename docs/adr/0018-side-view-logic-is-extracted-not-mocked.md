@@ -51,3 +51,7 @@ status: accepted
 ## 補記(2026-11-11,#295)
 
 **「為什麼未來的讀者會困惑」第二段舉的 `webviewBridge.test.ts` 已經不再 mock vscode。**#295 把 webview bridge 連同訊息分派一起搬進 `packages/core`,它不再 import `vscode`,那支測試也跟著搬到 `packages/core/tests/extension/`,空樁 `vi.mock("vscode", () => ({}))` 隨之刪除。正文的論證不受影響 —— 它要說的是「工具一直都在」,而 `repoFileWatcher.test.ts` 的功能性樁仍然在原處。
+
+## 補記(2026-11-12,#385)
+
+**開頭那句「`branchFilterStore.ts` 同理」已經不適用:它不再 import `vscode`。**#385 把它搬進 `packages/core/src/extension/`,`vscode.EventEmitter` 換成它自己的通知,行為由 `packages/core/tests/extension/branchFilterStore.test.ts` 釘住。搬移前先在 `apps/vscode` 用一個照 VS Code emitter 語意寫的樁跑過同一組測試,樁隨搬移刪除。這正是正文那條分界的一例:樁證明的只是「store 照我們以為的 emitter 語意運作」,emitter 本身的語意(同步、退訂、listener 丟例外時的隔離)是照 VS Code 的實作抄的,不是樁驗證出來的。

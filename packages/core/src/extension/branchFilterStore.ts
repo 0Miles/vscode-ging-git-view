@@ -8,7 +8,7 @@ import { type BranchFilterChange, branchFilterEquals } from "@ging/core/extensio
  * selection survives the panel being closed and reopened.
  *
  * Its listeners are told the way VS Code's `EventEmitter` told them, which is
- * what it used before it moved here: synchronously, each in turn, and a
+ * what it used before it moved here (#385): synchronously, each in turn, and a
  * listener that throws neither stops the rest nor makes `set` throw — its
  * error is rethrown on its own, after `set` has returned.
  */
@@ -18,9 +18,11 @@ export function createBranchFilterStore() {
   let disposed = false;
 
   const fire = (change: BranchFilterChange) => {
-    // A copy: a listener subscribing or letting go mid-delivery changes the
-    // next delivery, not this one.
+    // As VS Code's emitter does: a listener subscribing mid-delivery hears the
+    // next change, not this one; one letting go hears nothing more, this one
+    // included.
     for (const listener of Array.from(listeners)) {
+      if (!listeners.has(listener)) continue;
       try {
         listener(change);
       } catch (err) {

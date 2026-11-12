@@ -98,6 +98,16 @@ describe("branchFilterStore", () => {
     expect(late).toEqual([["dev"]]);
   });
 
+  it("tells a listener that lets go mid-announcement nothing more, this change included", () => {
+    const store = createBranchFilterStore();
+    const heard: string[][] = [];
+    let second: { dispose(): void } | undefined;
+    store.onDidChangeFilter(() => second?.dispose());
+    second = store.onDidChangeFilter(({ branches }) => heard.push(branches));
+    store.set("/repo", ["main"]);
+    expect(heard).toEqual([]);
+  });
+
   it("still records and announces to the rest when a listener throws", () => {
     vi.useFakeTimers();
     try {
