@@ -18,11 +18,11 @@ status: accepted
 
 - **「註解說殺掉整棵 tree,為什麼還會有孤兒?」** 因為它從來就殺不乾淨,只是以前的註解沒說。#343 的掃描裡,每一個倖存者都來自 `!` alias,沒有一個來自 GING 實際會跑的指令;數據見 #343。
 - **「逃掉的行程跑完了,為什麼可以接受?」** 因為今天會走到 kill 的呼叫端都是唯讀、不走網路的,所以沒有 credential helper;唯一的例外是未驗證的 `core.fsmonitor` hook。最壞的情況是一個逃掉的 git 把一次有上限(`BLAME_MAX_BYTES`)的 blame 跑完。先例是 ADR-0024:它已經接受一次被作廢的載入最多白費四個 git 子行程。逐個呼叫端的分析見 #361 的 Triage 定案。
-- **「為什麼沒有測 tree 長到一半就被 kill 的情況?」** `gitSpawn.test.ts` 的兩個 tree-kill 測試都刻意等 alias 的 `started` 出現才 kill,避開成因 1。反過來寫一個「預期會有倖存者」的測試,本身就是 race,兩個方向都會 flaky;而且 CI 只跑 ubuntu,在 CI 上根本測不到。測試應該跟未來真正的修正一起進來。
+- **「為什麼沒有測 tree 長到一半就被 kill 的情況?」** `gitSpawn.test.ts` 的兩個 tree-kill 測試都刻意等 alias 的 `started` 出現才 kill,避開成因 1。反過來寫一個「預期會有倖存者」的測試,本身就是 race,兩個方向都會 flaky。測試應該跟未來真正的修正一起進來。
 
 ## 考慮過但否決的方案
 
-- **Job Object(`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`),讓整棵 tree 一起結束。** 暫不採用:它需要 native addon 或 FFI,會失去單一通用的 VSIX(ADR-0026;這是成本,不是規則);CI 只跑 ubuntu;它擋不擋得住成因 3 **沒有驗證過**。
+- **Job Object(`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`),讓整棵 tree 一起結束。** 暫不採用:它需要 native addon 或 FFI,會失去單一通用的 VSIX(ADR-0026;這是成本,不是規則);它擋不擋得住成因 3 **沒有驗證過**。
   - libuv 自己替 Node 行程建的 job 不能替代:那是整個行程共用的 job,沒辦法只結束一次 run 的 tree。
   - 桌面版([#291](https://github.com/0Miles/vscode-ging-git-view/issues/291))用 Electron,限制一樣,不算另一個觸發條件。
 - **`taskkill` 結束後再掃一次孤兒。** 否決。成因 2 在 `taskkill` 結束之前就已經造成影響,事後再掃一定太晚;成因 3 的行程沒有活著的 Windows parent,用 parent PID 也找不到它。而且拿過時的 PID 去比對,可能誤殺無關的行程,違反上面那條防 PID 重用的硬規則。
