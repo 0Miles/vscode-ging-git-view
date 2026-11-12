@@ -76,12 +76,12 @@ export interface HostConfig {
   /** Every action present, the user's choices merged over the defaults. */
   contextMenuActionsVisibility(): ContextMenuActionsVisibility;
   /** Only well-formed patterns, each with a non-empty glob. */
-  customBranchGlobPatterns(): { name: string; glob: string }[];
+  customBranchGlobPatterns(): GitGraphViewState["customBranchGlobPatterns"];
   /** Shortcode (without colons) to emoji. */
-  customEmojiShortcodeMappings(): { [code: string]: string };
+  customEmojiShortcodeMappings(): GitGraphViewState["customEmojiShortcodeMappings"];
   dateFormat(): DateFormat;
   dateCustomFormat(): string;
-  defaultColumnVisibility(): { date: boolean; author: boolean; commit: boolean };
+  defaultColumnVisibility(): GitGraphViewState["defaultColumnVisibility"];
   enhancedAccessibility(): boolean;
   /** The setting alone: the view state also needs somewhere to keep them. */
   fetchAvatars(): boolean;

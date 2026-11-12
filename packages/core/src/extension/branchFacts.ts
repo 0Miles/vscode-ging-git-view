@@ -14,8 +14,7 @@
  * with nothing available to detect it.
  *
  * Kept free of any `vscode` import so it runs in the fast backend test project,
- * like the three classifiers it drives. The branch-filter store is taken as the
- * narrow view of it this module uses.
+ * like the three classifiers it drives.
  */
 
 import type { SimpleGit } from "simple-git";
@@ -64,13 +63,10 @@ export type BranchFactsResult = {
   hidable: ReadonlySet<string>;
 };
 
-/** The part of the branch-filter store this module needs. */
-export type BranchFilterStoreView = Pick<BranchFilterStore, "has" | "get" | "set">;
-
 export type BranchFactsDeps = {
   /** Perform the git read. Injected so the module stays testable without git. */
   readSnapshot: (repo: string, showRemoteBranches: boolean) => Promise<BranchSnapshot>;
-  filterStore: BranchFilterStoreView;
+  filterStore: Pick<BranchFilterStore, "has" | "get" | "set">;
   /** The repo's "show remote branches" state. Resolved here rather than taken
    *  from the caller: the webview's copy is a one-way echo of this value and
    *  can only ever be staler, and two callers passing their own is exactly the

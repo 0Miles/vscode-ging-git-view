@@ -41,7 +41,6 @@ export function buildGraphViewState({
     dateCustomFormat: config.dateCustomFormat(),
     defaultColumnVisibility: config.defaultColumnVisibility(),
     enhancedAccessibility: config.enhancedAccessibility(),
-    // Avatars are kept on disk; with nowhere to keep them, none are fetched.
     fetchAvatars: config.fetchAvatars() && extensionState.isAvatarStorageAvailable(),
     fileTreeCompactFolders: config.fileTreeCompactFolders(),
     fileViewType: config.fileViewType(),

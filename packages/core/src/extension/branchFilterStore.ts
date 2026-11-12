@@ -18,15 +18,15 @@ import { type BranchFilterChange, branchFilterEquals } from "@ging/core/extensio
  */
 export function createBranchFilterStore() {
   const filters = new Map<string, string[]>();
-  const listeners = new Set<(change: BranchFilterChange) => void>();
-  let disposed = false;
+  /** `null` once disposed. */
+  let listeners: Set<(change: BranchFilterChange) => void> | null = new Set();
 
   const fire = (change: BranchFilterChange) => {
     // As VS Code's emitter does: a listener subscribing mid-delivery hears the
     // next change, not this one; one letting go hears nothing more, this one
     // included.
-    for (const listener of Array.from(listeners)) {
-      if (!listeners.has(listener)) continue;
+    for (const listener of Array.from(listeners ?? [])) {
+      if (!listeners?.has(listener)) continue;
       try {
         listener(change);
       } catch (err) {
@@ -39,11 +39,8 @@ export function createBranchFilterStore() {
 
   return {
     onDidChangeFilter(listener: (change: BranchFilterChange) => void): { dispose(): void } {
-      if (disposed) return { dispose: () => {} };
-      // Its own entry, so subscribing one function twice is two subscriptions.
-      const entry = (change: BranchFilterChange) => listener(change);
-      listeners.add(entry);
-      return { dispose: () => listeners.delete(entry) };
+      listeners?.add(listener);
+      return { dispose: () => listeners?.delete(listener) };
     },
 
     /** Whether a filter has ever been recorded for `repo`. */
@@ -67,8 +64,7 @@ export function createBranchFilterStore() {
 
     /** Stop telling listeners anything. The filters stay readable. */
     dispose: () => {
-      disposed = true;
-      listeners.clear();
+      listeners = null;
     }
   };
 }
