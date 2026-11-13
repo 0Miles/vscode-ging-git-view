@@ -19,7 +19,9 @@
     "adr:check": "node ./scripts/check-adr.js"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/node": "catalog:",
+    "electron": "^45.3.1",
     "esbuild": "catalog:",
     "eslint-plugin-import": "^2.32.0",
     "jsdom": "^29.0.2",
