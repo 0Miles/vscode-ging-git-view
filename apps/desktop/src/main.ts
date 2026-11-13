@@ -21,6 +21,7 @@ import {
 } from "electron";
 
 import { getNonce } from "@ging/core/backend/utils/nonce";
+import { resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
 import type { HostLogger } from "@ging/core/host/ports";
 import type { RequestMessage } from "@ging/shared/types";
@@ -252,10 +253,18 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         });
       return;
     }
-    logger.log(`launch: opening ${target.repo}`);
-    host.repoSource.addRepo(target.repo);
-    host.extensionState.setLastActiveRepo(target.repo);
-    showGraph(host, owner, target.repo);
+    // The repository as the known set spells it, if it is known under another
+    // spelling (a symlink, say): otherwise it would be added twice, the second
+    // time with none of its state.
+    const repo =
+      resolveToKnownRepo(target.repo, Object.keys(host.repoSource.getRepos())) ?? target.repo;
+    logger.log(`launch: opening ${repo}`);
+    // The graph being replaced is done before the set changes, so it is not
+    // told of the change on its way out.
+    closeShown();
+    host.repoSource.addRepo(repo);
+    host.extensionState.setLastActiveRepo(repo);
+    showGraph(host, owner, repo);
   };
 
   const launch = parseLaunchArgs(thisLaunch, runtime);
