@@ -10,7 +10,7 @@ const REPO = path.resolve("/home/me/work/repo");
 
 /** A packaged build's argv: the executable, then what the user typed. */
 const packaged = (...args: string[]) =>
-  parseLaunchArgs([EXE, ...args], { defaultApp: false, workingDirectory: WORK });
+  parseLaunchArgs({ argv: [EXE, ...args], workingDirectory: WORK }, { defaultApp: false });
 
 describe("parseLaunchArgs", () => {
   it("takes the repository from --repo <path>", () => {
@@ -35,14 +35,10 @@ describe("parseLaunchArgs", () => {
     const electron = path.resolve("/repo/node_modules/electron/dist/electron");
     const app = path.resolve("/repo/apps/desktop");
     const argv = [electron, "--inspect=0", "--remote-debugging-port=0", app, "--repo", REPO];
-    expect(parseLaunchArgs(argv, { defaultApp: true, workingDirectory: WORK })).toEqual({
+    expect(parseLaunchArgs({ argv, workingDirectory: WORK }, { defaultApp: true })).toEqual({
       repo: REPO,
       ignored: []
     });
-  });
-
-  it("takes --repo=<path> as well", () => {
-    expect(packaged("--repo=repo")).toEqual({ repo: REPO, ignored: [] });
   });
 
   it("opens nothing for a --repo with no path, and reports it", () => {
@@ -51,7 +47,10 @@ describe("parseLaunchArgs", () => {
       repo: null,
       ignored: ["--repo", "--verbose"]
     });
-    expect(packaged("--repo=")).toEqual({ repo: null, ignored: ["--repo="] });
+  });
+
+  it("takes no other spelling of --repo", () => {
+    expect(packaged("--repo=repo")).toEqual({ repo: null, ignored: ["--repo=repo"] });
   });
 
   it("opens nothing when two arguments each name a repository, and reports both in order", () => {

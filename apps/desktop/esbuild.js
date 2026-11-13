@@ -5,6 +5,9 @@ const esbuild = require("esbuild");
 
 const production = process.argv.includes("--production");
 
+// The page asks for out/web.js and out/main.css by name: PAGE_ASSETS in
+// src/page.ts, which main.ts serves. Rename one, rename both.
+//
 // The desktop entry of the webview (ADR-0031) and its stylesheet, found
 // through the package's `exports` as apps/vscode/esbuild.js finds its own.
 const webviewMain = require.resolve("@ging/webview/desktop/main");

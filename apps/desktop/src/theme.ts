@@ -13,7 +13,6 @@
 export type ThemeKind = "dark" | "light";
 
 export type Theme = {
-  kind: ThemeKind;
   /** The class VS Code puts on `<body>`, which `main.css` keys some rules on. */
   bodyClass: `vscode-${ThemeKind}`;
   /** Name → value, every name starting `--vscode-`. */
@@ -184,7 +183,6 @@ function fonts(platform: NodeJS.Platform): Record<string, string> {
 
 export function themeFor(kind: ThemeKind, platform: NodeJS.Platform): Theme {
   return {
-    kind,
     bodyClass: `vscode-${kind}`,
     variables: { ...(kind === "dark" ? DARK : LIGHT), ...fonts(platform) }
   };

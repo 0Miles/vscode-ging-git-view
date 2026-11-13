@@ -46,14 +46,15 @@ test("the desktop window opens on the desktop entry, themed after the system", a
     );
   const dark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
   expect(await editorBackground()).toBe(dark ? "#1f1f1f" : "#ffffff");
-  await expect(page.locator("body")).toHaveClass(dark ? "vscode-dark" : "vscode-light");
+  await expect(page.locator("body")).toContainClass(dark ? "vscode-dark" : "vscode-light");
 
   // The system switching theme, as far as the app can tell.
   await app.evaluate(({ nativeTheme }, toDark) => {
     nativeTheme.themeSource = toDark ? "dark" : "light";
   }, !dark);
   await expect.poll(editorBackground).toBe(dark ? "#ffffff" : "#1f1f1f");
-  await expect(page.locator("body")).toHaveClass(dark ? "vscode-light" : "vscode-dark");
+  await expect(page.locator("body")).toContainClass(dark ? "vscode-light" : "vscode-dark");
+  await expect(page.locator("body")).not.toContainClass(dark ? "vscode-dark" : "vscode-light");
 });
 
 test("a second launch hands its repository to the first and exits", async () => {
@@ -65,7 +66,7 @@ test("a second launch hands its repository to the first and exits", async () => 
   const sandbox = process.platform === "linux" ? ["--no-sandbox"] : [];
   // A relative path, from the second launch's own working directory. The
   // unknown switch has to come back as ignored, not vanish: Electron's own
-  // forwarded command line moves it out of place (ForwardedLaunch).
+  // forwarded command line moves it out of place (LaunchCommandLine).
   const second = spawn(ELECTRON, [...sandbox, ...appArgs("--repo", "repo", "--frobnicate")], {
     cwd: userDataDir,
     stdio: "ignore"

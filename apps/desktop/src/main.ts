@@ -10,7 +10,7 @@ import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol } from "electro
 
 import { CHANNELS } from "./channels";
 import {
-  type ForwardedLaunch,
+  type LaunchCommandLine,
   type LaunchRequest,
   parseForwardedLaunch,
   parseLaunchArgs
@@ -90,7 +90,7 @@ function followSystemTheme(): void {
   });
 }
 
-const thisLaunch: ForwardedLaunch = { argv: process.argv, workingDirectory: process.cwd() };
+const thisLaunch: LaunchCommandLine = { argv: process.argv, workingDirectory: process.cwd() };
 const defaultApp = process.defaultApp === true;
 
 if (app.requestSingleInstanceLock(thisLaunch)) {
@@ -98,10 +98,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     { scheme: SCHEME, privileges: { standard: true, secure: true } }
   ]);
 
-  handleLaunch(
-    parseLaunchArgs(thisLaunch.argv, { defaultApp, workingDirectory: thisLaunch.workingDirectory })
-  );
-  // The later launch's own command line, not the `argv` beside it: see ForwardedLaunch.
+  handleLaunch(parseLaunchArgs(thisLaunch, { defaultApp }));
+  // The later launch's own command line, not the `argv` beside it: see LaunchCommandLine.
   app.on("second-instance", (_event, _argv, _workingDirectory, data) => {
     const request = parseForwardedLaunch(data, { defaultApp });
     if (request === null) log.warn("launch: a later launch forwarded nothing readable");
