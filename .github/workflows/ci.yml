@@ -64,7 +64,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run compile:desktop
       # Electron's binary downloads on first use otherwise, inside a test's timeout.
-      - run: pnpm --filter @ging/desktop exec install-electron --no
+      - run: pnpm --filter @ging/desktop exec install-electron
       # Recorded for when Chromium's sandbox stops starting here: Ubuntu's
       # AppArmor setting that restricts unprivileged user namespaces.
       - run: sysctl kernel.apparmor_restrict_unprivileged_userns || true
