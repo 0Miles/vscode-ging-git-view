@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { createRunRepoMutation } from "@ging/vscode/extension/repoMutation";
+import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 
-// The VS Code host's hook around the fetches that bypass the webview bridge.
+// A host's hook around the fetches that bypass the webview bridge.
 // What matters most is the case the bridge never covered: no graph open, where
 // nothing but this hook invalidates the cached read and redraws the side views.
 

@@ -1,16 +1,17 @@
 import type { RunRepoMutation, Watcher } from "@ging/core/host/ports";
 
 /**
- * The VS Code host's `runRepoMutation`, for the repo changes made outside the
- * graph's webview bridge: mute the open graph's file watcher, run the work,
+ * A host's `runRepoMutation`, for the repo changes made outside the graph's
+ * webview bridge: mute the open graph's file watcher, run the work,
  * unmute it, then refresh. The refresh is the reliable signal, not the watcher
  * (ADR-0013) — it runs with no graph open, or one hidden, whose watcher is not
  * watching at all.
  *
- * Kept free of `vscode` so that is pinned by a unit test (ADR-0018).
+ * Shared by both hosts: VS Code hands it the open graph's watcher, the desktop
+ * host each webview instance's own.
  *
  * Not merged with the bridge's mutation hook: that one runs after every graph
- * mutation, and this refresh redraws the Remotes view too.
+ * mutation, and this refresh may redraw more (in VS Code, the Remotes view).
  */
 export function createRunRepoMutation(deps: {
   /** The open graph's file watcher; `undefined` with no graph open. */

@@ -110,7 +110,7 @@ export type MessageHandlerDeps = {
    *  which opens the same dialog from the other direction (ADR-0017). */
   branchCleanup: BranchCleanup;
   /** The fetch, prune flags and all. The git call alone: these handlers are
-   *  already `mutatesRepo` (why not both: the VS Code host's
+   *  already `mutatesRepo` (why not both:
    *  `createRunRepoMutation`). */
   fetchService: Pick<FetchService, "fetchAll">;
   /** Called when the webview switches repo, so the Branches side-view can
