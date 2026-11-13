@@ -116,10 +116,9 @@
       }
     },
     {
-      // The apps leave git operations to core's command services; the reasons
-      // and the whitelist are in ADR-0027's consequences. apps/desktop is held
-      // to it from its first line (#386).
-      "files": ["apps/vscode/src/**", "apps/desktop/src/**"],
+      // apps/vscode leaves git operations to core's command services; the
+      // reasons and the whitelist are in ADR-0027's consequences.
+      "files": ["apps/vscode/src/**"],
       "rules": {
         "eslint/no-restricted-imports": [
           "error",
@@ -131,6 +130,26 @@
                   "@ging/core/backend/queries/**",
                   "!@ging/core/backend/queries/commitFileContent"
                 ],
+                "allowTypeImports": true,
+                "message": "An app must not run core's git operations itself; put the flow in a core command service and register it here. Type imports are fine."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // The same rule for apps/desktop, without apps/vscode's commitFileContent
+      // exemption: that one is for VS Code's DiffDocProvider (ADR-0027's 補記
+      // of 2026-11-13).
+      "files": ["apps/desktop/src/**"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@ging/core/backend/actions/**", "@ging/core/backend/queries/**"],
                 "allowTypeImports": true,
                 "message": "An app must not run core's git operations itself; put the flow in a core command service and register it here. Type imports are fine."
               }
