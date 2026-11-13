@@ -9,9 +9,10 @@ import { createFetchService } from "@ging/core/extension/fetchService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
 import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
+import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
-import type { Prompts, RepoSource, RunRepoMutation } from "@ging/core/host/ports";
+import type { Prompts, RepoSource } from "@ging/core/host/ports";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
 import type { SharedHost } from "@ging/desktop/sharedHost";
 import type { GitGraphViewState } from "@ging/shared/types";
@@ -59,18 +60,8 @@ export function createGraphInstance(
   const bridge = webviewBridgeFactory(channel, watcher, () => branchFacts.invalidate());
   avatarManager.registerBridge(bridge.post);
 
-  /** A change made outside the bridge — the auto-fetch — muted and refreshed
-   *  as the bridge's own are. */
-  const runRepoMutation: RunRepoMutation = async (_repo, work) => {
-    watcher.mute();
-    try {
-      await work();
-    } finally {
-      watcher.unmute();
-      refresh();
-    }
-  };
-  // Its own auto-fetch timer, on its own current repository.
+  // Its own auto-fetch timer, on its own current repository, muted and
+  // refreshed around each fetch as the bridge's own changes are.
   const fetchService = createFetchService({
     config,
     prompts,
@@ -78,7 +69,7 @@ export function createGraphInstance(
     gitClientFor: gitClients.gitClientFor,
     currentRepo: () => current,
     repoSource: shared.repoSource,
-    runRepoMutation
+    runRepoMutation: createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh })
   });
   fetchService.restartAutoFetch();
 
