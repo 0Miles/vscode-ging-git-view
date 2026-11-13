@@ -115,6 +115,17 @@ describe("the desktop settings file", () => {
     expect(s.errors).toEqual([expect.stringContaining("settings.json")]);
   });
 
+  it("says so again when the file is broken again after a fix", () => {
+    const s = subject();
+    s.writeText("{ broken");
+    s.settings.get("ging-git-view.show.tags");
+    s.write({ "ging-git-view.show.tags": false });
+    expect(s.settings.get("ging-git-view.show.tags")).toBe(false);
+    s.writeText("{ broken again");
+    expect(s.settings.get("ging-git-view.show.tags")).toBe(true);
+    expect(s.errors).toHaveLength(2);
+  });
+
   it("refuses a key that is not a setting", () => {
     expect(() => subject().settings.get("ging-git-view.keepWebviewAlive")).toThrow(
       /keepWebviewAlive/
