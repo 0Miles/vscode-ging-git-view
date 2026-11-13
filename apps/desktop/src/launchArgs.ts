@@ -18,6 +18,15 @@ export type LaunchCommandLine = { argv: string[]; workingDirectory: string };
 
 const REPO_SWITCH = "--repo";
 
+/**
+ * How the app is being run. `defaultApp` is Electron's `process.defaultApp`:
+ * an unpackaged build, run as `electron [switches] <app> [args]`. There the
+ * runtime's switches and the app's path come first and are not the user's, so
+ * they are skipped without being reported. A packaged build's arguments start
+ * right after the executable.
+ */
+export type LaunchRuntime = { defaultApp: boolean };
+
 /** One argument, or `--repo` with its path, and the repository it names. */
 type Claim = { tokens: string[]; repo: string | null };
 
@@ -32,16 +41,10 @@ type Claim = { tokens: string[]; repo: string | null };
  * sequence editor helper starts the app itself, with the helper's script and
  * the prompt (`Username for '…'`) or the todo file as arguments (#386). Whether
  * the path is a repository is not decided here (#388).
- *
- * `defaultApp` is Electron's `process.defaultApp`: an unpackaged build, run as
- * `electron [switches] <app> [args]`. There the runtime's switches and the
- * app's path come first and are not the user's, so they are skipped without
- * being reported. A packaged build's arguments start right after the
- * executable.
  */
 export function parseLaunchArgs(
   { argv, workingDirectory }: LaunchCommandLine,
-  { defaultApp }: { defaultApp: boolean }
+  { defaultApp }: LaunchRuntime
 ): LaunchRequest {
   let args = argv.slice(1);
   if (defaultApp) {
@@ -73,15 +76,12 @@ export function parseLaunchArgs(
 /** Read what a later launch forwarded; `null` when the data is not a
  *  {@link LaunchCommandLine} (a build that forwards nothing, or something else
  *  entirely). */
-export function parseForwardedLaunch(
-  data: unknown,
-  options: { defaultApp: boolean }
-): LaunchRequest | null {
+export function parseForwardedLaunch(data: unknown, runtime: LaunchRuntime): LaunchRequest | null {
   if (typeof data !== "object" || data === null) return null;
   const { argv, workingDirectory } = data as Partial<Record<keyof LaunchCommandLine, unknown>>;
   if (!Array.isArray(argv) || !argv.every((arg) => typeof arg === "string")) return null;
   if (typeof workingDirectory !== "string") return null;
-  return parseLaunchArgs({ argv, workingDirectory }, options);
+  return parseLaunchArgs({ argv, workingDirectory }, runtime);
 }
 
 function isSwitch(arg: string): boolean {

@@ -12,6 +12,7 @@ import { CHANNELS } from "./channels";
 import {
   type LaunchCommandLine,
   type LaunchRequest,
+  type LaunchRuntime,
   parseForwardedLaunch,
   parseLaunchArgs
 } from "./launchArgs";
@@ -23,7 +24,8 @@ import { type Theme, themeFor } from "./theme";
  * The page and its files are served from `ging://app/`, not `file://`: a
  * standard, secure scheme gives the page a real origin of its own — the
  * webview's storage needs one, and its content security policy can say 'self'
- * — while the main process decides exactly which files are reachable.
+ * — while the main process decides exactly which files are reachable
+ * (ADR-0031's 補記 of 2026-11-13).
  */
 const SCHEME = "ging";
 const HOST = "app";
@@ -89,17 +91,17 @@ function followSystemTheme(): void {
 }
 
 const thisLaunch: LaunchCommandLine = { argv: process.argv, workingDirectory: process.cwd() };
-const defaultApp = process.defaultApp === true;
+const runtime: LaunchRuntime = { defaultApp: process.defaultApp === true };
 
 if (app.requestSingleInstanceLock(thisLaunch)) {
   protocol.registerSchemesAsPrivileged([
     { scheme: SCHEME, privileges: { standard: true, secure: true } }
   ]);
 
-  handleLaunch(parseLaunchArgs(thisLaunch, { defaultApp }));
+  handleLaunch(parseLaunchArgs(thisLaunch, runtime));
   // The later launch's own command line, not the `argv` beside it: see LaunchCommandLine.
   app.on("second-instance", (_event, _argv, _workingDirectory, data) => {
-    const request = parseForwardedLaunch(data, { defaultApp });
+    const request = parseForwardedLaunch(data, runtime);
     if (request === null) log.warn("launch: a later launch forwarded nothing readable");
     else handleLaunch(request);
     const win = BrowserWindow.getAllWindows()[0];
