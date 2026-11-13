@@ -130,6 +130,18 @@ describe("the desktop HostConfig", () => {
     expect(config.showRemoteBranches()).toBe(false);
   });
 
+  it("answers the defaults for a settings file it cannot parse, and reports it", () => {
+    const dir = makeTempDir("ging-desktop-config-");
+    onTestFinished(() => rmrf(dir));
+    fs.writeFileSync(path.join(dir, "settings.json"), '{ "ging-git-view.show.tags": false, }');
+    const errors: string[] = [];
+    const config = createDesktopConfig(
+      openDesktopSettings(dir, { onError: (message) => errors.push(message) })
+    );
+    expect(config.showTags()).toBe(true);
+    expect(errors).toEqual([expect.stringContaining("settings.json")]);
+  });
+
   it("offers no repo dropdown in the graph: a desktop tab is one repository", () => {
     expect(subject().config.scmMultiRepoSelection()).toBe(false);
   });

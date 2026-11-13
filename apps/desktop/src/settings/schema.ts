@@ -9,7 +9,14 @@ import { openSettings, type Settings } from "./settingsFile";
  *  apps/vscode at run time. */
 export const DESKTOP_SETTINGS_SCHEMA = generated as SettingsSchema;
 
-/** The user's settings in `userDataPath`, held to `DESKTOP_SETTINGS_SCHEMA`. */
-export function openDesktopSettings(userDataPath: string): Settings {
-  return openSettings(path.join(userDataPath, "settings.json"), DESKTOP_SETTINGS_SCHEMA);
+/** The user's settings in `userDataPath`, held to `DESKTOP_SETTINGS_SCHEMA`.
+ *  `onError` hears of a settings file that cannot be read or parsed; hand it
+ *  the logger's `logError`, or a broken file goes unreported. */
+export function openDesktopSettings(
+  userDataPath: string,
+  { onError }: { onError?: (message: string) => void } = {}
+): Settings {
+  return openSettings(path.join(userDataPath, "settings.json"), DESKTOP_SETTINGS_SCHEMA, {
+    onError
+  });
 }
