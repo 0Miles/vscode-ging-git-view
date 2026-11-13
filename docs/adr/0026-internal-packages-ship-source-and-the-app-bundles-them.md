@@ -21,7 +21,7 @@ status: accepted
 
 - **每個內部套件各自 build,app 依賴編譯產物。** 理由見上。
 - **改用 `tsc -b` project references。** 它能消掉現在的一個重複:每個套件的 `typecheck` 會把它 import 到的其他套件原始碼一併檢查一遍。代價是改寫每一份 `tsconfig`,而重複只是 CI 時間。#331 刻意沒做,現在也不做;它不改變「套件不出產物」這個決定,只改型別檢查的分工。
-- **release-please 的 component 改成 `apps/vscode`。** 只改到 `packages/*` 的 commit 不會觸發擴充升版,見上。#291 列過的另一個候選 —— 維持 `.` 再用 `exclude-paths` 排除 `apps/desktop` —— 解的是另一個問題(桌面版的 commit 會讓擴充升版),等 `apps/desktop` 存在時再決定。
+- **release-please 的 component 改成 `apps/vscode`。** 只改到 `packages/*` 的 commit 不會觸發擴充升版,見上。#291 列過的另一個候選 —— 維持 `.` 再用 `exclude-paths` 排除 `apps/desktop` —— 解的是另一個問題(桌面版的 commit 會讓擴充升版),`apps/desktop` 出現時採用了,見下方「補充」。
 - **把 icon 與 README 搬進 `apps/vscode`。** 擴充的檔案會集中一處,但 icon 的網址已經寫死在線上的 Marketplace 頁面,見上。
 - **只靠 lint 規則守邊界,不靠依賴宣告。** lint 守的是一個 import 名稱;依賴宣告守的是整張依賴圖 —— 套件 import 了任何沒列的東西都過不了 typecheck。lint 規則的角色見上面「那為什麼還有一條 oxlint 規則?」。
 
@@ -29,3 +29,19 @@ status: accepted
 
 - **core 需要宿主的能力時,透過 ADR-0027 的 host ports 拿**,不是 import `vscode`。
 - **`apps/desktop` 出現時,要回頭看兩件事**:release-please 是否要 `exclude-paths`,以及哪些根目錄的檔案桌面版也要複製一份。
+
+## 補充:`apps/desktop` 出現之後([#386](https://github.com/0Miles/vscode-ging-git-view/issues/386))
+
+**release-please 的 `.` 加上 `"exclude-paths": ["apps/desktop"]`。** component 仍是 `.`,理由同上;不處理的話,`apps/desktop` 底下的 `feat:` / `fix:` 會讓擴充升版,也會寫進擴充的 CHANGELOG,而那些變更一行都不在 `.vsix` 裡。
+
+`exclude-paths` 的判準是**整個 commit**:一個 commit 改到的檔案**全部**在 `apps/desktop/` 底下,它才被略過;只要有一個檔案在外面,它就照常算進擴充。這是 release-please 的 `CommitExclude.shouldInclude`(`src/util/commit-exclude.ts`,release-please 15.10.0 起;`release-please-action@v5` 用的是 `^17.6.1`)的行為,而且過濾發生在 `Manifest.buildPullRequests()` 把 commit 交給 strategy 之前,所以版號與 CHANGELOG 看到的是同一份過濾後的清單。實際跑一次 dry-run 要 GitHub token,所以佐證用的是本機可重現的推導:把那段判準套在 `git log --name-only` 上,見 #386 的 PR 說明。
+
+由此而來的慣例:
+
+- **桌面版的功能 commit 只改 `apps/desktop/`。** 同時動到 lockfile、根目錄的 `package.json`、`.oxlintrc.json`、CI 這類共用檔案的部分,拆成另一個不升版的 commit(`build:`、`ci:`、`chore:`)。混在一起的 `feat(desktop):` 會讓擴充升一個 minor,CHANGELOG 也會多一行跟擴充無關的條目。
+- **`packages/*` 的變更一律算進擴充**,即使呼叫端只有桌面版:它們被打進擴充的 bundle,出貨的就是改過的程式碼。這正是 component 維持 `.` 的理由,`exclude-paths` 不改變它。
+- **`pnpm-lock.yaml` 不排除。** 它也記著擴充的依賴,一個只改 lockfile 的 `fix(deps):` 可能就是擴充 bundle 裡的修正。所以桌面版加依賴的 commit 用 `build(deps):`。
+
+**沒有改的**:桌面版自己的版號與發佈。`apps/desktop` 的 `version` 是 `0.0.0`、`private`,不是 release-please 的 package;它的 release pipeline 在階段 E。屆時若要讓 release-please 管桌面版,再把它加成第二個 package,並重新檢查這裡的 `exclude-paths` 與根目錄 package 的關係。
+
+**根目錄要複製給桌面版的檔案**(本 ADR「後果」的第二件事):目前沒有。桌面版還不打包,README、CHANGELOG、LICENSE、icon 要不要、怎麼放進安裝包,由階段 E 的打包決定。
