@@ -9,6 +9,7 @@ import type { SquashMessageFormat } from "@ging/core/backend/actions/merge";
 import { normalizeKeybinding } from "@ging/core/backend/utils/keybinding";
 import { normalizePullRequestProviders } from "@ging/core/backend/utils/pullRequest";
 import type { HostConfig } from "@ging/core/host/ports";
+import { isPlainObject } from "@ging/desktop/jsonFile";
 import type { Settings } from "@ging/desktop/settings/settingsFile";
 import type { CommitOrdering, DateType, GitResetMode } from "@ging/shared/backend/types";
 import { mergeContextMenuActionsVisibility } from "@ging/shared/backend/utils/contextMenuVisibility";
@@ -19,9 +20,6 @@ import type {
   GraphStyle,
   RefSpaceSubstitution
 } from "@ging/shared/types";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 export function createDesktopConfig(settings: Settings): HostConfig {
   /** A setting by its name after `ging-git-view.`; the settings file has
@@ -75,12 +73,15 @@ export function createDesktopConfig(settings: Settings): HostConfig {
     customBranchGlobPatterns: () =>
       get<unknown[]>("customBranchGlobs").filter(
         (p): p is { name: string; glob: string } =>
-          isRecord(p) && typeof p.name === "string" && typeof p.glob === "string" && p.glob !== ""
+          isPlainObject(p) &&
+          typeof p.name === "string" &&
+          typeof p.glob === "string" &&
+          p.glob !== ""
       ),
     customEmojiShortcodeMappings: () => {
       const mappings: Record<string, string> = {};
       for (const m of get<unknown[]>("customEmojiShortcodes")) {
-        if (isRecord(m) && typeof m.shortcode === "string" && typeof m.emoji === "string") {
+        if (isPlainObject(m) && typeof m.shortcode === "string" && typeof m.emoji === "string") {
           // With or without the colons around it.
           mappings[m.shortcode.replace(/^:|:$/g, "")] = m.emoji;
         }

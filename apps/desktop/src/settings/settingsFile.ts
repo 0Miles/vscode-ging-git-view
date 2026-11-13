@@ -5,7 +5,7 @@
  * which answers the defaults and is reported. What it may hold is the schema
  * derived from the extension's (deriveSchema.ts). */
 
-import * as fs from "node:fs";
+import { isPlainObject, readJsonObject } from "@ging/desktop/jsonFile";
 
 import type { SchemaNode, SettingSchema, SettingsSchema } from "./deriveSchema";
 
@@ -18,9 +18,6 @@ export type Settings = {
 };
 
 const NOT_ALLOWED = Symbol("not allowed");
-
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** `value` as the schema allows it, or `NOT_ALLOWED`. A list keeps only the
  *  entries whose type and pattern fit its items, as a list of names or colours
@@ -76,26 +73,16 @@ export function openSettings(
   };
 
   const read = (): Record<string, unknown> => {
-    let content: string;
-    try {
-      content = fs.readFileSync(file, "utf8");
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
-        report(`Cannot read ${file}, using the default settings: ${String(e)}`);
-      }
-      return {};
-    }
-    try {
-      const parsed: unknown = JSON.parse(content);
-      if (isPlainObject(parsed)) {
-        lastProblem = null;
-        return parsed;
-      }
-      report(`${file} does not hold an object, using the default settings`);
-    } catch (e) {
-      report(`Cannot parse ${file}, using the default settings: ${String(e)}`);
-    }
-    return {};
+    let reported = false;
+    const values = readJsonObject(file, {
+      onError: (problem) => {
+        reported = true;
+        report(problem);
+      },
+      consequence: "using the default settings"
+    });
+    if (!reported) lastProblem = null;
+    return values;
   };
 
   return {

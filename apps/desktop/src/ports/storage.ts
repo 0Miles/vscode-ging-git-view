@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import type { HostStorage, StateStore } from "@ging/core/host/ports";
+import { readJsonObject } from "@ging/desktop/jsonFile";
 
 const STATE_FILE = "state.json";
 const GLOBAL_STORAGE_FOLDER = "globalStorage";
@@ -20,27 +21,6 @@ export type DesktopStorageOptions = {
    *  rather than rejected into the void. */
   onError?: (message: string) => void;
 };
-
-function readState(file: string, onError: (message: string) => void): Record<string, unknown> {
-  let text: string;
-  try {
-    text = fs.readFileSync(file, "utf8");
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
-    onError(`Cannot read ${file}, starting from empty state: ${String(e)}`);
-    return {};
-  }
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    onError(`${file} does not hold an object, starting from empty state`);
-  } catch (e) {
-    onError(`Cannot parse ${file}, starting from empty state: ${String(e)}`);
-  }
-  return {};
-}
 
 /** Write `text` to `file` whole or not at all: a crash mid-write leaves the
  *  previous file, not half of the new one. */
@@ -58,7 +38,7 @@ export function openDesktopStorage(
   { onError = () => {} }: DesktopStorageOptions = {}
 ): HostStorage {
   const file = path.join(userDataPath, STATE_FILE);
-  const state = readState(file, onError);
+  const state = readJsonObject(file, { onError, consequence: "starting from empty state" });
 
   // Writes go out one at a time, each with everything written before it
   // started; an update made while a write is queued rides along with it.
