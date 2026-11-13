@@ -7,7 +7,14 @@ import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedHost } from "@ging/desktop/sharedHost";
 import type { ResponseMessage } from "@ging/shared/types";
 
-import { fakePorts, fakeWebview, makeRepo, makeTempDir, rmrf, toRepoPath } from "@ging/core/tests/helpers";
+import {
+  fakePorts,
+  fakeWebview,
+  makeRepo,
+  makeTempDir,
+  rmrf,
+  toRepoPath
+} from "@ging/core/tests/helpers";
 
 // The desktop main process builds one dispatch, one set of ports and one git
 // client per webview instance, over services every instance shares (#388).
@@ -123,7 +130,9 @@ describe("a graph instance", () => {
 
     await expect
       .poll(() => sentOf(asking.posted, "fetchAvatar"))
-      .toEqual([{ command: "fetchAvatar", email: EMAIL, image: "data:image/png;base64,UE5HREFUQQ==" }]);
+      .toEqual([
+        { command: "fetchAvatar", email: EMAIL, image: "data:image/png;base64,UE5HREFUQQ==" }
+      ]);
     expect(sentOf(closed.posted, "fetchAvatar")).toEqual([]);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDesktopPage } from "@ging/desktop/page";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
+import { buildDesktopPage } from "@ging/desktop/page";
 import { applyTheme, themeFor, type ThemeKind } from "@ging/desktop/theme";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 
@@ -17,6 +17,7 @@ function makeViewState() {
   });
 }
 
+const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
 const pageFor = (kind: ThemeKind, platform: NodeJS.Platform = "win32") =>
   new DOMParser().parseFromString(buildDesktopPage(themeFor(kind, platform)), "text/html");
 
@@ -44,7 +45,6 @@ describe("buildDesktopPage", () => {
 describe("buildDesktopPage for a repository", () => {
   const viewState = { ...makeViewState(), graphColours: ["#0085d9", "#d9008f"] };
   const strings = { ...getWebviewLocalizedStrings((key) => key), find: "Find <it>" };
-  const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
   const graphPage = () =>
     parse(
       buildDesktopPage(themeFor("dark", "win32"), {
@@ -66,7 +66,8 @@ describe("buildDesktopPage for a repository", () => {
     const inline = [...doc.scripts].filter((s) => !s.hasAttribute("src"));
     expect(inline.map((s) => s.getAttribute("nonce"))).toEqual(["n0nce", "n0nce"]);
     const globals: Record<string, unknown> = {};
-    for (const script of inline) new Function("window", script.text.replace(/^var /, "window."))(globals);
+    for (const script of inline)
+      new Function("window", script.text.replace(/^var /, "window."))(globals);
     expect(globals.viewState).toEqual(viewState);
     expect(globals.l10n).toEqual(strings);
     // The bundle comes last, once both are set.
@@ -95,8 +96,6 @@ describe("buildDesktopPage for a repository", () => {
 });
 
 describe("buildDesktopPage with nothing to show", () => {
-  const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
-
   it("says why, in the page's own words, and starts no graph", () => {
     const doc = parse(
       buildDesktopPage(themeFor("light", "win32"), {

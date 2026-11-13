@@ -48,7 +48,9 @@ export function createInterimPrompts({ dialogs, l10n, logger }: InterimPromptsDe
   /** What #390 brings: for now the question is answered as dismissed, and the
    *  log says it was asked, since nothing on screen will. */
   const notYet = (method: string, about: string): Promise<undefined> => {
-    logger.logError(`Prompts.${method} is not available yet (#390), answered as dismissed: ${about}`);
+    logger.logError(
+      `Prompts.${method} is not available yet (#390), answered as dismissed: ${about}`
+    );
     return Promise.resolve(undefined);
   };
 

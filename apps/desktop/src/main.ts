@@ -1,16 +1,33 @@
-/* The desktop host's main process (#291). This is its skeleton (#386): one
- * window showing the webview's desktop entry, themed after the system, and a
- * single instance that takes the command lines of later launches. Opening a
- * repository and answering the webview come with #388. */
+/* The desktop host's main process (#291): one window showing the webview's
+ * desktop entry, themed after the system, and a single instance that takes
+ * the command lines of later launches (#386). The window shows a graph on the
+ * repository a launch names, through one webview instance with a dispatch of
+ * its own over the services instances share (#388); #393 gives each tab one. */
 
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  net,
+  protocol,
+  shell,
+  type WebContents
+} from "electron";
 
+import { getNonce } from "@ging/core/backend/utils/nonce";
+import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
 import type { HostLogger } from "@ging/core/host/ports";
+import type { RequestMessage } from "@ging/shared/types";
+import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 
 import { CHANNELS } from "./channels";
+import { createGraphInstance, type GraphInstance } from "./graphInstance";
 import {
   type LaunchCommandLine,
   type LaunchRequest,
@@ -18,8 +35,12 @@ import {
   parseForwardedLaunch,
   parseLaunchArgs
 } from "./launchArgs";
-import { buildDesktopPage, PAGE_ASSETS } from "./page";
+import { buildDesktopPage, PAGE_ASSETS, type PageContent } from "./page";
+import { createDesktopClipboard } from "./ports/clipboard";
 import { createDesktopLogger } from "./ports/logger";
+import { createInterimPrompts } from "./ports/prompts";
+import { repoToOpen } from "./repoToOpen";
+import { createSharedHost, type SharedHost } from "./sharedHost";
 import { type Theme, themeFor } from "./theme";
 
 /**
@@ -32,6 +53,8 @@ import { type Theme, themeFor } from "./theme";
 const SCHEME = "ging";
 const HOST = "app";
 const PAGE_URL = `${SCHEME}://${HOST}/`;
+/** The query parameter naming which content a load of the page is for. */
+const PAGE_PARAM = "page";
 /** The files in out/, next to this bundle, that `ging://app/<file>` serves:
  *  the page's assets and the script's source map. Nothing else is served. */
 const SERVED_FILES = new Set<string>([...Object.values(PAGE_ASSETS), `${PAGE_ASSETS.script}.map`]);
@@ -40,23 +63,36 @@ function currentTheme(): Theme {
   return themeFor(nativeTheme.shouldUseDarkColors ? "dark" : "light", process.platform);
 }
 
-/** A launch's request, this process's own or a later one's. Logged only, for
- *  now: what opening the repository means is #388's. */
-function handleLaunch(request: LaunchRequest, logger: HostLogger): void {
+/** What the window shows: a page, built anew at each load, and the webview
+ *  instance answering it when it is a graph. `id` tells a load of this page
+ *  from a load of the one it replaced. */
+type Shown = {
+  id: number;
+  page: () => PageContent;
+  instance: GraphInstance | null;
+  /** Hand the instance a message its page posted. */
+  deliver: (message: RequestMessage) => void;
+};
+
+/** Report what a launch asked for, and what it asked to open, if anything. */
+function logLaunch(request: LaunchRequest, logger: HostLogger): void {
   if (request.ignored.length > 0) {
     logger.log(`launch: ignored arguments ${JSON.stringify(request.ignored)}`);
   }
   if (request.repo !== null) logger.log(`launch: repository ${request.repo}`);
 }
 
-function serveApp(): void {
+function serveApp(pageFor: (id: string | null) => PageContent): void {
   protocol.handle(SCHEME, (request) => {
     const url = new URL(request.url);
     if (url.host !== HOST) return new Response(null, { status: 404 });
     if (url.pathname === "/") {
-      return new Response(buildDesktopPage(currentTheme()), {
-        headers: { "content-type": "text/html; charset=utf-8" }
-      });
+      return new Response(
+        buildDesktopPage(currentTheme(), pageFor(url.searchParams.get(PAGE_PARAM))),
+        {
+          headers: { "content-type": "text/html; charset=utf-8" }
+        }
+      );
     }
     const file = url.pathname.slice(1);
     if (!SERVED_FILES.has(file)) return new Response(null, { status: 404 });
@@ -64,9 +100,9 @@ function serveApp(): void {
   });
 }
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const theme = currentTheme();
-  const win = new BrowserWindow({
+  return new BrowserWindow({
     width: 1200,
     height: 800,
     // Painted before the page is, so the window does not flash the wrong colour.
@@ -78,7 +114,6 @@ function createWindow(): void {
       nodeIntegration: false
     }
   });
-  void win.loadURL(PAGE_URL);
 }
 
 /** Every window follows the system's theme as it changes (#397 adds a choice). */
@@ -90,6 +125,30 @@ function followSystemTheme(): void {
       win.webContents.send(CHANNELS.theme, theme);
     }
   });
+}
+
+/** The page in `contents`, as a webview instance talks to it; `deliver` hands
+ *  it what the page posted. */
+function channelTo(contents: WebContents, logger: HostLogger) {
+  let listener: ((message: RequestMessage) => void | Promise<void>) | null = null;
+  const channel: WebviewChannel = {
+    onDidReceiveMessage: (l) => {
+      listener = l;
+    },
+    postMessage: (message) => {
+      if (contents.isDestroyed()) return Promise.resolve(false);
+      contents.send(CHANNELS.hostMessage, message);
+      return Promise.resolve(true);
+    }
+  };
+  const deliver = (message: RequestMessage) => {
+    // A handler that throws has no one else to tell: the dispatch answers what
+    // it catches, and this is what it did not.
+    Promise.resolve(listener?.(message)).catch((e: unknown) =>
+      logger.logError(`webview: handling "${message.command}" failed: ${String(e)}`)
+    );
+  };
+  return { channel, deliver };
 }
 
 const thisLaunch: LaunchCommandLine = { argv: process.argv, workingDirectory: process.cwd() };
@@ -107,28 +166,128 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     { scheme: SCHEME, privileges: { standard: true, secure: true } }
   ]);
 
-  handleLaunch(parseLaunchArgs(thisLaunch, runtime), logger);
+  let shared: SharedHost | null = null;
+  let win: BrowserWindow | null = null;
+  let shown: Shown | null = null;
+  let nextId = 0;
+
+  /** Put `page` in the window, answered by `instance` if it is a graph; the
+   *  instance shown before is done. */
+  const show = (
+    page: () => PageContent,
+    instance: GraphInstance | null,
+    deliver: Shown["deliver"]
+  ) => {
+    shown?.instance?.dispose();
+    shown = { id: ++nextId, page, instance, deliver };
+    void win?.loadURL(`${PAGE_URL}?${PAGE_PARAM}=${shown.id}`);
+  };
+
+  /** A page with no graph, saying why when `notice` is not null. Nothing on
+   *  it should post anything; whatever does is said in the log. */
+  const showNotice = (notice: { title: string; detail: string } | null) =>
+    show(
+      () => ({ notice }),
+      null,
+      (message) => logger.log(`webview: "${String(message?.command)}" reached a page with no graph`)
+    );
+
+  /** A graph on `repo`, in a webview instance of its own. */
+  const showGraph = (host: SharedHost, window: BrowserWindow, repo: string) => {
+    const { channel, deliver } = channelTo(window.webContents, logger);
+    const instance = createGraphInstance(host, {
+      repo,
+      channel,
+      prompts: createInterimPrompts({
+        // Looked up when called, so the E2E can answer in their place (ADR-0032).
+        dialogs: {
+          showMessageBox: (options) => dialog.showMessageBox(window, options),
+          showSaveDialog: (options) => dialog.showSaveDialog(window, options)
+        },
+        l10n: host.l10n,
+        logger
+      })
+    });
+    const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
+    show(
+      () => ({ graph: { viewState: instance.pageViewState(), l10n: strings, nonce: getNonce() } }),
+      instance,
+      deliver
+    );
+  };
+
+  /** Open what `request` names: its repository, or in its place a notice that
+   *  it is none. A request naming nothing changes nothing. */
+  const open = async (request: LaunchRequest) => {
+    if (shared === null || win === null || request.repo === null) return;
+    const host = shared;
+    const window = win;
+    const target = await repoToOpen(request.repo, host.gitPath());
+    if ("unusable" in target) {
+      logger.log(`launch: cannot open ${target.unusable}, not a Git repository`);
+      showNotice({
+        title: host.l10n.t("error.unableToLoadGitGraph"),
+        detail: host.l10n.t("desktop.cannotOpenRepo", target.unusable)
+      });
+      return;
+    }
+    logger.log(`launch: opening ${target.repo}`);
+    host.repoSource.addRepo(target.repo);
+    host.extensionState.setLastActiveRepo(target.repo);
+    showGraph(host, window, target.repo);
+  };
+
+  const launch = parseLaunchArgs(thisLaunch, runtime);
+  logLaunch(launch, logger);
   // The later launch's own command line, not the `argv` beside it: see LaunchCommandLine.
   app.on("second-instance", (_event, _argv, _workingDirectory, data) => {
     const request = parseForwardedLaunch(data, runtime);
-    if (request === null) logger.log("launch: a later launch forwarded nothing readable");
-    else handleLaunch(request, logger);
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win !== undefined) {
+    if (request === null) {
+      logger.log("launch: a later launch forwarded nothing readable");
+    } else {
+      logLaunch(request, logger);
+      // One window, one instance (B): a repository it names takes the
+      // window's place. #393 opens it in a tab of its own instead.
+      void open(request);
+    }
+    if (win !== null) {
       if (win.isMinimized()) win.restore();
       win.focus();
     }
   });
 
-  ipcMain.on(CHANNELS.webviewMessage, (_event, message: { command?: unknown }) => {
-    logger.log(`webview: "${String(message?.command)}" has no handler yet (#388)`);
+  ipcMain.on(CHANNELS.webviewMessage, (event, message: RequestMessage) => {
+    if (shown !== null && win !== null && event.sender === win.webContents) {
+      shown.deliver(message);
+    }
   });
 
   app.on("window-all-closed", () => app.quit());
+  app.on("will-quit", () => {
+    shown?.instance?.dispose();
+    shown = null;
+    shared?.dispose();
+    void logger.close();
+  });
   void app.whenReady().then(() => {
-    serveApp();
+    // After ready: the locale is not known before it.
+    shared = createSharedHost({
+      userDataPath: app.getPath("userData"),
+      locale: app.getLocale(),
+      helperDir: __dirname,
+      logger,
+      clipboard: createDesktopClipboard(clipboard)
+    });
+    serveApp((id) => (shown !== null && id === String(shown.id) ? shown.page() : { notice: null }));
     followSystemTheme();
-    createWindow();
+    win = createWindow();
+    win.on("closed", () => {
+      shown?.instance?.dispose();
+      shown = null;
+      win = null;
+    });
+    if (launch.repo === null) showNotice(null);
+    else void open(launch);
   });
 } else {
   // Another GING holds the lock and has been handed `thisLaunch`.

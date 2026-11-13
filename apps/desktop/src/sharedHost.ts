@@ -9,7 +9,10 @@ import {
   createBranchFacts,
   createGitSnapshotReader
 } from "@ging/core/extension/branchFacts";
-import { type BranchFilterStore, createBranchFilterStore } from "@ging/core/extension/branchFilterStore";
+import {
+  type BranchFilterStore,
+  createBranchFilterStore
+} from "@ging/core/extension/branchFilterStore";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { ExtensionState } from "@ging/core/extensionState";
@@ -110,7 +113,9 @@ export function createSharedHost({
   const askpass = new AskpassManager(
     {
       input: async ({ prompt }) => {
-        logger.logError(`A git credential prompt reached no window, answered as dismissed: ${prompt}`);
+        logger.logError(
+          `A git credential prompt reached no window, answered as dismissed: ${prompt}`
+        );
         return undefined;
       }
     },

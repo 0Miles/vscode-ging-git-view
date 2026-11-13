@@ -78,7 +78,10 @@ describe("the interim desktop prompts", () => {
   it("answers an error's action with its label, and the way out with nothing", async () => {
     const chosen = make({ button: 0 });
     expect(await chosen.prompts.showError("Broke.", "Show Log")).toBe("Show Log");
-    expect(chosen.shown[0]).toMatchObject({ buttons: ["Show Log", "<dialog.cancel>"], cancelId: 1 });
+    expect(chosen.shown[0]).toMatchObject({
+      buttons: ["Show Log", "<dialog.cancel>"],
+      cancelId: 1
+    });
 
     const dismissed = make({ button: 1 });
     expect(await dismissed.prompts.showError("Broke.", "Show Log")).toBeUndefined();
