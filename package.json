@@ -9,6 +9,8 @@
     "package": "pnpm --filter ging-git-view run package",
     "test": "vitest run --project backend && vitest run --project webview",
     "test:ext": "pnpm --filter ging-git-view run test:ext",
+    "compile:desktop": "pnpm --filter @ging/desktop run compile",
+    "test:e2e:desktop": "pnpm --filter @ging/desktop run test:e2e",
     "watch:esbuild": "pnpm --filter ging-git-view run watch:esbuild",
     "watch:tsc": "pnpm --filter ging-git-view run watch:tsc",
     "format": "oxfmt --check",
@@ -21,7 +23,6 @@
   "devDependencies": {
     "@playwright/test": "^1.65.0",
     "@types/node": "catalog:",
-    "electron": "^45.3.1",
     "esbuild": "catalog:",
     "eslint-plugin-import": "^2.32.0",
     "jsdom": "^29.0.2",

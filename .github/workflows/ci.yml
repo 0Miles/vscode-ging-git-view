@@ -49,3 +49,24 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: xvfb-run -a pnpm run test:ext
+
+  # The Electron E2E (ADR-0032): the unpackaged desktop build in apps/desktop,
+  # driven by Playwright under a virtual display.
+  desktop-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          # electron and its dependencies require Node >=22.12
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run compile:desktop
+      # Electron's binary downloads on first use otherwise, inside a test's timeout.
+      - run: pnpm --filter @ging/desktop exec install-electron
+      # Recorded for when Chromium's sandbox stops starting here: Ubuntu's
+      # AppArmor setting that restricts unprivileged user namespaces.
+      - run: sysctl kernel.apparmor_restrict_unprivileged_userns || true
+      - run: xvfb-run -a pnpm run test:e2e:desktop

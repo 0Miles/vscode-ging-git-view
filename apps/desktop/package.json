@@ -1,0 +1,21 @@
+{
+  "name": "@ging/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "main": "./out/main.js",
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit",
+    "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
+    "compile": "pnpm run clean && node esbuild.js",
+    "start": "electron .",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@ging/webview": "workspace:*",
+    "@types/node": "catalog:",
+    "electron": "^45.3.1",
+    "esbuild": "catalog:"
+  },
+  "productName": "GING"
+}

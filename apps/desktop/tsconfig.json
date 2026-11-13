@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // One config for the main process (Node), the preload and the E2E (both
+    // touch the page's DOM) and the tests, so `dom` is in scope for all of them.
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["node"],
+    // The app's modules by name, for its tests (apps/vscode's `@ging/vscode/*`
+    // is the same idea); vitest.config.ts repeats the alias.
+    "paths": {
+      "@ging/desktop/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "tests", "e2e", "playwright.config.ts"]
+}

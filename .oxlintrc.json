@@ -80,6 +80,14 @@
       }
     },
     {
+      // The desktop preload runs in the page with Electron's renderer API; the
+      // E2E hands functions to `page.evaluate`, which run in the page too.
+      "files": ["apps/desktop/src/preload.ts", "apps/desktop/e2e/**/*.ts"],
+      "env": {
+        "browser": true
+      }
+    },
+    {
       // Runs in both the webview and the extension host, so neither set of globals
       "files": ["packages/shared/**/*.ts"],
       "env": {
@@ -123,7 +131,27 @@
                   "!@ging/core/backend/queries/commitFileContent"
                 ],
                 "allowTypeImports": true,
-                "message": "apps/vscode must not run core's git operations itself; put the flow in a core command service and register it here. Type imports are fine."
+                "message": "An app must not run core's git operations itself; put the flow in a core command service and register it here. Type imports are fine."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      // The same rule for apps/desktop, without apps/vscode's commitFileContent
+      // exemption: that one is for VS Code's DiffDocProvider (ADR-0027's 補記
+      // of 2026-11-13).
+      "files": ["apps/desktop/src/**"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@ging/core/backend/actions/**", "@ging/core/backend/queries/**"],
+                "allowTypeImports": true,
+                "message": "An app must not run core's git operations itself; put the flow in a core command service and register it here. Type imports are fine."
               }
             ]
           }
