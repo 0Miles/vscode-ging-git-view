@@ -50,3 +50,9 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 
 - **要一個真正的 origin。** data URL 的 origin 是 opaque,`localStorage` 這類 storage 用不了,而 #291 打算讓桌面版的 `setState` 落在那裡;`file://` 的 origin 也不屬於這個 app,是所有本機檔案共用的。自訂的 standard scheme 讓頁面有自己的 `ging://app` origin,CSP 也能照 VS Code 那份的意思寫成 `'self'`,不必列出路徑。
 - **main process 決定哪些檔案拿得到。** `file://` 會讓頁面能讀整個檔案系統上它猜得到路徑的東西;這裡只有白名單上的幾個檔名,路徑由 main process 自己接到 `out/`。白名單由 `page.ts` 的 `PAGE_ASSETS` 推導,頁面要多載一個檔案,就在那裡加。
+
+## 補記(2026-11-13,#388)
+
+**桌面入口只在頁面帶著 `viewState` 時啟動圖形。** 桌面版沒有 repo 可顯示時 —— 沒帶參數,或 `--repo` 指的不是 Git 存放庫 —— 給的是一頁沒有圖形的頁面(後者附上說明),它照樣載入桌面入口,因為之後的 Welcome page(#394)也從這裡進來。沒有 `viewState` 的頁面上啟動圖形只會拋錯並回報,所以由入口判斷,判斷寫在 `desktop/` 底下,VS Code 入口不受影響;[desktopEntryNoGraph.test.ts](../../packages/webview/tests/desktopEntryNoGraph.test.ts) 釘住它。
+
+宿主給 webview 的訊息由 preload 以 `window.postMessage` 送進頁面,形狀與 VS Code 的一樣,圖形的 `message` listener 不必知道是哪個宿主。`viewState` 與 `l10n` 跟 VS Code 一樣寫成兩段帶 nonce 的 inline script,CSP 只放行那個 nonce。

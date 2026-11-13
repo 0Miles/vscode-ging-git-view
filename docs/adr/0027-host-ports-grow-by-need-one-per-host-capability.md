@@ -105,3 +105,14 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **`L10n`、`HostConfig`、`HostLogger`、`Prompts`、`Opener` 沒有契約測試。** 前三個的「契約」幾乎就是型別,fake 的回答本來就是測試隨意定的;後兩個的桌面實作在 #390 等票。
 
 「後果」第一條因此多一步:在這四個 port 上加方法時,契約測試也要跟著補,`fakeHost` 與每個宿主才會一起被檢查。
+
+## 補記(2026-11-13,#388)
+
+**`AskpassManager` 長出了 `route(prompts)`:整個行程一個 server,每個詢問者一條 route。route 的 env 帶 `NEO_GIT_GRAPH_ASKPASS_TOKEN`,`askpassMain` 把它送回 server,server 問那條 route 的 `Prompts`。**
+
+桌面版的 main process 每個 webview 實例一組 dispatch 與 ports(#393 的分頁各一個),git 要認證時,要問的是發起那次 git 的實例。server 若每個實例各開一個,每個都是一條 named pipe 或 socket,關掉一個分頁就得記得收一個;用 token 路由,server 只有一個,實例拿到的只是一個可以 `dispose` 的 route。
+
+- **沒有 token 的請求照舊問建構時給的 `prompts`。** VS Code 只用 `getEnv()`,env 裡沒有 token,請求本文也就沒有 `token` 欄位(`JSON.stringify` 略過 `undefined`),所以它的行為沒有變。
+- **token 對不上任何 route,回答「取消」,不問任何人。** 那是已經關掉的實例跑的 git;把它的密碼提示轉給另一個視窗,使用者會在不相干的分頁裡被問一個不相干 repo 的帳密。
+- **`AvatarManager` 同一張票改成可以註冊多個 bridge。** 頭像快取全域一份,每個頭像扇出到所有已註冊的 bridge,`deregisterBridge(post)` 只移除給它的那一個。VS Code 同時只有一個面板的 bridge,行為不變。
+- **桌面版的 `Prompts` 與 `Opener` 目前是過渡版。** `Prompts` 只實作 dispatch 用到的通知三種與 `pickSaveLocation`(系統對話框,經過可注入的 `NativeDialogs`,見 ADR-0032),其餘回答「取消」並寫 log,#390 取代它;`Opener` 與 dispatch 的 hook 一律寫 log,#391 補上。
