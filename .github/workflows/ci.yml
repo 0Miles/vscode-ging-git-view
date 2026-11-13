@@ -85,5 +85,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run compile
-      - run: pnpm exec playwright install --with-deps chromium
+      # No --with-deps: its apt list names font packages ubuntu-latest (26.04)
+      # no longer carries, and the image already has the libraries Chromium
+      # needs, as desktop-e2e's Electron shows. Headless runs use the shell.
+      - run: pnpm exec playwright install --only-shell chromium
       - run: pnpm run test:e2e:webview
