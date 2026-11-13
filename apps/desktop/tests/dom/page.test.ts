@@ -54,6 +54,7 @@ describe("buildDesktopPage for a repository", () => {
 
   it("lays out the graph's markup, with its strings, for the bundle to start on", () => {
     const doc = graphPage();
+    expect(doc.documentElement.dataset.gingPage).toBe("graph");
     expect(doc.getElementById("commitTable")).not.toBeNull();
     expect(doc.getElementById("findBtn")?.getAttribute("title")).toBe("Find <it>");
   });
@@ -102,6 +103,7 @@ describe("buildDesktopPage with nothing to show", () => {
         notice: { title: "Unable to load GING", detail: "Cannot open <C:\\x>." }
       })
     );
+    expect(doc.documentElement.dataset.gingPage).toBe("notice");
     expect(doc.querySelector("h2")?.textContent).toBe("Unable to load GING");
     expect(doc.querySelector("p")?.textContent).toBe("Cannot open <C:\\x>.");
     expect(doc.getElementById("commitTable")).toBeNull();
@@ -110,6 +112,7 @@ describe("buildDesktopPage with nothing to show", () => {
 
   it("is empty when nothing was asked for", () => {
     const doc = parse(buildDesktopPage(themeFor("light", "win32"), { notice: null }));
+    expect(doc.documentElement.dataset.gingPage).toBe("notice");
     expect(doc.body.textContent?.trim()).toBe("");
   });
 });

@@ -45,14 +45,6 @@ function graphColourStyles(colours: string[]): { variables: string; rules: strin
   };
 }
 
-/** The `<body>` of a page showing `notice` in place of a graph, or nothing. */
-function noticeBody(theme: Theme, notice: Notice | null): string {
-  if (notice === null) return `<body class="${bodyClassOf(theme.kind)}">`;
-  return `<body class="${bodyClassOf(theme.kind)} unableToLoad">
-<h2>${escapeHtml(notice.title)}</h2>
-<p>${escapeHtml(notice.detail)}</p>`;
-}
-
 /**
  * The page a desktop window opens: the theme on `<html>` and `<body>` as VS Code
  * would have put it, and the desktop entry's bundle (ADR-0031). The theme is in
@@ -63,33 +55,47 @@ function noticeBody(theme: Theme, notice: Notice | null): string {
  * `<body>`, which `main.css` relies on and does not repeat.
  *
  * A graph page also carries what the graph boots with: its markup, and the
- * `viewState` and `l10n` globals. A page without them is one the bundle starts
- * no graph on (`desktop/main.ts`).
+ * `viewState` and `l10n` globals. Which kind a page is, graph or notice, is
+ * written on `<html>` as `data-ging-page`, and the bundle starts the graph by
+ * it (`desktop/main.ts`).
  */
 export function buildDesktopPage(theme: Theme, content: PageContent = { notice: null }): string {
   const style = Object.entries(theme.variables)
     .map(([name, value]) => `${name}: ${value};`)
     .join(" ");
+  const bodyClass = bodyClassOf(theme.kind);
   const graph = "graph" in content ? content.graph : null;
-  const scriptSrc = graph === null ? "'self'" : `'self' 'nonce-${graph.nonce}'`;
-  const colours = graphColourStyles(graph?.viewState.graphColours ?? []);
+  const notice = "notice" in content ? content.notice : null;
 
-  const body =
-    "graph" in content
-      ? `<body class="${bodyClassOf(theme.kind)}" style="${escapeHtml(colours.variables)}">
-${buildWebviewMarkup(content.graph.l10n)}
-<script nonce="${content.graph.nonce}">var viewState = ${scriptJson(content.graph.viewState)};</script>
-<script nonce="${content.graph.nonce}">var l10n = ${scriptJson(content.graph.l10n)};</script>`
-      : noticeBody(theme, content.notice);
+  let scriptSrc = "'self'";
+  let colourRules = "";
+  let body: string;
+  if (graph !== null) {
+    const colours = graphColourStyles(graph.viewState.graphColours);
+    scriptSrc = `'self' 'nonce-${graph.nonce}'`;
+    colourRules = colours.rules;
+    body = `<body class="${bodyClass}" style="${escapeHtml(colours.variables)}">
+${buildWebviewMarkup(graph.l10n)}
+<script nonce="${graph.nonce}">var viewState = ${scriptJson(graph.viewState)};</script>
+<script nonce="${graph.nonce}">var l10n = ${scriptJson(graph.l10n)};</script>`;
+  } else if (notice !== null) {
+    body = `<body class="${bodyClass} unableToLoad">
+<h2>${escapeHtml(notice.title)}</h2>
+<p>${escapeHtml(notice.detail)}</p>`;
+  } else {
+    body = `<body class="${bodyClass}">`;
+  }
+
+  // The kind stated, not left for the bundle to infer from what is missing.
   return `<!DOCTYPE html>
-<html lang="en" style="${escapeHtml(style)}">
+<html lang="en" data-ging-page="${graph !== null ? "graph" : "notice"}" style="${escapeHtml(style)}">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src ${scriptSrc}; img-src data:;">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" type="text/css" href="${PAGE_ASSETS.stylesheet}">
 <style>body { background-color: var(--vscode-editor-background); color: var(--vscode-editor-foreground); font-family: var(--vscode-font-family); font-weight: var(--vscode-font-weight); font-size: var(--vscode-font-size); }</style>
-<style>${colours.rules}</style>
+<style>${colourRules}</style>
 <title>GING</title>
 </head>
 ${body}
