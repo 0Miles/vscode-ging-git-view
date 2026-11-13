@@ -26,7 +26,7 @@ import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
 import type { HostLogger } from "@ging/core/host/ports";
 import { createDesktopClipboard } from "@ging/desktop/ports/clipboard";
 import { createDesktopLogger } from "@ging/desktop/ports/logger";
-import { createInterimPrompts } from "@ging/desktop/ports/prompts";
+import { createInterimPrompts, type NativeDialogs } from "@ging/desktop/ports/prompts";
 import type { RequestMessage } from "@ging/shared/types";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 
@@ -62,8 +62,9 @@ const PAGE_ID_PARAM = "page";
 const SERVED_FILES = new Set<string>([...Object.values(PAGE_ASSETS), `${PAGE_ASSETS.script}.map`]);
 
 /** The `Shown.id` a page URL carries, or null for one that carries none. */
-function pageIdOf(url: string): string | null {
-  return URL.canParse(url) ? new URL(url).searchParams.get(PAGE_ID_PARAM) : null;
+function pageIdOf(url: string): number | null {
+  const id = URL.canParse(url) ? new URL(url).searchParams.get(PAGE_ID_PARAM) : null;
+  return id === null ? null : Number(id);
 }
 
 function currentTheme(): Theme {
@@ -89,17 +90,24 @@ function logLaunch(request: LaunchRequest, logger: HostLogger): void {
   if (request.repo !== null) logger.log(`launch: repository ${request.repo}`);
 }
 
-function serveApp(pageFor: (id: string | null) => PageContent): void {
+/** Electron's dialogs attached to `owner`, looked up when called so the E2E
+ *  can answer in their place (ADR-0032). */
+function dialogsFor(owner: BrowserWindow): NativeDialogs {
+  return {
+    showMessageBox: (options) => dialog.showMessageBox(owner, options),
+    showSaveDialog: (options) => dialog.showSaveDialog(owner, options)
+  };
+}
+
+/** Serve the app: `pageFor` builds the page a URL of it asks for. */
+function serveApp(pageFor: (url: string) => PageContent): void {
   protocol.handle(SCHEME, (request) => {
     const url = new URL(request.url);
     if (url.host !== HOST) return new Response(null, { status: 404 });
     if (url.pathname === "/") {
-      return new Response(
-        buildDesktopPage(currentTheme(), pageFor(url.searchParams.get(PAGE_ID_PARAM))),
-        {
-          headers: { "content-type": "text/html; charset=utf-8" }
-        }
-      );
+      return new Response(buildDesktopPage(currentTheme(), pageFor(request.url)), {
+        headers: { "content-type": "text/html; charset=utf-8" }
+      });
     }
     const file = url.pathname.slice(1);
     if (!SERVED_FILES.has(file)) return new Response(null, { status: 404 });
@@ -184,26 +192,27 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     shown = null;
   };
 
-  /** Put `page` in the window, answered by `instance` if it is a graph; the
-   *  instance shown before is done. */
-  const show = (
-    page: () => PageContent,
-    instance: GraphInstance | null,
-    deliver: Shown["deliver"]
-  ) => {
+  /** What is shown, if `url` is its page's: a page replaced but still
+   *  unloading, or reloading, is not. */
+  const shownAt = (url: string): Shown | null =>
+    shown !== null && pageIdOf(url) === shown.id ? shown : null;
+
+  /** Put `next` in the window; what was shown before is done. */
+  const show = (next: Omit<Shown, "id">) => {
     closeShown();
-    shown = { id: ++nextId, page, instance, deliver };
+    shown = { id: ++nextId, ...next };
     void win?.loadURL(`${PAGE_URL}?${PAGE_ID_PARAM}=${shown.id}`);
   };
 
   /** A page with no graph, saying why when `notice` is not null. Nothing on
    *  it should post anything; whatever does is said in the log. */
   const showNotice = (notice: Notice | null) =>
-    show(
-      () => ({ notice }),
-      null,
-      (message) => logger.log(`webview: "${String(message?.command)}" reached a page with no graph`)
-    );
+    show({
+      page: () => ({ notice }),
+      instance: null,
+      deliver: (message) =>
+        logger.log(`webview: "${String(message?.command)}" reached a page with no graph`)
+    });
 
   /** What `request` names, checked: a repository, a path that is none, or
    *  `null` when it names nothing. */
@@ -231,7 +240,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       };
       if (!shown?.instance) showNotice(notice);
       else {
-        void dialog.showMessageBox(owner, {
+        void dialogsFor(owner).showMessageBox({
           type: "error",
           message: notice.title,
           detail: notice.detail
@@ -256,21 +265,19 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       repo,
       channel,
       prompts: createInterimPrompts({
-        // Looked up when called, so the E2E can answer in their place (ADR-0032).
-        dialogs: {
-          showMessageBox: (options) => dialog.showMessageBox(owner, options),
-          showSaveDialog: (options) => dialog.showSaveDialog(owner, options)
-        },
+        dialogs: dialogsFor(owner),
         l10n: host.l10n,
         logger
       })
     });
     const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
-    show(
-      () => ({ graph: { viewState: instance.pageViewState(), l10n: strings, nonce: getNonce() } }),
+    show({
+      page: () => ({
+        graph: { viewState: instance.pageViewState(), l10n: strings, nonce: getNonce() }
+      }),
       instance,
       deliver
-    );
+    });
   };
 
   const launch = parseLaunchArgs(thisLaunch, runtime);
@@ -294,10 +301,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     }
   });
   ipcMain.on(CHANNELS.webviewMessage, (event, message: RequestMessage) => {
-    if (shown === null || win === null || event.sender !== win.webContents) return;
+    if (win === null || event.sender !== win.webContents) return;
     // Only from the page that is shown: one replaced but still unloading must
     // not reach the instance that replaced it.
-    if (pageIdOf(event.senderFrame?.url ?? "") === String(shown.id)) shown.deliver(message);
+    shownAt(event.senderFrame?.url ?? "")?.deliver(message);
   });
 
   app.on("window-all-closed", () => app.quit());
@@ -315,7 +322,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     });
   });
   void app.whenReady().then(async () => {
-    serveApp((id) => (shown !== null && id === String(shown.id) ? shown.page() : { notice: null }));
+    serveApp((url) => shownAt(url)?.page() ?? { notice: null });
     followSystemTheme();
     win = createWindow();
     // The page of what is shown starting to load, the first time or again (a
@@ -323,9 +330,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     // load, not to building the HTML, which a second fetch of it would repeat.
     win.webContents.on("did-start-navigation", (details) => {
       if (!details.isMainFrame || details.isSameDocument) return;
-      if (shown !== null && pageIdOf(details.url) === String(shown.id)) {
-        shown.instance?.pageLoading();
-      }
+      shownAt(details.url)?.instance?.pageLoading();
     });
     win.on("closed", () => {
       closeShown();

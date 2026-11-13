@@ -50,7 +50,7 @@ function graphColourStyles(colours: string[]): { variables: string; rules: strin
  * written on `<html>` as `data-ging-page`, and the bundle starts the graph by
  * it (`desktop/main.ts`).
  */
-export function buildDesktopPage(theme: Theme, content: PageContent = { notice: null }): string {
+export function buildDesktopPage(theme: Theme, content: PageContent): string {
   const style = Object.entries(theme.variables)
     .map(([name, value]) => `${name}: ${value};`)
     .join(" ");

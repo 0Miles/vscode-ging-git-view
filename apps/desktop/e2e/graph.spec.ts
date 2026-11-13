@@ -129,7 +129,9 @@ test("a later launch naming a path that is no repository leaves the graph open, 
     const page = await electronApp.firstWindow();
     const rows = page.locator("#commitTable tr.commit");
     await expect(rows).toHaveCount(repo.commits.length);
-    // The system's dialog, answered in its place through the seam (ADR-0032).
+    // The system's dialog, answered in its place (ADR-0032): every box goes
+    // through the app's NativeDialogs, which looks Electron's up when called,
+    // so replacing it here answers for them all.
     await electronApp.evaluate(({ dialog }) => {
       const asked: unknown[] = [];
       (globalThis as Record<string, unknown>).askedBoxes = asked;

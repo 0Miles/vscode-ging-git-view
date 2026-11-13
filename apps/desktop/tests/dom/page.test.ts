@@ -19,7 +19,10 @@ function makeViewState() {
 
 const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
 const pageFor = (kind: ThemeKind, platform: NodeJS.Platform = "win32") =>
-  new DOMParser().parseFromString(buildDesktopPage(themeFor(kind, platform)), "text/html");
+  new DOMParser().parseFromString(
+    buildDesktopPage(themeFor(kind, platform), { notice: null }),
+    "text/html"
+  );
 
 describe("buildDesktopPage", () => {
   it("writes the theme's variables into the inline style of <html>", () => {
