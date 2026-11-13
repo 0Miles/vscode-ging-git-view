@@ -18,6 +18,9 @@ export type LaunchCommandLine = { argv: string[]; workingDirectory: string };
 
 const REPO_SWITCH = "--repo";
 
+/** One argument, or `--repo` with its path, and the repository it names. */
+type Claim = { tokens: string[]; repo: string | null };
+
 /**
  * Read a command line down to the one thing it may ask for: a repository, as
  * `--repo <path>` or a single positional argument. A relative path is taken
@@ -41,10 +44,14 @@ export function parseLaunchArgs(
   { defaultApp }: { defaultApp: boolean }
 ): LaunchRequest {
   let args = argv.slice(1);
-  if (defaultApp) args = args.slice(args.findIndex((arg) => !isSwitch(arg)) + 1 || args.length);
+  if (defaultApp) {
+    // The runtime's switches, then the app's path, then the user's arguments.
+    const appPath = args.findIndex((arg) => !isSwitch(arg));
+    args = appPath === -1 ? [] : args.slice(appPath + 1);
+  }
 
   // Each argument once, in order, with the repository it would open, if any.
-  const claims: { tokens: string[]; repo: string | null }[] = [];
+  const claims: Claim[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === REPO_SWITCH && i + 1 < args.length && !isSwitch(args[i + 1])) {
@@ -55,10 +62,10 @@ export function parseLaunchArgs(
     }
   }
 
-  const naming = claims.filter((c) => c.repo !== null);
+  const naming = claims.filter((c): c is Claim & { repo: string } => c.repo !== null);
   const taken = naming.length === 1 ? naming[0] : null;
   return {
-    repo: taken === null ? null : path.resolve(workingDirectory, taken.repo!),
+    repo: taken === null ? null : path.resolve(workingDirectory, taken.repo),
     ignored: claims.filter((c) => c !== taken).flatMap((c) => c.tokens)
   };
 }

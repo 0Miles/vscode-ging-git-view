@@ -57,9 +57,4 @@ describe("themeFor", () => {
       expect(missing).toEqual([]);
     }
   );
-
-  it("marks the body the way VS Code does for each kind", () => {
-    expect(themeFor("dark", "linux").bodyClass).toBe("vscode-dark");
-    expect(themeFor("light", "linux").bodyClass).toBe("vscode-light");
-  });
 });

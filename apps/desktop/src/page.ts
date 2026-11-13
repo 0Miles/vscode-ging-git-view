@@ -1,4 +1,6 @@
-import type { Theme } from "./theme";
+import { escapeHtml } from "@ging/webview/utils/html";
+
+import { bodyClassOf, type Theme } from "./theme";
 
 /** The files the page loads, relative to it; the main process serves exactly
  *  these from the app's `out/` (see `main.ts`). */
@@ -21,7 +23,7 @@ export function buildDesktopPage(theme: Theme): string {
     .map(([name, value]) => `${name}: ${value};`)
     .join(" ");
   return `<!DOCTYPE html>
-<html lang="en" style="${escapeAttribute(style)}">
+<html lang="en" style="${escapeHtml(style)}">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src data:;">
@@ -30,12 +32,8 @@ export function buildDesktopPage(theme: Theme): string {
 <style>body { background-color: var(--vscode-editor-background); color: var(--vscode-editor-foreground); font-family: var(--vscode-font-family); font-weight: var(--vscode-font-weight); font-size: var(--vscode-font-size); }</style>
 <title>GING</title>
 </head>
-<body class="${theme.bodyClass}">
+<body class="${bodyClassOf(theme.kind)}">
 <script src="${PAGE_ASSETS.script}"></script>
 </body>
 </html>`;
-}
-
-function escapeAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }

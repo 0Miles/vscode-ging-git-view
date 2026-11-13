@@ -23,8 +23,9 @@ test.beforeEach(async () => {
   userDataDir = mkdtempSync(path.join(os.tmpdir(), "ging-e2e-"));
   app = await _electron.launch({ executablePath: ELECTRON, args: appArgs() });
   output = "";
-  app.process().stdout?.on("data", (chunk: Buffer) => (output += chunk.toString()));
-  app.process().stderr?.on("data", (chunk: Buffer) => (output += chunk.toString()));
+  for (const stream of [app.process().stdout, app.process().stderr]) {
+    stream?.on("data", (chunk: Buffer) => (output += chunk.toString()));
+  }
 });
 
 test.afterEach(async () => {
@@ -44,17 +45,24 @@ test("the desktop window opens on the desktop entry, themed after the system", a
     page.evaluate(() =>
       document.documentElement.style.getPropertyValue("--vscode-editor-background")
     );
+  // Each theme's editor background, the value VS Code's own theme gives it.
+  const themes = {
+    dark: { background: "#1f1f1f", bodyClass: "vscode-dark" },
+    light: { background: "#ffffff", bodyClass: "vscode-light" }
+  } as const;
   const dark = await app.evaluate(({ nativeTheme }) => nativeTheme.shouldUseDarkColors);
-  expect(await editorBackground()).toBe(dark ? "#1f1f1f" : "#ffffff");
-  await expect(page.locator("body")).toContainClass(dark ? "vscode-dark" : "vscode-light");
+  const [from, to] = dark ? (["dark", "light"] as const) : (["light", "dark"] as const);
+
+  expect(await editorBackground()).toBe(themes[from].background);
+  await expect(page.locator("body")).toContainClass(themes[from].bodyClass);
 
   // The system switching theme, as far as the app can tell.
-  await app.evaluate(({ nativeTheme }, toDark) => {
-    nativeTheme.themeSource = toDark ? "dark" : "light";
-  }, !dark);
-  await expect.poll(editorBackground).toBe(dark ? "#ffffff" : "#1f1f1f");
-  await expect(page.locator("body")).toContainClass(dark ? "vscode-light" : "vscode-dark");
-  await expect(page.locator("body")).not.toContainClass(dark ? "vscode-dark" : "vscode-light");
+  await app.evaluate(({ nativeTheme }, kind) => {
+    nativeTheme.themeSource = kind;
+  }, to);
+  await expect.poll(editorBackground).toBe(themes[to].background);
+  await expect(page.locator("body")).toContainClass(themes[to].bodyClass);
+  await expect(page.locator("body")).not.toContainClass(themes[from].bodyClass);
 });
 
 test("a second launch hands its repository to the first and exits", async () => {

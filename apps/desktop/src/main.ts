@@ -28,12 +28,9 @@ import { type Theme, themeFor } from "./theme";
 const SCHEME = "ging";
 const HOST = "app";
 const PAGE_URL = `${SCHEME}://${HOST}/`;
-/** Path on `ging://app` → file in out/, next to this bundle. Nothing else is served. */
-const SERVED_FILES = new Map<string, string>([
-  [`/${PAGE_ASSETS.stylesheet}`, PAGE_ASSETS.stylesheet],
-  [`/${PAGE_ASSETS.script}`, PAGE_ASSETS.script],
-  [`/${PAGE_ASSETS.script}.map`, `${PAGE_ASSETS.script}.map`]
-]);
+/** The files in out/, next to this bundle, that `ging://app/<file>` serves:
+ *  the page's assets and the script's source map. Nothing else is served. */
+const SERVED_FILES = new Set<string>([...Object.values(PAGE_ASSETS), `${PAGE_ASSETS.script}.map`]);
 
 function currentTheme(): Theme {
   return themeFor(nativeTheme.shouldUseDarkColors ? "dark" : "light", process.platform);
@@ -51,13 +48,14 @@ function handleLaunch(request: LaunchRequest): void {
 function serveApp(): void {
   protocol.handle(SCHEME, (request) => {
     const url = new URL(request.url);
-    if (url.host === HOST && url.pathname === "/") {
+    if (url.host !== HOST) return new Response(null, { status: 404 });
+    if (url.pathname === "/") {
       return new Response(buildDesktopPage(currentTheme()), {
         headers: { "content-type": "text/html; charset=utf-8" }
       });
     }
-    const file = url.host === HOST ? SERVED_FILES.get(url.pathname) : undefined;
-    if (file === undefined) return new Response(null, { status: 404 });
+    const file = url.pathname.slice(1);
+    if (!SERVED_FILES.has(file)) return new Response(null, { status: 404 });
     return net.fetch(pathToFileURL(path.join(__dirname, file)).href);
   });
 }
@@ -68,7 +66,7 @@ function createWindow(): void {
     width: 1200,
     height: 800,
     // Painted before the page is, so the window does not flash the wrong colour.
-    backgroundColor: theme.variables["--vscode-editor-background"],
+    backgroundColor: theme.background,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -84,7 +82,7 @@ function followSystemTheme(): void {
   nativeTheme.on("updated", () => {
     const theme = currentTheme();
     for (const win of BrowserWindow.getAllWindows()) {
-      win.setBackgroundColor(theme.variables["--vscode-editor-background"]);
+      win.setBackgroundColor(theme.background);
       win.webContents.send(CHANNELS.theme, theme);
     }
   });
