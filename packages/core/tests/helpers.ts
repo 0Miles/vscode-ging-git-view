@@ -6,6 +6,7 @@ import * as path from "node:path";
 export {
   fakeGit,
   fakePorts,
+  fakeStorage,
   fakeWebview,
   type PromptReply,
   recordingRunRepoMutation

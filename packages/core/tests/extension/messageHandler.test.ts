@@ -138,7 +138,7 @@ describe("loadRepos", () => {
 
   it("leaves the answer to the broadcast when a check dropped repos", async () => {
     const h = harness();
-    h.answers.reposChanged = true;
+    h.answers.goneRepos.push("/a");
     await h.send({ command: "loadRepos", check: true });
     expect(h.posted).toEqual([]);
   });

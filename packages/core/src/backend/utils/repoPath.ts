@@ -1,5 +1,7 @@
 import * as fs from "node:fs";
 
+import type { GitRepoSet } from "@ging/shared/types";
+
 /**
  * Whether a repo path can still be handed to `gitClientFactory`.
  *
@@ -41,6 +43,21 @@ export function resolveCurrentRepo(
 ): string | null {
   if (persisted === null || persisted === "") return null;
   return isUsable(persisted) ? persisted : null;
+}
+
+/** How many known repositories a host's `RepoSource.checkReposExist` asks git
+ *  about at once. */
+export const REPO_EXISTENCE_CHECKS_AT_ONCE = 3;
+
+/** The repo set with its repositories in path order, as a host's
+ *  `RepoSource.getRepos` answers it. */
+export function sortRepos(repos: GitRepoSet) {
+  const repoPaths = Object.keys(repos).toSorted();
+  const sorted: GitRepoSet = {};
+  for (let i = 0; i < repoPaths.length; i++) {
+    sorted[repoPaths[i]] = repos[repoPaths[i]];
+  }
+  return sorted;
 }
 
 /**

@@ -6,12 +6,16 @@ import {
   applyExternalConfig,
   EXTERNAL_CONFIG_RELATIVE_PATH,
   generateExternalConfig,
-  parseExternalConfig,
+  readExternalConfig,
   serializeExternalConfig
 } from "@ging/core/backend/utils/externalConfig";
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { evalPromises } from "@ging/core/backend/utils/promise";
-import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
+import {
+  pickBootRepo,
+  REPO_EXISTENCE_CHECKS_AT_ONCE,
+  sortRepos
+} from "@ging/core/backend/utils/repoPath";
 import { ExtensionState } from "@ging/core/extensionState";
 import { GitRepoSet, GitRepoState } from "@ging/shared/types";
 import { getPathFromUri } from "@ging/vscode/backend/utils/uri";
@@ -26,15 +30,6 @@ export type RepoStateWriteCallback = (
   before: GitRepoState | undefined,
   after: GitRepoState
 ) => void;
-
-function sortRepos(repos: GitRepoSet) {
-  const repoPaths = Object.keys(repos).toSorted();
-  const sorted: GitRepoSet = {};
-  for (let i = 0; i < repoPaths.length; i++) {
-    sorted[repoPaths[i]] = repos[repoPaths[i]];
-  }
-  return sorted;
-}
 
 export function createRepoManager(
   extensionState: ExtensionState,
@@ -81,17 +76,6 @@ export function createRepoManager(
       if (path === repoPaths[i] || path.startsWith(repoPaths[i] + "/")) return true;
     }
     return false;
-  }
-
-  /** Read + validate the shared config file in `repo`, or null if absent/invalid. */
-  function readExternalConfig(repo: string) {
-    try {
-      return parseExternalConfig(
-        fs.readFileSync(repo + "/" + EXTERNAL_CONFIG_RELATIVE_PATH, "utf8")
-      );
-    } catch {
-      return null; // no file / unreadable
-    }
   }
 
   function addRepo(repo: string) {
@@ -181,18 +165,18 @@ export function createRepoManager(
     return new Promise<boolean>((resolve) => {
       const repoPaths = Object.keys(repos);
       let changes = false;
-      evalPromises(repoPaths, 3, (path) => isGitRepository(path, config.gitPath())).then(
-        (results) => {
-          for (let i = 0; i < repoPaths.length; i++) {
-            if (!results[i]) {
-              removeRepo(repoPaths[i]);
-              changes = true;
-            }
+      evalPromises(repoPaths, REPO_EXISTENCE_CHECKS_AT_ONCE, (path) =>
+        isGitRepository(path, config.gitPath())
+      ).then((results) => {
+        for (let i = 0; i < repoPaths.length; i++) {
+          if (!results[i]) {
+            removeRepo(repoPaths[i]);
+            changes = true;
           }
-          if (changes) sendRepos();
-          resolve(changes);
         }
-      );
+        if (changes) sendRepos();
+        resolve(changes);
+      });
     });
   }
 
