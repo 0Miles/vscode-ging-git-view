@@ -25,8 +25,11 @@ import { openDesktopStorage } from "@ging/desktop/ports/storage";
 import { SECTION } from "@ging/desktop/settings/deriveSchema";
 import { openDesktopSettings } from "@ging/desktop/settings/schema";
 
-/** There is no `git.path` of VS Code's to follow: the git on the PATH. */
-const gitPath = () => "git";
+/** There is no `git.path` of VS Code's to follow: the git on the PATH. Known
+ *  before the shared host is, so a launch's path can be checked while the app
+ *  gets ready. */
+export const desktopGitPath = () => "git";
+const gitPath = desktopGitPath;
 
 export type SharedHostOptions = {
   /** Electron's `userData`: the settings, the state and the avatars. */

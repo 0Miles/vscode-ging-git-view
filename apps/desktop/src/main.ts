@@ -40,8 +40,8 @@ import { buildDesktopPage, type Notice, PAGE_ASSETS, type PageContent } from "./
 import { createDesktopClipboard } from "./ports/clipboard";
 import { createDesktopLogger } from "./ports/logger";
 import { createInterimPrompts } from "./ports/prompts";
-import { repoToOpen } from "./repoToOpen";
-import { createSharedHost, type SharedHost } from "./sharedHost";
+import { type RepoToOpen, repoToOpen } from "./repoToOpen";
+import { createSharedHost, desktopGitPath, type SharedHost } from "./sharedHost";
 import { type Theme, themeFor } from "./theme";
 
 /**
@@ -205,8 +205,52 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       (message) => logger.log(`webview: "${String(message?.command)}" reached a page with no graph`)
     );
 
-  /** A graph on `repo`, in a webview instance of its own. */
-  const showGraph = (host: SharedHost, owner: BrowserWindow, repo: string) => {
+  /** What `request` names, checked: a repository, a path that is none, or
+   *  `null` when it names nothing. */
+  const check = (request: LaunchRequest): Promise<RepoToOpen | null> =>
+    request.repo === null ? Promise.resolve(null) : repoToOpen(request.repo, desktopGitPath());
+
+  /** Open `target`: its repository in a graph of its own, or a notice that it
+   *  is none. The notice takes the place only of a page with no graph: a later
+   *  launch naming a bad path must not close the graph someone is using, so
+   *  there it is said in a box over it. Nothing named leaves what is shown,
+   *  and shows the empty page when nothing is. */
+  const open = (target: RepoToOpen | null) => {
+    if (shared === null || win === null) return;
+    const host = shared;
+    const owner = win;
+    if (target === null) {
+      if (shown === null) showNotice(null);
+      return;
+    }
+    if ("unusable" in target) {
+      logger.log(`launch: cannot open ${target.unusable}, not a Git repository`);
+      const notice: Notice = {
+        title: host.l10n.t("error.unableToLoadGitGraph"),
+        detail: host.l10n.t("desktop.cannotOpenRepo", target.unusable)
+      };
+      if (!shown?.instance) showNotice(notice);
+      else {
+        void dialog.showMessageBox(owner, {
+          type: "error",
+          message: notice.title,
+          detail: notice.detail
+        });
+      }
+      return;
+    }
+    // The repository as the known set spells it, if it is known under another
+    // spelling (a symlink, say): otherwise it would be added twice, the second
+    // time with none of its state.
+    const repo =
+      resolveToKnownRepo(target.repo, Object.keys(host.repoSource.getRepos())) ?? target.repo;
+    logger.log(`launch: opening ${repo}`);
+    // The graph being replaced is done before the set changes, so it is not
+    // told of the change on its way out.
+    closeShown();
+    host.repoSource.addRepo(repo);
+    host.extensionState.setLastActiveRepo(repo);
+
     const { channel, deliver } = channelTo(owner.webContents, logger);
     const instance = createGraphInstance(host, {
       repo,
@@ -229,46 +273,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     );
   };
 
-  /** Open what `request` names: its repository, or a notice that it is none.
-   *  The notice takes the place only of a page with no graph: a later launch
-   *  naming a bad path must not close the graph someone is using, so there it
-   *  is said in a box over it. A request naming nothing changes nothing. */
-  const open = async (request: LaunchRequest) => {
-    if (shared === null || win === null || request.repo === null) return;
-    const host = shared;
-    const owner = win;
-    const target = await repoToOpen(request.repo, host.gitPath());
-    if ("unusable" in target) {
-      logger.log(`launch: cannot open ${target.unusable}, not a Git repository`);
-      const notice: Notice = {
-        title: host.l10n.t("error.unableToLoadGitGraph"),
-        detail: host.l10n.t("desktop.cannotOpenRepo", target.unusable)
-      };
-      if (!shown?.instance) showNotice(notice);
-      else
-        void dialog.showMessageBox(owner, {
-          type: "error",
-          message: notice.title,
-          detail: notice.detail
-        });
-      return;
-    }
-    // The repository as the known set spells it, if it is known under another
-    // spelling (a symlink, say): otherwise it would be added twice, the second
-    // time with none of its state.
-    const repo =
-      resolveToKnownRepo(target.repo, Object.keys(host.repoSource.getRepos())) ?? target.repo;
-    logger.log(`launch: opening ${repo}`);
-    // The graph being replaced is done before the set changes, so it is not
-    // told of the change on its way out.
-    closeShown();
-    host.repoSource.addRepo(repo);
-    host.extensionState.setLastActiveRepo(repo);
-    showGraph(host, owner, repo);
-  };
-
   const launch = parseLaunchArgs(thisLaunch, runtime);
   logLaunch(launch, logger);
+  // Asked of git while Electron gets ready, not after.
+  const launchTarget = check(launch);
   // The later launch's own command line, not the `argv` beside it: see LaunchCommandLine.
   app.on("second-instance", (_event, _argv, _workingDirectory, data) => {
     const request = parseForwardedLaunch(data, runtime);
@@ -278,14 +286,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       logLaunch(request, logger);
       // One window, one instance (B): a repository it names takes the
       // window's place. #393 opens it in a tab of its own instead.
-      void open(request);
+      void check(request).then(open);
     }
     if (win !== null) {
       if (win.isMinimized()) win.restore();
       win.focus();
     }
   });
-
   ipcMain.on(CHANNELS.webviewMessage, (event, message: RequestMessage) => {
     if (shown === null || win === null || event.sender !== win.webContents) return;
     // Only from the page that is shown: one replaced but still unloading must
@@ -299,15 +306,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     shared?.dispose();
     void logger.close();
   });
-  void app.whenReady().then(() => {
-    // After ready: the locale is not known before it.
-    shared = createSharedHost({
-      userDataPath: app.getPath("userData"),
-      locale: app.getLocale(),
-      helperDir: __dirname,
-      logger,
-      clipboard: createDesktopClipboard(clipboard)
-    });
+  void app.whenReady().then(async () => {
     serveApp((id) => (shown !== null && id === String(shown.id) ? shown.page() : { notice: null }));
     followSystemTheme();
     win = createWindow();
@@ -324,8 +323,15 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       closeShown();
       win = null;
     });
-    if (launch.repo === null) showNotice(null);
-    else void open(launch);
+    // After ready: the locale is not known before it.
+    shared = createSharedHost({
+      userDataPath: app.getPath("userData"),
+      locale: app.getLocale(),
+      helperDir: __dirname,
+      logger,
+      clipboard: createDesktopClipboard(clipboard)
+    });
+    open(await launchTarget);
   });
 } else {
   // Another GING holds the lock and has been handed `thisLaunch`.
