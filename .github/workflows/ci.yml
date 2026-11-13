@@ -49,3 +49,17 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: xvfb-run -a pnpm run test:ext
+
+  # Throwaway B1 smoke (#383): removed before the PR merges.
+  b1-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec install-electron --no
+      - run: xvfb-run -a node scripts/b1-smoke/run.mjs
