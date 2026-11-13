@@ -91,13 +91,56 @@ describe("AvatarManager", () => {
     );
     const post = vi.fn();
     manager.registerBridge(post);
-    manager.deregisterBridge();
+    manager.deregisterBridge(post);
 
     manager.fetchAvatarImage(EMAIL, REPO, ["c1"]);
 
     // Give a stray file read every chance to land before asserting it didn't.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(post).not.toHaveBeenCalled();
+  });
+
+  // The desktop host runs one graph per webview instance (#388), and they share
+  // one avatar cache: an avatar any of them asked for reaches all of them.
+  it("posts an avatar to every registered bridge", async () => {
+    const folder = avatarFolder("abc.png", "PNGDATA");
+    const manager = new AvatarManager(
+      fakeConfig(),
+      fakeStore(folder, { [EMAIL]: freshAvatar("abc.png") })
+    );
+    const first: ResponseMessage[] = [];
+    const second: ResponseMessage[] = [];
+    manager.registerBridge((msg) => first.push(msg));
+    manager.registerBridge((msg) => second.push(msg));
+
+    manager.fetchAvatarImage(EMAIL, REPO, ["c1"]);
+
+    const expected = {
+      command: "fetchAvatar",
+      email: EMAIL,
+      image: "data:image/png;base64,UE5HREFUQQ=="
+    };
+    await vi.waitFor(() => expect(second).toEqual([expected]));
+    expect(first).toEqual([expected]);
+  });
+
+  it("keeps posting to the other bridges when one is deregistered", async () => {
+    const folder = avatarFolder("abc.png", "PNGDATA");
+    const manager = new AvatarManager(
+      fakeConfig(),
+      fakeStore(folder, { [EMAIL]: freshAvatar("abc.png") })
+    );
+    const closed = vi.fn();
+    const open: ResponseMessage[] = [];
+    const openPost = (msg: ResponseMessage) => open.push(msg);
+    manager.registerBridge(closed);
+    manager.registerBridge(openPost);
+    manager.deregisterBridge(closed);
+
+    manager.fetchAvatarImage(EMAIL, REPO, ["c1"]);
+
+    await vi.waitFor(() => expect(open).toHaveLength(1));
+    expect(closed).not.toHaveBeenCalled();
   });
 
   it("forgets an avatar in the store as well as in memory", async () => {

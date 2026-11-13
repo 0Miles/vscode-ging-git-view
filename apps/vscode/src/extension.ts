@@ -17,6 +17,7 @@ import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pr
 import { createReflogCommand } from "@ging/core/extension/reflogCommand";
 import { createRemoteCommands, type RemoteTarget } from "@ging/core/extension/remoteCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
+import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import {
   resolveShowRemoteBranches,
   type SideViewField,
@@ -54,7 +55,6 @@ import { createLogger } from "./extension/logger";
 import { managePullRequestProviders } from "./extension/pullRequestProviders";
 import { createRemotesView, remoteActionTarget } from "./extension/remotesView";
 import { createRepoManager } from "./extension/repoManager";
-import { createRunRepoMutation } from "./extension/repoMutation";
 import { createScmRepoTracker } from "./extension/scmRepoTracker";
 import { stashMenuContextKeys } from "./extension/stashActions";
 import { createStashView } from "./extension/stashView";
@@ -507,7 +507,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
     currentBridge = bridge;
     currentWatcher = repoFileWatcher;
-    avatarManager.registerBridge(bridge.post.bind(bridge));
+    avatarManager.registerBridge(bridge.post);
     const messageHandlers = registerMessageHandlers(
       bridge,
       { ...hostPorts, watcher: repoFileWatcher },

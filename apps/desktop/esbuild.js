@@ -12,6 +12,17 @@ const production = process.argv.includes("--production");
 // through the package's `exports` as apps/vscode/esbuild.js finds its own.
 const webviewMain = require.resolve("@ging/webview/desktop/main");
 const webviewCss = require.resolve("@ging/webview/media/main.css");
+// The helpers git runs as GIT_ASKPASS and GIT_SEQUENCE_EDITOR, and the shell
+// scripts that start them; the main process points git at them in out/, beside
+// itself (#388), as the extension does at its own out/.
+const askpassMain = require.resolve("@ging/core/extension/askpass/askpassMain");
+const sequenceEditorMain =
+  require.resolve("@ging/core/extension/sequenceEditor/sequenceEditorMain");
+const helperScripts = [
+  path.join(path.dirname(askpassMain), "askpass.sh"),
+  path.join(path.dirname(askpassMain), "askpass-empty.sh"),
+  path.join(path.dirname(sequenceEditorMain), "sequenceEditor.sh")
+];
 
 const common = {
   bundle: true,
@@ -33,6 +44,15 @@ async function main() {
       outdir: "out",
       external: ["electron"]
     }),
+    // The git helpers: plain Node programs, run by Electron as Node.
+    esbuild.build({
+      ...common,
+      entryPoints: { askpassMain, sequenceEditorMain },
+      format: "cjs",
+      platform: "node",
+      target: "es2022",
+      outdir: "out"
+    }),
     // The page's bundle, built as the extension builds its own (es6, iife), so
     // both hosts run the same code.
     esbuild.build({
@@ -44,6 +64,9 @@ async function main() {
     })
   ]);
   fs.copyFileSync(webviewCss, path.join("out", "main.css"));
+  for (const script of helperScripts) {
+    fs.copyFileSync(script, path.join("out", path.basename(script)));
+  }
 }
 
 main().catch((e) => {

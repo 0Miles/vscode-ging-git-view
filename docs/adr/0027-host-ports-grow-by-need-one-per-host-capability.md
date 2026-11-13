@@ -105,3 +105,38 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **`L10n`、`HostConfig`、`HostLogger`、`Prompts`、`Opener` 沒有契約測試。** 前三個的「契約」幾乎就是型別,fake 的回答本來就是測試隨意定的;後兩個的桌面實作在 #390 等票。
 
 「後果」第一條因此多一步:在這四個 port 上加方法時,契約測試也要跟著補,`fakeHost` 與每個宿主才會一起被檢查。
+
+## 補記(2026-11-13,#388)
+
+**`AskpassManager` 長出了 `route(prompts)`:整個行程一個 server,每個詢問者一條 route。route 的 env 帶 `NEO_GIT_GRAPH_ASKPASS_TOKEN`,`askpassMain` 把它送回 server,server 問那條 route 的 `Prompts`。**
+
+桌面版的 main process 每個 webview 實例一組 dispatch 與 ports(#393 的分頁各一個),git 要認證時,要問的是發起那次 git 的實例。server 若每個實例各開一個,每個都是一條 named pipe 或 socket,關掉一個分頁就得記得收一個;用 token 路由,server 只有一個,實例拿到的只是一個可以 `dispose` 的 route。
+
+- **沒有 token 的請求照舊問建構時給的 `prompts`。** VS Code 只用 `getEnv()`,env 裡沒有 token,請求本文也就沒有 `token` 欄位(`JSON.stringify` 略過 `undefined`),所以它的行為沒有變。
+- **token 對不上任何 route,回答「取消」,不問任何人。** 那是已經關掉的實例跑的 git;把它的密碼提示轉給另一個視窗,使用者會在不相干的分頁裡被問一個不相干 repo 的帳密。
+- **`AvatarManager` 同一張票改成可以註冊多個 bridge。** 頭像快取全域一份,每個頭像扇出到所有已註冊的 bridge,`deregisterBridge(post)` 只移除給它的那一個。VS Code 同時只有一個面板的 bridge,行為不變。
+- **桌面版的 `Prompts` 與 `Opener` 目前是過渡版。** `Prompts` 只實作 dispatch 用到的通知三種與 `pickSaveLocation`(系統對話框,經過可注入的 `NativeDialogs`,見 ADR-0032),其餘回答「取消」並寫 log,#390 取代它;`Opener` 與 dispatch 的 hook 一律寫 log,#391 補上。
+
+**桌面版 main process 每一個單例的處置。** 票面的表列了前八列，並且說「表上沒列到的單例視為缺漏」,所以其餘的也列在這裡。實作在 `apps/desktop/src/graphInstance.ts`(每個實例一份)與 `sharedServices.ts`(全行程共用)。
+
+| 單例                                                            | 處置                                | 理由                                                                                                                                                                                            |
+| --------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gitClient`(連同它的 env)                                       | 每個實例一個                        | env 帶該實例 askpass route 的 token 與它自己的 sequence editor                                                                                                                                  |
+| `SequenceEditorManager`                                         | 每個實例一個                        | 共用的話，兩個實例同時 interactive rebase 會搶同一個 todo 檔,`wasApplied` 會誤判                                                                                                                |
+| auto-fetch 計時器                                               | 每個實例一個                        | 各自 fetch 自己的 current repository,經 core 的 `createRunRepoMutation` 包住自己的 watcher                                                                                                      |
+| askpass server                                                  | 全域一個                            | 依 token 路由回發起的實例，見上;多分頁的路由在 #393                                                                                                                                             |
+| `AvatarManager`                                                 | 全域一個                            | 快取共用，頭像扇出到每個已註冊的 bridge,`deregisterBridge` 只移除自己那一個                                                                                                                     |
+| `branchFacts` 的作廢                                            | 全域一個                            | 刻意的選擇：代價是某個實例 mutate 時，其他實例的快取多清一次                                                                                                                                    |
+| `branchActionDelegate`                                          | 桌面不使用                          | 側檢視和圖形在同一個 webview(#399)                                                                                                                                                              |
+| `ExtensionState` 的分頁版                                       | 不在本票                            | 現在全域一份,current repository 是 app 的;#393 改成每個 Tab 一份                                                                                                                                |
+| `branchFilterStore`                                             | 全域一個                            | 篩選以 repo 為鍵。前提是**同一個存放庫同一時間至多開在一個 Tab**(GLOSSARY.md 的 **Tab**),所以實例之間不會共用同一筆。**#393 必須守住這個前提**:同一個 repo 若開在兩個分頁，它們的篩選會互相連動 |
+| `branchCleanup`                                                 | 全域一個                            | 沒有自己的狀態，每次都從 `branchFacts` 為被問到的 repo 建 payload                                                                                                                               |
+| `RepoSource`(known repositories)                                | 全域一個                            | 桌面版的 known repositories 是 app 的最近使用清單，不是某個 Tab 的;各實例的 boot repo 以自己的 current repository 算(`pickBootRepo`)                                                            |
+| `HostConfig`(desktop config 與設定檔)                           | 全域一個                            | 設定是 app 的                                                                                                                                                                                   |
+| `L10n`                                                          | 全域一個                            | 語系是 app 的                                                                                                                                                                                   |
+| `HostLogger`                                                    | 全域一個                            | 一個 log 檔;single-instance lock 的範圍就是它所在的 user data 資料夾                                                                                                                            |
+| `Clipboard`                                                     | 全域一個                            | 系統只有一個剪貼簿                                                                                                                                                                              |
+| `Opener`(過渡版)                                                | 全域一個                            | 目前只寫 log;#391 實作時再決定要不要依視窗                                                                                                                                                      |
+| 讀取用的 git client(`branchFacts` 與 `branchCleanup` 的 reader) | 全域一個工廠，每次呼叫建一個 client | 只讀，不帶 askpass 與 sequence editor 的 env:它們不詢問、不 rebase,也不需要任何實例的 token                                                                                                     |
+| `Watcher`                                                       | 每個實例一個                        | 看的是該實例的 current repository,mute 的是該實例自己的 mutation                                                                                                                                |
+| `Prompts`(過渡版)                                               | 每個實例一個                        | 附著在它的視窗上;askpass 的 route 也是這一份                                                                                                                                                    |

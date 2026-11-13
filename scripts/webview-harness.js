@@ -248,8 +248,10 @@ function buildWebviewHarness(entry) {
     colorParams += '[data-color="' + i + '"]{--git-graph-color:var(--git-graph-color' + i + ");} ";
   }
 
+  // `data-ging-page`: the desktop entry starts the graph only on a page its
+  // host says is one (#388); the VS Code entry does not read it.
   const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-ging-page="graph">
 <head>
 <meta charset="UTF-8">
 <link rel="stylesheet" type="text/css" href="./main.css">

@@ -41,3 +41,10 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - Electron E2E 跑之前要先 `pnpm run compile:desktop`;`pnpm run test:e2e:desktop` 跑的是 `apps/desktop/out/` 裡已經建好的東西。
 - 要換掉 Playwright 的 `_electron` 時,改的是 `apps/desktop/e2e/` 與 #388、#391、#392 各自的 E2E,vitest 與 webview E2E 不受影響。
 - 階段 E 選打包工具時,`RunAsNode` 與 `EnableNodeCliInspectArguments` 兩個 fuse 是硬約束,見上。
+
+## 補記(2026-11-13,#388)
+
+**啟動時就決定的事,E2E 讀 log 檔,不讀 stdout。** `_electron.launch` 拿到行程之前,main process 已經寫完啟動那幾行(例如 `launch: opening …`、`launch: cannot open …`),之後才掛上的 stdout listener 讀不到。log 檔(`userData/logs/main.log`)本來就是產品的一部分(`HostLogger.reveal` 打開的就是它),所以照「只讀產品本來就有的東西」,改讀它。之後才發生的事(single-instance 轉來的參數)讀 stdout 一樣可行。
+
+- **fixture repo 由測試自己 `git init`。** [fixtureRepo.ts](../../apps/desktop/e2e/fixtureRepo.ts) 在暫存目錄建一個 commit 日期固定的 repo,fixture 的 git 與 app 的 git 都跑在上面說的隔離設定裡(`GIT_CONFIG_NOSYSTEM=1`,`HOME` / `USERPROFILE` 指到暫存目錄)。
+- **E2E 一律帶 `--lang=en-US`。** 斷言讀的是頁面上的英文字串;不帶的話,`app.getLocale()` 跟著開發機走,在中文的 Windows 上讀到的是 zh-tw。

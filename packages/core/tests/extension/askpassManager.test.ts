@@ -17,7 +17,7 @@ afterEach(() => manager?.dispose());
 
 function ask(
   socketPath: string,
-  body: { request: string; host: string }
+  body: { request: string; host: string; token?: string }
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request({ socketPath, path: "/", method: "POST" }, (res) => {
@@ -72,6 +72,56 @@ describe("AskpassManager", () => {
     const { handle } = start(() => Promise.reject(new Error("no UI")));
     const res = await ask(handle, { request: "Username for 'https://host':", host: "host" });
     expect(res.status).toBe(500);
+  });
+
+  // One server for the whole process, each git run asking whoever started it
+  // (the desktop host's webview instances, #388): the route's env carries a
+  // token that the helper sends back.
+  it("puts a prompt to the route whose token it carries, not to the default", async () => {
+    const { asked: toDefault, handle } = start(async () => "default");
+    const toRoute: InputOptions[] = [];
+    const route = manager!.route({
+      input: async (options) => {
+        toRoute.push(options);
+        return "routed";
+      }
+    });
+
+    const res = await ask(handle, {
+      request: "Username for 'https://host':",
+      host: "host",
+      token: route.env.NEO_GIT_GRAPH_ASKPASS_TOKEN
+    });
+
+    expect(res).toEqual({ status: 200, body: JSON.stringify("routed") });
+    expect(toRoute).toHaveLength(1);
+    expect(toDefault).toEqual([]);
+    expect(route.env.NEO_GIT_GRAPH_ASKPASS_HANDLE).toBe(handle);
+  });
+
+  it("gives each route a token of its own", () => {
+    start(async () => undefined);
+    const tokens = [
+      manager!.route({ input: async () => undefined }),
+      manager!.route({ input: async () => undefined })
+    ].map((route) => route.env.NEO_GIT_GRAPH_ASKPASS_TOKEN);
+    expect(new Set(tokens).size).toBe(2);
+    expect(manager!.getEnv().NEO_GIT_GRAPH_ASKPASS_TOKEN).toBeUndefined();
+  });
+
+  it("answers a prompt for a route that is gone as cancelled, asking nobody", async () => {
+    const { asked, handle } = start(async () => "default");
+    const gone = manager!.route({ input: async () => "routed" });
+    gone.dispose();
+
+    const res = await ask(handle, {
+      request: "Username for 'https://host':",
+      host: "host",
+      token: gone.env.NEO_GIT_GRAPH_ASKPASS_TOKEN
+    });
+
+    expect(res).toEqual({ status: 200, body: JSON.stringify("") });
+    expect(asked).toEqual([]);
   });
 
   it("points git at the helpers in the folder it was given", () => {

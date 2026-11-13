@@ -21,21 +21,40 @@ export interface AskpassEnvironment {
   NEO_GIT_GRAPH_ASKPASS_NODE?: string;
   NEO_GIT_GRAPH_ASKPASS_MAIN?: string;
   NEO_GIT_GRAPH_ASKPASS_HANDLE?: string;
+  /** Which route the prompt goes to; absent for the default one. */
+  NEO_GIT_GRAPH_ASKPASS_TOKEN?: string;
 }
 
 interface AskpassRequest {
   host: string;
   request: string;
+  /** The `NEO_GIT_GRAPH_ASKPASS_TOKEN` git was run with, if any. */
+  token?: string;
+}
+
+/** A way for git's prompts to reach one asker: run git with `env`, and what it
+ *  asks goes to the prompts the route was made for. */
+export interface AskpassRoute {
+  env: AskpassEnvironment;
+  /** Stop asking: a prompt still carrying this route's token is answered as
+   *  cancelled. */
+  dispose(): void;
 }
 
 /** Runs a small IPC server that git's GIT_ASKPASS helper connects to; each
  *  request is put to the user through `Prompts.input` and the entered value is
  *  returned to git. When the server can't start, getEnv falls back to a no-op
- *  helper so git's own prompting is left untouched. */
+ *  helper so git's own prompting is left untouched.
+ *
+ *  One server serves a whole process. Git run with `getEnv()` asks the
+ *  prompts the manager was built with; a Host that asks in more than one place
+ *  — the desktop host, one webview instance each — gives each its own `route`,
+ *  whose env carries a token the helper sends back. */
 export class AskpassManager {
   private readonly ipcHandlePath: string;
   private readonly server: http.Server;
   private enabled = true;
+  private readonly routes = new Map<string, Pick<Prompts, "input">>();
 
   constructor(
     private readonly prompts: Pick<Prompts, "input">,
@@ -69,7 +88,14 @@ export class AskpassManager {
     req.on("data", (d) => (reqData += d));
     req.on("end", () => {
       const data = JSON.parse(reqData) as AskpassRequest;
-      this.prompts
+      const prompts = data.token === undefined ? this.prompts : this.routes.get(data.token);
+      if (prompts === undefined) {
+        // The route that ran this git is gone; nobody is left to ask.
+        res.writeHead(200);
+        res.end(JSON.stringify(""));
+        return;
+      }
+      prompts
         .input({
           placeholder: data.request,
           prompt: "GING: " + data.host,
@@ -86,6 +112,20 @@ export class AskpassManager {
           }
         );
     });
+  }
+
+  /** Git run with the route's env asks `prompts`, not the default. */
+  public route(prompts: Pick<Prompts, "input">): AskpassRoute {
+    const token = getNonce();
+    this.routes.set(token, prompts);
+    const env = this.getEnv();
+    return {
+      // Without a server there is nothing to route: the no-op helper asks nobody.
+      env: this.enabled ? { ...env, NEO_GIT_GRAPH_ASKPASS_TOKEN: token } : env,
+      dispose: () => {
+        this.routes.delete(token);
+      }
+    };
   }
 
   public getEnv(): AskpassEnvironment {
