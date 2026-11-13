@@ -22,6 +22,9 @@ import { openDesktopStorage } from "@ging/desktop/ports/storage";
 import { SECTION } from "@ging/desktop/settings/deriveSchema";
 import { openDesktopSettings } from "@ging/desktop/settings/schema";
 
+/** There is no `git.path` of VS Code's to follow: the git on the PATH. */
+const gitPath = () => "git";
+
 export type SharedHostOptions = {
   /** Electron's `userData`: the settings, the state and the avatars. */
   userDataPath: string;
@@ -74,8 +77,6 @@ export function createSharedHost({
   const extensionState = new ExtensionState(
     openDesktopStorage(userDataPath, { onError: logger.logError })
   );
-  // There is no `git.path` of VS Code's to follow: the git on the PATH.
-  const gitPath = () => "git";
   const repoSource = createDesktopRepoSource(extensionState, { gitPath });
 
   const avatarManager = new AvatarManager(
