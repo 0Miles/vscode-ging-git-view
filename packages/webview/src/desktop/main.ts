@@ -11,4 +11,7 @@ import { startGitGraphView } from "@ging/webview/gitGraphView";
 const DESKTOP_ENTRY_MARKER = "ging-desktop-entry";
 
 document.documentElement.dataset.gingEntry = DESKTOP_ENTRY_MARKER;
-startGitGraphView();
+// The host writes `viewState` only into a page for a repository it opened. A
+// page without one — nothing asked for, or a path that is not a repository
+// (#388) — has no graph to start: built from nothing, it would only throw.
+if (typeof viewState !== "undefined") startGitGraphView();
