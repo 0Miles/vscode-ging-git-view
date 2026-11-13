@@ -14,8 +14,9 @@ import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/seque
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
-import type { SharedServices } from "@ging/desktop/sharedServices";
 import type { GitGraphViewState } from "@ging/shared/types";
+
+import type { SharedServices } from "./sharedServices";
 
 type GraphInstanceOptions = {
   /** The repository it opens on, already checked (`repoToOpen`). */

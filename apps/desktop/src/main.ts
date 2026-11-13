@@ -24,6 +24,9 @@ import { getNonce } from "@ging/core/backend/utils/nonce";
 import { resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
 import type { HostLogger } from "@ging/core/host/ports";
+import { createDesktopClipboard } from "@ging/desktop/ports/clipboard";
+import { createDesktopLogger } from "@ging/desktop/ports/logger";
+import { createInterimPrompts } from "@ging/desktop/ports/prompts";
 import type { RequestMessage } from "@ging/shared/types";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 
@@ -37,9 +40,6 @@ import {
   parseLaunchArgs
 } from "./launchArgs";
 import { buildDesktopPage, type Notice, PAGE_ASSETS, type PageContent } from "./page";
-import { createDesktopClipboard } from "./ports/clipboard";
-import { createDesktopLogger } from "./ports/logger";
-import { createInterimPrompts } from "./ports/prompts";
 import { type RepoToOpen, repoToOpen } from "./repoToOpen";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
 import { type Theme, themeFor } from "./theme";
