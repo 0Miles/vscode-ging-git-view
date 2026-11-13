@@ -6,7 +6,11 @@
 import { applyExternalConfig, readExternalConfig } from "@ging/core/backend/utils/externalConfig";
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { evalPromises } from "@ging/core/backend/utils/promise";
-import { pickBootRepo, REPO_EXISTENCE_CHECKS_AT_ONCE } from "@ging/core/backend/utils/repoPath";
+import {
+  pickBootRepo,
+  REPO_EXISTENCE_CHECKS_AT_ONCE,
+  sortRepos
+} from "@ging/core/backend/utils/repoPath";
 import type { ExtensionState } from "@ging/core/extensionState";
 import type { RepoSource } from "@ging/core/host/ports";
 import type { GitRepoSet, GitRepoState } from "@ging/shared/types";
@@ -20,14 +24,6 @@ export type DesktopRepoSource = RepoSource & {
   onDidChangeRepos(listener: (repos: GitRepoSet) => void): { dispose(): void };
 };
 
-function sorted(repos: GitRepoSet): GitRepoSet {
-  return Object.fromEntries(
-    Object.keys(repos)
-      .toSorted()
-      .map((repo) => [repo, repos[repo]])
-  );
-}
-
 export function createDesktopRepoSource(
   extensionState: Pick<ExtensionState, "getRepos" | "saveRepos" | "getLastActiveRepo">,
   { gitPath }: { gitPath: () => string }
@@ -35,7 +31,7 @@ export function createDesktopRepoSource(
   let repos = extensionState.getRepos();
   const listeners = new Set<(repos: GitRepoSet) => void>();
 
-  const getRepos = () => sorted(repos);
+  const getRepos = () => sortRepos(repos);
   const write = (next: GitRepoSet) => {
     repos = next;
     extensionState.saveRepos(repos);
