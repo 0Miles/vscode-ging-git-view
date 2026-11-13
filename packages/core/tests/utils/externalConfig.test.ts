@@ -1,11 +1,39 @@
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+import { describe, expect, it, onTestFinished } from "vitest";
 
 import {
   applyExternalConfig,
   generateExternalConfig,
   parseExternalConfig,
+  readExternalConfig,
   serializeExternalConfig
 } from "@ging/core/backend/utils/externalConfig";
+
+import { makeTempDir, rmrf } from "@ging/core/tests/helpers";
+
+describe("readExternalConfig", () => {
+  const folder = () => {
+    const dir = makeTempDir("ging-external-config-");
+    onTestFinished(() => rmrf(dir));
+    return dir;
+  };
+
+  it("reads the shared settings committed in a repo", () => {
+    const repo = folder();
+    fs.mkdirSync(path.join(repo, ".vscode"));
+    fs.writeFileSync(
+      path.join(repo, ".vscode", "ging-git-view.json"),
+      '{ "hiddenRemotes": ["upstream"] }'
+    );
+    expect(readExternalConfig(repo)).toEqual({ hiddenRemotes: ["upstream"] });
+  });
+
+  it("answers null for a repo without them", () => {
+    expect(readExternalConfig(folder())).toBeNull();
+  });
+});
 
 describe("generateExternalConfig", () => {
   it("includes only the shareable fields that are set", () => {

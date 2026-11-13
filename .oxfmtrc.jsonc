@@ -10,7 +10,9 @@
     "**/.vscode-test/**",
     "**/node_modules/**",
     "**/*.ctx.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    // Written by a test as JSON.stringify writes it (apps/desktop/tests/settings/schema.test.ts)
+    "apps/desktop/src/settings/schema.generated.json"
   ],
   "trailingComma": "none"
 }

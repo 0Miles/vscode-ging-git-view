@@ -1,0 +1,1423 @@
+{
+  "settings": [
+    {
+      "key": "ging-git-view.detailsPanel.autoScroll",
+      "title": "Details Panel: Auto Scroll",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Automatically center the commit details view when it is opened.",
+        "zh-cn": "打开 commit 详情视图时自动居中显示。",
+        "zh-tw": "開啟 commit 詳情檢視時自動置中顯示。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.detailsPanel.position",
+      "title": "Details Panel: Position",
+      "type": "string",
+      "enum": [
+        "Inline",
+        "Docked to Bottom"
+      ],
+      "default": "Inline",
+      "description": {
+        "en": "Specifies where the Commit Details View is displayed: inline within the graph, or docked to the bottom of the window.",
+        "zh-cn": "指定 commit 详情视图的显示位置：在图形内联显示，或停靠在窗口底部。",
+        "zh-tw": "指定 commit 詳情檢視的顯示位置：在圖形內嵌顯示，或停靠於視窗底部。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.refLabels.alignment",
+      "title": "Ref Labels: Alignment",
+      "type": "string",
+      "enum": [
+        "Normal",
+        "Branches (on the left) & Tags (on the right)",
+        "Branches (aligned to the graph) & Tags (on the right)"
+      ],
+      "default": "Normal",
+      "description": {
+        "en": "Specifies how branch and tag labels are aligned on each commit in the graph.",
+        "zh-cn": "指定图形中每个 commit 的 branch 与 tag 标签的对齐方式。",
+        "zh-tw": "指定圖形中每個 commit 的 branch 與 tag 標籤的對齊方式。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.refLabels.combineLocalAndRemote",
+      "title": "Ref Labels: Combine Local And Remote",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Combine a local branch and its remote-tracking branch into a single label when they point at the same commit.",
+        "zh-cn": "当本地 branch 与其 remote 跟踪 branch 指向同一 commit 时，将两者 merge 为单个标签。",
+        "zh-tw": "當本機 branch 與其 remote 追蹤 branch 指向同一 commit 時，將兩者 merge 為單一標籤。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dialogDefaults.addTagType",
+      "title": "Dialog Defaults: Add Tag Type",
+      "type": "string",
+      "enum": [
+        "annotated",
+        "lightweight"
+      ],
+      "default": "annotated",
+      "description": {
+        "en": "Default tag type selected on the Add Tag dialog (annotated or lightweight).",
+        "zh-cn": "添加 tag 对话框中默认选中的 tag 类型（附注或轻量）。",
+        "zh-tw": "新增 tag 對話框中預設選取的 tag 類型（附註或輕量）。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dialogDefaults.cherryPickNoCommit",
+      "title": "Dialog Defaults: Cherry Pick No Commit",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Default value of the \"No Commit\" checkbox on the Cherry Pick dialog. Default: false",
+        "zh-cn": "Cherry Pick 对话框中“No Commit”复选框的默认值。默认值：false",
+        "zh-tw": "Cherry Pick 對話框中「No Commit」核取方塊的預設值。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dialogDefaults.createBranchCheckOut",
+      "title": "Dialog Defaults: Create Branch Check Out",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Default value of the \"Check out\" checkbox on the Create Branch dialog. Default: false",
+        "zh-cn": "创建 branch 对话框中“ checkout ”复选框的默认值。默认值：false",
+        "zh-tw": "建立 branch 對話框中「checkout」核取方塊的預設值。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dialogDefaults.mergeNoFastForward",
+      "title": "Dialog Defaults: Merge No Fast Forward",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Default value of the \"Create a new commit even if fast-forward is possible\" checkbox on the Merge dialog. Default: true",
+        "zh-cn": "Merge 对话框中“即使可以快进也创建新 commit ”复选框的默认值。默认值：true",
+        "zh-tw": "Merge 對話框中「即使可以快進也建立新 commit」核取方塊的預設值。預設值：true"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dialogDefaults.mergeSquash",
+      "title": "Dialog Defaults: Merge Squash",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Default value of the \"Squash commits\" checkbox on the Merge dialog. Default: false",
+        "zh-cn": "Merge 对话框中“ squash commit ”复选框的默认值。默认值：false",
+        "zh-tw": "Merge 對話框中「squash commit」核取方塊的預設值。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dialogDefaults.mergeSquashMessageFormat",
+      "title": "Dialog Defaults: Merge Squash Message Format",
+      "type": "string",
+      "enum": [
+        "Default",
+        "Git SQUASH_MSG"
+      ],
+      "enumDescriptions": [
+        {
+          "en": "Use the squash commit message generated by GING (e.g. \"Merge branch 'x'\")",
+          "zh-cn": "使用 GING 生成的 squash commit 消息（例如 “Merge branch 'x'”）",
+          "zh-tw": "使用 GING 產生的 squash commit 訊息（例如「Merge branch 'x'」）"
+        },
+        {
+          "en": "Use the detailed squash commit message generated by Git (the list of squashed commits stored in .git/SQUASH_MSG)",
+          "zh-cn": "使用 Git 生成的详细 squash commit 消息（存储在 .git/SQUASH_MSG 的 squash commit 列表）",
+          "zh-tw": "使用 Git 產生的詳細 squash commit 訊息（儲存在 .git/SQUASH_MSG 的 squash commit 清單）"
+        }
+      ],
+      "default": "Default",
+      "description": {
+        "en": "Specifies the message format of the squash commit created when squashing via the Merge dialog.",
+        "zh-cn": "指定通过 merge 对话框 squash commit 时所创建 squash commit 的消息格式。",
+        "zh-tw": "指定透過 merge 對話框 squash commit 時所建立 squash commit 的訊息格式。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dialogDefaults.resetMode",
+      "title": "Dialog Defaults: Reset Mode",
+      "type": "string",
+      "enum": [
+        "soft",
+        "mixed",
+        "hard",
+        "keep"
+      ],
+      "enumDescriptions": [
+        {
+          "en": "Keep all changes, but reset HEAD (git reset --soft)",
+          "zh-cn": "保留所有更改，仅重置 HEAD （git reset --soft）",
+          "zh-tw": "保留所有變更，僅重設 HEAD （git reset --soft）"
+        },
+        {
+          "en": "Keep the working tree, but reset the index (git reset --mixed)",
+          "zh-cn": "保留工作区，重置 HEAD 与索引 （git reset --mixed）",
+          "zh-tw": "保留工作區，重設 HEAD 與索引 （git reset --mixed）"
+        },
+        {
+          "en": "Discard all changes (git reset --hard)",
+          "zh-cn": "丢弃所有更改 （git reset --hard）",
+          "zh-tw": "捨棄所有變更 （git reset --hard）"
+        },
+        {
+          "en": "Move the branch to the commit, keep uncommitted changes; stop if they would be overwritten (git reset --keep)",
+          "zh-cn": "将 branch 移到该 commit，保留 uncommitted 更改；若会覆盖这些更改则中止 （git reset --keep）",
+          "zh-tw": "將 branch 移到該 commit，保留 uncommitted 變更；若會覆蓋這些變更則中止 （git reset --keep）"
+        }
+      ],
+      "default": "mixed",
+      "description": {
+        "en": "Default reset mode selected on the Reset Current Branch to Commit dialog (soft, mixed, hard, or keep).",
+        "zh-cn": "Reset 当前 branch 到 commit 对话框中默认选中的 reset 模式（soft、mixed、hard 或 keep）。",
+        "zh-tw": "Reset 目前 branch 到 commit 對話框中預設選取的 reset 模式（soft、mixed、hard 或 keep）。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dialogDefaults.deleteBranchForce",
+      "title": "Dialog Defaults: Delete Branch Force",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Default value of the \"Force Delete\" checkbox on the Delete Branch dialog. Default: false",
+        "zh-cn": "删除 branch 对话框中“强制删除”复选框的默认值。默认值：false",
+        "zh-tw": "刪除 branch 對話框中「強制刪除」核取方塊的預設值。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.showSignatures",
+      "title": "History: Show Signatures",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Show the signature-verification status (a tick / question mark / cross) of signed commits on the graph view. Verifying signatures is comparatively slow. Default: false",
+        "zh-cn": "在 Git 图形视图中显示已签名 commit 的签名验证状态（勾 / 问号 / 叉）。验证签名相对较慢。默认值：false",
+        "zh-tw": "在 Git 圖形檢視中顯示已簽署 commit 的簽章驗證狀態（勾 / 問號 / 叉）。驗證簽章相對較慢。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.contextMenuActions",
+      "title": "Context Menu Actions",
+      "type": "object",
+      "description": {
+        "en": "Customise which actions are visible on the graph view context menus. Each action defaults to visible; set it to false to hide it.",
+        "zh-cn": "自定义 Git 图形视图右键菜单上各操作的可见性。每个操作默认显示；设为 false 可隐藏。",
+        "zh-tw": "自訂 Git 圖形檢視右鍵選單上各動作的可見性。每個動作預設顯示；設為 false 可隱藏。"
+      },
+      "properties": {
+        "commit": {
+          "type": "object",
+          "properties": {
+            "addTag": {
+              "type": "boolean"
+            },
+            "createBranch": {
+              "type": "boolean"
+            },
+            "checkout": {
+              "type": "boolean"
+            },
+            "cherrypick": {
+              "type": "boolean"
+            },
+            "revert": {
+              "type": "boolean"
+            },
+            "merge": {
+              "type": "boolean"
+            },
+            "reset": {
+              "type": "boolean"
+            },
+            "rebase": {
+              "type": "boolean"
+            },
+            "drop": {
+              "type": "boolean"
+            },
+            "copyHash": {
+              "type": "boolean"
+            },
+            "copySubject": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "branch": {
+          "type": "object",
+          "properties": {
+            "checkout": {
+              "type": "boolean"
+            },
+            "rename": {
+              "type": "boolean"
+            },
+            "push": {
+              "type": "boolean"
+            },
+            "createArchive": {
+              "type": "boolean"
+            },
+            "delete": {
+              "type": "boolean"
+            },
+            "merge": {
+              "type": "boolean"
+            },
+            "rebase": {
+              "type": "boolean"
+            },
+            "checkRedundancy": {
+              "type": "boolean"
+            },
+            "copyName": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "remoteBranch": {
+          "type": "object",
+          "properties": {
+            "checkout": {
+              "type": "boolean"
+            },
+            "merge": {
+              "type": "boolean"
+            },
+            "pull": {
+              "type": "boolean"
+            },
+            "fetch": {
+              "type": "boolean"
+            },
+            "delete": {
+              "type": "boolean"
+            },
+            "checkRedundancy": {
+              "type": "boolean"
+            },
+            "copyName": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "tag": {
+          "type": "object",
+          "properties": {
+            "viewDetails": {
+              "type": "boolean"
+            },
+            "delete": {
+              "type": "boolean"
+            },
+            "push": {
+              "type": "boolean"
+            },
+            "createArchive": {
+              "type": "boolean"
+            },
+            "copyName": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "stash": {
+          "type": "object",
+          "properties": {
+            "apply": {
+              "type": "boolean"
+            },
+            "pop": {
+              "type": "boolean"
+            },
+            "drop": {
+              "type": "boolean"
+            },
+            "copyName": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "uncommittedChanges": {
+          "type": "object",
+          "properties": {
+            "openSourceControlView": {
+              "type": "boolean"
+            },
+            "reset": {
+              "type": "boolean"
+            },
+            "clean": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "commitDetailsViewFile": {
+          "type": "object",
+          "properties": {
+            "viewDiff": {
+              "type": "boolean"
+            },
+            "viewFileAtThisRevision": {
+              "type": "boolean"
+            },
+            "viewDiffWithWorkingFile": {
+              "type": "boolean"
+            },
+            "openFile": {
+              "type": "boolean"
+            },
+            "resetFileToThisRevision": {
+              "type": "boolean"
+            },
+            "copyFilePath": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "default": {},
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.commitOrder",
+      "title": "History: Commit Order",
+      "type": "string",
+      "enum": [
+        "date",
+        "author-date",
+        "topo"
+      ],
+      "enumDescriptions": [
+        {
+          "en": "Show commits in reverse-chronological order by commit date (git log --date-order)",
+          "zh-cn": "按 commit 日期逆时间顺序显示 commit （git log --date-order）",
+          "zh-tw": "依 commit 日期逆時間順序顯示 commit （git log --date-order）"
+        },
+        {
+          "en": "Show commits in reverse-chronological order by author date (git log --author-date-order)",
+          "zh-cn": "按 author 日期逆时间顺序显示 commit （git log --author-date-order）",
+          "zh-tw": "依 author 日期逆時間順序顯示 commit （git log --author-date-order）"
+        },
+        {
+          "en": "Show commits in topological order, avoiding intermixing of parallel branches (git log --topo-order)",
+          "zh-cn": "按拓扑顺序显示 commit，避免并行 branch 交错（git log --topo-order）",
+          "zh-tw": "依拓撲順序顯示 commit，避免平行 branch 交錯（git log --topo-order）"
+        }
+      ],
+      "default": "date",
+      "description": {
+        "en": "Specifies the order in which commits are displayed on the graph view. See git log --help for details on each ordering.",
+        "zh-cn": "指定 Git 图形视图中 commit 的显示顺序。各排序方式的细节请参阅 git log --help。",
+        "zh-tw": "指定 Git 圖形檢視中 commit 的顯示順序。各排序方式的細節請參閱 git log --help。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.customBranchGlobs",
+      "title": "Custom Branch Globs",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": {
+              "en": "The label shown in the Branches dropdown.",
+              "zh-cn": "在 branch 下拉中显示的名称。",
+              "zh-tw": "在 branch 下拉中顯示的名稱。"
+            }
+          },
+          "glob": {
+            "type": "string",
+            "description": {
+              "en": "The glob pattern matched against branch names (e.g. feature/*).",
+              "zh-cn": "用于比对 branch 名称的 glob 模式（例如 feature/*）。",
+              "zh-tw": "用於比對 branch 名稱的 glob 模式（例如 feature/*）。"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "glob"
+        ],
+        "additionalProperties": false
+      },
+      "default": [],
+      "description": {
+        "en": "Custom glob patterns shown as selectable entries in the Branches dropdown; selecting one shows only the branches whose name matches the glob.",
+        "zh-cn": "在 branch 下拉中显示为可选项的自定义 glob 模式；选取后仅显示名称符合该 glob 的 branch。",
+        "zh-tw": "在 branch 下拉中顯示為可選項的自訂 glob 模式；選取後僅顯示名稱符合該 glob 的 branch。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.pullRequests.providers",
+      "title": "Pull Requests: Providers",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": {
+              "en": "The remote's hostname, without scheme or path (e.g. git.example.com).",
+              "zh-cn": "remote 的主机名称，不含 scheme 与路径（例如 git.example.com）。",
+              "zh-tw": "remote 的主機名稱，不含 scheme 與路徑（例如 git.example.com）。"
+            }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "github",
+              "gitlab",
+              "bitbucket",
+              "gitea",
+              "custom"
+            ],
+            "enumDescriptions": [
+              {
+                "en": "GitHub, including GitHub Enterprise",
+                "zh-cn": "GitHub，含 GitHub Enterprise",
+                "zh-tw": "GitHub，含 GitHub Enterprise"
+              },
+              {
+                "en": "GitLab, self-hosted or gitlab.com",
+                "zh-cn": "GitLab，自建或 gitlab.com",
+                "zh-tw": "GitLab，自架或 gitlab.com"
+              },
+              {
+                "en": "Bitbucket Cloud or Server",
+                "zh-cn": "Bitbucket Cloud 或 Server",
+                "zh-tw": "Bitbucket Cloud 或 Server"
+              },
+              {
+                "en": "Gitea or Forgejo (including Codeberg)",
+                "zh-cn": "Gitea 或 Forgejo（含 Codeberg）",
+                "zh-tw": "Gitea 或 Forgejo（含 Codeberg）"
+              },
+              {
+                "en": "A URL template you write yourself",
+                "zh-cn": "自行撰写的 URL 模板",
+                "zh-tw": "自行撰寫的 URL 樣板"
+              }
+            ],
+            "description": {
+              "en": "The forge running on this host. Use \"custom\" to spell the URL out yourself in urlTemplate.",
+              "zh-cn": "此 host 上执行的 forge。选 \"custom\" 则自行在 urlTemplate 写出 URL。",
+              "zh-tw": "此 host 上執行的 forge。選 \"custom\" 則自行在 urlTemplate 寫出 URL。"
+            }
+          },
+          "urlTemplate": {
+            "type": "string",
+            "description": {
+              "en": "Required when type is \"custom\": the URL to open, and it must contain {branch}. Placeholders: {scheme} (http or https, following the remote), {host}, {path} (owner/repo), {owner}, {repo}, {branch}.",
+              "zh-cn": "type 为 \"custom\" 时必填：要打开的 URL，且必须包含 {branch}。可用占位符：{scheme}（http 或 https，跟着 remote 走）、{host}、{path}（owner/repo）、{owner}、{repo}、{branch}。",
+              "zh-tw": "type 為 \"custom\" 時必填：要開啟的 URL，且必須包含 {branch}。可用佔位符：{scheme}（http 或 https，跟著 remote 走）、{host}、{path}（owner/repo）、{owner}、{repo}、{branch}。"
+            }
+          }
+        },
+        "required": [
+          "host",
+          "type"
+        ],
+        "additionalProperties": false
+      },
+      "default": [],
+      "description": {
+        "en": "Maps a git remote's host to the forge serving its pull requests, so \"Create Pull Request\" knows which URL to open. github.com, gitlab.com, bitbucket.org, gitea.com and codeberg.org work without an entry; add one for a self-hosted host. An entry replaces the built-in mapping for the same host. The \"Manage Pull Request Providers...\" command edits this list for you.",
+        "zh-cn": "把 git remote 的 host 对应到提供 pull request 的 forge，“创建 pull request”才知道要开哪个 URL。github.com、gitlab.com、bitbucket.org、gitea.com 与 codeberg.org 不必配置；自建的 host 才需要加一条。同一个 host 的设置会取代内置对应。可用“管理 pull request provider ...”命令代为编辑此列表。",
+        "zh-tw": "把 git remote 的 host 對應到提供 pull request 的 forge，「建立 pull request」才知道要開哪個 URL。github.com、gitlab.com、bitbucket.org、gitea.com 與 codeberg.org 不必設定；自架的 host 才需要加一筆。同一個 host 的設定會取代內建對應。可用「管理 pull request provider ...」指令代為編輯此清單。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.customEmojiShortcodes",
+      "title": "Custom Emoji Shortcodes",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "shortcode": {
+            "type": "string",
+            "description": {
+              "en": "The emoji shortcode, with or without surrounding colons (e.g. :rocket: or rocket).",
+              "zh-cn": "表情短代码，可含或不含前后冒号（例如 :rocket: 或 rocket）。",
+              "zh-tw": "表情短代碼，可含或不含前後冒號（例如 :rocket: 或 rocket）。"
+            }
+          },
+          "emoji": {
+            "type": "string",
+            "description": {
+              "en": "The emoji to display in place of the shortcode (e.g. 🚀).",
+              "zh-cn": "用于替换短代码所显示的表情符号（例如 🚀）。",
+              "zh-tw": "用於替換短代碼所顯示的表情符號（例如 🚀）。"
+            }
+          }
+        },
+        "required": [
+          "shortcode",
+          "emoji"
+        ],
+        "additionalProperties": false
+      },
+      "default": [],
+      "description": {
+        "en": "An array of custom shortcode-to-emoji mappings used to replace emoji shortcodes (e.g. :rocket:) in commit messages. These take precedence over the built-in mappings.",
+        "zh-cn": "自定义表情短代码对应表，用于将 commit 消息中的表情短代码（例如 :rocket:）替换为表情符号。此设置优先于内置对应。",
+        "zh-tw": "自訂表情短代碼對應表，用於將 commit 訊息中的表情短代碼（例如 :rocket:）替換為表情符號。此設定優先於內建對應。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dates.format",
+      "title": "Dates: Format",
+      "type": "string",
+      "enum": [
+        "Date & Time",
+        "Date Only",
+        "Relative",
+        "ISO Date & Time",
+        "ISO Date Only"
+      ],
+      "enumDescriptions": [
+        {
+          "en": "Show the date and time, for example \"19 Mar 2019 21:34\"",
+          "zh-cn": "显示日期和时间，例如 \"2019年3月19日 21:34\"",
+          "zh-tw": "顯示日期和時間，例如 \"2019年3月19日 21:34\""
+        },
+        {
+          "en": "Show the date only, for example \"19 Mar 2019\"",
+          "zh-cn": "仅显示日期，例如 \"2019年3月19日\"",
+          "zh-tw": "僅顯示日期，例如 \"2019年3月19日\""
+        },
+        {
+          "en": "Show relative times, for example \"5 minutes ago\"",
+          "zh-cn": "显示相对时间，例如 \"5 分钟前\"",
+          "zh-tw": "顯示相對時間，例如 \"5 分鐘前\""
+        },
+        {
+          "en": "Show the ISO date and time, for example \"2019-03-19 21:34:00\"",
+          "zh-cn": "显示 ISO 日期和时间，例如 \"2019-03-19 21:34:00\"",
+          "zh-tw": "顯示 ISO 日期和時間，例如 \"2019-03-19 21:34:00\""
+        },
+        {
+          "en": "Show the ISO date only, for example \"2019-03-19\"",
+          "zh-cn": "仅显示 ISO 日期，例如 \"2019-03-19\"",
+          "zh-tw": "僅顯示 ISO 日期，例如 \"2019-03-19\""
+        }
+      ],
+      "default": "Date & Time",
+      "description": {
+        "en": "Specifies the date format to be used in the date column of GING.",
+        "zh-cn": "指定 Git 图形日期列中使用的日期格式。",
+        "zh-tw": "指定 Git 圖形日期欄中使用的日期格式。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dates.customFormat",
+      "title": "Dates: Custom Format",
+      "type": "string",
+      "default": "DD MMM YYYY",
+      "description": {
+        "en": "The date pattern used when [`Dates: Format`](#ging-git-view.dates.format) is set to \"Date & Time\" or \"Date Only\". Tokens: `YYYY` (year), `YY` (2-digit year), `MMM` (English month name, e.g. \"Nov\"), `MM` (2-digit month), `M` (month), `DD` (2-digit day), `D` (day). The time is appended automatically for \"Date & Time\". Default `DD MMM YYYY` renders, for example, \"19 Nov 2026 11:24\".",
+        "zh-cn": "当 [`Dates: Format`](#ging-git-view.dates.format) 设为“Date & Time”或“Date Only”时所使用的日期模板。可用代号：`YYYY`（年）、`YY`（两位数年）、`MMM`（英文月份缩写，例如“Nov”）、`MM`（两位数月份）、`M`（月份）、`DD`（两位数日期）、`D`（日期）。“Date & Time”会自动在后方追加时间。默认值 `DD MMM YYYY` 会显示为例如“19 Nov 2026 11:24”。",
+        "zh-tw": "當 [`Dates: Format`](#ging-git-view.dates.format) 設為「Date & Time」或「Date Only」時所使用的日期樣板。可用代號：`YYYY`（年）、`YY`（兩位數年）、`MMM`（英文月份縮寫，例如「Nov」）、`MM`（兩位數月份）、`M`（月份）、`DD`（兩位數日期）、`D`（日期）。「Date & Time」會自動在後方附加時間。預設值 `DD MMM YYYY` 會顯示為例如「19 Nov 2026 11:24」。"
+      },
+      "descriptionFormat": "markdown"
+    },
+    {
+      "key": "ging-git-view.dates.type",
+      "title": "Dates: Type",
+      "type": "string",
+      "enum": [
+        "Author Date",
+        "Commit Date"
+      ],
+      "enumDescriptions": [
+        {
+          "en": "Use the author date of a commit",
+          "zh-cn": "使用 commit 的 author 日期",
+          "zh-tw": "使用 commit 的 author 日期"
+        },
+        {
+          "en": "Use the committer date of a commit",
+          "zh-cn": "使用 commit 的 committer 日期",
+          "zh-tw": "使用 commit 的 committer 日期"
+        }
+      ],
+      "default": "Author Date",
+      "description": {
+        "en": "Specifies the date type to be displayed throughout GING.",
+        "zh-cn": "指定在 Git 图形中显示的日期类型。",
+        "zh-tw": "指定在 Git 圖形中顯示的日期類型。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.columnVisibility",
+      "title": "Column Visibility",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "boolean"
+        },
+        "author": {
+          "type": "boolean"
+        },
+        "commit": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "default": {
+        "date": true,
+        "author": true,
+        "commit": true
+      },
+      "description": {
+        "en": "The initial visibility of the Date, Author and Commit columns on the graph view; columns can also be toggled by right-clicking a column header. Default: all visible",
+        "zh-cn": "Git 图形视图中日期、 author、 commit 栏的初始可见性；亦可右键点击栏标题切换。默认值：全部显示",
+        "zh-tw": "Git 圖形檢視中日期、 author、 commit 欄的初始可見性；亦可右鍵點擊欄標題切換。預設值：全部顯示"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.accessibilityEnhancements",
+      "title": "Accessibility Enhancements",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Visual file change indicators (A/M/D/R/U) are shown in the Commit Details View so file change types are not conveyed by colour alone. Default: false",
+        "zh-cn": "在 commit 详情视图中显示文件变更类型的文字指示（A/M/D/R/U），使变更类型不仅以颜色表达。默认值：false",
+        "zh-tw": "在 commit 詳情檢視中顯示檔案變更類型的文字指示（A/M/D/R/U），使變更類型不僅以顏色表達。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.autoFetch.enabled",
+      "title": "Auto Fetch: Enabled",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Periodically fetch from all remotes in the background and refresh the graph. With git older than 2.30, auto-fetch defeats the protection of Push's Force with lease. Default: false",
+        "zh-cn": "在后台定期从所有 remote fetch 并刷新图形。git 版本低于 2.30 时，auto-fetch 会让 Push 的“带租约强制（force with lease）”失去保护。默认值：false",
+        "zh-tw": "在背景定期從所有 remote fetch 並重新整理圖形。git 版本低於 2.30 時，auto-fetch 會讓 Push 的「帶租約強制（force with lease）」失去保護。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.autoFetch.intervalMinutes",
+      "title": "Auto Fetch: Interval Minutes",
+      "type": "number",
+      "default": 10,
+      "minimum": 1,
+      "maximum": 60,
+      "description": {
+        "en": "How often auto-fetch runs, in minutes (1–60). Default: 10",
+        "zh-cn": "auto-fetch 执行的间隔（分钟，1–60）。默认值：10",
+        "zh-tw": "auto-fetch 執行的間隔（分鐘，1–60）。預設值：10"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.fetch.prune",
+      "title": "Fetch: Prune",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Prune deleted remote-tracking references when fetching from remote(s) (git fetch --prune). Default: true",
+        "zh-cn": "从 remote fetch 时 prune 已删除的 remote 跟踪引用（git fetch --prune）。默认值：true",
+        "zh-tw": "從 remote fetch 時 prune 已刪除的 remote 追蹤參考（git fetch --prune）。預設值：true"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.fetch.pruneTags",
+      "title": "Fetch: Prune Tags",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Also prune local tags that no longer exist on the remote when fetching with pruning (git fetch --prune --prune-tags). Default: false",
+        "zh-cn": "fetch 并 prune 时，一并 prune remote 已不存在的本地 tag（git fetch --prune --prune-tags）。默认值：false",
+        "zh-tw": "fetch 並 prune 時，一併 prune remote 已不存在的本機 tag（git fetch --prune --prune-tags）。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.fetchAvatars",
+      "title": "History: Fetch Avatars",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Fetch avatars of commit authors and committers. By enabling this setting, you consent to commit author and committer email addresses being sent GitHub, GitLab or Gravatar, depending on the repositories remote origin.",
+        "zh-cn": "Fetch commit 作者和 committer 的头像。启用此设置即表示您同意将 commit 作者和 committer 的电子邮件地址发送到 GitHub、GitLab 或 Gravatar（取决于仓库的 remote 源）。",
+        "zh-tw": "Fetch commit 作者和 committer 的頭像。啟用此設定即表示您同意將 commit 作者和 committer 的電子郵件地址傳送到 GitHub、GitLab 或 Gravatar（取決於存放庫的 remote 來源）。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.gitLabToken",
+      "title": "History: Git Lab Token",
+      "type": "string",
+      "default": "",
+      "description": {
+        "en": "A GitLab [personal access token](https://docs.gitlab.com/user/profile/personal_access_tokens/) with the `read_user` scope, used to look up committer avatars on GitLab-hosted repositories. Leave empty to fall back to Gravatar for GitLab repositories. Only used when [`History: Fetch Avatars`](#ging-git-view.history.fetchAvatars) is enabled.",
+        "zh-cn": "GitLab [个人访问令牌](https://docs.gitlab.com/user/profile/personal_access_tokens/)（需 `read_user` 范围），用于查询 GitLab 仓库上 committer 的头像。留空则 GitLab 仓库改用 Gravatar。仅在启用 [`History: Fetch Avatars`](#ging-git-view.history.fetchAvatars) 时使用。",
+        "zh-tw": "GitLab [個人存取權杖](https://docs.gitlab.com/user/profile/personal_access_tokens/)（需 `read_user` 範圍），用於查詢 GitLab 存放庫上 committer 的頭像。留空則 GitLab 存放庫改用 Gravatar。僅在啟用 [`History: Fetch Avatars`](#ging-git-view.history.fetchAvatars) 時使用。"
+      },
+      "descriptionFormat": "markdown"
+    },
+    {
+      "key": "ging-git-view.detailsPanel.compactFolders",
+      "title": "Details Panel: Compact Folders",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Compact the file tree in the Commit Details View by combining folders that contain a single subfolder into a single row. Default: true",
+        "zh-cn": "在 commit 详情视图中精简文件树：将仅包含单一子文件夹的文件夹 merge 为一行。默认值：true",
+        "zh-tw": "在 commit 詳情檢視中精簡檔案樹：將僅包含單一子資料夾的資料夾 merge 為一列。預設值：true"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.detailsPanel.fileLayout",
+      "title": "Details Panel: File Layout",
+      "type": "string",
+      "enum": [
+        "File Tree",
+        "File List"
+      ],
+      "default": "File Tree",
+      "description": {
+        "en": "How the changed files are displayed in the Commit Details View: \"File Tree\" (nested folders) or \"File List\" (a flat, path-sorted list). Default: File Tree",
+        "zh-cn": "Commit 详情视图中变更文件的显示方式：\"File Tree\"（嵌套文件夹）或 \"File List\"（按路径排序的平面列表）。默认值：File Tree",
+        "zh-tw": "Commit 詳情檢視中變更檔案的顯示方式：\"File Tree\"（巢狀資料夾）或 \"File List\"（按路徑排序的平面清單）。預設值：File Tree"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.graph.palette",
+      "title": "Graph: Palette",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": {
+          "en": "Colour (HEX or RGB)",
+          "zh-cn": "Colour (HEX or RGB)",
+          "zh-tw": "Colour (HEX or RGB)"
+        },
+        "pattern": "^\\s*(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{8}|rgb[a]?\\s*\\(\\d{1,3},\\s*\\d{1,3},\\s*\\d{1,3}\\))\\s*$"
+      },
+      "default": [
+        "#0085d9",
+        "#d9008f",
+        "#00d90a",
+        "#d98500",
+        "#a300d9",
+        "#ff0000",
+        "#00d9cc",
+        "#e138e8",
+        "#85d900",
+        "#dc5b23",
+        "#6f24d6",
+        "#ffcc00"
+      ],
+      "description": {
+        "en": "Specifies the colours used on the graph.",
+        "zh-cn": "指定图形上使用的颜色。",
+        "zh-tw": "指定圖形上使用的顏色。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.graph.edgeStyle",
+      "title": "Graph: Edge Style",
+      "type": "string",
+      "enum": [
+        "rounded",
+        "angular"
+      ],
+      "enumDescriptions": [
+        {
+          "en": "Use smooth curves when transitioning between branches on the graph",
+          "zh-cn": "在图形中的 branch 之间过渡时使用平滑曲线",
+          "zh-tw": "在圖形中的 branch 之間過渡時使用平滑曲線"
+        },
+        {
+          "en": "Use angular lines when transitioning between branches on the graph",
+          "zh-cn": "在图形中的 branch 之间过渡时使用直角线条",
+          "zh-tw": "在圖形中的 branch 之間過渡時使用直角線條"
+        }
+      ],
+      "default": "rounded",
+      "description": {
+        "en": "Specifies the style of the graph.",
+        "zh-cn": "指定图形的样式。",
+        "zh-tw": "指定圖形的樣式。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.includeReflogCommits",
+      "title": "History: Include Reflog Commits",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Include commits that are only mentioned by reflogs (e.g. orphaned by a reset or rebase) on the graph view. Repository Settings can override this per repository. Default: false",
+        "zh-cn": "在 Git 图形视图中包含仅由 reflog 引用的 commit （例如被 reset 或 rebase 弃置的 commit）。可在仓库设置中针对单个仓库覆盖。默认值：false",
+        "zh-tw": "在 Git 圖形檢視中包含僅由 reflog 參考的 commit （例如被 reset 或 rebase 棄置的 commit）。可在存放庫設定中針對個別存放庫覆寫。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.initialCommitCount",
+      "title": "History: Initial Commit Count",
+      "type": "number",
+      "default": 300,
+      "description": {
+        "en": "Specifies the number of commits to initially load.",
+        "zh-cn": "指定初始加载的 commit 数量。",
+        "zh-tw": "指定初始載入的 commit 數量。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.issueLinks.pattern",
+      "title": "Issue Links: Pattern",
+      "type": "string",
+      "default": "",
+      "description": {
+        "en": "A regular expression matching issue numbers in commit messages (e.g. \"#(\\\\d+)\"). Capture groups can be referenced in issueLinkingUrl as $1, $2, etc. Leave empty to disable issue linking.",
+        "zh-cn": "匹配 commit 消息中议题编号的正则表达式（例如 \"#(\\\\d+)\"）。捕获组可在 issueLinkingUrl 中以 $1、$2 等引用。留空以禁用议题链接。",
+        "zh-tw": "比對 commit 訊息中議題編號的正規表示式（例如 \"#(\\\\d+)\"）。 fetch 群組可在 issueLinkingUrl 中以 $1、$2 等參考。留空以停用議題連結。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.issueLinks.url",
+      "title": "Issue Links: Url",
+      "type": "string",
+      "default": "",
+      "description": {
+        "en": "The URL template that issue references link to, with $1, $2, ... substituted from the issueLinkingRegex capture groups (e.g. \"https://github.com/owner/repo/issues/$1\").",
+        "zh-cn": "议题引用所链接到的 URL 模板，其中 $1、$2…由 issueLinkingRegex 的捕获组替换（例如 \"https://github.com/owner/repo/issues/$1\"）。",
+        "zh-tw": "議題參考所連結到的 URL 範本，其中 $1、$2…由 issueLinkingRegex 的 fetch 群組替換（例如 \"https://github.com/owner/repo/issues/$1\"）。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.shortcuts.find",
+      "title": "Shortcuts: Find",
+      "type": "string",
+      "enum": [
+        "UNASSIGNED",
+        "CTRL/CMD + A",
+        "CTRL/CMD + B",
+        "CTRL/CMD + C",
+        "CTRL/CMD + D",
+        "CTRL/CMD + E",
+        "CTRL/CMD + F",
+        "CTRL/CMD + G",
+        "CTRL/CMD + H",
+        "CTRL/CMD + I",
+        "CTRL/CMD + J",
+        "CTRL/CMD + K",
+        "CTRL/CMD + L",
+        "CTRL/CMD + M",
+        "CTRL/CMD + N",
+        "CTRL/CMD + O",
+        "CTRL/CMD + P",
+        "CTRL/CMD + Q",
+        "CTRL/CMD + R",
+        "CTRL/CMD + S",
+        "CTRL/CMD + T",
+        "CTRL/CMD + U",
+        "CTRL/CMD + V",
+        "CTRL/CMD + W",
+        "CTRL/CMD + X",
+        "CTRL/CMD + Y",
+        "CTRL/CMD + Z"
+      ],
+      "default": "CTRL/CMD + F",
+      "description": {
+        "en": "The keybinding for the keyboard shortcut that opens the Find Widget in the graph view. Set to \"UNASSIGNED\" to disable it.",
+        "zh-cn": "在 Git 图形视图中打开查找小工具的快捷键。设为 \"UNASSIGNED\" 可禁用。",
+        "zh-tw": "在 Git 圖形檢視中開啟尋找小工具的快速鍵。設為 \"UNASSIGNED\" 可停用。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.shortcuts.refresh",
+      "title": "Shortcuts: Refresh",
+      "type": "string",
+      "enum": [
+        "UNASSIGNED",
+        "CTRL/CMD + A",
+        "CTRL/CMD + B",
+        "CTRL/CMD + C",
+        "CTRL/CMD + D",
+        "CTRL/CMD + E",
+        "CTRL/CMD + F",
+        "CTRL/CMD + G",
+        "CTRL/CMD + H",
+        "CTRL/CMD + I",
+        "CTRL/CMD + J",
+        "CTRL/CMD + K",
+        "CTRL/CMD + L",
+        "CTRL/CMD + M",
+        "CTRL/CMD + N",
+        "CTRL/CMD + O",
+        "CTRL/CMD + P",
+        "CTRL/CMD + Q",
+        "CTRL/CMD + R",
+        "CTRL/CMD + S",
+        "CTRL/CMD + T",
+        "CTRL/CMD + U",
+        "CTRL/CMD + V",
+        "CTRL/CMD + W",
+        "CTRL/CMD + X",
+        "CTRL/CMD + Y",
+        "CTRL/CMD + Z"
+      ],
+      "default": "CTRL/CMD + R",
+      "description": {
+        "en": "The keybinding for the keyboard shortcut that refreshes the graph view. Set to \"UNASSIGNED\" to disable it.",
+        "zh-cn": "刷新 Git 图形视图的快捷键。设为 \"UNASSIGNED\" 可禁用。",
+        "zh-tw": "重新整理 Git 圖形檢視的快速鍵。設為 \"UNASSIGNED\" 可停用。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.shortcuts.scrollToHead",
+      "title": "Shortcuts: Scroll To Head",
+      "type": "string",
+      "enum": [
+        "UNASSIGNED",
+        "CTRL/CMD + A",
+        "CTRL/CMD + B",
+        "CTRL/CMD + C",
+        "CTRL/CMD + D",
+        "CTRL/CMD + E",
+        "CTRL/CMD + F",
+        "CTRL/CMD + G",
+        "CTRL/CMD + H",
+        "CTRL/CMD + I",
+        "CTRL/CMD + J",
+        "CTRL/CMD + K",
+        "CTRL/CMD + L",
+        "CTRL/CMD + M",
+        "CTRL/CMD + N",
+        "CTRL/CMD + O",
+        "CTRL/CMD + P",
+        "CTRL/CMD + Q",
+        "CTRL/CMD + R",
+        "CTRL/CMD + S",
+        "CTRL/CMD + T",
+        "CTRL/CMD + U",
+        "CTRL/CMD + V",
+        "CTRL/CMD + W",
+        "CTRL/CMD + X",
+        "CTRL/CMD + Y",
+        "CTRL/CMD + Z"
+      ],
+      "default": "CTRL/CMD + H",
+      "description": {
+        "en": "The keybinding for the keyboard shortcut that scrolls the graph view to the commit referenced by HEAD. Set to \"UNASSIGNED\" to disable it.",
+        "zh-cn": "将 Git 图形视图滚动到 HEAD 所引用 commit 的快捷键。设为 \"UNASSIGNED\" 可禁用。",
+        "zh-tw": "將 Git 圖形檢視捲動到 HEAD 所參考 commit 的快速鍵。設為 \"UNASSIGNED\" 可停用。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.shortcuts.scrollToStash",
+      "title": "Shortcuts: Scroll To Stash",
+      "type": "string",
+      "enum": [
+        "UNASSIGNED",
+        "CTRL/CMD + A",
+        "CTRL/CMD + B",
+        "CTRL/CMD + C",
+        "CTRL/CMD + D",
+        "CTRL/CMD + E",
+        "CTRL/CMD + F",
+        "CTRL/CMD + G",
+        "CTRL/CMD + H",
+        "CTRL/CMD + I",
+        "CTRL/CMD + J",
+        "CTRL/CMD + K",
+        "CTRL/CMD + L",
+        "CTRL/CMD + M",
+        "CTRL/CMD + N",
+        "CTRL/CMD + O",
+        "CTRL/CMD + P",
+        "CTRL/CMD + Q",
+        "CTRL/CMD + R",
+        "CTRL/CMD + S",
+        "CTRL/CMD + T",
+        "CTRL/CMD + U",
+        "CTRL/CMD + V",
+        "CTRL/CMD + W",
+        "CTRL/CMD + X",
+        "CTRL/CMD + Y",
+        "CTRL/CMD + Z"
+      ],
+      "default": "CTRL/CMD + S",
+      "description": {
+        "en": "The keybinding for the keyboard shortcut that scrolls the graph view to the next stash (or the previous stash when Shift is held). Set to \"UNASSIGNED\" to disable it.",
+        "zh-cn": "将 Git 图形视图滚动到下一个 stash （按住 Shift 时为上一个 stash）的快捷键。设为 \"UNASSIGNED\" 可禁用。",
+        "zh-tw": "將 Git 圖形檢視捲動到下一個 stash （按住 Shift 時為上一個 stash）的快速鍵。設為 \"UNASSIGNED\" 可停用。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.loadMoreOnScroll",
+      "title": "History: Load More On Scroll",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Automatically load the next page of commits when you scroll to the bottom of the graph view, instead of clicking \"Load More Commits\".",
+        "zh-cn": "滚动到 Git 图形视图底部时自动加载下一页 commit，而非点击“加载更多 commit”。",
+        "zh-tw": "捲動到 Git 圖形檢視底部時自動載入下一頁 commit，而非點擊「載入更多 commit」。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.loadMoreCount",
+      "title": "History: Load More Count",
+      "type": "number",
+      "default": 100,
+      "description": {
+        "en": "Specifies how many commits are added each time more are loaded.",
+        "zh-cn": "指定每次要额外加载的 commit 数量。",
+        "zh-tw": "指定每次要額外載入的 commit 數量。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.renderMarkdown",
+      "title": "Render Markdown",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Render a subset of inline Markdown (bold, italic, inline code, strikethrough) in commit and tag messages. Default: true",
+        "zh-cn": "在 commit 和 tag 消息中渲染部分行内 Markdown（粗体、斜体、行内代码、删除线）。默认值：true",
+        "zh-tw": "在 commit 和 tag 訊息中渲染部分行內 Markdown（粗體、斜體、行內程式碼、刪除線）。預設值：true"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dim.nonAncestorCommits",
+      "title": "Dim: Non Ancestor Commits",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Display commits that are not ancestors of the checked out commit (HEAD) with a muted text colour on the graph view. Default: false (disabled)",
+        "zh-cn": "在 Git 图形视图中以变淡的文字颜色显示并非已 checkout commit （HEAD）祖先的 commit。默认值：false（禁用）",
+        "zh-tw": "在 Git 圖形檢視中以變淡的文字顏色顯示並非已 checkout commit （HEAD）祖先的 commit。預設值：false（停用）"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.dim.mergeCommits",
+      "title": "Dim: Merge Commits",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Display merge commits with a muted text colour on the graph view. Default: true (enabled)",
+        "zh-cn": "在 Git 图形视图中以变淡的文字颜色显示 merge commit。默认值：true（启用）",
+        "zh-tw": "在 Git 圖形檢視中以變淡的文字顏色顯示 merge commit。預設值：true（啟用）"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.onOpen.scrollToHead",
+      "title": "On Open: Scroll To Head",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Automatically scroll the graph view to the commit referenced by HEAD when it is opened. Default: false",
+        "zh-cn": "打开 GING 视图时，自动滚动到 HEAD 所引用的 commit。默认值：false",
+        "zh-tw": "開啟 GING 檢視時，自動捲動到 HEAD 所參考的 commit。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.firstParentOnly",
+      "title": "History: First Parent Only",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Only follow the first parent of commits when discovering the commits to load on the graph view (git log --first-parent). Repository Settings can override this per repository. Default: false",
+        "zh-cn": "在 GING 视图中查找要加载的 commit 时，只跟随 commit 的第一个父 commit （git log --first-parent）。可在仓库设置中针对单个仓库覆盖。默认值：false",
+        "zh-tw": "在 GING 檢視中尋找要載入的 commit 時，只跟隨 commit 的第一個父 commit （git log --first-parent）。可在存放庫設定中針對個別存放庫覆寫。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.refNameSpaceReplacement",
+      "title": "Ref Name Space Replacement",
+      "type": "string",
+      "enum": [
+        "None",
+        "Hyphen",
+        "Underscore"
+      ],
+      "default": "None",
+      "description": {
+        "en": "Automatically substitute spaces typed into branch/tag name inputs (git references can't contain spaces). \"None\" leaves them as-is. Default: None",
+        "zh-cn": "自动替换在 branch / tag 名称输入框中键入的空格（git 引用不能包含空格）。\"None\" 表示保持不变。默认值：None",
+        "zh-tw": "自動替換在 branch / tag 名稱輸入框中鍵入的空格（git 參考不能包含空格）。\"None\" 表示保持不變。預設值：None"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.show.tagOnlyCommits",
+      "title": "Show: Tag Only Commits",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Show commits that are solely referenced by tags (i.e. not reachable from any branch) when all branches are shown. Repository Settings can override this per repository. Default: true",
+        "zh-cn": "显示所有 branch 时，包含仅由 tag 引用（即无法从任何 branch 到达）的 commit。可在仓库设置中针对单个仓库覆盖。默认值：true",
+        "zh-tw": "顯示所有 branch 時，包含僅由 tag 參考（即無法從任何 branch 到達）的 commit。可在存放庫設定中針對個別存放庫覆寫。預設值：true"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.onOpen.selectCheckedOutBranch",
+      "title": "On Open: Select Checked Out Branch",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Show the current branch by default when GING is opened. Default: false (show all branches)",
+        "zh-cn": "打开 Git 图形时默认显示当前 branch。默认值：false（显示所有 branch）",
+        "zh-tw": "開啟 Git 圖形時預設顯示目前 branch。預設值：false（顯示所有 branch）"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.signing.commits",
+      "title": "Signing: Commits",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Sign commits created by graph view actions (merge, cherry pick, revert, rebase, squash). An alternative to git's commit.gpgSign config. Default: false",
+        "zh-cn": "签署由 Git 图形视图操作（merge、 cherry pick、 revert、 rebase、 squash）创建的 commit。可替代 git 的 commit.gpgSign 设置。默认值：false",
+        "zh-tw": "簽署由 Git 圖形檢視動作（merge、 cherry pick、 revert、 rebase、 squash）建立的 commit。可替代 git 的 commit.gpgSign 設定。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.signing.tags",
+      "title": "Signing: Tags",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Sign annotated tags created by graph view actions. An alternative to git's tag.gpgSign config. Default: false",
+        "zh-cn": "签署由 Git 图形视图操作创建的注释 tag。可替代 git 的 tag.gpgSign 设置。默认值：false",
+        "zh-tw": "簽署由 Git 圖形檢視動作建立的註解 tag。可替代 git 的 tag.gpgSign 設定。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.show.remoteBranches",
+      "title": "Show: Remote Branches",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Show remote branches by default when the graph view is opened. Default: true",
+        "zh-cn": "打开 Git 图形视图时默认显示 remote branch。默认值：true",
+        "zh-tw": "開啟 Git 圖形檢視時預設顯示 remote branch。預設值：true"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.branches.inactiveAfterDays",
+      "title": "Branches: Inactive After Days",
+      "type": "number",
+      "default": 30,
+      "minimum": 0,
+      "description": {
+        "en": "In the Branches view, classify a branch as inactive when its last commit is older than this many days, hiding it until the inactive toggle is on. Set to 0 to disable. Default: 30",
+        "zh-cn": "在分支视图中，当分支的最后一次提交超过此天数时将其归类为不活跃并隐藏，直到开启不活跃切换按钮。设为 0 可禁用此功能。默认值：30",
+        "zh-tw": "在分支檢視中，當 branch 的最後一次 commit 超過此天數時將其歸類為不活躍並隱藏，直到開啟不活躍切換按鈕。設為 0 可停用此功能。預設值：30"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.branches.alwaysShow",
+      "title": "Branches: Always Show",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "main",
+        "master",
+        "develop",
+        "dev",
+        "trunk"
+      ],
+      "description": {
+        "en": "In the Branches view, branch names (or glob patterns, e.g. release/*) that are never hidden — by neither the inactive nor the merged rule. The checked-out and currently selected branches are always shown regardless. Default: main, master, develop, dev, trunk",
+        "zh-cn": "在分支视图中，永远不会被隐藏的分支名称（或 glob 模式，例如 release/*）——不活跃与已合并两种规则都不会藏它们。当前检出与当前选取的分支无论如何都会显示。默认值：main、master、develop、dev、trunk",
+        "zh-tw": "在分支檢視中，永遠不會被隱藏的 branch 名稱（或 glob 樣式，例如 release/*）——不活躍與已合併兩種規則都不會藏它們。目前 checked-out 與目前選取的 branch 無論如何都會顯示。預設值：main、master、develop、dev、trunk"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.branches.showInactiveByDefault",
+      "title": "Branches: Show Inactive By Default",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "In the Branches view, show inactive branches by default (the per-repo toggle overrides this). Default: false",
+        "zh-cn": "在分支视图中默认显示不活跃的分支（各仓库的切换设置会覆盖此值）。默认值：false",
+        "zh-tw": "在分支檢視中預設顯示不活躍的 branch（個別存放庫的切換設定會覆寫此值）。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.branches.showMergedByDefault",
+      "title": "Branches: Show Merged By Default",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "In the Branches view, show branches already merged into the default branch by default (the per-repo toggle overrides this). Ancestry only — squash and rebase merges are not detected. Default: false",
+        "zh-cn": "在分支视图中默认显示已合并进默认分支的分支（各仓库的切换设置会覆盖此值）。只看 ancestry，squash 与 rebase 合并不会被检测到。默认值：false",
+        "zh-tw": "在分支檢視中預設顯示已合併進預設分支的 branch（個別存放庫的切換設定會覆寫此值）。只看 ancestry，squash 與 rebase 合併不會被偵測到。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.show.remoteHeads",
+      "title": "Show: Remote Heads",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Show remote HEAD symbolic references (e.g. origin/HEAD) on the graph view. Repository Settings can override this per repository. Default: true",
+        "zh-cn": "在 Git 图形视图中显示 remote HEAD 符号引用（例如 origin/HEAD）。可在仓库设置中针对单个仓库覆盖。默认值：true",
+        "zh-tw": "在 Git 圖形檢視中顯示 remote HEAD 符號參考（例如 origin/HEAD）。可在存放庫設定中針對個別存放庫覆寫。預設值：true"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.show.stashes",
+      "title": "Show: Stashes",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Show stashes on the graph view (as nodes branching off the commit they were created on). Repository Settings can override this per repository. Default: true",
+        "zh-cn": "在 Git 图形视图中显示 stash （作为从其创建 commit 分出的节点）。可在仓库设置中针对单个仓库覆盖。默认值：true",
+        "zh-tw": "在 Git 圖形檢視中顯示 stash （作為從其建立 commit 分出的節點）。可在存放庫設定中針對個別存放庫覆寫。預設值：true"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.show.tags",
+      "title": "Show: Tags",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Show tags on the graph view. Default: true (enabled)",
+        "zh-cn": "在 Git 图形视图中显示 tag。默认值：true（启用）",
+        "zh-tw": "在 Git 圖形檢視中顯示 tag。預設值：true（啟用）"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.show.uncommittedChanges",
+      "title": "Show: Uncommitted Changes",
+      "type": "boolean",
+      "default": true,
+      "description": {
+        "en": "Show uncommitted changes (set to false to decrease load time on large repositories).",
+        "zh-cn": "显示 uncommitted 的更改（在大型仓库上设置为 false 以减少加载时间）。",
+        "zh-tw": "顯示 uncommitted 的變更（在大型存放庫上設定為 false 以減少載入時間）。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.history.useMailmap",
+      "title": "History: Use Mailmap",
+      "type": "boolean",
+      "default": false,
+      "description": {
+        "en": "Use .mailmap files when displaying author and committer names and email addresses. Default: false",
+        "zh-cn": "显示 author 和 committer 的名称及电子邮件地址时使用 .mailmap 文件。默认值：false",
+        "zh-tw": "顯示 author 和 committer 的名稱及電子郵件地址時使用 .mailmap 檔案。預設值：false"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.defaultFileEncoding",
+      "title": "Default File Encoding",
+      "type": "string",
+      "default": "utf8",
+      "description": {
+        "en": "The encoding used to decode file contents shown in the Diff View and when viewing a file at a revision (any encoding supported by iconv-lite). Default: utf8",
+        "zh-cn": "解码 diff 视图及查看某修订版本文件内容时所用的编码（支持 iconv-lite 的任意编码）。默认值：utf8",
+        "zh-tw": "解碼 diff 檢視及檢視某修訂版本檔案內容時所用的編碼（支援 iconv-lite 的任意編碼）。預設值：utf8"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.onOpen.branchSelection",
+      "title": "On Open: Branch Selection",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": {
+        "en": "Branch names initially shown in the graph when a repository is first opened (combined with the checked-out branch when that option is enabled). Empty shows all branches.",
+        "zh-cn": "首次打开仓库时图形中初始显示的 branch 名称（启用相应选项时会与 checkout branch merge）。为空则显示所有 branch。",
+        "zh-tw": "首次開啟存放庫時圖形中初始顯示的 branch 名稱（啟用相應選項時會與 checkout branch merge）。為空則顯示所有 branch。"
+      },
+      "descriptionFormat": "plain"
+    },
+    {
+      "key": "ging-git-view.graph.uncommittedMarker",
+      "title": "Graph: Uncommitted Marker",
+      "type": "string",
+      "enum": [
+        "Open Circle at the Uncommitted Changes",
+        "Open Circle at the Checked Out Commit"
+      ],
+      "default": "Open Circle at the Uncommitted Changes",
+      "description": {
+        "en": "Where to draw the open circle for the Uncommitted Changes on the graph.",
+        "zh-cn": "在图形上 uncommitted 更改的空心圆圈的绘制位置。",
+        "zh-tw": "在圖形上 uncommitted 變更的空心圓圈的繪製位置。"
+      },
+      "descriptionFormat": "plain"
+    }
+  ]
+}

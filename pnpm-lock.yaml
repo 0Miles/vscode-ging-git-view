@@ -47,6 +47,12 @@ importers:
 
   apps/desktop:
     devDependencies:
+      '@ging/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@ging/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@ging/webview':
         specifier: workspace:*
         version: link:../../packages/webview

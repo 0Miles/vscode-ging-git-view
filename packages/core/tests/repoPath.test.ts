@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   isUsableRepoPath,
   pickBootRepo,
-  resolveCurrentRepo
+  resolveCurrentRepo,
+  sortRepos
 } from "@ging/core/backend/utils/repoPath";
 
 import { makeRepo, rmrf } from "@ging/core/tests/helpers";
@@ -108,5 +109,20 @@ describe("pickBootRepo", () => {
 
   it("resolves nothing when there are no known repositories at all", () => {
     expect(pickBootRepo(null, [], () => true)).toBeNull();
+  });
+});
+
+describe("sortRepos", () => {
+  it("puts the repositories in path order, each with its state", () => {
+    const sorted = sortRepos({
+      "/z": { columnWidths: null },
+      "/a": { columnWidths: [1] },
+      "/m": { columnWidths: null }
+    });
+    expect(Object.entries(sorted)).toEqual([
+      ["/a", { columnWidths: [1] }],
+      ["/m", { columnWidths: null }],
+      ["/z", { columnWidths: null }]
+    ]);
   });
 });
