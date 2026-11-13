@@ -157,7 +157,9 @@ the original `Git Graph` project, `(neo) Git Graph`, or Microsoft.
 MIT — see [LICENSE](LICENSE).
 
 The webview's icon artwork is derived from [GitHub Octicons](https://github.com/primer/octicons)
-(MIT, © GitHub Inc.). Its notice is reproduced under "Third-party notices" in
+(MIT, © GitHub Inc.). The desktop app's theme colours are taken from
+[Visual Studio Code](https://github.com/microsoft/vscode) (MIT, © Microsoft
+Corporation). Both notices are reproduced under "Third-party notices" in
 [LICENSE](LICENSE).
 
 ---

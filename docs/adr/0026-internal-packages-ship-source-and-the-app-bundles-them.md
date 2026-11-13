@@ -29,3 +29,23 @@ status: accepted
 
 - **core 需要宿主的能力時,透過 ADR-0027 的 host ports 拿**,不是 import `vscode`。
 - **`apps/desktop` 出現時,要回頭看兩件事**:release-please 是否要 `exclude-paths`,以及哪些根目錄的檔案桌面版也要複製一份。
+
+## 補記(2026-11-13,#386)
+
+`apps/desktop` 出現了,上面「後果」要回頭看的兩件事在這裡定案。
+
+**release-please 的 `.` 加上 `"exclude-paths": ["apps/desktop"]`。** component 仍是 `.`,理由同上;不處理的話,`apps/desktop` 底下的 `feat:` / `fix:` 會讓擴充升版,也會寫進擴充的 CHANGELOG,而那些變更一行都不在 `.vsix` 裡。
+
+`exclude-paths` 的判準是**整個 commit**:一個 commit 改到的檔案**全部**在 `apps/desktop/` 底下,它才被略過;只要有一個檔案在外面,它就照常算進擴充。這是 release-please 的 `CommitExclude.shouldInclude`(`src/util/commit-exclude.ts`,release-please 15.10.0 起;`release-please-action@v5` 用的是 `^17.6.1`)的行為,而且過濾發生在 `Manifest.buildPullRequests()` 把 commit 交給 strategy 之前,所以版號與 CHANGELOG 看到的是同一份過濾後的清單。實際跑一次 dry-run 要 GitHub token,所以佐證用的是本機可重現的推導:把那段判準(`.` 的 package 底下,一個 commit 的檔案是否**全部**以 `apps/desktop/` 開頭)套在 `git log --no-merges --name-only` 上。#386 的分支上,只改 `apps/desktop/` 的 `feat(desktop):` 被略過,其餘 commit 照算;拿掉 `exclude-paths` 重跑,同一個 commit 就會讓擴充升版。推導的腳本與輸出附在 #386 的 PR 說明。
+
+**前提是 PR 以 merge commit 合併。** release-please 看的是 main 上的 commit,判準看的是每個 commit 自己的檔案。squash 合併會把整個 PR 的檔案收進同一個 commit:只要 PR 裡有一個檔案在 `apps/desktop/` 外面,整包連同 `feat(desktop):` 的標題都算進擴充。rebase 合併保留了各個 commit,但改寫過的 commit 是否保住原本的切分,要看 rebase 時有沒有被合併或重排,所以同樣不保證。這個 repo 目前用 merge commit(`Merge pull request #…`);合併方式一改,這套慣例就得重新檢查。
+
+由此而來的慣例:
+
+- **桌面版的功能 commit 只改 `apps/desktop/`。** 同時動到 lockfile、根目錄的 `package.json`、`.oxlintrc.json`、CI 這類共用檔案的部分,拆成另一個不升版的 commit(`build:`、`ci:`、`chore:`)。混在一起的 `feat(desktop):` 會讓擴充升一個 minor,CHANGELOG 也會多一行跟擴充無關的條目。
+- **`packages/*` 的變更一律算進擴充**,即使呼叫端只有桌面版:它們被打進擴充的 bundle,出貨的就是改過的程式碼。這正是 component 維持 `.` 的理由,`exclude-paths` 不改變它。
+- **`pnpm-lock.yaml` 不排除。** 它也記著擴充的依賴,一個只改 lockfile 的 `fix(deps):` 可能就是擴充 bundle 裡的修正。所以桌面版加依賴的 commit 用 `build(deps):`。
+
+**沒有改的**:桌面版自己的版號與發佈。`apps/desktop` 的 `version` 是 `0.0.0`、`private`,不是 release-please 的 package;它的 release pipeline 在階段 E。屆時若要讓 release-please 管桌面版,再把它加成第二個 package,並重新檢查這裡的 `exclude-paths` 與根目錄 package 的關係。
+
+**根目錄要複製給桌面版的檔案**(本 ADR「後果」的第二件事):目前沒有。桌面版還不打包,README、CHANGELOG、LICENSE、icon 要不要、怎麼放進安裝包,由階段 E 的打包決定。

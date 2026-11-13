@@ -85,3 +85,11 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **`fetchAvatars()` 只是設定本身。** view state 的 `fetchAvatars` 還要有地方放頭像(`ExtensionState.isAvatarStorageAvailable`),這條在 core 算。
 
 同一張票把 `branchFilterStore` 搬進 core([branchFilterStore.ts](../../packages/core/src/extension/branchFilterStore.ts))。它不是 port:是 core 的服務,側檢視與 dispatch 共用同一個實例,宿主只負責建立它。它唯一的 VS Code 依賴是 `vscode.EventEmitter`,現在自己通知 listener,語意照 VS Code 的 emitter,寫在它的註解裡。
+
+## 補記(2026-11-13,#386)
+
+**「app 不得直接跑 core 的 git 操作」這條 lint 規則擴及 `apps/desktop/src/**`,但上面的白名單只屬於 `apps/vscode`。\*\*
+
+`apps/desktop` 是第二個宿主,它的 main process 一樣只該註冊命令、實作 port,git 流程留在 core 的命令服務。所以 `.oxlintrc.json` 對 `apps/desktop/src/**` 設了同樣的 `no-restricted-imports`,從第一行就適用。
+
+兩個 app 各自一條 override,不共用一條:`apps/vscode` 那條的 pattern 放行 `queries/commitFileContent`,理由是 VS Code 的 `DiffDocProvider` 要依 workspace folder scope 解析 `fileEncoding`,這是 VS Code 才有的需要。桌面版沒有這個呼叫端,不繼承這個豁免。哪天桌面版真的要讀某個版本的檔案(#405),再照它自己的理由決定是在 core 開命令服務,還是在它那條 override 加白名單。`blameController` 那幾行逐行關掉規則的 import 也只在 `apps/vscode`。

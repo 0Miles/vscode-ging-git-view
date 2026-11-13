@@ -43,3 +43,10 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **`gitGraphView.ts` 必須維持「import 不碰頁面」。** 新的全域 listener 或任何讀 `viewState`、`l10n`、DOM 的模組層級初始化,一律放進 `startGitGraphView()`。
 - **桌面入口今天沒有自己的 listener,也沒有 `HostPromptMessage` 型別。** 它們由 #390 帶著第一個呼叫端加進 `desktop/`。屆時要讓 `HostPromptMessage` 的 command 名稱與 `ResponseMessage` 的不重疊成為型別檢查(例如兩者 `command` 的交集必須是 `never`):共用一個 `message` 事件,command 撞名時圖形的 dispatch 會把桌面的訊息當成自己的。
 - **docked Commit Details View 與 `#scrollShadow` 今天橫跨整個視窗寬度(`left: 0; right: 0` / `width: 100%`)。** 側檢視或 working tree 的直欄一出現,它們會疊到直欄上。兩張票各管自己那一側:#399 把它們的左緣讓出側檢視的寬度,#403 把右緣讓出 working tree 的寬度,誰先合併都只動自己那一邊,而且改的是桌面樣式表,不是 `main.css`。
+
+## 補記(2026-11-13,#386)
+
+**桌面入口的頁面從 `ging://app/` 提供,不用 `file://` 或 data URL。** `apps/desktop` 的 main process 把 `ging` 註冊成 standard、secure 的 scheme,`ging://app/` 回答它當場組好的頁面(主題寫在 `<html>` 與 `<body>` 上),其餘路徑只放行打包產物裡的頁面資產(`out/web.js`、它的 source map、`out/main.css`),其他一律 404。
+
+- **要一個真正的 origin。** data URL 的 origin 是 opaque,`localStorage` 這類 storage 用不了,而 #291 打算讓桌面版的 `setState` 落在那裡;`file://` 的 origin 也不屬於這個 app,是所有本機檔案共用的。自訂的 standard scheme 讓頁面有自己的 `ging://app` origin,CSP 也能照 VS Code 那份的意思寫成 `'self'`,不必列出路徑。
+- **main process 決定哪些檔案拿得到。** `file://` 會讓頁面能讀整個檔案系統上它猜得到路徑的東西;這裡只有白名單上的幾個檔名,路徑由 main process 自己接到 `out/`。白名單由 `page.ts` 的 `PAGE_ASSETS` 推導,頁面要多載一個檔案,就在那裡加。

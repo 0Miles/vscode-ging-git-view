@@ -23,9 +23,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 20.19.39
-      electron:
-        specifier: ^45.3.1
-        version: 45.3.1
       esbuild:
         specifier: 'catalog:'
         version: 0.28.0
@@ -47,6 +44,21 @@ importers:
       vitest:
         specifier: ^4.1.4
         version: 4.1.4(@types/node@20.19.39)(jsdom@29.0.2)(vite@8.0.8(@types/node@20.19.39)(esbuild@0.28.0))
+
+  apps/desktop:
+    devDependencies:
+      '@ging/webview':
+        specifier: workspace:*
+        version: link:../../packages/webview
+      '@types/node':
+        specifier: 'catalog:'
+        version: 20.19.39
+      electron:
+        specifier: ^45.3.1
+        version: 45.3.1
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.0
 
   apps/vscode:
     dependencies:
