@@ -70,3 +70,20 @@ jobs:
       # AppArmor setting that restricts unprivileged user namespaces.
       - run: sysctl kernel.apparmor_restrict_unprivileged_userns || true
       - run: xvfb-run -a pnpm run test:e2e:desktop
+
+  # The webview harness in Playwright's Chromium, once per webview entry
+  # (e2e/webview). The VS Code entry's page loads the compiled bundle, so
+  # compile runs first; headless Chromium needs no display.
+  webview-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run compile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run test:e2e:webview
