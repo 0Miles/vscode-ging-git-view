@@ -43,6 +43,10 @@ export function resolveCurrentRepo(
   return isUsable(persisted) ? persisted : null;
 }
 
+/** How many known repositories a host's `RepoSource.checkReposExist` asks git
+ *  about at once. */
+export const REPO_EXISTENCE_CHECKS_AT_ONCE = 3;
+
 /**
  * Which repo the graph should boot on: the Current repository when it resolved
  * *and* is still one of the known ones, otherwise the first known repository

@@ -12,14 +12,10 @@ import {
 } from "@ging/core/backend/utils/externalConfig";
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { evalPromises } from "@ging/core/backend/utils/promise";
-import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
+import { pickBootRepo, REPO_EXISTENCE_CHECKS_AT_ONCE } from "@ging/core/backend/utils/repoPath";
 import type { ExtensionState } from "@ging/core/extensionState";
 import type { RepoSource } from "@ging/core/host/ports";
 import type { GitRepoSet, GitRepoState } from "@ging/shared/types";
-
-/** How many repositories `checkReposExist` asks git about at once, as the
- *  VS Code host does. */
-const EXISTENCE_CHECKS_AT_ONCE = 3;
 
 export type DesktopRepoSource = RepoSource & {
   /** Know `repo` from now on — the user opened it — and broadcast the set. A
@@ -71,7 +67,7 @@ export function createDesktopRepoSource(
     getBootRepo: () => pickBootRepo(extensionState.getLastActiveRepo(), Object.keys(getRepos())),
     checkReposExist: async () => {
       const known = Object.keys(repos);
-      const isRepo = await evalPromises(known, EXISTENCE_CHECKS_AT_ONCE, (repo) =>
+      const isRepo = await evalPromises(known, REPO_EXISTENCE_CHECKS_AT_ONCE, (repo) =>
         isGitRepository(repo, gitPath())
       );
       const gone = known.filter((_, i) => !isRepo[i]);

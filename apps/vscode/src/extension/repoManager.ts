@@ -11,7 +11,7 @@ import {
 } from "@ging/core/backend/utils/externalConfig";
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { evalPromises } from "@ging/core/backend/utils/promise";
-import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
+import { pickBootRepo, REPO_EXISTENCE_CHECKS_AT_ONCE } from "@ging/core/backend/utils/repoPath";
 import { ExtensionState } from "@ging/core/extensionState";
 import { GitRepoSet, GitRepoState } from "@ging/shared/types";
 import { getPathFromUri } from "@ging/vscode/backend/utils/uri";
@@ -181,18 +181,18 @@ export function createRepoManager(
     return new Promise<boolean>((resolve) => {
       const repoPaths = Object.keys(repos);
       let changes = false;
-      evalPromises(repoPaths, 3, (path) => isGitRepository(path, config.gitPath())).then(
-        (results) => {
-          for (let i = 0; i < repoPaths.length; i++) {
-            if (!results[i]) {
-              removeRepo(repoPaths[i]);
-              changes = true;
-            }
+      evalPromises(repoPaths, REPO_EXISTENCE_CHECKS_AT_ONCE, (path) =>
+        isGitRepository(path, config.gitPath())
+      ).then((results) => {
+        for (let i = 0; i < repoPaths.length; i++) {
+          if (!results[i]) {
+            removeRepo(repoPaths[i]);
+            changes = true;
           }
-          if (changes) sendRepos();
-          resolve(changes);
         }
-      );
+        if (changes) sendRepos();
+        resolve(changes);
+      });
     });
   }
 
