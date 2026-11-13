@@ -41,7 +41,8 @@ export function createDesktopWatcher(
 ): DesktopWatcher {
   let fsWatcher: fs.FSWatcher | null = null;
   let pending: NodeJS.Timeout | null = null;
-  let muted = false;
+  /** Changes are ignored until then: forever while muted, and for the grace
+   *  after `unmute`. */
   let resumeAt = 0;
 
   const cancelPending = () => {
@@ -58,7 +59,7 @@ export function createDesktopWatcher(
   /** `file` is relative to the repository, in the platform's spelling; Node
    *  leaves it out when the platform does not say. */
   const changed = (file: string | null) => {
-    if (muted || Date.now() < resumeAt) return;
+    if (Date.now() < resumeAt) return;
     if (file !== null && !isWatchedRepoPath(file.replace(/\\/g, "/"))) return;
     cancelPending();
     pending = setTimeout(() => {
@@ -82,13 +83,12 @@ export function createDesktopWatcher(
       }
     },
     mute() {
-      muted = true;
+      resumeAt = Infinity;
       // A refresh still waiting would land in the middle of GING's own
       // command; the refresh that follows the command covers its change too.
       cancelPending();
     },
     unmute() {
-      muted = false;
       resumeAt = Date.now() + resumeGraceMs;
     },
     stop
