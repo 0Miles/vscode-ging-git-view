@@ -342,7 +342,5 @@ if (!isHarnessEntry(entry)) {
   process.exit(1);
 }
 process.stdout.write(
-  "Wrote " +
-    buildWebviewHarness(entry) +
-    " — serve it (python3 -m http.server) and open in a browser.\n"
+  "Wrote " + buildWebviewHarness(entry) + " — open it in a browser, as a file or served.\n"
 );
