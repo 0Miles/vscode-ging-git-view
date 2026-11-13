@@ -98,7 +98,7 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 
 **port 的契約有了可執行的版本:`Storage`、`Clipboard`、`Watcher`、`RepoSource` 各一份契約測試,放在 [packages/core/tests/contracts/](../../packages/core/tests/contracts/),同一份同時對 `fakeHost` 與桌面版的實作跑(ADR-0032 的第一層)。**
 
-「後果」第二條說 port 的註解就是契約。註解寫得出來,但寫不出「這份實作有沒有照著做」,所以這四個 port 的契約改寫成測試:每份是一個 `describe…Contract(name, make)`,`make` 交出受測的實作,以及測試從 port 外面觀察它所需的東西(剪貼簿現在放著什麼、圖形被重新整理了幾次、廣播了哪些集合)。core 在 [fakeHost.contract.test.ts](../../packages/core/tests/fakeHost.contract.test.ts) 對 `fakeHost` 跑,桌面版在 `apps/desktop/tests/ports/` 對自己的實作跑。所以 core 除了 ADR-0026 列的 `./tests/helpers`,還匯出 `./tests/contracts/*`,一樣只給測試用。
+「後果」第二條說 port 的註解就是契約。註解寫得出來,但寫不出「這份實作有沒有照著做」,所以這四個 port 的契約改寫成測試:每份是一個 `describe…Contract(name, make)`,`make` 交出受測的實作,以及測試從 port 外面觀察它所需的東西(剪貼簿現在放著什麼、圖形被重新整理了幾次、廣播了哪些集合)。core 在 [fakeHost.contract.test.ts](../../packages/core/tests/fakeHost.contract.test.ts) 對 `fakeHost` 跑,桌面版在 `apps/desktop/tests/ports/` 對自己的實作跑。所以 core 給測試用的匯出從 ADR-0026 列的 `./tests/helpers` 一條,放寬成 `./tests/*`,`./tests/helpers` 與 `./tests/contracts/*` 都經由它取得,一樣只給測試用。
 
 - **`fakeHost` 因此從「只記錄」改成「照契約行為」。** 之前它的 `RepoSource` 永遠回答同一個集合、`Watcher` 只記下被呼叫過,dispatch 的測試看不出 fake 跟真的宿主行為不一樣。現在剪貼簿會留著寫進去的字,`Watcher` 在 mute 之外會為外部變更重新整理,`RepoSource` 真的保存與廣播集合;`calls` 的紀錄不變。`answers.reposChanged` 換成 `answers.goneRepos`(`checkReposExist` 會發現已經不存在的那些)。`HostStorage` 原本沒有 fake,新增了 `fakeStorage`。
 - **契約只寫 port 註解說得出口的事。** 例如 `Watcher` 不測防彈跳的時間、`RepoSource` 不測「丟掉一個不認識的存放庫」會不會廣播:那些是各宿主自己的選擇,寫進契約就等於替 port 加了註解沒有的承諾。各實作自己的行為留在各自的測試裡。
