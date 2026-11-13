@@ -95,13 +95,17 @@ editor and diff viewer.
 
 monaco-editor incorporates third-party components. Their notices are in the
 ThirdPartyNotices.txt that ships in the package: the Node.js path library
-(MIT), marked (MIT), TypeScript (Apache-2.0), the HTML 5.1 W3C Working Draft
-(W3C document licence), JS Beautifier (MIT), Ionic documentation (Apache-2.0)
-and vscode-swift (MIT). It also vendors DOMPurify (Apache-2.0 or MPL-2.0),
-which that file does not list; its licence banner is kept at the top of
-esm/vs/base/browser/dompurify/dompurify.js in the package.
+(MIT), marked (MIT), TypeScript (Apache-2.0, with its own notices for
+DefinitelyTyped (MIT), Unicode data (Unicode License), the W3C DOM (W3C
+Software License), the WHATWG DOM (CC-BY-4.0), Web Background Synchronization
+(W3C Community Final Specification Agreement) and WebGL (Khronos, MIT-style)),
+the HTML 5.1 W3C Working Draft (W3C document licence), JS Beautifier (MIT),
+Ionic documentation (Apache-2.0) and vscode-swift (MIT). It also bundles a
+copy of DOMPurify (Apache-2.0 or MPL-2.0), which that file does not list; its
+licence banner is kept at the top of esm/vs/base/browser/dompurify/dompurify.js
+in the package.
 
-MIT License
+The MIT License (MIT)
 
 Copyright (c) 2016 - present Microsoft Corporation
 
