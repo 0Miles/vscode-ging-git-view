@@ -53,6 +53,8 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 
 ## 補記(2026-11-13,#388)
 
-**頁面是哪一種，由宿主寫在 `<html>` 的 `data-ging-page` 上(`graph` 或 `notice`),桌面入口照它決定要不要啟動圖形。** 桌面版沒有 repo 可顯示時 —— 沒帶參數,或 `--repo` 指的不是 Git 存放庫 —— 給的是一頁 `notice`(後者附上說明),它照樣載入桌面入口，因為之後的 Welcome page(#394)也從這裡進來。種類由宿主明說，不由入口從「少了 `viewState`」去推:推出來的版本會把「宿主忘了寫 `viewState` 的圖形頁」當成說明頁，安靜地什麼都不顯示。所以 `graph` 頁上沒有 `viewState`,入口會送出 `reportError`(ADR-0016),而不是空白。判斷寫在 `desktop/` 底下,VS Code 入口不讀這個屬性;[desktopEntryNoGraph.test.ts](../../packages/webview/tests/desktopEntryNoGraph.test.ts) 釘住兩種頁面的行為。
+**頁面是哪一種，由宿主寫在 `<html>` 的 `data-ging-page` 上(`graph` 或 `notice`),桌面入口照它決定要不要啟動圖形。** 桌面版沒有 repo 可顯示時 —— 沒帶參數,或 `--repo` 指的不是 Git 存放庫 —— 給的是一頁 `notice`(後者附上說明),它照樣載入桌面入口，因為之後的 Welcome page(#394)也從這裡進來。種類由宿主明說，不由入口從「少了 `viewState`」去推:推出來的版本會把「宿主忘了寫 `viewState` 的圖形頁」當成說明頁，安靜地什麼都不顯示。所以 `graph` 頁上沒有 `viewState`,入口會送出 `reportError`(ADR-0016),而不是空白。
+
+`--repo` 指的不是 Git 存放庫時，說明頁只取代**沒有圖形**的頁面。視窗裡已經開著圖形時 —— 例如第二次啟動經 single-instance 轉來一個無效的路徑 —— 圖形留著，同一段說明改成蓋在上面的錯誤對話框(經過 `NativeDialogs`,見 ADR-0032):一個打錯的路徑，不應該關掉使用者正在用的圖形。判斷寫在 `desktop/` 底下,VS Code 入口不讀這個屬性;[desktopEntryNoGraph.test.ts](../../packages/webview/tests/desktopEntryNoGraph.test.ts) 釘住兩種頁面的行為。
 
 宿主給 webview 的訊息由 preload 以 `window.postMessage` 送進頁面,形狀與 VS Code 的一樣,圖形的 `message` listener 不必知道是哪個宿主。`viewState` 與 `l10n` 跟 VS Code 一樣寫成兩段帶 nonce 的 inline script,CSP 只放行那個 nonce。
