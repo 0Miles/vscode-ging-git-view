@@ -10,9 +10,6 @@ import { openSettings, type Settings } from "./settingsFile";
 export const DESKTOP_SETTINGS_SCHEMA = generated as SettingsSchema;
 
 /** The user's settings in `userDataPath`, held to `DESKTOP_SETTINGS_SCHEMA`. */
-export function openDesktopSettings(
-  userDataPath: string,
-  options?: { onError?: (message: string) => void }
-): Settings {
-  return openSettings(path.join(userDataPath, "settings.json"), DESKTOP_SETTINGS_SCHEMA, options);
+export function openDesktopSettings(userDataPath: string): Settings {
+  return openSettings(path.join(userDataPath, "settings.json"), DESKTOP_SETTINGS_SCHEMA);
 }

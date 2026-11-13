@@ -182,7 +182,7 @@ export function deriveSettingsSchema(manifest: unknown, nls: ManifestNls): Setti
     manifest as { contributes: { configuration: { properties: Record<string, unknown> } } }
   ).contributes.configuration.properties;
   const kept = Object.entries(properties as Record<string, Record<string, unknown>>).filter(
-    ([key]) => !Object.prototype.hasOwnProperty.call(EXCLUDED_SETTINGS, key)
+    ([key]) => !Object.hasOwn(EXCLUDED_SETTINGS, key)
   );
   const included = new Set(kept.map(([key]) => key));
   return { settings: kept.map(([key, raw]) => setting(key, raw, nls, included)) };

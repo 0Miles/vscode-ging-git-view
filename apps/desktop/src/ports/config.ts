@@ -28,7 +28,7 @@ export function createDesktopConfig(settings: Settings): HostConfig {
   const keybinding = (name: string, defaultKey: string) =>
     normalizeKeybinding(get<string>(`shortcuts.${name}`), defaultKey);
 
-  const config: HostConfig = {
+  return {
     signTags: () => get("signing.tags"),
     signCommits: () => get("signing.commits"),
     squashMergeMessageFormat: () =>
@@ -127,5 +127,4 @@ export function createDesktopConfig(settings: Settings): HostConfig {
     showSpecificBranches: () => get("onOpen.branchSelection"),
     showTags: () => get("show.tags")
   };
-  return config;
 }

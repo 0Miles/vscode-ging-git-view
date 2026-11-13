@@ -92,7 +92,7 @@ export function createDesktopRepoSource(
       broadcast();
     },
     addRepo: (repo) => {
-      if (Object.prototype.hasOwnProperty.call(repos, repo)) return;
+      if (Object.hasOwn(repos, repo)) return;
       const shared = readSharedSettings(repo);
       const fresh: GitRepoState = { columnWidths: null };
       write({ ...repos, [repo]: shared === null ? fresh : applyExternalConfig(shared, fresh) });

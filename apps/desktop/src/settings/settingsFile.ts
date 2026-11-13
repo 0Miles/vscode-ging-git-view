@@ -108,7 +108,7 @@ export function openSettings(
       const setting = byKey.get(key);
       if (setting === undefined) throw new Error(`${key} is not a desktop setting`);
       const values = read();
-      if (!Object.prototype.hasOwnProperty.call(values, key)) return setting.default;
+      if (!Object.hasOwn(values, key)) return setting.default;
       const value = allowed(setting, values[key], patterns);
       return value === NOT_ALLOWED ? setting.default : value;
     }

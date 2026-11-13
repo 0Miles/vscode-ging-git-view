@@ -61,9 +61,7 @@ export function openDesktopStorage(
 
   const tier = (prefix: string): StateStore => ({
     get: <T>(key: string, defaultValue: T): T =>
-      Object.prototype.hasOwnProperty.call(state, prefix + key)
-        ? (state[prefix + key] as T)
-        : defaultValue,
+      Object.hasOwn(state, prefix + key) ? (state[prefix + key] as T) : defaultValue,
     update: (key, value) => {
       // Held as it will be read back from the file, so this session and the
       // next see the same value.
