@@ -17,7 +17,7 @@ export type NativeDialogs = {
   showSaveDialog(options: SaveDialogOptions): Promise<{ canceled: boolean; filePath?: string }>;
 };
 
-export type InterimPromptsDeps = {
+type InterimPromptsDeps = {
   dialogs: NativeDialogs;
   l10n: L10n;
   logger: Pick<HostLogger, "logError">;
@@ -32,16 +32,12 @@ export function createInterimPrompts({ dialogs, l10n, logger }: InterimPromptsDe
     message: string,
     labels: readonly string[]
   ): Promise<number | undefined> => {
-    const options: MessageBoxOptions =
-      labels.length === 0
-        ? { type, message, buttons: [] }
-        : {
-            type,
-            message,
-            buttons: [...labels, l10n.t("dialog.cancel")],
-            cancelId: labels.length
-          };
-    const { response } = await dialogs.showMessageBox(options);
+    const { response } = await dialogs.showMessageBox({
+      type,
+      message,
+      buttons: labels.length === 0 ? [] : [...labels, l10n.t("dialog.cancel")],
+      ...(labels.length > 0 && { cancelId: labels.length })
+    });
     return response < labels.length ? response : undefined;
   };
 

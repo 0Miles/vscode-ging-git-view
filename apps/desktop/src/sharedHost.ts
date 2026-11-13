@@ -30,7 +30,7 @@ import { openDesktopSettings } from "@ging/desktop/settings/schema";
 export const desktopGitPath = () => "git";
 const gitPath = desktopGitPath;
 
-export type SharedHostOptions = {
+type SharedHostOptions = {
   /** Electron's `userData`: the settings, the state and the avatars. */
   userDataPath: string;
   /** Electron's `app.getLocale()`. */

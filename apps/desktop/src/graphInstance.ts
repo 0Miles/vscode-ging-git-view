@@ -17,7 +17,7 @@ import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
 import type { SharedHost } from "@ging/desktop/sharedHost";
 import type { GitGraphViewState } from "@ging/shared/types";
 
-export type GraphInstanceOptions = {
+type GraphInstanceOptions = {
   /** The repository it opens on, already checked (`repoToOpen`). */
   repo: string;
   /** Its page. */
