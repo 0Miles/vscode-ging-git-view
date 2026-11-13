@@ -301,10 +301,18 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   });
 
   app.on("window-all-closed", () => app.quit());
-  app.on("will-quit", () => {
+  // The log is written out before the process goes: quitting waits once for
+  // it, then goes on.
+  let logClosed = false;
+  app.on("will-quit", (event) => {
+    if (logClosed) return;
+    event.preventDefault();
     closeShown();
     shared?.dispose();
-    void logger.close();
+    void logger.close().finally(() => {
+      logClosed = true;
+      app.quit();
+    });
   });
   void app.whenReady().then(async () => {
     serveApp((id) => (shown !== null && id === String(shown.id) ? shown.page() : { notice: null }));
