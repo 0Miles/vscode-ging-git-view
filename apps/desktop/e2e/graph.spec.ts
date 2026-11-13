@@ -20,15 +20,18 @@ let scratch: string;
 let env: NodeJS.ProcessEnv;
 let app: ElectronApplication | null = null;
 
-/** The app's log so far. Its own file rather than its stdout: what it logs
- *  while starting is written before Playwright has the process to listen to. */
-const log = () => {
-  try {
-    return readFileSync(path.join(scratch, "userData", "logs", "main.log"), "utf8");
-  } catch {
-    return "";
-  }
-};
+/**
+ * Close the app and read its whole log. Its own file rather than its stdout:
+ * what it logs while starting is written before Playwright has the process to
+ * listen to. Read only once the app has quit, which waits for the log to be
+ * written out: before that, a line may still be on its way to the file, and a
+ * check that some line is absent would pass for the wrong reason.
+ */
+async function closeAndReadLog(): Promise<string> {
+  await app?.close();
+  app = null;
+  return readFileSync(path.join(scratch, "userData", "logs", "main.log"), "utf8");
+}
 
 /** The arguments a launch of this app gives Electron, after its own switches. */
 const appArgs = (...args: string[]) => [
@@ -83,10 +86,11 @@ test("the graph draws the fixture repository opened with --repo", async () => {
     await expect(page.locator("#commitGraph circle.currentHalo")).toHaveCount(1);
     await expect(page.locator("#repoTitleName")).toHaveText(path.basename(repo.path));
 
-    await expect.poll(log).toContain("launch: opening");
-    expect(log()).not.toMatch(WEBVIEW_FAILURE);
+    const logged = await closeAndReadLog();
+    expect(logged).toContain("launch: opening");
+    expect(logged).not.toMatch(WEBVIEW_FAILURE);
     // Nor anything else going wrong on the way: no line of the log is an error.
-    expect(log()).not.toContain("ERROR:");
+    expect(logged).not.toContain("ERROR:");
   } finally {
     await app?.close();
     app = null;
@@ -103,8 +107,9 @@ test("an invalid --repo shows why, and hands the webview nothing", async () => {
   await expect(page.locator("#commitTable")).toHaveCount(0);
   // The desktop entry did load, and started nothing that could fail.
   await expect(page.locator("html")).toHaveAttribute("data-ging-entry", "ging-desktop-entry");
-  await expect.poll(log).toContain(`launch: cannot open ${missing}`);
-  expect(log()).not.toMatch(WEBVIEW_FAILURE);
+  const logged = await closeAndReadLog();
+  expect(logged).toContain(`launch: cannot open ${missing}`);
+  expect(logged).not.toMatch(WEBVIEW_FAILURE);
 });
 
 test("a folder that is not a repository shows why too", async () => {
@@ -114,7 +119,7 @@ test("a folder that is not a repository shows why too", async () => {
 
   await expect(page.locator("p")).toHaveText(`Cannot open ${folder}: it is not a Git repository.`);
   await expect(page.locator("#commitTable")).toHaveCount(0);
-  expect(log()).not.toMatch(WEBVIEW_FAILURE);
+  expect(await closeAndReadLog()).not.toMatch(WEBVIEW_FAILURE);
 });
 
 test("a later launch naming a path that is no repository leaves the graph open, and says why", async () => {
@@ -151,7 +156,7 @@ test("a later launch naming a path that is no repository leaves the graph open, 
         })
       ]);
     await expect(rows).toHaveCount(repo.commits.length);
-    expect(log()).not.toMatch(WEBVIEW_FAILURE);
+    expect(await closeAndReadLog()).not.toMatch(WEBVIEW_FAILURE);
   } finally {
     await app?.close();
     app = null;
