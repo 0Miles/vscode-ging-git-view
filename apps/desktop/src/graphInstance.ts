@@ -27,10 +27,12 @@ export type GraphInstanceOptions = {
 };
 
 export type GraphInstance = {
-  /** The view state its page boots with, built anew for each load of the page,
-   *  which the dispatch then treats as a graph that has yet to pick its
-   *  repository. */
+  /** The view state its page boots with, built anew for each load of the page. */
   pageViewState(): GitGraphViewState;
+  /** Its page is loading anew (a reload): the graph in it has yet to pick its
+   *  repository, which the dispatch must bind again rather than take as
+   *  already bound. */
+  pageLoading(): void;
   dispose(): void;
 };
 
@@ -119,10 +121,9 @@ export function createGraphInstance(
   );
 
   return {
-    pageViewState: () => {
-      dispatch.onPanelShown();
-      return buildGraphViewState({ config, repoSource, extensionState: shared.extensionState });
-    },
+    pageViewState: () =>
+      buildGraphViewState({ config, repoSource, extensionState: shared.extensionState }),
+    pageLoading: dispatch.onPanelShown,
     dispose: () => {
       dispatch.dispose();
       reposChanged.dispose();

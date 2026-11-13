@@ -60,6 +60,11 @@ const PAGE_ID_PARAM = "page";
  *  the page's assets and the script's source map. Nothing else is served. */
 const SERVED_FILES = new Set<string>([...Object.values(PAGE_ASSETS), `${PAGE_ASSETS.script}.map`]);
 
+/** The `Shown.id` a page URL carries, or null for one that carries none. */
+function pageIdOf(url: string): string | null {
+  return URL.canParse(url) ? new URL(url).searchParams.get(PAGE_ID_PARAM) : null;
+}
+
 function currentTheme(): Theme {
   return themeFor(nativeTheme.shouldUseDarkColors ? "dark" : "light", process.platform);
 }
@@ -276,9 +281,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     if (shown === null || win === null || event.sender !== win.webContents) return;
     // Only from the page that is shown: one replaced but still unloading must
     // not reach the instance that replaced it.
-    const frameUrl = event.senderFrame?.url ?? "";
-    const id = URL.canParse(frameUrl) ? new URL(frameUrl).searchParams.get(PAGE_ID_PARAM) : null;
-    if (id === String(shown.id)) shown.deliver(message);
+    if (pageIdOf(event.senderFrame?.url ?? "") === String(shown.id)) shown.deliver(message);
   });
 
   app.on("window-all-closed", () => app.quit());
@@ -299,6 +302,15 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     serveApp((id) => (shown !== null && id === String(shown.id) ? shown.page() : { notice: null }));
     followSystemTheme();
     win = createWindow();
+    // The page of what is shown starting to load, the first time or again (a
+    // reload): the graph it brings has yet to pick its repository. Tied to the
+    // load, not to building the HTML, which a second fetch of it would repeat.
+    win.webContents.on("did-start-navigation", (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return;
+      if (shown !== null && pageIdOf(details.url) === String(shown.id)) {
+        shown.instance?.pageLoading();
+      }
+    });
     win.on("closed", () => {
       closeShown();
       win = null;
