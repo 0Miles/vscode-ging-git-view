@@ -1,10 +1,9 @@
-// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
 import { buildDesktopPage } from "@ging/desktop/page";
-import { applyTheme, themeFor } from "@ging/desktop/theme";
+import { applyTheme, themeFor, type ThemeKind } from "@ging/desktop/theme";
 
-const pageFor = (kind: "dark" | "light", platform: NodeJS.Platform = "win32") =>
+const pageFor = (kind: ThemeKind, platform: NodeJS.Platform = "win32") =>
   new DOMParser().parseFromString(buildDesktopPage(themeFor(kind, platform)), "text/html");
 
 describe("buildDesktopPage", () => {

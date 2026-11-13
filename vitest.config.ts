@@ -26,6 +26,8 @@ export default defineConfig({
             "apps/vscode/tests/backend/**/*.test.ts",
             "apps/desktop/tests/**/*.test.ts"
           ],
+          // The desktop suites that need a page run in the jsdom project.
+          exclude: ["apps/desktop/tests/dom/**"],
           setupFiles: ["packages/core/tests/setup.ts"],
           // These suites drive real git child processes, many of them in
           // parallel. The 5s/10s defaults are comfortably exceeded on a loaded
@@ -36,10 +38,11 @@ export default defineConfig({
         }
       },
       {
+        resolve: { alias: appAliases },
         test: {
           name: "webview",
           environment: "jsdom",
-          include: ["packages/webview/tests/**/*.test.ts"],
+          include: ["packages/webview/tests/**/*.test.ts", "apps/desktop/tests/dom/**/*.test.ts"],
           setupFiles: ["packages/webview/tests/setup.ts"]
         }
       }
