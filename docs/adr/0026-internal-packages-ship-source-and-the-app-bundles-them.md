@@ -38,6 +38,8 @@ status: accepted
 
 `exclude-paths` 的判準是**整個 commit**:一個 commit 改到的檔案**全部**在 `apps/desktop/` 底下,它才被略過;只要有一個檔案在外面,它就照常算進擴充。這是 release-please 的 `CommitExclude.shouldInclude`(`src/util/commit-exclude.ts`,release-please 15.10.0 起;`release-please-action@v5` 用的是 `^17.6.1`)的行為,而且過濾發生在 `Manifest.buildPullRequests()` 把 commit 交給 strategy 之前,所以版號與 CHANGELOG 看到的是同一份過濾後的清單。實際跑一次 dry-run 要 GitHub token,所以佐證用的是本機可重現的推導:把那段判準(`.` 的 package 底下,一個 commit 的檔案是否**全部**以 `apps/desktop/` 開頭)套在 `git log --no-merges --name-only` 上。#386 的分支上,只改 `apps/desktop/` 的 `feat(desktop):` 被略過,其餘 commit 照算;拿掉 `exclude-paths` 重跑,同一個 commit 就會讓擴充升版。推導的腳本與輸出附在 #386 的 PR 說明。
 
+**前提是 PR 以 merge commit 合併。** release-please 看的是 main 上的 commit,判準看的是每個 commit 自己的檔案。squash 合併會把整個 PR 的檔案收進同一個 commit:只要 PR 裡有一個檔案在 `apps/desktop/` 外面,整包連同 `feat(desktop):` 的標題都算進擴充。rebase 合併保留了各個 commit,但改寫過的 commit 是否保住原本的切分,要看 rebase 時有沒有被合併或重排,所以同樣不保證。這個 repo 目前用 merge commit(`Merge pull request #…`);合併方式一改,這套慣例就得重新檢查。
+
 由此而來的慣例:
 
 - **桌面版的功能 commit 只改 `apps/desktop/`。** 同時動到 lockfile、根目錄的 `package.json`、`.oxlintrc.json`、CI 這類共用檔案的部分,拆成另一個不升版的 commit(`build:`、`ci:`、`chore:`)。混在一起的 `feat(desktop):` 會讓擴充升一個 minor,CHANGELOG 也會多一行跟擴充無關的條目。
