@@ -9,6 +9,7 @@
     "package": "pnpm --filter ging-git-view run package",
     "test": "vitest run --project backend && vitest run --project webview",
     "test:ext": "pnpm --filter ging-git-view run test:ext",
+    "test:e2e:webview": "playwright test -c e2e/webview",
     "watch:esbuild": "pnpm --filter ging-git-view run watch:esbuild",
     "watch:tsc": "pnpm --filter ging-git-view run watch:tsc",
     "format": "oxfmt --check",
