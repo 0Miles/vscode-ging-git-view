@@ -11,10 +11,7 @@ import { describeWatcherContract } from "./contracts/watcher";
 
 const path = (name: string) => `/${name}`;
 
-describeHostStorageContract("fakeHost", () => {
-  const backing = fakeStorage();
-  return { open: backing.open };
-});
+describeHostStorageContract("fakeHost", fakeStorage);
 
 describeClipboardContract("fakeHost", () => {
   const { ports, answers, held } = fakePorts();
