@@ -62,10 +62,10 @@ test("the graph draws the fixture repository opened with --repo", async () => {
     // Every commit, newest first, as `git log` orders them by date.
     const rows = page.locator("#commitTable tr.commit");
     await expect(rows).toHaveCount(repo.commits.length);
-    for (const [i, { hash, subject }] of repo.commits.entries()) {
-      await expect(rows.nth(i)).toHaveAttribute("data-hash", hash);
-      await expect(rows.nth(i)).toContainText(subject);
-    }
+    await expect(rows).toContainText(repo.commits.map((commit) => commit.subject));
+    expect(await rows.evaluateAll((trs) => trs.map((tr) => tr.getAttribute("data-hash")))).toEqual(
+      repo.commits.map((commit) => commit.hash)
+    );
     // Drawn, not only listed: one vertex per commit in the graph's SVG, and the
     // ring that marks HEAD's.
     await expect(page.locator("#commitGraph circle:not(.currentHalo)")).toHaveCount(
