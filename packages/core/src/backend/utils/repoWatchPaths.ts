@@ -17,3 +17,8 @@ export function isWatchedRepoPath(relativePath: string): boolean {
 /** How long a repository's watched files must stay quiet before what shows
  *  them re-reads: the graph's watcher and the Stash side-view's alike. */
 export const REPO_CHANGE_DEBOUNCE_MS = 750;
+
+/** How long after the graph's watcher is unmuted it still ignores changes.
+ *  GING's own git command has finished by then, but the file system may still
+ *  be reporting what it did. */
+export const REPO_RESUME_GRACE_MS = 1500;

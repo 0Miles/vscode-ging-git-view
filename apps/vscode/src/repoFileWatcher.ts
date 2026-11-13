@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 
 import {
   isWatchedRepoPath,
-  REPO_CHANGE_DEBOUNCE_MS
+  REPO_CHANGE_DEBOUNCE_MS,
+  REPO_RESUME_GRACE_MS
 } from "@ging/core/backend/utils/repoWatchPaths";
 
 import { getPathFromUri } from "./backend/utils/uri";
@@ -50,7 +51,7 @@ export class RepoFileWatcher {
 
   public unmute() {
     this.muted = false;
-    this.resumeAt = new Date().getTime() + 1500;
+    this.resumeAt = new Date().getTime() + REPO_RESUME_GRACE_MS;
   }
 
   private async refresh(uri: vscode.Uri) {

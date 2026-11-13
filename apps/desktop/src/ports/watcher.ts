@@ -6,19 +6,16 @@ import * as fs from "node:fs";
 
 import {
   isWatchedRepoPath,
-  REPO_CHANGE_DEBOUNCE_MS
+  REPO_CHANGE_DEBOUNCE_MS,
+  REPO_RESUME_GRACE_MS
 } from "@ging/core/backend/utils/repoWatchPaths";
 import type { Watcher } from "@ging/core/host/ports";
-
-/** How long after `unmute` changes are still ignored. GING's own git command
- *  has finished by then, but the file system may still be reporting what it
- *  did; the VS Code host waits as long. */
-const RESUME_GRACE_MS = 1500;
 
 export type DesktopWatcherOptions = {
   /** How long the watched files must stay quiet before the graph refreshes. */
   debounceMs?: number;
-  /** See `RESUME_GRACE_MS`. */
+  /** How long after `unmute` changes are still ignored; see
+   *  `REPO_RESUME_GRACE_MS`. */
   resumeGraceMs?: number;
   /** Told when a repository cannot be watched, or stops being watchable. */
   onError?: (message: string) => void;
@@ -35,7 +32,7 @@ export function createDesktopWatcher(
   onRepoChange: () => void,
   {
     debounceMs = REPO_CHANGE_DEBOUNCE_MS,
-    resumeGraceMs = RESUME_GRACE_MS,
+    resumeGraceMs = REPO_RESUME_GRACE_MS,
     onError = () => {}
   }: DesktopWatcherOptions = {}
 ): DesktopWatcher {
