@@ -507,7 +507,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
     currentBridge = bridge;
     currentWatcher = repoFileWatcher;
-    avatarManager.registerBridge(bridge.post.bind(bridge));
+    avatarManager.registerBridge(bridge.post);
     const messageHandlers = registerMessageHandlers(
       bridge,
       { ...hostPorts, watcher: repoFileWatcher },

@@ -76,7 +76,7 @@ export function createWebviewPanel(opts: {
   function dispose() {
     onDispose();
     panel.dispose();
-    avatarManager.deregisterBridge();
+    avatarManager.deregisterBridge(bridge.post);
     repoFileWatcher.stop();
     repoManager.deregisterViewCallback(onReposChanged);
     while (disposables.length) {

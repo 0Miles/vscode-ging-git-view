@@ -29,7 +29,9 @@ export class AvatarManager {
   private readonly config: AvatarConfig;
   private readonly store: AvatarStore;
   private readonly avatarStorageFolder: string;
-  private postToWebview: ((msg: ResponseMessage) => void) | null = null;
+  /** Every graph showing avatars: the cache is one, the webviews it serves
+   *  may be several (the desktop host runs one per webview instance). */
+  private readonly bridges = new Set<(msg: ResponseMessage) => void>();
   private avatars: AvatarCache;
   private queue: AvatarRequestQueue;
   private remoteSourceCache: { [repo: string]: RemoteSource } = {};
@@ -101,12 +103,14 @@ export class AvatarManager {
     }
   }
 
+  /** Post every avatar to `post` too, until `deregisterBridge(post)`. */
   public registerBridge(post: (msg: ResponseMessage) => void) {
-    this.postToWebview = post;
+    this.bridges.add(post);
   }
 
-  public deregisterBridge() {
-    this.postToWebview = null;
+  /** Stop posting to `post`, and only to it: the other bridges stay. */
+  public deregisterBridge(post: (msg: ResponseMessage) => void) {
+    this.bridges.delete(post);
   }
 
   public removeAvatarFromCache(email: string) {
@@ -387,17 +391,18 @@ export class AvatarManager {
   }
 
   private sendAvatarToWebView(email: string, onError: () => void) {
-    if (this.postToWebview !== null) {
+    if (this.bridges.size > 0) {
       fs.readFile(this.avatarStorageFolder + "/" + this.avatars[email].image, (err, data) => {
         if (err) {
           onError();
-        } else if (this.postToWebview !== null) {
-          // Send avatar to the webview as a base64 encoded data uri
-          this.postToWebview({
+        } else {
+          // Send avatar to the webviews as a base64 encoded data uri
+          const msg: ResponseMessage = {
             command: "fetchAvatar",
             email: email,
             image: avatarDataUri(this.avatars[email].image, data)
-          });
+          };
+          for (const post of this.bridges) post(msg);
         }
       });
     }
