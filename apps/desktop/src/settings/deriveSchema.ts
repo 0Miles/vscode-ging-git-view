@@ -71,9 +71,12 @@ export const EXCLUDED_SETTINGS: Record<string, string> = {
  *  is refused until it is added here or to `EXCLUDED_SETTINGS`. */
 export const RESOURCE_SETTINGS_AS_GLOBAL: readonly string[] = ["ging-git-view.defaultFileEncoding"];
 
+/** The schema keywords read but not carried: `scope`, as the desktop app has
+ *  only global settings, and `markdownDescription`, which becomes the
+ *  setting's `description`. */
+const SKIPPED = new Set(["scope", "markdownDescription"]);
 /** The schema keywords carried over; any other one is refused, so a new kind
- *  of field in the manifest is decided about rather than dropped. `scope` is
- *  read and not carried: the desktop app has only global settings. */
+ *  of field in the manifest is decided about rather than dropped. */
 const CARRIED = new Set([
   "type",
   "default",
@@ -86,10 +89,8 @@ const CARRIED = new Set([
   "properties",
   "additionalProperties",
   "required",
-  "description",
-  "markdownDescription"
+  "description"
 ]);
-const SETTING_ONLY = new Set(["scope"]);
 
 /** One segment of a settings key in words: `fetchAvatars` is `Fetch Avatars`. */
 const words = (segment: string) =>
@@ -99,17 +100,18 @@ const words = (segment: string) =>
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 
-/** A settings key as VS Code's Settings editor titles it: the last segment is
- *  the name, the ones before it the category. */
+/** A GING settings key as VS Code's Settings editor titles it: after the
+ *  `ging-git-view.` section, the last segment is the name, the ones before it
+ *  the category. */
 export function settingTitle(key: string): string {
-  const segments = key.slice(key.startsWith(SECTION) ? SECTION.length : 0).split(".");
+  const segments = key.slice(SECTION.length).split(".");
   const name = words(segments.at(-1)!);
   const category = segments.slice(0, -1).map(words).join(" › ");
   return category === "" ? name : `${category}: ${name}`;
 }
 
 /** The anchor a setting has in the desktop app's settings page (#397). */
-export const settingAnchor = (key: string) => `#${key}`;
+const settingAnchor = (key: string) => `#${key}`;
 
 function localize(value: unknown, nls: ManifestNls, where: string): LocalizedText {
   if (typeof value !== "string") throw new Error(`${where}: expected a string`);
@@ -135,7 +137,7 @@ function linkSettings(markdown: string, included: ReadonlySet<string>): string {
 function node(raw: Record<string, unknown>, nls: ManifestNls, where: string): SchemaNode {
   const out: Record<string, unknown> = {};
   for (const [keyword, value] of Object.entries(raw)) {
-    if (SETTING_ONLY.has(keyword) || keyword === "markdownDescription") continue;
+    if (SKIPPED.has(keyword)) continue;
     if (!CARRIED.has(keyword)) {
       throw new Error(`${where}: does not know how to carry the "${keyword}" keyword`);
     }
