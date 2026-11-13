@@ -46,17 +46,19 @@ export function createDesktopLogger({
   now = () => new Date()
 }: DesktopLoggerOptions): DesktopLogger {
   let stream: fs.WriteStream | null = null;
+  // Without the file the console still has every line.
+  const fileFailed = (e: unknown) =>
+    console.err(`[${stamp(now())}] ERROR: cannot write the log file ${file}: ${String(e)}`);
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     stream = fs.createWriteStream(file, { flags: "a" });
-    // Without the file the console still has every line.
     stream.on("error", (e) => {
-      console.err(`[${stamp(now())}] ERROR: cannot write the log file ${file}: ${String(e)}`);
+      fileFailed(e);
       stream?.destroy();
       stream = null;
     });
   } catch (e) {
-    console.err(`[${stamp(now())}] ERROR: cannot write the log file ${file}: ${String(e)}`);
+    fileFailed(e);
   }
 
   const write = (line: string, toConsole: (line: string) => void) => {
