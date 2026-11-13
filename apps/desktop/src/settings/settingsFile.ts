@@ -40,7 +40,8 @@ function compilePatterns(schema: SettingsSchema): Patterns {
 /** `value` as the schema allows it, or `NOT_ALLOWED`. A list keeps only the
  *  entries whose type and pattern fit its items, as a list of names or colours
  *  is still worth having without the one bad entry. */
-function allowed(node: SchemaNode, value: unknown, patterns: Patterns): unknown {
+function allowed(node: SchemaNode, given: unknown, patterns: Patterns): unknown {
+  let value = given;
   switch (node.type) {
     case "boolean":
       if (typeof value !== "boolean") return NOT_ALLOWED;
@@ -50,18 +51,14 @@ function allowed(node: SchemaNode, value: unknown, patterns: Patterns): unknown 
       if (patterns.get(node)?.test(value) === false) return NOT_ALLOWED;
       break;
     case "number":
-    case "integer": {
+    case "integer":
       if (typeof value !== "number" || !Number.isFinite(value)) return NOT_ALLOWED;
       if (node.type === "integer" && !Number.isInteger(value)) return NOT_ALLOWED;
       // Clamped rather than refused: 120 for an hourly-at-most interval means
       // as long as allowed, not the default. (`HostConfig.autoFetchIntervalMinutes`
       // leaves the clamping to its timer, which this agrees with.)
-      const clamped = Math.min(
-        node.maximum ?? Infinity,
-        Math.max(node.minimum ?? -Infinity, value)
-      );
-      return node.enum === undefined || node.enum.includes(clamped) ? clamped : NOT_ALLOWED;
-    }
+      value = Math.min(node.maximum ?? Infinity, Math.max(node.minimum ?? -Infinity, value));
+      break;
     case "array": {
       if (!Array.isArray(value)) return NOT_ALLOWED;
       const items = node.items;
