@@ -6,7 +6,7 @@ import {
   applyExternalConfig,
   EXTERNAL_CONFIG_RELATIVE_PATH,
   generateExternalConfig,
-  parseExternalConfig,
+  readExternalConfig,
   serializeExternalConfig
 } from "@ging/core/backend/utils/externalConfig";
 import { isGitRepository } from "@ging/core/backend/utils/git";
@@ -81,17 +81,6 @@ export function createRepoManager(
       if (path === repoPaths[i] || path.startsWith(repoPaths[i] + "/")) return true;
     }
     return false;
-  }
-
-  /** Read + validate the shared config file in `repo`, or null if absent/invalid. */
-  function readExternalConfig(repo: string) {
-    try {
-      return parseExternalConfig(
-        fs.readFileSync(repo + "/" + EXTERNAL_CONFIG_RELATIVE_PATH, "utf8")
-      );
-    } catch {
-      return null; // no file / unreadable
-    }
   }
 
   function addRepo(repo: string) {

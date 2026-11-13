@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+
 import type { CommitOrdering } from "@ging/shared/backend/types";
 import type { GitRepoState } from "@ging/shared/types";
 
@@ -52,6 +54,15 @@ export function parseExternalConfig(content: string): ExternalRepoConfig | null 
     config.hiddenRemotes = obj.hiddenRemotes as string[];
   }
   return config;
+}
+
+/** Read + validate the shared config file in `repo`, or null if absent/invalid. */
+export function readExternalConfig(repo: string): ExternalRepoConfig | null {
+  try {
+    return parseExternalConfig(fs.readFileSync(repo + "/" + EXTERNAL_CONFIG_RELATIVE_PATH, "utf8"));
+  } catch {
+    return null; // no file / unreadable
+  }
 }
 
 /** Merge an external config's fields into a repo state, returning a new state. */

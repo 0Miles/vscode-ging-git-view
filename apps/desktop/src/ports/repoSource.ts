@@ -3,13 +3,7 @@
  * core's ExtensionState, as the VS Code host's RepoManager keeps them, and
  * broadcast to whatever shows them. */
 
-import * as fs from "node:fs";
-
-import {
-  applyExternalConfig,
-  EXTERNAL_CONFIG_RELATIVE_PATH,
-  parseExternalConfig
-} from "@ging/core/backend/utils/externalConfig";
+import { applyExternalConfig, readExternalConfig } from "@ging/core/backend/utils/externalConfig";
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { evalPromises } from "@ging/core/backend/utils/promise";
 import { pickBootRepo, REPO_EXISTENCE_CHECKS_AT_ONCE } from "@ging/core/backend/utils/repoPath";
@@ -32,15 +26,6 @@ function sorted(repos: GitRepoSet): GitRepoSet {
       .toSorted()
       .map((repo) => [repo, repos[repo]])
   );
-}
-
-/** The team's shared settings committed in `repo`, or null for none. */
-function readSharedSettings(repo: string) {
-  try {
-    return parseExternalConfig(fs.readFileSync(`${repo}/${EXTERNAL_CONFIG_RELATIVE_PATH}`, "utf8"));
-  } catch {
-    return null;
-  }
 }
 
 export function createDesktopRepoSource(
@@ -89,7 +74,7 @@ export function createDesktopRepoSource(
     },
     addRepo: (repo) => {
       if (Object.hasOwn(repos, repo)) return;
-      const shared = readSharedSettings(repo);
+      const shared = readExternalConfig(repo);
       const fresh: GitRepoState = { columnWidths: null };
       write({ ...repos, [repo]: shared === null ? fresh : applyExternalConfig(shared, fresh) });
       broadcast();
