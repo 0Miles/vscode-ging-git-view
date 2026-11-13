@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.10.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.9.0...v0.10.0) (2026-11-13)
+
+
+### Features
+
+* **core:** count a stash's untracked files and mark their origin ([37d426a](https://github.com/0Miles/vscode-ging-git-view/commit/37d426aad1ca925491158c88fb9ac97d4bc67530)), closes [#332](https://github.com/0Miles/vscode-ging-git-view/issues/332)
+* **core:** model the Stash side-view's items and files ([9336966](https://github.com/0Miles/vscode-ging-git-view/commit/9336966f400a5aeaed8a3ea69ba373d070c340bf)), closes [#335](https://github.com/0Miles/vscode-ging-git-view/issues/335)
+* **core:** name each listed stash by its commit SHA ([bae7573](https://github.com/0Miles/vscode-ging-git-view/commit/bae7573598b77954b68bcbf9cee76f930bcb0eea)), closes [#335](https://github.com/0Miles/vscode-ging-git-view/issues/335)
+* **core:** read a stash's untracked file from where the stash keeps it ([1cd54ef](https://github.com/0Miles/vscode-ging-git-view/commit/1cd54efec4139fa9003932d8dea0ab566b683cd5)), closes [#332](https://github.com/0Miles/vscode-ging-git-view/issues/332)
+* **core:** watch the stash log from its nearest existing folder ([76d404f](https://github.com/0Miles/vscode-ging-git-view/commit/76d404f83a3b994051c9db1e6301b605a3eae46a)), closes [#335](https://github.com/0Miles/vscode-ging-git-view/issues/335)
+* **desktop:** add the apps/desktop skeleton and its Electron E2E ([3487242](https://github.com/0Miles/vscode-ging-git-view/commit/34872428f19c0a731a3397396e1c027688d4af08))
+* **desktop:** add the apps/desktop skeleton and its Electron E2E ([f36e9ba](https://github.com/0Miles/vscode-ging-git-view/commit/f36e9ba3177a61b63be8b51a2aa6030dd9be1a72))
+* **desktop:** implement the non-UI host ports and the settings schema ([a8f17c4](https://github.com/0Miles/vscode-ging-git-view/commit/a8f17c41acc406b564913e1247601a156298cf88))
+* **desktop:** implement the non-UI host ports and the settings schema ([7c33f1c](https://github.com/0Miles/vscode-ging-git-view/commit/7c33f1cd9475f0486ca3c3e4f53a634a1d921220))
+* drop and rename stashes from the Stash side view ([52bf285](https://github.com/0Miles/vscode-ging-git-view/commit/52bf285f24699a81977c5b8199213b67a309d6fe))
+* **stash-view:** apply and pop from the Stash side-view ([17461cd](https://github.com/0Miles/vscode-ging-git-view/commit/17461cd84381a0e115387f8f6c602b437b8fbb98))
+* **stash:** add a read-only Stash side view ([#335](https://github.com/0Miles/vscode-ging-git-view/issues/335)) ([9c67548](https://github.com/0Miles/vscode-ging-git-view/commit/9c67548ee2798733c11ec26731923e726ad94965))
+* **stash:** add a read-only Stash side view ([#335](https://github.com/0Miles/vscode-ging-git-view/issues/335)) ([2eeec09](https://github.com/0Miles/vscode-ging-git-view/commit/2eeec090a26b64f9c34c16a44aeafd377b068e5a))
+* **stash:** apply and pop from the Stash side view, one conflict judgement ([#337](https://github.com/0Miles/vscode-ging-git-view/issues/337)) ([9d6543b](https://github.com/0Miles/vscode-ging-git-view/commit/9d6543bae4d60d18a0c6206888608ab43570bccf))
+* **stash:** drop and rename from the Stash side view, ADR-0029 ([#336](https://github.com/0Miles/vscode-ging-git-view/issues/336)) ([777063d](https://github.com/0Miles/vscode-ging-git-view/commit/777063d03fe683e981a6d814c0d3f3aba9a56ed6))
+* **stash:** judge apply and pop by the unmerged paths around them ([75c0e62](https://github.com/0Miles/vscode-ging-git-view/commit/75c0e62acd1cc01a5827831a63c130d465b307a4))
+* **stash:** refuse a stash action whose selector no longer names its stash ([d385333](https://github.com/0Miles/vscode-ging-git-view/commit/d3853338db399004d8cdcce22dff02c979e2a8e3)), closes [#334](https://github.com/0Miles/vscode-ging-git-view/issues/334)
+* **stash:** refuse stash actions whose selector moved ([#334](https://github.com/0Miles/vscode-ging-git-view/issues/334)) ([4a0e911](https://github.com/0Miles/vscode-ging-git-view/commit/4a0e911fb091067dd827c4cdff13260b8efd2321))
+* **stash:** refuse stash actions whose selector moved ([#334](https://github.com/0Miles/vscode-ging-git-view/issues/334)) ([44fc3fa](https://github.com/0Miles/vscode-ging-git-view/commit/44fc3fa2348ff9f71432750821d37185b82d7080))
+* **stash:** show the host's moved-stash refusal as dialogStashMoved ([77df252](https://github.com/0Miles/vscode-ging-git-view/commit/77df252b17ddef177a72169ea132ab2eed9495b4)), closes [#334](https://github.com/0Miles/vscode-ging-git-view/issues/334)
+* **vscode:** add a read-only Stash side-view ([e3e6896](https://github.com/0Miles/vscode-ging-git-view/commit/e3e68960fddf60419c269d475b02a34c75fdae5e)), closes [#335](https://github.com/0Miles/vscode-ging-git-view/issues/335)
+* **webview:** add a desktop entry beside the VS Code one ([f3d89a8](https://github.com/0Miles/vscode-ging-git-view/commit/f3d89a8a9145c0424f13f594df66988edcd4ec38))
+* **webview:** hand a file row's origin back with every read of it ([9be4905](https://github.com/0Miles/vscode-ging-git-view/commit/9be49050197a9b7d8de5533770370cefee4ce3b1)), closes [#332](https://github.com/0Miles/vscode-ging-git-view/issues/332)
+* **webview:** report a stash apply or pop from the host's judgement ([c6347d6](https://github.com/0Miles/vscode-ging-git-view/commit/c6347d6e2acbb823a5450294ab040740888c52c4))
+
+
+### Bug Fixes
+
+* **build:** the import guard also refuses nested actions and queries paths ([040138b](https://github.com/0Miles/vscode-ging-git-view/commit/040138b2e61e8802c13f592d3b173eeddfb62550))
+* **core:** one way for the command services to find the repo, list its remotes and report a failure ([d1eecfa](https://github.com/0Miles/vscode-ging-git-view/commit/d1eecfabe829b546b2df7222a1a8420f166e93f9))
+* **core:** re-read the stash list once the side-view's watch is up ([7a65a15](https://github.com/0Miles/vscode-ging-git-view/commit/7a65a15779598629b9c9c91a486fe6736a2d9957)), closes [#335](https://github.com/0Miles/vscode-ging-git-view/issues/335)
+* **core:** read a stash's untracked files only when it has them ([a6d7354](https://github.com/0Miles/vscode-ging-git-view/commit/a6d735470c3c04a67c1e6c3a548d3e47e207868f)), closes [#332](https://github.com/0Miles/vscode-ging-git-view/issues/332)
+* **core:** reset a stash's untracked file from the stash's third parent ([1351341](https://github.com/0Miles/vscode-ging-git-view/commit/135134152a782f247e905bcaf3b18e7d9e557c97)), closes [#349](https://github.com/0Miles/vscode-ging-git-view/issues/349)
+* **core:** set the global user details with no current repository, as before ([14c8bde](https://github.com/0Miles/vscode-ging-git-view/commit/14c8bdec64cf0e5ac713fcb94fbf0839beaabdaa))
+* **fetch:** consolidate fetch into one core service, auto-fetch included ([#351](https://github.com/0Miles/vscode-ging-git-view/issues/351)) ([10788cf](https://github.com/0Miles/vscode-ging-git-view/commit/10788cf5c726ca0cca03e255b8e362b7ede0730f))
+* **fetch:** refresh the side views after a command or timed fetch with no graph open ([#351](https://github.com/0Miles/vscode-ging-git-view/issues/351)) ([c6fa643](https://github.com/0Miles/vscode-ging-git-view/commit/c6fa643415c288d499c7a51e99943cc46b3eff4d))
+* **fetch:** refresh the side views after Fetch Remote, as the other fetches do ([d689a3a](https://github.com/0Miles/vscode-ging-git-view/commit/d689a3a47dc5232ab7063435dbb6257a25b4a29a))
+* **fetch:** skip an auto-fetch tick while the last one runs, and say when there is no repository ([#351](https://github.com/0Miles/vscode-ging-git-view/issues/351)) ([1451e5d](https://github.com/0Miles/vscode-ging-git-view/commit/1451e5dd2c04bc77966fdce86d27bbd239e26f33))
+* **l10n:** call it "還原 index" / "还原 index" on the graph's checkbox too ([0af6bb8](https://github.com/0Miles/vscode-ging-git-view/commit/0af6bb8f9c1f65e19ee63d67f111cfeed3d36151)), closes [#338](https://github.com/0Miles/vscode-ging-git-view/issues/338)
+* refuse Copy Stash Name once the stash has moved ([5ddaf99](https://github.com/0Miles/vscode-ging-git-view/commit/5ddaf991df909145a3f2b3259bf22523d5b4483a)), closes [#335](https://github.com/0Miles/vscode-ging-git-view/issues/335)
+* reset a stash's untracked file from where the stash keeps it ([#349](https://github.com/0Miles/vscode-ging-git-view/issues/349)) ([284b50c](https://github.com/0Miles/vscode-ging-git-view/commit/284b50c4dc4741a7f77a2784ac0bef4e786eae9d))
+* show and read a stash's untracked files in the commit details view ([#332](https://github.com/0Miles/vscode-ging-git-view/issues/332)) ([4407950](https://github.com/0Miles/vscode-ging-git-view/commit/440795094a13880cc6cce59a3673e30c2b965ea9))
+* **stash:** apply the verified stash by its SHA ([#365](https://github.com/0Miles/vscode-ging-git-view/issues/365)) ([1e88912](https://github.com/0Miles/vscode-ging-git-view/commit/1e889124b26e49b26e2038086575707e3cebee0b))
+* **stash:** apply the verified stash by its SHA, not its number ([#365](https://github.com/0Miles/vscode-ging-git-view/issues/365)) ([4dc9e23](https://github.com/0Miles/vscode-ging-git-view/commit/4dc9e2309066a132a18345d3daa84c4100cc4391))
+* **stash:** keep reporting a conflict when the stash list can't be read ([8fef70a](https://github.com/0Miles/vscode-ging-git-view/commit/8fef70afbe7448913ec7422bf7cb97e8ca12309e))
+* **stash:** report git's own failures from the selector check as git's ([083496b](https://github.com/0Miles/vscode-ging-git-view/commit/083496ba24f4fc5187afaa4db6ead84b2da66cca)), closes [#334](https://github.com/0Miles/vscode-ging-git-view/issues/334)
+* **vscode:** cancel waiting watcher batches on dispose ([137e9d1](https://github.com/0Miles/vscode-ging-git-view/commit/137e9d14a4e2f573a60015dc903dc29be389cbaf)), closes [#286](https://github.com/0Miles/vscode-ging-git-view/issues/286)
+* **webview:** hand the file's origin back with Reset File to this Revision ([367a80e](https://github.com/0Miles/vscode-ging-git-view/commit/367a80e3881a1511e3174bd27173a46872ea7b56)), closes [#349](https://github.com/0Miles/vscode-ging-git-view/issues/349)
+
+
+### Performance Improvements
+
+* **commit-details:** read a stash's untracked files alongside its changes ([c71c7c7](https://github.com/0Miles/vscode-ging-git-view/commit/c71c7c70a4b85be9fbc69e63056ae54435d81e62)), closes [#332](https://github.com/0Miles/vscode-ging-git-view/issues/332)
+* **core:** read the user name and email in parallel ([1b7b4a7](https://github.com/0Miles/vscode-ging-git-view/commit/1b7b4a77ba522b16e1eac0095a4b5bc624e2d827))
+
 ## [0.9.0](https://github.com/0Miles/vscode-ging-git-view/compare/v0.8.0...v0.9.0) (2026-11-10)
 
 
