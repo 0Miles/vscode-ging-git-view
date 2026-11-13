@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import { createGraphInstance } from "@ging/desktop/graphInstance";
-import { createSharedHost } from "@ging/desktop/sharedHost";
+import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { ResponseMessage } from "@ging/shared/types";
 
 import {
@@ -41,7 +41,7 @@ function setUp() {
   const userData = userDataWithAvatar();
   const repos = [makeRepo(), makeRepo()].map(toRepoPath);
   const logged: string[] = [];
-  const shared = createSharedHost({
+  const shared = createSharedServices({
     userDataPath: userData,
     locale: "en",
     helperDir: userData,

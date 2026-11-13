@@ -41,7 +41,7 @@ import { createDesktopClipboard } from "./ports/clipboard";
 import { createDesktopLogger } from "./ports/logger";
 import { createInterimPrompts } from "./ports/prompts";
 import { type RepoToOpen, repoToOpen } from "./repoToOpen";
-import { createSharedHost, desktopGitPath, type SharedHost } from "./sharedHost";
+import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
 import { type Theme, themeFor } from "./theme";
 
 /**
@@ -173,7 +173,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     { scheme: SCHEME, privileges: { standard: true, secure: true } }
   ]);
 
-  let shared: SharedHost | null = null;
+  let shared: SharedServices | null = null;
   let win: BrowserWindow | null = null;
   let shown: Shown | null = null;
   let nextId = 0;
@@ -332,7 +332,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       win = null;
     });
     // After ready: the locale is not known before it.
-    shared = createSharedHost({
+    shared = createSharedServices({
       userDataPath: app.getPath("userData"),
       locale: app.getLocale(),
       helperDir: __dirname,

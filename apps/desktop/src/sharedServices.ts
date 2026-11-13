@@ -25,12 +25,11 @@ import { openDesktopStorage } from "@ging/desktop/ports/storage";
 import { openDesktopSettings } from "@ging/desktop/settings/schema";
 
 /** There is no `git.path` of VS Code's to follow: the git on the PATH. Known
- *  before the shared host is, so a launch's path can be checked while the app
+ *  before the shared services are, so a launch's path can be checked while the app
  *  gets ready. */
 export const desktopGitPath = () => "git";
-const gitPath = desktopGitPath;
 
-type SharedHostOptions = {
+type SharedServicesOptions = {
   /** Electron's `userData`: the settings, the state and the avatars. */
   userDataPath: string;
   /** Electron's `app.getLocale()`. */
@@ -41,29 +40,29 @@ type SharedHostOptions = {
   clipboard: Clipboard;
 };
 
-export type SharedHost = {
+export type SharedServices = {
   config: DesktopConfig;
   l10n: L10n;
   logger: HostLogger;
   clipboard: Clipboard;
   opener: Opener;
-  /** The known repositories are the app's, not a window's (GLOSSARY.md: on
+  /** The known repositories are the app's, not a Tab's (GLOSSARY.md: on
    *  the desktop host, the recently opened list); each instance boots on its
    *  own current repository among them. */
   repoSource: DesktopRepoSource;
   /** One for now, so the current repository is the app's; #393 keeps one per
-   *  tab. */
+   *  Tab. */
   extensionState: ExtensionState;
   /** One cache; each instance registers its bridge and gets every avatar. */
   avatarManager: AvatarManager;
   /** Filters are kept per repository, and a repository is open in at most
-   *  one tab (GLOSSARY.md's Tab), so instances never share an entry. */
+   *  one Tab (GLOSSARY.md), so instances never share an entry. */
   branchFilterStore: BranchFilterStore;
   /**
    * One cache of every repository's branch facts. Shared on purpose: a
    * mutation in any instance invalidates all of it, so another instance's
    * next read pays for one more git read than it needed. Per instance, a
-   * repository open in one place and changed from another — a later tab, a
+   * repository open in one place and changed from another — a later Tab, a
    * fetch — would keep serving the facts from before.
    */
   branchFacts: BranchFacts;
@@ -78,33 +77,36 @@ export type SharedHost = {
   dispose(): void;
 };
 
-export function createSharedHost({
+export function createSharedServices({
   userDataPath,
   locale,
   helperDir,
   logger,
   clipboard
-}: SharedHostOptions): SharedHost {
+}: SharedServicesOptions): SharedServices {
   const config = createDesktopConfig(
     openDesktopSettings(userDataPath, { onError: logger.logError })
   );
   const extensionState = new ExtensionState(
     openDesktopStorage(userDataPath, { onError: logger.logError })
   );
-  const repoSource = createDesktopRepoSource(extensionState, { gitPath });
+  const repoSource = createDesktopRepoSource(extensionState, { gitPath: desktopGitPath });
 
   const avatarManager = new AvatarManager(
-    { gitPath, gitLabToken: config.gitLabToken },
+    { gitPath: desktopGitPath, gitLabToken: config.gitLabToken },
     extensionState
   );
   const branchFilterStore = createBranchFilterStore();
   // Reads only, so no askpass or sequence editor: nothing here asks or rebases,
   // and nothing here needs an instance's token. Clients are made per call.
-  const readers = createRepoGitClients({ gitPath });
+  const readers = createRepoGitClients({ gitPath: desktopGitPath });
   const resolveShowRemote = (repo: string): boolean =>
     resolveShowRemoteBranches(repoSource.getRepos()[repo], config.showRemoteBranches());
   const branchFacts = createBranchFacts({
-    readSnapshot: createGitSnapshotReader({ gitClientFor: readers.gitClientFor, gitPath }),
+    readSnapshot: createGitSnapshotReader({
+      gitClientFor: readers.gitClientFor,
+      gitPath: desktopGitPath
+    }),
     filterStore: branchFilterStore,
     resolveShowRemote,
     resolveExemptPatterns: config.inactiveBranchAlwaysShow,
@@ -148,7 +150,7 @@ export function createSharedHost({
     branchCleanup,
     askpass,
     helperDir,
-    gitPath,
+    gitPath: desktopGitPath,
     dispose: () => {
       askpass.dispose();
       branchFilterStore.dispose();

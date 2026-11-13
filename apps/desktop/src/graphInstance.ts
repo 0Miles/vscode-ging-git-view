@@ -1,6 +1,6 @@
 /* One webview instance of the desktop host: a graph on one repository, with a
  * dispatch, ports and git client of its own over the services every instance
- * shares (sharedHost.ts). The main process opens one today; #393's tabs open
+ * shares (sharedServices.ts). The main process opens one today; #393's tabs open
  * one each (#388). */
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
@@ -14,7 +14,7 @@ import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/seque
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
-import type { SharedHost } from "@ging/desktop/sharedHost";
+import type { SharedServices } from "@ging/desktop/sharedServices";
 import type { GitGraphViewState } from "@ging/shared/types";
 
 type GraphInstanceOptions = {
@@ -37,7 +37,7 @@ export type GraphInstance = {
 };
 
 export function createGraphInstance(
-  shared: SharedHost,
+  shared: SharedServices,
   { repo, channel, prompts }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
@@ -53,7 +53,7 @@ export function createGraphInstance(
   const gitClients = createRepoGitClients({ gitPath: shared.gitPath, gitEnv });
 
   /** What a change to the repository costs: every cached branch read (they
-   *  are shared, see `SharedHost.branchFacts`), and a redraw of this graph. */
+   *  are shared, see `SharedServices.branchFacts`), and a redraw of this graph. */
   const refresh = () => {
     branchFacts.invalidate();
     void bridge.post({ command: "refresh" });
