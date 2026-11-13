@@ -80,6 +80,14 @@
       }
     },
     {
+      // The desktop preload runs in the page with Electron's renderer API; the
+      // E2E hands functions to `page.evaluate`, which run in the page too.
+      "files": ["apps/desktop/src/preload.ts", "apps/desktop/e2e/**/*.ts"],
+      "env": {
+        "browser": true
+      }
+    },
+    {
       // Runs in both the webview and the extension host, so neither set of globals
       "files": ["packages/shared/**/*.ts"],
       "env": {
@@ -108,9 +116,10 @@
       }
     },
     {
-      // apps/vscode leaves git operations to core's command services; the
-      // reasons and the whitelist are in ADR-0027's consequences.
-      "files": ["apps/vscode/src/**"],
+      // The apps leave git operations to core's command services; the reasons
+      // and the whitelist are in ADR-0027's consequences. apps/desktop is held
+      // to it from its first line (#386).
+      "files": ["apps/vscode/src/**", "apps/desktop/src/**"],
       "rules": {
         "eslint/no-restricted-imports": [
           "error",
@@ -123,7 +132,7 @@
                   "!@ging/core/backend/queries/commitFileContent"
                 ],
                 "allowTypeImports": true,
-                "message": "apps/vscode must not run core's git operations itself; put the flow in a core command service and register it here. Type imports are fine."
+                "message": "An app must not run core's git operations itself; put the flow in a core command service and register it here. Type imports are fine."
               }
             ]
           }
