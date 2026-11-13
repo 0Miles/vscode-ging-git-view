@@ -6,7 +6,9 @@
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol } from "electron";
+import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol, shell } from "electron";
+
+import type { HostLogger } from "@ging/core/host/ports";
 
 import { CHANNELS } from "./channels";
 import {
@@ -16,8 +18,8 @@ import {
   parseForwardedLaunch,
   parseLaunchArgs
 } from "./launchArgs";
-import { log } from "./log";
 import { buildDesktopPage, PAGE_ASSETS } from "./page";
+import { createDesktopLogger } from "./ports/logger";
 import { type Theme, themeFor } from "./theme";
 
 /**
@@ -40,11 +42,11 @@ function currentTheme(): Theme {
 
 /** A launch's request, this process's own or a later one's. Logged only, for
  *  now: what opening the repository means is #388's. */
-function handleLaunch(request: LaunchRequest): void {
+function handleLaunch(request: LaunchRequest, logger: HostLogger): void {
   if (request.ignored.length > 0) {
-    log.warn(`launch: ignored arguments ${JSON.stringify(request.ignored)}`);
+    logger.log(`launch: ignored arguments ${JSON.stringify(request.ignored)}`);
   }
-  if (request.repo !== null) log.info(`launch: repository ${request.repo}`);
+  if (request.repo !== null) logger.log(`launch: repository ${request.repo}`);
 }
 
 function serveApp(): void {
@@ -94,16 +96,23 @@ const thisLaunch: LaunchCommandLine = { argv: process.argv, workingDirectory: pr
 const runtime: LaunchRuntime = { defaultApp: process.defaultApp === true };
 
 if (app.requestSingleInstanceLock(thisLaunch)) {
+  // Only the process holding the lock writes the log: the lock's scope is the
+  // user data folder the log is in (ADR-0032), so the file is this process's.
+  const logger = createDesktopLogger({
+    file: path.join(app.getPath("userData"), "logs", "main.log"),
+    open: (file) => shell.openPath(file)
+  });
+
   protocol.registerSchemesAsPrivileged([
     { scheme: SCHEME, privileges: { standard: true, secure: true } }
   ]);
 
-  handleLaunch(parseLaunchArgs(thisLaunch, runtime));
+  handleLaunch(parseLaunchArgs(thisLaunch, runtime), logger);
   // The later launch's own command line, not the `argv` beside it: see LaunchCommandLine.
   app.on("second-instance", (_event, _argv, _workingDirectory, data) => {
     const request = parseForwardedLaunch(data, runtime);
-    if (request === null) log.warn("launch: a later launch forwarded nothing readable");
-    else handleLaunch(request);
+    if (request === null) logger.log("launch: a later launch forwarded nothing readable");
+    else handleLaunch(request, logger);
     const win = BrowserWindow.getAllWindows()[0];
     if (win !== undefined) {
       if (win.isMinimized()) win.restore();
@@ -112,7 +121,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   });
 
   ipcMain.on(CHANNELS.webviewMessage, (_event, message: { command?: unknown }) => {
-    log.info(`webview: "${String(message?.command)}" has no handler yet (#388)`);
+    logger.log(`webview: "${String(message?.command)}" has no handler yet (#388)`);
   });
 
   app.on("window-all-closed", () => app.quit());
