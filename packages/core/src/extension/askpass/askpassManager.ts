@@ -46,8 +46,8 @@ export interface AskpassRoute {
  *  returned to git. When the server can't start, getEnv falls back to a no-op
  *  helper so git's own prompting is left untouched.
  *
- *  One server serves a whole host process. Git run with `getEnv()` asks the
- *  prompts the manager was built with; a host that asks in more than one place
+ *  One server serves a whole process. Git run with `getEnv()` asks the
+ *  prompts the manager was built with; a Host that asks in more than one place
  *  — the desktop host, one webview instance each — gives each its own `route`,
  *  whose env carries a token the helper sends back. */
 export class AskpassManager {

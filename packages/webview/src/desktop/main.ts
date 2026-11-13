@@ -13,18 +13,18 @@ const DESKTOP_ENTRY_MARKER = "ging-desktop-entry";
 
 document.documentElement.dataset.gingEntry = DESKTOP_ENTRY_MARKER;
 
-// The host states which kind of page it served (#388): a graph, or a notice in
+// The desktop host states which kind of page it served (#388): a graph, or a notice in
 // its place, which has no graph to start.
 if (document.documentElement.dataset.gingPage === "graph") {
   if (typeof viewState === "undefined") {
-    // A graph page with nothing to boot from is the host's mistake. Said where
-    // the host hears the webview's failures (ADR-0016), not left blank.
+    // A graph page with nothing to boot from is the desktop host's mistake. Said
+    // where it hears the webview's failures (ADR-0016), not left blank.
     sendMessage({
       command: "reportError",
       report: {
         origin: "uncaught",
         command: null,
-        message: "The host served a graph page without a viewState",
+        message: "The desktop host served a graph page without a viewState",
         stack: null
       }
     });

@@ -6,8 +6,8 @@ import { createVscodeMock } from "./setup";
 // `data-ging-page` (#388): a graph, or a notice in its place — nothing asked
 // for, or a path that is no repository. A notice page still loads the desktop
 // entry (the screens that replace the graph come in through it, ADR-0031) and
-// starts no graph. A graph page the host forgot to give a `viewState` is the
-// host's mistake, and is reported as a failure rather than left blank.
+// starts no graph. A graph page the desktop host forgot to give a `viewState`
+// is its mistake, and is reported as a failure rather than left blank.
 //
 // Apart from desktopEntry.test.ts, which boots the graph for its whole file.
 
