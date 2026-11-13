@@ -6,6 +6,7 @@ import type { L10n } from "@ging/core/host/ports";
 import english from "@ging/shared/l10n/bundle.l10n.json";
 import simplifiedChinese from "@ging/shared/l10n/bundle.l10n.zh-cn.json";
 import traditionalChinese from "@ging/shared/l10n/bundle.l10n.zh-tw.json";
+import { fillTemplate } from "@ging/webview/utils/html";
 
 type Bundle = Record<string, string>;
 
@@ -28,11 +29,7 @@ export function bundleLocale(locale: string): string | null {
  *  itself; `{0}`, `{1}`… stand for the arguments, as in VS Code's `l10n.t`. */
 export function createL10n(base: Bundle, localized: Bundle = {}): L10n {
   return {
-    t: (key, ...args) =>
-      (localized[key] ?? base[key] ?? key).replace(/\{(\d+)\}/g, (placeholder, index: string) => {
-        const arg = args[Number(index)];
-        return arg === undefined ? placeholder : String(arg);
-      })
+    t: (key, ...args) => fillTemplate(localized[key] ?? base[key] ?? key, ...args.map(String))
   };
 }
 
