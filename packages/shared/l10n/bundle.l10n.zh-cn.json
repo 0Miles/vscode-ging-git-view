@@ -423,6 +423,7 @@
   "action.copyLink": "复制链接到剪贴板",
   "type.link": "链接",
   "error.subfolderHint": "如果您的仓库位于工作区的子文件夹中，请调高 “ging-git-view.maxDepthOfRepoSearch” 设置以便发现它。",
+  "desktop.cannotOpenRepo": "无法打开 {0}：它不是 Git 仓库。",
   "ui.find": "查找",
   "ui.openTerminal": "终端",
   "ui.findPlaceholder": "在图形中查找…",
