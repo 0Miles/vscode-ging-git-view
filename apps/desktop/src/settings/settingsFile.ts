@@ -1,7 +1,9 @@
 /* The desktop app's settings file: userData/settings.json, keyed as VS Code's
  * settings.json is (`"ging-git-view.graph.edgeStyle": "angular"`), so a user's
- * VS Code settings can be copied over as they are. What it may hold is the
- * schema derived from the extension's (deriveSchema.ts). */
+ * GING entries can be copied over from VS Code. It is plain JSON, though, not
+ * VS Code's JSONC: a comment or a trailing comma makes the file unreadable,
+ * which answers the defaults and is reported. What it may hold is the schema
+ * derived from the extension's (deriveSchema.ts). */
 
 import * as fs from "node:fs";
 
@@ -33,12 +35,18 @@ function allowed(node: SchemaNode, value: unknown): unknown {
       if (node.pattern !== undefined && !new RegExp(node.pattern).test(value)) return NOT_ALLOWED;
       break;
     case "number":
-    case "integer":
+    case "integer": {
       if (typeof value !== "number" || !Number.isFinite(value)) return NOT_ALLOWED;
       if (node.type === "integer" && !Number.isInteger(value)) return NOT_ALLOWED;
-      if (node.minimum !== undefined && value < node.minimum) return NOT_ALLOWED;
-      if (node.maximum !== undefined && value > node.maximum) return NOT_ALLOWED;
-      break;
+      // Clamped rather than refused: 120 for an hourly-at-most interval means
+      // as long as allowed, not the default. (`HostConfig.autoFetchIntervalMinutes`
+      // leaves the clamping to its timer, which this agrees with.)
+      const clamped = Math.min(
+        node.maximum ?? Infinity,
+        Math.max(node.minimum ?? -Infinity, value)
+      );
+      return node.enum === undefined || node.enum.includes(clamped) ? clamped : NOT_ALLOWED;
+    }
     case "array": {
       if (!Array.isArray(value)) return NOT_ALLOWED;
       const items = node.items;

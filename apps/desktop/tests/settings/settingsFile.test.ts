@@ -84,7 +84,6 @@ describe("the desktop settings file", () => {
   it.each([
     ["the wrong type", "ging-git-view.show.tags", "yes", true],
     ["a value off its enum", "ging-git-view.graph.edgeStyle", "wavy", "rounded"],
-    ["a number out of range", "ging-git-view.autoFetch.intervalMinutes", 0, 10],
     ["a number that is not finite", "ging-git-view.autoFetch.intervalMinutes", null, 10],
     ["an array where an object belongs", "ging-git-view.columnVisibility", [], { date: true }],
     ["an object where an array belongs", "ging-git-view.graph.palette", {}, ["#000000"]]
@@ -92,6 +91,14 @@ describe("the desktop settings file", () => {
     const s = subject();
     s.write({ [key]: value });
     expect(s.settings.get(key)).toEqual(expected);
+  });
+
+  it("brings a number out of its range to the nearest end, as a user who overshot meant", () => {
+    const s = subject();
+    s.write({ "ging-git-view.autoFetch.intervalMinutes": 120 });
+    expect(s.settings.get("ging-git-view.autoFetch.intervalMinutes")).toBe(60);
+    s.write({ "ging-git-view.autoFetch.intervalMinutes": 0.5 });
+    expect(s.settings.get("ging-git-view.autoFetch.intervalMinutes")).toBe(1);
   });
 
   it("drops the entries of a list that do not fit its items, and keeps the rest", () => {
