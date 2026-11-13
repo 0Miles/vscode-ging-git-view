@@ -24,15 +24,9 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **不用 `recordVideo`,除錯用 trace。** 錄影要多下載一份 ffmpeg,trace 已經有每一步的 DOM 快照。
 - **Windows 的 E2E 延到階段 E。** CI 上 Windows 只跑 vitest(`windows-tests` job)。E2E 在本機 Windows 跑得起來,#386 就是在 Windows 上先跑綠再上 CI 的。
 - **測的是未打包的建置,所以 E2E 綠燈不證明安裝包可用。** 未打包時 `process.execPath` 是 `node_modules` 裡的 Electron,打包後是 app 本身;askpass 與 sequence editor 的 helper 打包時還要 asarUnpack。安裝包的 smoke 是階段 E 的事,至少要跑 askpass 與 interactive rebase。
-
-## E2E 依賴的兩個 fuse
-
-打包工具的 fuse 設定會讓這一層整個失效,所以寫在這裡給階段 E:
-
-- **`RunAsNode`**:`askpassManager.ts` 與 `sequenceEditorManager.ts` 用 `ELECTRON_RUN_AS_NODE=1` 加 `process.execPath`,把 helper 當成 Node 程式執行。關掉它,兩個 helper 都會壞 —— git 會把 app 本身當成第二個行程啟動,帶著 helper 的路徑與 `Username for '…'` 這種參數。啟動參數的過濾(只接受 `--repo <path>`、`--repo=<path>` 或一個位置參數)就是為了讓這種啟動什麼都不開。
-- **`EnableNodeCliInspectArguments`**:Playwright 和 WDIO 都靠 `--inspect` 連上 main process。關掉它,安裝包就沒辦法做自動化測試。
-
-Electron Forge 的 template 預設把兩個都關掉;用 Forge 就必須覆寫。
+- **這一層依賴兩個 Electron fuse,而 Electron Forge 的 template 預設把兩個都關掉**;用 Forge 就必須覆寫,寫在這裡給階段 E:
+  - **`RunAsNode`**:`askpassManager.ts` 與 `sequenceEditorManager.ts` 用 `ELECTRON_RUN_AS_NODE=1` 加 `process.execPath`,把 helper 當成 Node 程式執行。關掉它,兩個 helper 都會壞 —— git 會把 app 本身當成第二個行程啟動,帶著 helper 的路徑與 `Username for '…'` 這種參數。啟動參數的過濾(只接受 `--repo <path>` 或一個位置參數)就是為了讓這種啟動什麼都不開。
+  - **`EnableNodeCliInspectArguments`**:Playwright 和 WDIO 都靠 `--inspect` 連上 main process。關掉它,安裝包就沒辦法做自動化測試。
 
 ## 考慮過但否決的方案
 

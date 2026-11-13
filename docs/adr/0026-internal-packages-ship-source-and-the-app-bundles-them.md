@@ -21,7 +21,7 @@ status: accepted
 
 - **每個內部套件各自 build,app 依賴編譯產物。** 理由見上。
 - **改用 `tsc -b` project references。** 它能消掉現在的一個重複:每個套件的 `typecheck` 會把它 import 到的其他套件原始碼一併檢查一遍。代價是改寫每一份 `tsconfig`,而重複只是 CI 時間。#331 刻意沒做,現在也不做;它不改變「套件不出產物」這個決定,只改型別檢查的分工。
-- **release-please 的 component 改成 `apps/vscode`。** 只改到 `packages/*` 的 commit 不會觸發擴充升版,見上。#291 列過的另一個候選 —— 維持 `.` 再用 `exclude-paths` 排除 `apps/desktop` —— 解的是另一個問題(桌面版的 commit 會讓擴充升版),`apps/desktop` 出現時採用了,見下方「補充」。
+- **release-please 的 component 改成 `apps/vscode`。** 只改到 `packages/*` 的 commit 不會觸發擴充升版,見上。#291 列過的另一個候選 —— 維持 `.` 再用 `exclude-paths` 排除 `apps/desktop` —— 解的是另一個問題(桌面版的 commit 會讓擴充升版),等 `apps/desktop` 存在時再決定。
 - **把 icon 與 README 搬進 `apps/vscode`。** 擴充的檔案會集中一處,但 icon 的網址已經寫死在線上的 Marketplace 頁面,見上。
 - **只靠 lint 規則守邊界,不靠依賴宣告。** lint 守的是一個 import 名稱;依賴宣告守的是整張依賴圖 —— 套件 import 了任何沒列的東西都過不了 typecheck。lint 規則的角色見上面「那為什麼還有一條 oxlint 規則?」。
 
@@ -30,11 +30,13 @@ status: accepted
 - **core 需要宿主的能力時,透過 ADR-0027 的 host ports 拿**,不是 import `vscode`。
 - **`apps/desktop` 出現時,要回頭看兩件事**:release-please 是否要 `exclude-paths`,以及哪些根目錄的檔案桌面版也要複製一份。
 
-## 補充:`apps/desktop` 出現之後([#386](https://github.com/0Miles/vscode-ging-git-view/issues/386))
+## 補記(2026-11-13,#386)
+
+`apps/desktop` 出現了,上面「後果」要回頭看的兩件事在這裡定案。
 
 **release-please 的 `.` 加上 `"exclude-paths": ["apps/desktop"]`。** component 仍是 `.`,理由同上;不處理的話,`apps/desktop` 底下的 `feat:` / `fix:` 會讓擴充升版,也會寫進擴充的 CHANGELOG,而那些變更一行都不在 `.vsix` 裡。
 
-`exclude-paths` 的判準是**整個 commit**:一個 commit 改到的檔案**全部**在 `apps/desktop/` 底下,它才被略過;只要有一個檔案在外面,它就照常算進擴充。這是 release-please 的 `CommitExclude.shouldInclude`(`src/util/commit-exclude.ts`,release-please 15.10.0 起;`release-please-action@v5` 用的是 `^17.6.1`)的行為,而且過濾發生在 `Manifest.buildPullRequests()` 把 commit 交給 strategy 之前,所以版號與 CHANGELOG 看到的是同一份過濾後的清單。實際跑一次 dry-run 要 GitHub token,所以佐證用的是本機可重現的推導:把那段判準套在 `git log --name-only` 上,見 #386 的 PR 說明。
+`exclude-paths` 的判準是**整個 commit**:一個 commit 改到的檔案**全部**在 `apps/desktop/` 底下,它才被略過;只要有一個檔案在外面,它就照常算進擴充。這是 release-please 的 `CommitExclude.shouldInclude`(`src/util/commit-exclude.ts`,release-please 15.10.0 起;`release-please-action@v5` 用的是 `^17.6.1`)的行為,而且過濾發生在 `Manifest.buildPullRequests()` 把 commit 交給 strategy 之前,所以版號與 CHANGELOG 看到的是同一份過濾後的清單。實際跑一次 dry-run 要 GitHub token,所以佐證用的是本機可重現的推導:把那段判準(`.` 的 package 底下,一個 commit 的檔案是否**全部**以 `apps/desktop/` 開頭)套在 `git log --no-merges --name-only` 上。#386 的分支上,只改 `apps/desktop/` 的 `feat(desktop):` 被略過,其餘 commit 照算;拿掉 `exclude-paths` 重跑,同一個 commit 就會讓擴充升版。推導的腳本與輸出附在 #386 的 PR 說明。
 
 由此而來的慣例:
 
