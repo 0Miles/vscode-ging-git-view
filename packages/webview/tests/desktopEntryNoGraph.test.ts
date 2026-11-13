@@ -1,36 +1,53 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createVscodeMock } from "./setup";
 
-// The desktop host serves a page without a graph when it has no repository to
-// show: nothing asked for, or a path that is not one (#388). That page still
-// loads the desktop entry — the screens that replace the graph come in through
-// it (ADR-0031) — but carries no `viewState`, and the graph must not start on
-// it: built from nothing, it would only throw, and report that it did.
+// The desktop host says which kind of page it served, on `<html>` as
+// `data-ging-page` (#388): a graph, or a notice in its place — nothing asked
+// for, or a path that is no repository. A notice page still loads the desktop
+// entry (the screens that replace the graph come in through it, ADR-0031) and
+// starts no graph. A graph page the host forgot to give a `viewState` is the
+// host's mistake, and is reported as a failure rather than left blank.
 //
-// A file of its own, because desktopEntry.test.ts boots the graph for its
-// whole file and a module is evaluated once.
+// Apart from desktopEntry.test.ts, which boots the graph for its whole file.
 
-describe("the desktop entry on a page without a graph", () => {
-  let mock: ReturnType<typeof createVscodeMock>;
-  const errors: unknown[] = [];
+/** Load the desktop entry afresh on a page of `kind`, with or without a
+ *  `viewState`, and say what it did. */
+async function load(kind: "graph" | "notice") {
+  vi.resetModules();
+  const mock = createVscodeMock();
+  delete (globalThis as { viewState?: unknown }).viewState;
+  document.documentElement.dataset.gingPage = kind;
+  document.body.innerHTML = "<h2>Unable to load GING</h2>";
+  await import("@ging/webview/desktop/main");
+  return mock;
+}
 
-  beforeAll(async () => {
-    vi.resetModules();
-    mock = createVscodeMock();
-    delete (globalThis as { viewState?: unknown }).viewState;
-    document.body.innerHTML = "<h2>Unable to load GING</h2>";
-    window.addEventListener("error", (e) => errors.push(e.error));
-    await import("@ging/webview/desktop/main");
-  });
-
-  it("still marks the page as loaded from the desktop entry", () => {
+describe("the desktop entry on a notice page", () => {
+  it("still marks the page as loaded from the desktop entry", async () => {
+    await load("notice");
     expect(document.documentElement.dataset.gingEntry).toBe("ging-desktop-entry");
   });
 
-  it("starts no graph: asks the host nothing and leaves the page as served", () => {
+  it("starts no graph: asks the host nothing and leaves the page as served", async () => {
+    const mock = await load("notice");
     expect(mock.sentMessages).toEqual([]);
-    expect(errors).toEqual([]);
     expect(document.body.innerHTML).toBe("<h2>Unable to load GING</h2>");
+  });
+});
+
+describe("the desktop entry on a graph page without a view state", () => {
+  it("reports the failure to the host instead of starting nothing in silence", async () => {
+    const mock = await load("graph");
+    expect(mock.sentMessages).toEqual([
+      {
+        command: "reportError",
+        report: expect.objectContaining({
+          origin: "uncaught",
+          command: null,
+          message: expect.stringContaining("viewState")
+        })
+      }
+    ]);
   });
 });
