@@ -11,6 +11,9 @@
     "start": "electron .",
     "test:e2e": "playwright test"
   },
+  "dependencies": {
+    "monaco-editor": "^0.57.0"
+  },
   "devDependencies": {
     "@ging/core": "workspace:*",
     "@ging/shared": "workspace:*",
