@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -29,14 +30,22 @@ const log = () => {
   }
 };
 
+/** The arguments a launch of this app gives Electron, after its own switches. */
+const appArgs = (...args: string[]) => [
+  // English whatever the machine's locale, so the page's words can be read.
+  "--lang=en-US",
+  APP_DIR,
+  `--user-data-dir=${path.join(scratch, "userData")}`,
+  ...args
+];
+
 /** Start the app on `args`, in a user data folder of its own (the
  *  single-instance lock's scope) and with git kept off the developer's own
  *  configuration (ADR-0032). */
 async function launch(...args: string[]): Promise<ElectronApplication> {
   app = await _electron.launch({
     executablePath: ELECTRON,
-    // English whatever the machine's locale, so the page's words can be read.
-    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`, ...args],
+    args: appArgs(...args),
     env: env as Record<string, string>
   });
   return app;
@@ -96,4 +105,56 @@ test("an invalid --repo shows why, and hands the webview nothing", async () => {
   await expect(page.locator("html")).toHaveAttribute("data-ging-entry", "ging-desktop-entry");
   await expect.poll(log).toContain(`launch: cannot open ${missing}`);
   expect(log()).not.toMatch(WEBVIEW_FAILURE);
+});
+
+test("a folder that is not a repository shows why too", async () => {
+  const folder = path.join(scratch, "plain-folder");
+  mkdirSync(folder);
+  const page = await (await launch("--repo", folder)).firstWindow();
+
+  await expect(page.locator("p")).toHaveText(`Cannot open ${folder}: it is not a Git repository.`);
+  await expect(page.locator("#commitTable")).toHaveCount(0);
+  expect(log()).not.toMatch(WEBVIEW_FAILURE);
+});
+
+test("a later launch naming a path that is no repository leaves the graph open, and says why", async () => {
+  const repo = makeFixtureRepo(env);
+  try {
+    const electronApp = await launch("--repo", repo.path);
+    const page = await electronApp.firstWindow();
+    const rows = page.locator("#commitTable tr.commit");
+    await expect(rows).toHaveCount(repo.commits.length);
+    // The system's dialog, answered in its place through the seam (ADR-0032).
+    await electronApp.evaluate(({ dialog }) => {
+      const asked: unknown[] = [];
+      (globalThis as Record<string, unknown>).askedBoxes = asked;
+      dialog.showMessageBox = (async (...args: unknown[]) => {
+        asked.push(args.at(-1));
+        return { response: 0, checkboxChecked: false };
+      }) as typeof dialog.showMessageBox;
+    });
+
+    const missing = path.join(scratch, "not-a-repo");
+    const sandbox = process.platform === "linux" ? ["--no-sandbox"] : [];
+    const second = spawn(ELECTRON, [...sandbox, ...appArgs("--repo", missing)], {
+      env,
+      stdio: "ignore"
+    });
+    expect(await new Promise((resolve) => second.on("exit", resolve))).toBe(0);
+
+    await expect
+      .poll(() => electronApp.evaluate(() => (globalThis as Record<string, unknown>).askedBoxes))
+      .toEqual([
+        expect.objectContaining({
+          type: "error",
+          detail: `Cannot open ${missing}: it is not a Git repository.`
+        })
+      ]);
+    await expect(rows).toHaveCount(repo.commits.length);
+    expect(log()).not.toMatch(WEBVIEW_FAILURE);
+  } finally {
+    await app?.close();
+    app = null;
+    rmSync(repo.path, { recursive: true, force: true });
+  }
 });

@@ -35,7 +35,7 @@ import {
   parseForwardedLaunch,
   parseLaunchArgs
 } from "./launchArgs";
-import { buildDesktopPage, PAGE_ASSETS, type PageContent } from "./page";
+import { buildDesktopPage, type Notice, PAGE_ASSETS, type PageContent } from "./page";
 import { createDesktopClipboard } from "./ports/clipboard";
 import { createDesktopLogger } from "./ports/logger";
 import { createInterimPrompts } from "./ports/prompts";
@@ -53,8 +53,9 @@ import { type Theme, themeFor } from "./theme";
 const SCHEME = "ging";
 const HOST = "app";
 const PAGE_URL = `${SCHEME}://${HOST}/`;
-/** The query parameter naming which content a load of the page is for. */
-const PAGE_PARAM = "page";
+/** The query parameter carrying the id of what a load of the page shows
+ *  (`Shown.id`), so a load of a replaced page can be told from the current. */
+const PAGE_ID_PARAM = "page";
 /** The files in out/, next to this bundle, that `ging://app/<file>` serves:
  *  the page's assets and the script's source map. Nothing else is served. */
 const SERVED_FILES = new Set<string>([...Object.values(PAGE_ASSETS), `${PAGE_ASSETS.script}.map`]);
@@ -88,7 +89,7 @@ function serveApp(pageFor: (id: string | null) => PageContent): void {
     if (url.host !== HOST) return new Response(null, { status: 404 });
     if (url.pathname === "/") {
       return new Response(
-        buildDesktopPage(currentTheme(), pageFor(url.searchParams.get(PAGE_PARAM))),
+        buildDesktopPage(currentTheme(), pageFor(url.searchParams.get(PAGE_ID_PARAM))),
         {
           headers: { "content-type": "text/html; charset=utf-8" }
         }
@@ -171,6 +172,12 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   let shown: Shown | null = null;
   let nextId = 0;
 
+  /** Whatever the window shows is done: its instance, if any, disposed. */
+  const closeShown = () => {
+    shown?.instance?.dispose();
+    shown = null;
+  };
+
   /** Put `page` in the window, answered by `instance` if it is a graph; the
    *  instance shown before is done. */
   const show = (
@@ -178,14 +185,14 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     instance: GraphInstance | null,
     deliver: Shown["deliver"]
   ) => {
-    shown?.instance?.dispose();
+    closeShown();
     shown = { id: ++nextId, page, instance, deliver };
-    void win?.loadURL(`${PAGE_URL}?${PAGE_PARAM}=${shown.id}`);
+    void win?.loadURL(`${PAGE_URL}?${PAGE_ID_PARAM}=${shown.id}`);
   };
 
   /** A page with no graph, saying why when `notice` is not null. Nothing on
    *  it should post anything; whatever does is said in the log. */
-  const showNotice = (notice: { title: string; detail: string } | null) =>
+  const showNotice = (notice: Notice | null) =>
     show(
       () => ({ notice }),
       null,
@@ -193,16 +200,16 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     );
 
   /** A graph on `repo`, in a webview instance of its own. */
-  const showGraph = (host: SharedHost, window: BrowserWindow, repo: string) => {
-    const { channel, deliver } = channelTo(window.webContents, logger);
+  const showGraph = (host: SharedHost, owner: BrowserWindow, repo: string) => {
+    const { channel, deliver } = channelTo(owner.webContents, logger);
     const instance = createGraphInstance(host, {
       repo,
       channel,
       prompts: createInterimPrompts({
         // Looked up when called, so the E2E can answer in their place (ADR-0032).
         dialogs: {
-          showMessageBox: (options) => dialog.showMessageBox(window, options),
-          showSaveDialog: (options) => dialog.showSaveDialog(window, options)
+          showMessageBox: (options) => dialog.showMessageBox(owner, options),
+          showSaveDialog: (options) => dialog.showSaveDialog(owner, options)
         },
         l10n: host.l10n,
         logger
@@ -216,25 +223,34 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     );
   };
 
-  /** Open what `request` names: its repository, or in its place a notice that
-   *  it is none. A request naming nothing changes nothing. */
+  /** Open what `request` names: its repository, or a notice that it is none.
+   *  The notice takes the place only of a page with no graph: a later launch
+   *  naming a bad path must not close the graph someone is using, so there it
+   *  is said in a box over it. A request naming nothing changes nothing. */
   const open = async (request: LaunchRequest) => {
     if (shared === null || win === null || request.repo === null) return;
     const host = shared;
-    const window = win;
+    const owner = win;
     const target = await repoToOpen(request.repo, host.gitPath());
     if ("unusable" in target) {
       logger.log(`launch: cannot open ${target.unusable}, not a Git repository`);
-      showNotice({
+      const notice: Notice = {
         title: host.l10n.t("error.unableToLoadGitGraph"),
         detail: host.l10n.t("desktop.cannotOpenRepo", target.unusable)
-      });
+      };
+      if (!shown?.instance) showNotice(notice);
+      else
+        void dialog.showMessageBox(owner, {
+          type: "error",
+          message: notice.title,
+          detail: notice.detail
+        });
       return;
     }
     logger.log(`launch: opening ${target.repo}`);
     host.repoSource.addRepo(target.repo);
     host.extensionState.setLastActiveRepo(target.repo);
-    showGraph(host, window, target.repo);
+    showGraph(host, owner, target.repo);
   };
 
   const launch = parseLaunchArgs(thisLaunch, runtime);
@@ -257,15 +273,17 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   });
 
   ipcMain.on(CHANNELS.webviewMessage, (event, message: RequestMessage) => {
-    if (shown !== null && win !== null && event.sender === win.webContents) {
-      shown.deliver(message);
-    }
+    if (shown === null || win === null || event.sender !== win.webContents) return;
+    // Only from the page that is shown: one replaced but still unloading must
+    // not reach the instance that replaced it.
+    const frameUrl = event.senderFrame?.url ?? "";
+    const id = URL.canParse(frameUrl) ? new URL(frameUrl).searchParams.get(PAGE_ID_PARAM) : null;
+    if (id === String(shown.id)) shown.deliver(message);
   });
 
   app.on("window-all-closed", () => app.quit());
   app.on("will-quit", () => {
-    shown?.instance?.dispose();
-    shown = null;
+    closeShown();
     shared?.dispose();
     void logger.close();
   });
@@ -282,8 +300,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     followSystemTheme();
     win = createWindow();
     win.on("closed", () => {
-      shown?.instance?.dispose();
-      shown = null;
+      closeShown();
       win = null;
     });
     if (launch.repo === null) showNotice(null);

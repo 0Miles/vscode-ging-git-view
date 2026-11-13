@@ -9,6 +9,9 @@ import { bodyClassOf, type Theme } from "./theme";
  *  these from the app's `out/` (see `main.ts`). */
 export const PAGE_ASSETS = { stylesheet: "main.css", script: "web.js" } as const;
 
+/** Why a page shows no graph: a heading, and a line under it. */
+export type Notice = { title: string; detail: string };
+
 /** What a page shows: a graph, or in its place a notice saying why there is
  *  none — `null` when nothing was asked for, which is a page left empty. */
 export type PageContent =
@@ -20,7 +23,7 @@ export type PageContent =
         nonce: string;
       };
     }
-  | { notice: { title: string; detail: string } | null };
+  | { notice: Notice | null };
 
 /** JSON that cannot close the `<script>` it is written into, whatever a
  *  repository path or a string holds. */
@@ -40,6 +43,14 @@ function graphColourStyles(colours: string[]): { variables: string; rules: strin
       .map((_, i) => `[data-color="${i}"]{--git-graph-color:var(--git-graph-color${i});}`)
       .join(" ")
   };
+}
+
+/** The `<body>` of a page showing `notice` in place of a graph, or nothing. */
+function noticeBody(theme: Theme, notice: Notice | null): string {
+  if (notice === null) return `<body class="${bodyClassOf(theme.kind)}">`;
+  return `<body class="${bodyClassOf(theme.kind)} unableToLoad">
+<h2>${escapeHtml(notice.title)}</h2>
+<p>${escapeHtml(notice.detail)}</p>`;
 }
 
 /**
@@ -63,22 +74,13 @@ export function buildDesktopPage(theme: Theme, content: PageContent = { notice: 
   const scriptSrc = graph === null ? "'self'" : `'self' 'nonce-${graph.nonce}'`;
   const colours = graphColourStyles(graph?.viewState.graphColours ?? []);
 
-  let body: string;
-  if (graph !== null) {
-    body = `<body class="${bodyClassOf(theme.kind)}" style="${escapeHtml(colours.variables)}">
-${buildWebviewMarkup(graph.l10n)}
-<script nonce="${graph.nonce}">var viewState = ${scriptJson(graph.viewState)};</script>
-<script nonce="${graph.nonce}">var l10n = ${scriptJson(graph.l10n)};</script>`;
-  } else {
-    const notice = "notice" in content ? content.notice : null;
-    body = `<body class="${bodyClassOf(theme.kind)}${notice === null ? "" : " unableToLoad"}">`;
-    if (notice !== null) {
-      body += `
-<h2>${escapeHtml(notice.title)}</h2>
-<p>${escapeHtml(notice.detail)}</p>`;
-    }
-  }
-
+  const body =
+    "graph" in content
+      ? `<body class="${bodyClassOf(theme.kind)}" style="${escapeHtml(colours.variables)}">
+${buildWebviewMarkup(content.graph.l10n)}
+<script nonce="${content.graph.nonce}">var viewState = ${scriptJson(content.graph.viewState)};</script>
+<script nonce="${content.graph.nonce}">var l10n = ${scriptJson(content.graph.l10n)};</script>`
+      : noticeBody(theme, content.notice);
   return `<!DOCTYPE html>
 <html lang="en" style="${escapeHtml(style)}">
 <head>

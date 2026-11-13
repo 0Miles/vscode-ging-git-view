@@ -45,10 +45,17 @@ export type SharedHost = {
   logger: HostLogger;
   clipboard: Clipboard;
   opener: Opener;
+  /** The known repositories are the app's, not a window's (GLOSSARY.md: on
+   *  the desktop host, the recently opened list); each instance boots on its
+   *  own current repository among them. */
   repoSource: DesktopRepoSource;
+  /** One for now, so the current repository is the app's; #393 keeps one per
+   *  tab. */
   extensionState: ExtensionState;
   /** One cache; each instance registers its bridge and gets every avatar. */
   avatarManager: AvatarManager;
+  /** Filters are kept per repository, and a repository is open in at most
+   *  one tab (GLOSSARY.md's Tab), so instances never share an entry. */
   branchFilterStore: BranchFilterStore;
   /**
    * One cache of every repository's branch facts. Shared on purpose: a
@@ -58,6 +65,8 @@ export type SharedHost = {
    * fetch — would keep serving the facts from before.
    */
   branchFacts: BranchFacts;
+  /** Holds nothing of its own: builds each payload from `branchFacts`, for
+   *  the repository it is asked about. */
   branchCleanup: BranchCleanup;
   /** One server; each instance takes a route, so a prompt git raises goes
    *  back to the instance whose git raised it. */
@@ -87,7 +96,8 @@ export function createSharedHost({
     extensionState
   );
   const branchFilterStore = createBranchFilterStore();
-  // Reads only, so no askpass or sequence editor: nothing here asks or rebases.
+  // Reads only, so no askpass or sequence editor: nothing here asks or rebases,
+  // and nothing here needs an instance's token. Clients are made per call.
   const readers = createRepoGitClients({ gitPath });
   const resolveShowRemote = (repo: string): boolean =>
     resolveShowRemoteBranches(repoSource.getRepos()[repo], config.showRemoteBranches());
