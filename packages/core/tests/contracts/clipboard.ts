@@ -21,12 +21,6 @@ export function describeClipboardContract(name: string, make: () => ClipboardSub
       expect(subject.held()).toBe("0123456789abcdef");
     });
 
-    it("holds a multi-line text as written", async () => {
-      const subject = make();
-      await subject.clipboard.writeText("Subject\n\nBody line\n");
-      expect(subject.held()).toBe("Subject\n\nBody line\n");
-    });
-
     it("rejects when the clipboard cannot be written", async () => {
       const subject = make();
       subject.breakClipboard();

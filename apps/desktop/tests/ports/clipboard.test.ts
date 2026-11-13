@@ -1,3 +1,5 @@
+import { describe, expect, it } from "vitest";
+
 import { createDesktopClipboard, type SystemClipboard } from "@ging/desktop/ports/clipboard";
 
 import { describeClipboardContract } from "@ging/core/tests/contracts/clipboard";
@@ -25,4 +27,14 @@ describeClipboardContract("the desktop Clipboard", () => {
       system.broken = true;
     }
   };
+});
+
+describe("the desktop Clipboard", () => {
+  // Not the port's promise but this host's: Electron 45.3.1 was measured to
+  // read back LF and CRLF line ends as written, so nothing here rewrites them.
+  it("hands a multi-line text to Electron as written", async () => {
+    const { system, clipboard } = systemClipboard();
+    await createDesktopClipboard(clipboard).writeText("Subject\r\n\nBody line\n");
+    expect(system.text).toBe("Subject\r\n\nBody line\n");
+  });
 });
