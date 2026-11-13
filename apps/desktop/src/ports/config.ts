@@ -22,7 +22,16 @@ import type {
   RefSpaceSubstitution
 } from "@ging/shared/types";
 
-export function createDesktopConfig(settings: Settings): HostConfig {
+/** The port, and what the desktop host's own services read besides — the
+ *  avatar fetch and the branch facts — as VS Code's `Config` answers them. */
+export type DesktopConfig = HostConfig & {
+  /** The GitLab token for avatar look-ups; empty when none is set. */
+  gitLabToken(): string;
+  /** The inactivity cutoff in days (`<= 0` disables the rule). */
+  inactiveBranchThresholdDays(): number;
+};
+
+export function createDesktopConfig(settings: Settings): DesktopConfig {
   /** A setting by its name after `ging-git-view.`; the settings file has
    *  already held it to the schema's type and enum. */
   const get = <T>(name: string) => settings.get(SECTION + name) as T;
@@ -40,6 +49,8 @@ export function createDesktopConfig(settings: Settings): HostConfig {
     showSignatureStatus: () => get("history.showSignatures"),
     useMailmap: () => get("history.useMailmap"),
     inactiveBranchAlwaysShow: () => get("branches.alwaysShow"),
+    inactiveBranchThresholdDays: () => get("branches.inactiveAfterDays"),
+    gitLabToken: () => get("history.gitLabToken"),
     fetchAndPrune: () => get("fetch.prune"),
     fetchAndPruneTags: () => get("fetch.pruneTags"),
     autoFetchEnabled: () => get("autoFetch.enabled"),

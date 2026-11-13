@@ -34,6 +34,20 @@ describe("the desktop HostConfig", () => {
     }
   });
 
+  // Beyond the port: what the desktop host's own services read (the avatar
+  // fetch, the branch facts), as VS Code's Config answers them.
+  it("answers the GitLab token and the inactivity cutoff, set or not", async () => {
+    const { config, set } = subject();
+    expect(config.gitLabToken()).toBe("");
+    expect(config.inactiveBranchThresholdDays()).toBe(30);
+
+    // A later request: the reads above shared one parse of the file.
+    await new Promise((resolve) => setImmediate(resolve));
+    set({ "history.gitLabToken": "glpat-x", "branches.inactiveAfterDays": 7 });
+    expect(config.gitLabToken()).toBe("glpat-x");
+    expect(config.inactiveBranchThresholdDays()).toBe(7);
+  });
+
   it("answers the extension's defaults when nothing is set", () => {
     const { config } = subject();
     expect(config.fetchAndPrune()).toBe(true);

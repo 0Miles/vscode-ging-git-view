@@ -16,13 +16,12 @@ import {
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { ExtensionState } from "@ging/core/extensionState";
-import type { Clipboard, HostConfig, HostLogger, L10n, Opener } from "@ging/core/host/ports";
-import { createDesktopConfig } from "@ging/desktop/ports/config";
+import type { Clipboard, HostLogger, L10n, Opener } from "@ging/core/host/ports";
+import { createDesktopConfig, type DesktopConfig } from "@ging/desktop/ports/config";
 import { createDesktopL10n } from "@ging/desktop/ports/l10n";
 import { createInterimOpener } from "@ging/desktop/ports/opener";
 import { createDesktopRepoSource, type DesktopRepoSource } from "@ging/desktop/ports/repoSource";
 import { openDesktopStorage } from "@ging/desktop/ports/storage";
-import { SECTION } from "@ging/desktop/settings/deriveSchema";
 import { openDesktopSettings } from "@ging/desktop/settings/schema";
 
 /** There is no `git.path` of VS Code's to follow: the git on the PATH. Known
@@ -43,7 +42,7 @@ export type SharedHostOptions = {
 };
 
 export type SharedHost = {
-  config: HostConfig;
+  config: DesktopConfig;
   l10n: L10n;
   logger: HostLogger;
   clipboard: Clipboard;
@@ -86,16 +85,16 @@ export function createSharedHost({
   logger,
   clipboard
 }: SharedHostOptions): SharedHost {
-  const settings = openDesktopSettings(userDataPath, { onError: logger.logError });
-  const config = createDesktopConfig(settings);
-  const setting = <T>(name: string) => settings.get(SECTION + name) as T;
+  const config = createDesktopConfig(
+    openDesktopSettings(userDataPath, { onError: logger.logError })
+  );
   const extensionState = new ExtensionState(
     openDesktopStorage(userDataPath, { onError: logger.logError })
   );
   const repoSource = createDesktopRepoSource(extensionState, { gitPath });
 
   const avatarManager = new AvatarManager(
-    { gitPath, gitLabToken: () => setting<string>("history.gitLabToken") },
+    { gitPath, gitLabToken: config.gitLabToken },
     extensionState
   );
   const branchFilterStore = createBranchFilterStore();
@@ -109,7 +108,7 @@ export function createSharedHost({
     filterStore: branchFilterStore,
     resolveShowRemote,
     resolveExemptPatterns: config.inactiveBranchAlwaysShow,
-    resolveInactiveThresholdDays: () => setting<number>("branches.inactiveAfterDays"),
+    resolveInactiveThresholdDays: config.inactiveBranchThresholdDays,
     resolveShowSpecificBranches: config.showSpecificBranches,
     resolveShowCurrentBranchByDefault: config.showCurrentBranchByDefault,
     nowMs: () => Date.now()
