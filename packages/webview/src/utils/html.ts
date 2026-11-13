@@ -20,6 +20,15 @@ const htmlUnescaper = /&lt;|&gt;|&amp;|&quot;|&#x27;|&#x2F;/g;
 export function escapeHtml(str: string) {
   return str.replace(htmlEscaper, (match) => htmlEscapes[match]);
 }
+/** `value` as JSON that cannot close the `<script>` it is written into, read
+ *  back unchanged: `<`, `>` and `&` as JSON escapes. Each Host writes the
+ *  graph's `viewState` and strings into its page with this. */
+export function escapeJsonForHtml(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
 export function unescapeHtml(str: string) {
   return str.replace(htmlUnescaper, (match) => htmlUnescapes[match]);
 }

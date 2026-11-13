@@ -1,5 +1,5 @@
 import type { GitGraphViewState } from "@ging/shared/types";
-import { escapeHtml } from "@ging/webview/utils/html";
+import { escapeHtml, escapeJsonForHtml } from "@ging/webview/utils/html";
 import type { LocalizedStrings } from "@ging/webview/webviewL10n";
 import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
 
@@ -24,15 +24,6 @@ export type PageContent =
       };
     }
   | { notice: Notice | null };
-
-/** JSON that cannot close the `<script>` it is written into, whatever a
- *  repository path or a string holds. */
-function scriptJson(value: unknown): string {
-  return JSON.stringify(value)
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/&/g, "\\u0026");
-}
 
 /** Each graph colour as a variable on `<body>`, and the rules that hand a
  *  `data-color` its colour, as the VS Code host writes them. */
@@ -76,8 +67,8 @@ export function buildDesktopPage(theme: Theme, content: PageContent = { notice: 
     colourRules = colours.rules;
     body = `<body class="${bodyClass}" style="${escapeHtml(colours.variables)}">
 ${buildWebviewMarkup(graph.l10n)}
-<script nonce="${graph.nonce}">var viewState = ${scriptJson(graph.viewState)};</script>
-<script nonce="${graph.nonce}">var l10n = ${scriptJson(graph.l10n)};</script>`;
+<script nonce="${graph.nonce}">var viewState = ${escapeJsonForHtml(graph.viewState)};</script>
+<script nonce="${graph.nonce}">var l10n = ${escapeJsonForHtml(graph.l10n)};</script>`;
   } else if (notice !== null) {
     body = `<body class="${bodyClass} unableToLoad">
 <h2>${escapeHtml(notice.title)}</h2>

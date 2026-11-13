@@ -6,21 +6,11 @@ import { ExtensionState } from "@ging/core/extensionState";
 import { buildExtensionUri } from "@ging/vscode/backend/utils/uri";
 import { Config } from "@ging/vscode/config";
 import * as l10n from "@ging/vscode/l10n";
+import { escapeJsonForHtml } from "@ging/webview/utils/html";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
 
 import { RepoManager } from "./repoManager";
-
-/**
- * Safely escape JSON for embedding in HTML script tags.
- * Prevents XSS by escaping characters that could break out of script context.
- */
-function escapeJsonForHtml(obj: object): string {
-  return JSON.stringify(obj)
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/&/g, "\\u0026");
-}
 
 export function buildWebviewHtml(opts: {
   webview: vscode.Webview;
