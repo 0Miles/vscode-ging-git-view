@@ -4,7 +4,8 @@
   "private": true,
   "exports": {
     "./*": "./src/*.ts",
-    "./tests/helpers": "./tests/helpers.ts"
+    "./tests/helpers": "./tests/helpers.ts",
+    "./tests/contracts/*": "./tests/contracts/*.ts"
   },
   "scripts": {
     "typecheck": "tsc -p . --noEmit"

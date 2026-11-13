@@ -1,9 +1,16 @@
 import type { SimpleGit } from "simple-git";
 
+import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
-import type { HostPorts, PickItem, RunRepoMutation } from "@ging/core/host/ports";
+import type {
+  HostPorts,
+  HostStorage,
+  PickItem,
+  RunRepoMutation,
+  StateStore
+} from "@ging/core/host/ports";
 import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@ging/shared/backend/utils/contextMenuVisibility";
-import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import type { GitRepoSet, RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 // Fakes of what a host hands the core: its ports, and the channel to the
 // graph's webview.
@@ -86,6 +93,27 @@ export function fakeWebview() {
   };
 }
 
+/** One tier of `fakeStorage`; a value is copied on its way in, as a store
+ *  that writes it out would. */
+const memoryStore = (tier: Map<string, unknown>): StateStore => ({
+  get: <T>(key: string, defaultValue: T) => (tier.has(key) ? (tier.get(key) as T) : defaultValue),
+  update: async (key, value) => {
+    tier.set(key, structuredClone(value));
+  }
+});
+
+/** A `HostStorage` kept in memory. Each `open` is another session over the
+ *  same two tiers. */
+export function fakeStorage() {
+  const tiers = { workspace: new Map<string, unknown>(), global: new Map<string, unknown>() };
+  const open = (): HostStorage => ({
+    workspace: memoryStore(tiers.workspace),
+    global: memoryStore(tiers.global),
+    globalStoragePath: "/global-storage"
+  });
+  return { open };
+}
+
 /** Every port, recording what it was asked in one ordered log. Answers the
  *  prompts and the clipboard can be steered per test. */
 export function fakePorts() {
@@ -114,7 +142,9 @@ export function fakePorts() {
     input: undefined as string | undefined,
     saveLocation: undefined as string | undefined,
     clipboard: Promise.resolve() as Promise<void>,
-    reposChanged: false,
+    /** Known repositories that are no longer repositories, which
+     *  `checkReposExist` drops. */
+    goneRepos: [] as string[],
     commitDiffOpened: true,
     /** Whether opening a file or diff fails, as VS Code's open command does
      *  for a document it cannot show. */
@@ -123,6 +153,26 @@ export function fakePorts() {
   const opened = (call: unknown[]) => {
     calls.push(call);
     if (answers.openRejects) throw new Error("cannot open");
+  };
+  /** What the ports hold now, as the host would show it: the text on the
+   *  clipboard, how many times the watcher refreshed the graph, the known
+   *  repositories (a test may replace them), and each set the repo source
+   *  broadcast. */
+  const held = {
+    clipboard: undefined as string | undefined,
+    refreshes: 0,
+    repos: { "/a": { columnWidths: null } } as GitRepoSet,
+    broadcasts: [] as GitRepoSet[]
+  };
+  const broadcast = () => held.broadcasts.push({ ...held.repos });
+  const dropKnown = (repo: string) => {
+    const { [repo]: _dropped, ...rest } = held.repos;
+    held.repos = rest;
+  };
+  const watching = { repo: null as string | null, muted: false };
+  /** A change to `repo` made outside GING, as the watcher would see it. */
+  const changeOutside = (repo: string) => {
+    if (repo === watching.repo && !watching.muted) held.refreshes++;
   };
   const reply = <A extends PromptReply>(own: A): A =>
     answers.replies.length > 0 ? (answers.replies.shift() as A) : own;
@@ -246,25 +296,64 @@ export function fakePorts() {
       openTerminal: record("openTerminal"),
       openExternalUrl: record("openExternalUrl")
     },
+    // Holds the text once `answers.clipboard` lets the write through.
     clipboard: {
       writeText: (text) => {
         calls.push(["writeText", text]);
-        return answers.clipboard;
+        return answers.clipboard.then(() => {
+          held.clipboard = text;
+        });
       }
     },
-    watcher: { start: record("watcher.start"), mute: record("mute"), unmute: record("unmute") },
+    // Logs what it is told, and refreshes for `changeOutside` the way the
+    // contract says a host's watcher does.
+    watcher: {
+      start: (repo) => {
+        calls.push(["watcher.start", repo]);
+        watching.repo = repo;
+      },
+      mute: () => {
+        calls.push(["mute"]);
+        watching.muted = true;
+      },
+      unmute: () => {
+        calls.push(["unmute"]);
+        watching.muted = false;
+      }
+    },
     // Not the real bundles: the key and its arguments, so a test can see which
     // string was asked for without depending on its wording.
     l10n: { t: (key, ...args) => [key, ...args].join("|") },
+    // Logs each write it is asked for, and keeps `held.repos` the way the
+    // contract says a host's repo source does. "/a" is the current repository.
     repoSource: {
-      getRepos: () => ({ "/a": { columnWidths: null } }),
-      getBootRepo: () => "/a",
-      checkReposExist: async () => answers.reposChanged,
-      dropRepo: record("dropRepo"),
-      setRepoState: record("setRepoState"),
-      updateRepoState: record("updateRepoState")
+      getRepos: () => ({ ...held.repos }),
+      getBootRepo: () =>
+        pickBootRepo("/a", Object.keys(held.repos), (repo) => !answers.goneRepos.includes(repo)),
+      checkReposExist: async () => {
+        const gone = Object.keys(held.repos).filter((repo) => answers.goneRepos.includes(repo));
+        gone.forEach(dropKnown);
+        if (gone.length > 0) broadcast();
+        return gone.length > 0;
+      },
+      dropRepo: (repo) => {
+        calls.push(["dropRepo", repo]);
+        dropKnown(repo);
+        broadcast();
+      },
+      setRepoState: (repo, state) => {
+        calls.push(["setRepoState", repo, state]);
+        held.repos = { ...held.repos, [repo]: state };
+      },
+      updateRepoState: (repo, patch) => {
+        calls.push(["updateRepoState", repo, patch]);
+        const current = held.repos[repo];
+        if (current === undefined) return;
+        held.repos = { ...held.repos, [repo]: { ...current, ...patch } };
+        broadcast();
+      }
     },
     logger: { log: record("log"), logError: record("logError"), reveal: record("reveal") }
   };
-  return { ports, calls, answers };
+  return { ports, calls, answers, held, changeOutside };
 }
