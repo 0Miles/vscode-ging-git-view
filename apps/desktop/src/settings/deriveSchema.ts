@@ -48,7 +48,8 @@ export type SettingSchema = SchemaNode & {
 
 export type SettingsSchema = { settings: SettingSchema[] };
 
-const SECTION = "ging-git-view.";
+/** What every GING settings key starts with, as in VS Code's settings.json. */
+export const SECTION = "ging-git-view.";
 
 /** The extension's settings the desktop app leaves out, each for what it
  *  controls that the desktop app does not have. */

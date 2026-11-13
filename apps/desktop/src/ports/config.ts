@@ -10,6 +10,7 @@ import { normalizeKeybinding } from "@ging/core/backend/utils/keybinding";
 import { normalizePullRequestProviders } from "@ging/core/backend/utils/pullRequest";
 import type { HostConfig } from "@ging/core/host/ports";
 import { isPlainObject } from "@ging/desktop/jsonFile";
+import { SECTION } from "@ging/desktop/settings/deriveSchema";
 import type { Settings } from "@ging/desktop/settings/settingsFile";
 import type { CommitOrdering, DateType, GitResetMode } from "@ging/shared/backend/types";
 import { mergeContextMenuActionsVisibility } from "@ging/shared/backend/utils/contextMenuVisibility";
@@ -24,7 +25,7 @@ import type {
 export function createDesktopConfig(settings: Settings): HostConfig {
   /** A setting by its name after `ging-git-view.`; the settings file has
    *  already held it to the schema's type and enum. */
-  const get = <T>(name: string) => settings.get(`ging-git-view.${name}`) as T;
+  const get = <T>(name: string) => settings.get(SECTION + name) as T;
   const keybinding = (name: string, defaultKey: string) =>
     normalizeKeybinding(get<string>(`shortcuts.${name}`), defaultKey);
 
