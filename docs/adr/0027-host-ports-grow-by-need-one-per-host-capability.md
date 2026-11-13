@@ -93,3 +93,15 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 `apps/desktop` 是第二個宿主,它的 main process 一樣只該註冊命令、實作 port,git 流程留在 core 的命令服務。所以 `.oxlintrc.json` 對 `apps/desktop/src/**` 設了同樣的 `no-restricted-imports`,從第一行就適用。
 
 兩個 app 各自一條 override,不共用一條:`apps/vscode` 那條的 pattern 放行 `queries/commitFileContent`,理由是 VS Code 的 `DiffDocProvider` 要依 workspace folder scope 解析 `fileEncoding`,這是 VS Code 才有的需要。桌面版沒有這個呼叫端,不繼承這個豁免。哪天桌面版真的要讀某個版本的檔案(#405),再照它自己的理由決定是在 core 開命令服務,還是在它那條 override 加白名單。`blameController` 那幾行逐行關掉規則的 import 也只在 `apps/vscode`。
+
+## 補記(2026-11-13,#387)
+
+**port 的契約有了可執行的版本:`Storage`、`Clipboard`、`Watcher`、`RepoSource` 各一份契約測試,放在 [packages/core/tests/contracts/](../../packages/core/tests/contracts/),同一份同時對 `fakeHost` 與桌面版的實作跑(ADR-0032 的第一層)。**
+
+「後果」第二條說 port 的註解就是契約。註解寫得出來,但寫不出「這份實作有沒有照著做」,所以這四個 port 的契約改寫成測試:每份是一個 `describe…Contract(name, make)`,`make` 交出受測的實作,以及測試從 port 外面觀察它所需的東西(剪貼簿現在放著什麼、圖形被重新整理了幾次、廣播了哪些集合)。core 在 [fakeHost.contract.test.ts](../../packages/core/tests/fakeHost.contract.test.ts) 對 `fakeHost` 跑,桌面版在 `apps/desktop/tests/ports/` 對自己的實作跑。
+
+- **`fakeHost` 因此從「只記錄」改成「照契約行為」。** 之前它的 `RepoSource` 永遠回答同一個集合、`Watcher` 只記下被呼叫過,dispatch 的測試看不出 fake 跟真的宿主行為不一樣。現在剪貼簿會留著寫進去的字,`Watcher` 在 mute 之外會為外部變更重新整理,`RepoSource` 真的保存與廣播集合;`calls` 的紀錄不變。`answers.reposChanged` 換成 `answers.goneRepos`(`checkReposExist` 會發現已經不存在的那些)。`HostStorage` 原本沒有 fake,新增了 `fakeStorage`。
+- **契約只寫 port 註解說得出口的事。** 例如 `Watcher` 不測防彈跳的時間、`RepoSource` 不測「丟掉一個不認識的存放庫」會不會廣播:那些是各宿主自己的選擇,寫進契約就等於替 port 加了註解沒有的承諾。各實作自己的行為留在各自的測試裡。
+- **`L10n`、`HostConfig`、`HostLogger`、`Prompts`、`Opener` 沒有契約測試。** 前三個的「契約」幾乎就是型別,fake 的回答本來就是測試隨意定的;後兩個的桌面實作在 #390 等票。
+
+「後果」第一條因此多一步:在這四個 port 上加方法時,契約測試也要跟著補,`fakeHost` 與每個宿主才會一起被檢查。
