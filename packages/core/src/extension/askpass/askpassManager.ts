@@ -88,8 +88,7 @@ export class AskpassManager {
     req.on("data", (d) => (reqData += d));
     req.on("end", () => {
       const data = JSON.parse(reqData) as AskpassRequest;
-      const prompts =
-        data.token === undefined ? this.prompts : this.routes.get(data.token);
+      const prompts = data.token === undefined ? this.prompts : this.routes.get(data.token);
       if (prompts === undefined) {
         // The route that ran this git is gone; nobody is left to ask.
         res.writeHead(200);
