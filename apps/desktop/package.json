@@ -12,6 +12,8 @@
     "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@ging/core": "workspace:*",
+    "@ging/shared": "workspace:*",
     "@ging/webview": "workspace:*",
     "@types/node": "catalog:",
     "electron": "^45.3.1",
