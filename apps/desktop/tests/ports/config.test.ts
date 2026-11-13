@@ -68,10 +68,12 @@ describe("the desktop HostConfig", () => {
     });
   });
 
-  it("reads a setting when it is asked for, so a change reaches the next request", () => {
+  it("reads a setting when it is asked for, so a change reaches the next request", async () => {
     const { config, set } = subject();
     set({ "signing.commits": true });
     expect(config.signCommits()).toBe(true);
+    // The next request comes in a later task.
+    await new Promise((resolve) => setImmediate(resolve));
     set({ "signing.commits": false });
     expect(config.signCommits()).toBe(false);
   });

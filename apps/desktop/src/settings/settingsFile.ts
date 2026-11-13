@@ -5,18 +5,16 @@
  * which answers the defaults and is reported. What it may hold is the schema
  * derived from the extension's (deriveSchema.ts). */
 
-import * as fs from "node:fs";
-
 import { isPlainObject, readJsonObject } from "@ging/desktop/jsonFile";
 
 import type { SchemaNode, SettingSchema, SettingsSchema } from "./deriveSchema";
 
 export type Settings = {
   /** The user's value for `key`, or its default where the user set none or
-   *  set one the schema does not allow. The file is looked at on every call,
-   *  so a change to it reaches the next read; it is parsed again only when it
-   *  has changed. Throws for a key that is not a setting: that is a typo in
-   *  the app, not in the user's file. */
+   *  set one the schema does not allow. The reads made in one task share one
+   *  parse of the file; a read in a later task — the next request — parses it
+   *  afresh, so a change made in between reaches it. Throws for a key that is
+   *  not a setting: that is a typo in the app, not in the user's file. */
   get(key: string): unknown;
 };
 
@@ -81,26 +79,30 @@ export function openSettings(
   const byKey = new Map<string, SettingSchema>(schema.settings.map((s) => [s.key, s]));
   const patterns = compilePatterns(schema);
 
-  // A page build asks for some fifty settings, so the file is parsed once per
-  // change to it (its modification time and size, or why it cannot be
-  // looked at), not once per setting. A broken file is reported once per
-  // change for the same reason.
-  let cached: { stamp: string; values: Record<string, unknown> } | null = null;
+  // A page build asks for some fifty settings in one go, so they share one
+  // parse; the next request, a later task, parses the file afresh and so sees
+  // any change made in between, however small or quick.
+  let cached: Record<string, unknown> | null = null;
+  // Each request finds a broken file anew; it is reported when it breaks, not
+  // at every request while it stays broken.
+  let lastProblem: string | null = null;
   const read = (): Record<string, unknown> => {
-    let stamp: string;
-    try {
-      const stat = fs.statSync(file);
-      stamp = `${stat.mtimeMs}:${stat.size}`;
-    } catch (e) {
-      stamp = `unreadable:${String((e as NodeJS.ErrnoException).code)}`;
+    if (cached === null) {
+      let problem: string | null = null;
+      cached = readJsonObject(file, {
+        onError: (message) => {
+          problem = message;
+        },
+        consequence: "using the default settings"
+      });
+      if (problem !== null && problem !== lastProblem) onError(problem);
+      lastProblem = problem;
+      // setImmediate, not a microtask: it outlasts the awaits inside one request.
+      setImmediate(() => {
+        cached = null;
+      });
     }
-    if (cached?.stamp !== stamp) {
-      cached = {
-        stamp,
-        values: readJsonObject(file, { onError, consequence: "using the default settings" })
-      };
-    }
-    return cached.values;
+    return cached;
   };
 
   return {

@@ -44,6 +44,9 @@ const SCHEMA: SettingsSchema = {
   ]
 };
 
+/** Let the current request finish: the next read is the next request's. */
+const nextRequest = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 function subject() {
   const dir = makeTempDir("ging-desktop-settings-");
   onTestFinished(() => rmrf(dir));
@@ -73,12 +76,22 @@ describe("the desktop settings file", () => {
     expect(s.settings.get("ging-git-view.graph.edgeStyle")).toBe("angular");
   });
 
-  it("reads the file anew each time, so a change reaches the next read", () => {
+  it("reads the file anew for each request, so a change reaches the next one", async () => {
     const s = subject();
     s.write({ "ging-git-view.show.tags": false });
     expect(s.settings.get("ging-git-view.show.tags")).toBe(false);
+    await nextRequest();
     s.write({});
     expect(s.settings.get("ging-git-view.show.tags")).toBe(true);
+  });
+
+  it("sees a change between two requests even when the file keeps its size", async () => {
+    const s = subject();
+    s.write({ "ging-git-view.graph.edgeStyle": "rounded" });
+    expect(s.settings.get("ging-git-view.graph.edgeStyle")).toBe("rounded");
+    await nextRequest();
+    s.write({ "ging-git-view.graph.edgeStyle": "angular" });
+    expect(s.settings.get("ging-git-view.graph.edgeStyle")).toBe("angular");
   });
 
   it.each([
@@ -93,10 +106,11 @@ describe("the desktop settings file", () => {
     expect(s.settings.get(key)).toEqual(expected);
   });
 
-  it("brings a number out of its range to the nearest end, as a user who overshot meant", () => {
+  it("brings a number out of its range to the nearest end, as a user who overshot meant", async () => {
     const s = subject();
     s.write({ "ging-git-view.autoFetch.intervalMinutes": 120 });
     expect(s.settings.get("ging-git-view.autoFetch.intervalMinutes")).toBe(60);
+    await nextRequest();
     s.write({ "ging-git-view.autoFetch.intervalMinutes": 0.5 });
     expect(s.settings.get("ging-git-view.autoFetch.intervalMinutes")).toBe(1);
   });
@@ -107,21 +121,24 @@ describe("the desktop settings file", () => {
     expect(s.settings.get("ging-git-view.graph.palette")).toEqual(["#123456", "#abcdef"]);
   });
 
-  it("answers the defaults for a file it cannot parse, and says so once", () => {
+  it("answers the defaults for a file it cannot parse, and says so once while it stays broken", async () => {
     const s = subject();
     s.writeText('{ "ging-git-view.show.tags": false, }');
     expect(s.settings.get("ging-git-view.show.tags")).toBe(true);
+    await nextRequest();
     expect(s.settings.get("ging-git-view.show.tags")).toBe(true);
     expect(s.errors).toEqual([expect.stringContaining("settings.json")]);
   });
 
-  it("says so again when the file is broken again after a fix", () => {
+  it("says so again when the file is broken again after a fix, the same way", async () => {
     const s = subject();
     s.writeText("{ broken");
     s.settings.get("ging-git-view.show.tags");
+    await nextRequest();
     s.write({ "ging-git-view.show.tags": false });
     expect(s.settings.get("ging-git-view.show.tags")).toBe(false);
-    s.writeText("{ broken again");
+    await nextRequest();
+    s.writeText("{ broken");
     expect(s.settings.get("ging-git-view.show.tags")).toBe(true);
     expect(s.errors).toHaveLength(2);
   });
