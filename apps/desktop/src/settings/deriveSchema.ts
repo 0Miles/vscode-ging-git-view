@@ -14,6 +14,12 @@ export const LOCALES = ["en", "zh-cn", "zh-tw"] as const;
 export type Locale = (typeof LOCALES)[number];
 export type LocalizedText = Record<Locale, string>;
 
+/** The part of apps/vscode/package.json the settings come from: each setting's
+ *  schema, by key, as written there. */
+export type Manifest = {
+  contributes: { configuration: { properties: Record<string, unknown> } };
+};
+
 /** Each locale's package.nls strings, by key. */
 export type ManifestNls = Record<Locale, Record<string, string>>;
 
@@ -178,13 +184,14 @@ function node(raw: Record<string, unknown>, nls: ManifestNls, where: string): Sc
 /** The desktop app's settings, in the manifest's order. Throws on what it
  *  cannot carry faithfully: an unknown keyword, a missing English string, a
  *  `resource` setting nobody has decided about. */
-export function deriveSettingsSchema(manifest: unknown, nls: ManifestNls): SettingsSchema {
-  const properties = (
-    manifest as { contributes: { configuration: { properties: Record<string, unknown> } } }
-  ).contributes.configuration.properties;
-  const kept = Object.entries(properties as Record<string, Record<string, unknown>>).filter(
-    ([key]) => !Object.hasOwn(EXCLUDED_SETTINGS, key)
-  );
+export function deriveSettingsSchema(manifest: Manifest, nls: ManifestNls): SettingsSchema {
+  // Each setting's schema is JSON as written in the manifest; `node` checks
+  // every keyword it carries.
+  const properties = manifest.contributes.configuration.properties as Record<
+    string,
+    Record<string, unknown>
+  >;
+  const kept = Object.entries(properties).filter(([key]) => !Object.hasOwn(EXCLUDED_SETTINGS, key));
   const included = new Set(kept.map(([key]) => key));
   return { settings: kept.map(([key, raw]) => setting(key, raw, nls, included)) };
 }
