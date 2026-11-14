@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   escapeHtml,
+  escapeJsonForHtml,
   firstIssueUrl,
   linkifyCommitHashes,
   linkifyIssues,
@@ -79,6 +80,21 @@ describe("escapeHtml", () => {
   // 7. Forward-slash escaping — closes inline script contexts
   it("escapes / to &#x2F;", () => {
     expect(escapeHtml("</script>")).toBe("&lt;&#x2F;script&gt;");
+  });
+});
+
+// Both Hosts write the graph's viewState and strings into an inline <script>
+// with this; a repository path or commit text must not end the script early.
+describe("escapeJsonForHtml", () => {
+  it("cannot close the script it is written into", () => {
+    const json = escapeJsonForHtml({ repo: "/r/</script><b>x</b>" });
+    expect(json).not.toContain("</script>");
+    expect(json).not.toContain("<");
+  });
+
+  it("reads back as the value it was given", () => {
+    const value = { repo: "/r/</script>&<x>", n: 1, list: ["a&b"] };
+    expect(JSON.parse(escapeJsonForHtml(value))).toEqual(value);
   });
 });
 

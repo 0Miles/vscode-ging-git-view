@@ -423,6 +423,7 @@
   "action.copyLink": "Copy Link to Clipboard",
   "type.link": "Link",
   "error.subfolderHint": "If your repository is in a subfolder of the workspace, increase the \"ging-git-view.maxDepthOfRepoSearch\" setting so it can be discovered.",
+  "desktop.cannotOpenRepo": "Cannot open {0}: it is not a Git repository.",
   "ui.find": "Find",
   "ui.openTerminal": "Terminal",
   "ui.findPlaceholder": "Find in graph…",
