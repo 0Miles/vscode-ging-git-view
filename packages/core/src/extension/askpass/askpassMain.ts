@@ -41,7 +41,14 @@ function main(argv: string[]): void {
 
   req.on("error", () => fatal("Error in request"));
   // argv[2] is the prompt git issues; argv[4] is "Host '<host>':" — strip the quotes.
-  req.write(JSON.stringify({ request: argv[2], host: argv[4].substring(1, argv[4].length - 2) }));
+  // The token, when git was run with one, says whose prompt this is.
+  req.write(
+    JSON.stringify({
+      request: argv[2],
+      host: argv[4].substring(1, argv[4].length - 2),
+      token: process.env["NEO_GIT_GRAPH_ASKPASS_TOKEN"]
+    })
+  );
   req.end();
 }
 

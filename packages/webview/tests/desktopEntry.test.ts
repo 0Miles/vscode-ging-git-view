@@ -52,6 +52,8 @@ describe("the desktop entry", () => {
     vi.resetModules();
     mock = createVscodeMock();
     setupHtml(viewState);
+    // As the desktop host serves a graph page (#388).
+    document.documentElement.dataset.gingPage = "graph";
     await import("@ging/webview/desktop/main");
   });
 

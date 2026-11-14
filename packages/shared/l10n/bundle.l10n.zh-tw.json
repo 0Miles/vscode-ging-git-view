@@ -423,6 +423,7 @@
   "action.copyLink": "複製連結到剪貼簿",
   "type.link": "連結",
   "error.subfolderHint": "如果您的存放庫位於工作區的子資料夾中，請調高 “ging-git-view.maxDepthOfRepoSearch” 設定以便發現它。",
+  "desktop.cannotOpenRepo": "無法開啟 {0}：它不是 Git 存放庫。",
   "ui.find": "尋找",
   "ui.openTerminal": "終端機",
   "ui.findPlaceholder": "在圖形中尋找…",

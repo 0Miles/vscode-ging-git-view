@@ -23,3 +23,8 @@ const api = Object.freeze({
 contextBridge.exposeInMainWorld("acquireVsCodeApi", () => api);
 
 ipcRenderer.on(CHANNELS.theme, (_event, theme: Theme) => applyTheme(document, theme));
+// The graph listens for its host's messages on `window`, as a VS Code webview
+// receives them; posted from here, they reach the page's own world too.
+ipcRenderer.on(CHANNELS.hostMessage, (_event, message: unknown) =>
+  window.postMessage(message, window.location.origin)
+);
