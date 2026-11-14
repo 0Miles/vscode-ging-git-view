@@ -159,8 +159,10 @@ MIT — see [LICENSE](LICENSE).
 The webview's icon artwork is derived from [GitHub Octicons](https://github.com/primer/octicons)
 (MIT, © GitHub Inc.). The desktop app's theme colours are taken from
 [Visual Studio Code](https://github.com/microsoft/vscode) (MIT, © Microsoft
-Corporation). Both notices are reproduced under "Third-party notices" in
-[LICENSE](LICENSE).
+Corporation). The desktop app's editor and diff viewer use the
+[Monaco Editor](https://github.com/microsoft/monaco-editor) (MIT, © Microsoft
+Corporation), which carries its own third-party notices. These notices are
+reproduced under "Third-party notices" in [LICENSE](LICENSE).
 
 ---
 
