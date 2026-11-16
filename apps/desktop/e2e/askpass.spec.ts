@@ -13,8 +13,10 @@ import { startUnauthorizedRemote, type UnauthorizedRemote } from "./unauthorized
 // run as Node (`ELECTRON_RUN_AS_NODE` with `process.execPath`). The helper asks
 // the main process's askpass server, which routes the question to the
 // instance's `Prompts.input`, asked in the page's host prompt overlay. The
-// answer goes back the same way to git, which sends it to the remote. Were the
-// RunAsNode fuse ever turned off (ADR-0032), no prompt would reach the page.
+// answer goes back the same way to git, which sends it to the remote. The
+// Electron run here is the one in node_modules, whose fuses are all on: this
+// catches a helper that cannot run, not a RunAsNode fuse turned off, until
+// phase E points `executablePath` at the packaged app (ADR-0032).
 
 const APP_DIR = path.resolve(__dirname, "..");
 /** In Node, the `electron` package is the path to its binary. */
@@ -25,6 +27,9 @@ const WEBVIEW_FAILURE = /ERROR: webview |"reportError"/;
 let scratch: string;
 let env: NodeJS.ProcessEnv;
 let app: ElectronApplication | null = null;
+/** The test's 401 remote and fixture repository, gone after it whatever happened. */
+let remote: UnauthorizedRemote | null = null;
+let repoPath: string | null = null;
 
 async function launch(...args: string[]): Promise<ElectronApplication> {
   app = await _electron.launch({
@@ -53,70 +58,72 @@ test.beforeEach(() => {
 test.afterEach(async () => {
   await app?.close();
   app = null;
+  await remote?.close();
+  remote = null;
+  if (repoPath !== null) rmSync(repoPath, { recursive: true, force: true });
+  repoPath = null;
   rmSync(scratch, { recursive: true, force: true });
 });
 
-test("a 401 asks the page for a username, then a masked password, and git tries them once", async () => {
-  const remote: UnauthorizedRemote = await startUnauthorizedRemote();
+test("a 401 asks the page for a username, then a masked password, and git tries them", async () => {
+  remote = await startUnauthorizedRemote();
+  const { requests } = remote;
   const repo: FixtureRepo = makeFixtureRepo(env);
+  repoPath = repo.path;
   execFileSync("git", ["remote", "add", "origin", remote.url], { cwd: repo.path, env });
   const host = new URL(remote.url).host;
-  try {
-    const page = await (await launch("--repo", repo.path)).firstWindow();
-    await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
 
-    // The graph's own Fetch, as a user clicks it: its progress dialog is up
-    // while git waits on the credentials.
-    await page.locator("#fetchBtn").click();
-    const progress = page.locator("#dialog #actionRunning");
-    const overlay = page.locator("#hostPrompt");
-    const title = page.locator("#hostPromptTitle");
-    const input = page.locator("#hostPromptInput");
+  const page = await (await launch("--repo", repo.path)).firstWindow();
+  await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
 
-    // git asks for the username first, of the remote's URL. The helper hands
-    // over git's prompt (`Username for '<url>': `) as the request's first
-    // word and the URL inside the quotes.
-    await expect(overlay).toBeVisible();
-    await expect(title).toHaveText(`GING: http://${host}`);
-    await expect(input).toHaveAttribute("placeholder", "Username");
-    await expect(input).toHaveAttribute("type", "text");
-    await expect(input).toBeFocused();
-    // Over the progress dialog, not in its place (ADR-0031).
-    await expect(progress).toBeAttached();
-    await page.keyboard.type("alice");
-    await page.keyboard.press("Enter");
+  // The graph's own Fetch, as a user clicks it: its progress dialog is up
+  // while git waits on the credentials.
+  await page.locator("#fetchBtn").click();
+  const progress = page.locator("#dialog #actionRunning");
+  const overlay = page.locator("#hostPrompt");
+  const title = page.locator("#hostPromptTitle");
+  const input = page.locator("#hostPromptInput");
 
-    // Then the password, of the URL now carrying that username; this one alone
-    // is masked.
-    await expect(input).toHaveAttribute("placeholder", "Password");
-    await expect(title).toHaveText(`GING: http://alice@${host}`);
-    await expect(input).toHaveAttribute("type", "password");
-    await expect(input).toBeFocused();
-    await page.keyboard.type("s3cret");
-    await page.keyboard.press("Enter");
-    await expect(overlay).toBeHidden();
+  // git asks for the username first, of the remote's URL. The helper hands
+  // over git's prompt (`Username for '<url>': `) as the request's first
+  // word and the URL inside the quotes.
+  await expect(overlay).toBeVisible();
+  await expect(title).toHaveText(`GING: http://${host}`);
+  await expect(input).toHaveAttribute("placeholder", "Username");
+  await expect(input).toHaveAttribute("type", "text");
+  await expect(input).toBeFocused();
+  // Over the progress dialog, not in its place (ADR-0031).
+  await expect(progress).toBeAttached();
+  await page.keyboard.type("alice");
+  await page.keyboard.press("Enter");
 
-    // Turned away again, git gives up: the fetch ends in the graph's error box.
-    // git's own words are its business, not this test's.
-    const dialog = page.locator("#dialog");
-    await expect(dialog).toContainText("Unable to fetch");
-    await expect(dialog.locator(".errorReason")).toBeVisible();
-    await expect(progress).toHaveCount(0);
+  // Then the password, of the URL now carrying that username; this one alone
+  // is masked.
+  await expect(input).toHaveAttribute("placeholder", "Password");
+  await expect(title).toHaveText(`GING: http://alice@${host}`);
+  await expect(input).toHaveAttribute("type", "password");
+  await expect(input).toBeFocused();
+  await page.keyboard.type("s3cret");
+  await page.keyboard.press("Enter");
+  await expect(overlay).toBeHidden();
 
-    // The remote saw exactly one retry carrying credentials, and they were the
-    // ones typed in the page.
-    const retries = remote.requests.filter(
-      (request) => request.url.includes("/info/refs") && request.authorization !== undefined
-    );
-    expect(retries.map((request) => request.authorization)).toEqual([
-      `Basic ${Buffer.from("alice:s3cret").toString("base64")}`
-    ]);
+  // Turned away again, git gives up: the fetch ends in the graph's error box.
+  // git's own words are its business, not this test's.
+  const dialog = page.locator("#dialog");
+  await expect(dialog).toContainText("Unable to fetch");
+  await expect(dialog.locator(".errorReason")).toBeVisible();
+  await expect(progress).toHaveCount(0);
 
-    expect(await closeAndReadLog()).not.toMatch(WEBVIEW_FAILURE);
-  } finally {
-    await app?.close();
-    app = null;
-    await remote.close();
-    rmSync(repo.path, { recursive: true, force: true });
-  }
+  // The remote saw git retry with credentials, and every time they were the
+  // ones typed in the page. How many retries is git's: 2.40.1 makes one, but
+  // nothing here is about that count, so another git version may differ.
+  const retries = requests.filter(
+    (request) => request.url.includes("/info/refs") && request.authorization !== undefined
+  );
+  expect(retries.length).toBeGreaterThanOrEqual(1);
+  expect(new Set(retries.map((request) => request.authorization))).toEqual(
+    new Set([`Basic ${Buffer.from("alice:s3cret").toString("base64")}`])
+  );
+
+  expect(await closeAndReadLog()).not.toMatch(WEBVIEW_FAILURE);
 });
