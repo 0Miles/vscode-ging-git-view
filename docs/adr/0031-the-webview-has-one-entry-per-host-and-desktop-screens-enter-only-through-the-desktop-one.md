@@ -58,3 +58,21 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 `--repo` 指的不是 Git 存放庫時，說明頁只取代**沒有圖形**的頁面。視窗裡已經開著圖形時 —— 例如第二次啟動經 single-instance 轉來一個無效的路徑 —— 圖形留著，同一段說明改成蓋在上面的錯誤對話框(經過 `NativeDialogs`,見 ADR-0032):一個打錯的路徑，不應該關掉使用者正在用的圖形。判斷寫在 `desktop/` 底下,VS Code 入口不讀這個屬性;[desktopEntryNoGraph.test.ts](../../packages/webview/tests/desktopEntryNoGraph.test.ts) 釘住兩種頁面的行為。
 
 宿主給 webview 的訊息由 preload 以 `window.postMessage` 送進頁面,形狀與 VS Code 的一樣,圖形的 `message` listener 不必知道是哪個宿主。`viewState` 與 `l10n` 跟 VS Code 一樣寫成兩段帶 nonce 的 inline script,CSP 只放行那個 nonce。
+
+## 補記(2026-11-17,#390)
+
+**host prompt overlay 是一個 modal 的 `<dialog>`,放在 top layer,而且是 `<html>` 的子元素,不是 `<body>` 的。**[hostPromptOverlay.ts](../../packages/webview/src/desktop/hostPromptOverlay.ts) 在第一個 prompt 到達時才把它建進頁面。
+
+- **不放在 `<body>` 裡。** `#dialog` 開著時,圖形的 `setBackgroundInert` 會把 `<body>` 的每個子元素標成 `inert`,之後才加進來的也會被 `lateBackgroundObserver` 補標。overlay 若在 `<body>` 裡,askpass 正好在進度框開著時問帳密,問題就畫出來了卻答不了。改 `markInert` 讓它認得 overlay 也做得到,但那是兩個宿主共用的 `gitGraphView.ts` 認得一個桌面專屬的元素,正是這份 ADR 要避免的。`<html>` 底下多一個 `<body>` 以外的元素不合 HTML 的內容模型,但瀏覽器照常繪製,`showModal()` 也照常把它放進 top layer。
+- **用 `showModal()`,不自己寫 z-index 與 focus trap。** top layer 本來就在 `#dialog`(z-index 401)之上;modal 讓頁面其餘部分在它開著時全部 inert,`#dialog` 也包括在內,所以不必另寫一套 focus trap。它不碰 `#dialog` 的內容與 class:進度框照常留著,batch run 的 retry offer 不會被寫掉,`showDialog` 的 abandon 判斷也就不會觸發。最後一個 prompt 回答後,焦點回到開啟前持有它的元素;那個元素在 overlay 開著時被圖形換掉了的話,`#dialog` 還開著就回到 `#dialog`。
+- **鍵盤事件停在 overlay。** 圖形的 `documentKeydown` 在 `#dialog` 開著時,會把 Enter 當成按下 `#dialogAction`、把 Tab 拉回 `#dialog`;`documentKeyup` 在 Escape 放開時關掉 `#dialog`。overlay 在自己身上 `stopPropagation` 這幾種事件,`document` 上的 listener 就聽不到。Escape 在 keyup 才關掉 prompt,keydown 時 `preventDefault`:瀏覽器內建的「Escape 關閉 modal」發生在 keydown,若讓它關,接下來的 keyup 會落在已經回到 `#dialog` 的焦點上,把 `#dialog` 一起關掉。[hostPrompt.spec.ts](../../e2e/webview/hostPrompt.spec.ts) 在進度框與 retry offer 上各驗一次;拿掉 keydown 或 keyup 的 `stopPropagation`,它就會紅。
+- **一次一個,先來先問(FIFO)。** 佇列在頁面上;宿主想問就送,不等上一個回答。兩個 prompt 之間 overlay 不關,焦點不會在兩題之間跳回 `#dialog`。
+- **樣式由桌面 bundle 寫進頁面**([hostPromptStyles.ts](../../packages/webview/src/desktop/hostPromptStyles.ts)),不另設一個樣式表檔。「後果」說樣式放在只有桌面會載入的樣式表;一個由桌面入口自己插入的 `<style>` 同樣只有桌面會載入,而且不必替 `PAGE_ASSETS`、`esbuild.js` 與 harness 各加一個檔案。CSP 的 `style-src` 本來就有 `'unsafe-inline'`。overlay 不在 `<body>` 裡,繼承不到 `body` 的字型與顏色,所以樣式自己寫明。
+
+**協定:宿主送 `HostPromptMessage`,頁面回 `HostPromptReply`,型別都在 [hostPrompt.ts](../../packages/webview/src/desktop/hostPrompt.ts)。**
+
+- **`hostPrompt`** 帶一個 id、prompt 本身(pick 的列只有 label、description、picked、warning,沒有 value),以及 OK / Cancel 按鈕的文字。按鈕文字由宿主隨每個 prompt 送來,不放進 `webviewL10n`:overlay 因此不依賴圖形頁的 `l10n` 全域,`webviewL10n` 也不會為了桌面多帶兩個 VS Code 用不到的字串。
+- **頁面回答的是索引,不是 value。** value 是任意的 `T`(例如 Manage Remotes 的 `ConfiguredRemote | null`),不一定能過 IPC,也不該交給頁面;宿主保留 value,依索引對回去。pick 回一個索引、pickMany 回索引陣列、choose 回動作的索引、input 回字串;`null` 是取消。
+- **`hostPromptReady`**:頁面每次載入、裝好 listener 之後送一次。宿主在那之前把 prompt 留著不送。頁面重新載入時,還沒回答的 prompt 在新頁面說它準備好之後重送,不當成取消:git 可能正卡在一個帳密提示上,重新整理不該讓那次 push 失敗。實例被處置時,未回答的一律回答取消。
+- **頁面的回覆不進 dispatch。** main process 在交給實例的 dispatch 之前,先用 `isHostPromptReply` 把回覆分給那個實例的 `Prompts`。「後果」要求的型別檢查是 `COMMANDS_STAY_APART`:`HostPromptMessage` 與 `ResponseMessage`、`HostPromptReply` 與 `RequestMessage` 的 command 交集必須是 `never`,否則編譯失敗。
+- **只在 `graph` 頁裝 listener。** prompt 是 webview 實例在問,而 notice 頁背後沒有實例。之後的 Welcome page(#394)要問時,由它照這個協定接上。
