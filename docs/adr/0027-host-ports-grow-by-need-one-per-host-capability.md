@@ -160,3 +160,13 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **寫入不負責推送。** port 只寫;寫完之後誰要被告知(auto-fetch 計時器、圖形的 Repository Setting 預設值),由宿主照它對「設定變了」本來的反應去做。VS Code 有 `onDidChangeConfiguration`,所以 `update` 之後什麼都不用多做;桌面版沒有,所以設定頁寫入成功後,main process 對每個 graph instance 呼叫 `settingChanged`([settingsPush.ts](../../apps/desktop/src/settingsPush.ts))。把推送放進 `update`,VS Code 那邊就會推兩次。
 - **桌面版的寫入比讀取嚴格。** 讀的時候,超出範圍的數字會被夾回範圍、清單裡不合格的項目會被丟掉(#387,使用者手寫的檔案能用多少用多少);寫的時候這些一律拒絕(`SettingRefused`),因為寫入的一方是設定頁,使用者就在那裡,告訴他比默默改掉他輸入的值好。設定檔不是 JSON 時也拒絕寫入:那是使用者的檔案,寫進去就蓋掉他寫的東西。
 - **`REPO_SETTING_DEFAULT_KEYS` 從 `apps/vscode` 的 `config.ts` 搬到 core 的 [repoSettings.ts](../../packages/core/src/extension/repoSettings.ts)。** 兩個宿主都要從「哪個 key 變了」算出 `setRepoSettingDefaults` 的 `changed`,各寫一份就會漂移。VS Code 這邊只改了 import。
+
+## 補記(2026-11-17,#393)
+
+**`ExtensionState` 每個 Tab 一份:建構時可以注入 `CurrentRepoSlot`,也就是「current repository 的路徑字串存在哪裡」。不注入時是 workspace 層的 `lastActiveRepo`,VS Code 的 key 與行為都沒變。** 上面 #388 的表裡「`ExtensionState` 的分頁版：不在本票」那一列，由本票完成。
+
+- **slot 只管字串存哪裡，規則留在 `ExtensionState`。** 讀的時候照舊經過 `resolveCurrentRepo`,寫的時候照舊是 `setLastActiveRepo` 的「不是 known repository、路徑也不可用，就記成沒有選取」。這和「`HostStorage` 開在 key-value 層」那一條的理由相同：開在規則之下，第二個宿主就不必重寫規則。
+- **分頁清單由 core 的 [tabStates.ts](../../packages/core/src/tabStates.ts) 保存，放在 workspace 層的 `openTabs`:** 依序列出每個 Tab 的路徑字串，以及聚焦的是哪一個。每個 Tab 的 `ExtensionState` 由它建立,slot 是清單裡那一格;Tab 自己寫入 current repository 時，整份清單跟著寫回。順序與聚焦由桌面版的分頁模型([tabs.ts](../../apps/desktop/src/tabs.ts))決定，它每次改變就把清單交給 `TabStates.save`,`TabStates` 不自己排序。
+- **路徑不再 resolve 的 Tab,重啟時照樣出現(內容是說明頁),字串留在清單裡，直到使用者關掉它。** 這是 GLOSSARY「字串留著不刪」套到 Tab 上的結果：沒有任何探測分得出「已刪除」與「這次沒掛載」。
+- **`branchFilterStore` 的前提(同一個存放庫至多開在一個 Tab)由兩處守住。** 開啟時以 `resolveToKnownRepo` 比對已開的 Tab 與 known repositories,同一個存放庫的另一種拼法會聚焦既有的 Tab;實例的 `getBootRepo` 只回答自己的 repo(不在 known set 時回答 `null`),不像 `pickBootRepo` 那樣退到別的 known repository —— 否則某個 repo 被移出集合時，那個 Tab 的圖形會跟著 `loadRepos` 換到另一個 Tab 開著的 repo。
+- **桌面版 app 自己的那份 `ExtensionState` 仍在,** 管 known repositories、dialog memory 與頭像;它的 current repository 在桌面版不再被寫。
