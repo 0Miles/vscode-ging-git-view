@@ -32,6 +32,22 @@ export function buildSettingsHarness(): void {
   ]);
 }
 
+/** Build the desktop window's own page (#393) into
+ *  out/webview-harness/desktop-window/. */
+export function buildWindowHarness(): void {
+  execFileSync(process.execPath, [
+    path.join(ROOT, "scripts", "webview-harness.js"),
+    "--entry=desktop",
+    "--page=window"
+  ]);
+}
+
+/** The file:// URL of the window's page, built by the global setup. */
+export function windowHarnessPage(): string {
+  return pathToFileURL(path.join(ROOT, "out", "webview-harness", "desktop-window", "index.html"))
+    .href;
+}
+
 /** The file:// URL of the settings page, built by the global setup. */
 export function settingsHarnessPage(): string {
   return pathToFileURL(path.join(ROOT, "out", "webview-harness", "desktop-settings", "index.html"))
