@@ -148,7 +148,9 @@ export function fakePorts() {
     commitDiffOpened: true,
     /** Whether opening a file or diff fails, as VS Code's open command does
      *  for a document it cannot show. */
-    openRejects: false
+    openRejects: false,
+    /** Why `config.update` refuses, when it does; it writes nothing then. */
+    updateRejects: undefined as string | undefined
   };
   const opened = (call: unknown[]) => {
     calls.push(call);
@@ -156,9 +158,10 @@ export function fakePorts() {
   };
   /** What the ports hold now, as the host would show it: the text on the
    *  clipboard, how many times the watcher refreshed the graph, the known
-   *  repositories (a test may replace them), and each set the repo source
-   *  broadcast. */
+   *  repositories (a test may replace them), each set the repo source
+   *  broadcast, and the settings `config.update` wrote, by key. */
   const held = {
+    settings: {} as Record<string, unknown>,
     clipboard: undefined as string | undefined,
     refreshes: 0,
     repos: { "/a": { columnWidths: null } } as GitRepoSet,
@@ -241,7 +244,14 @@ export function fakePorts() {
       showCurrentBranchByDefault: () => false,
       uncommittedChangesAtHead: () => true,
       showSpecificBranches: () => ["main"],
-      showTags: () => false
+      showTags: () => false,
+      // Keeps what it is told in `held.settings`; the reads above stay fixed,
+      // so a test steers them as before.
+      update: async (key, value) => {
+        calls.push(["config.update", key, value]);
+        if (answers.updateRejects !== undefined) throw new Error(answers.updateRejects);
+        held.settings[key] = structuredClone(value);
+      }
     },
     prompts: {
       // A plain notice is logged as its message alone, and asks nothing.

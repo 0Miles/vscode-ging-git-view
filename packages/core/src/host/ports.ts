@@ -127,6 +127,15 @@ export interface HostConfig {
    *  setting that are not strings are dropped. */
   showSpecificBranches(): string[];
   showTags(): boolean;
+
+  /** Write `key`, spelled as in VS Code's settings.json (`ging-git-view.…`),
+   *  to the user's settings — the global ones: no host keeps a GING setting
+   *  per folder that GING would write. Rejects, writing nothing, for a key
+   *  the host has no such setting for, a value its schema does not allow, or
+   *  a write that failed. Writing is all it does: what reacts to a setting
+   *  changing (the auto-fetch timer, an open graph's Repository Setting
+   *  defaults) is told by the host, as for a change made anywhere else. */
+  update(key: string, value: unknown): PromiseLike<void>;
 }
 
 /** One tier of persisted key-value state. Writes are not awaited by anyone: a
