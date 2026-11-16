@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { THEME_COLOR_IDS } from "@ging/vscode/extension/themeColorIds";
+import { CONTRIBUTED_COLOR_IDS } from "@ging/vscode/extension/themeColorIds";
 
 /**
  * Lock between the colours the real package.json contributes and the ids the
@@ -30,7 +30,7 @@ describe("theme colour ids", () => {
     expect(id).toMatch(VALID_COLOR_ID);
   });
 
-  it("contributes every colour the code references, and no other", () => {
-    expect(contributedIds.toSorted()).toEqual(THEME_COLOR_IDS.toSorted());
+  it("contributes every colour the code declares as its own, and no other", () => {
+    expect(contributedIds.toSorted()).toEqual(CONTRIBUTED_COLOR_IDS.toSorted());
   });
 });

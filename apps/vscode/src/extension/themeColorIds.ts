@@ -9,5 +9,7 @@
 /** The inline blame annotation's colour. */
 export const BLAME_ANNOTATION_COLOR_ID = "gingGitView.blameAnnotationForeground";
 
-/** Every colour id the code hands to a `ThemeColor`. */
-export const THEME_COLOR_IDS: readonly string[] = [BLAME_ANNOTATION_COLOR_ID];
+/** The colour ids the extension itself contributes. Built-in ids the code
+ *  also uses (the Branches view's `disabledForeground`, say) are not listed:
+ *  VS Code defines those, not the manifest. */
+export const CONTRIBUTED_COLOR_IDS: readonly string[] = [BLAME_ANNOTATION_COLOR_ID];
