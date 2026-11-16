@@ -451,6 +451,18 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     );
     followSystemTheme();
     win = createWindow();
+    // Nothing on the graph's page leaves it but through the opener, as on the
+    // settings page: a new window, or a navigation away from the app — a link,
+    // `window.open` — is a web address for the browser, or nothing at all.
+    // The app's own loads (`loadURL`, a reload) are no such navigation.
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      openWebUrl(host.os, logger, url);
+      return { action: "deny" };
+    });
+    win.webContents.on("will-navigate", (event) => {
+      event.preventDefault();
+      openWebUrl(host.os, logger, event.url);
+    });
     // The page of what is shown starting to load, the first time or again (a
     // reload): the graph it brings has yet to pick its repository. Tied to the
     // load, not to building the HTML, which a second fetch of it would repeat.

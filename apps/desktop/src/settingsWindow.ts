@@ -6,7 +6,6 @@
 import type { BrowserWindow, WebContents } from "electron";
 
 import type { HostLogger, Opener } from "@ging/core/host/ports";
-import { isWebUrl } from "@ging/shared/webUrl";
 import type { SettingsResponse } from "@ging/webview/desktop/settings/protocol";
 
 import { CHANNELS } from "./channels";
@@ -49,7 +48,8 @@ export function createSettingsWindow({
     const opened = createWindow();
     win = opened;
     opened.webContents.setWindowOpenHandler(({ url: target }) => {
-      if (isWebUrl(target)) opener.openExternalUrl(target);
+      // Which links leave the app is the opener's to decide (`openWebUrl`).
+      opener.openExternalUrl(target);
       return { action: "deny" };
     });
     // A link to another setting moves within the page, which is no navigation;

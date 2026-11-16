@@ -1,14 +1,17 @@
 /* The desktop `Opener` (`@ging/core/host/ports`), one per webview instance
- * (#391): what it notifies is said in that instance's window. A working-tree
- * file opens in whatever program the system opens it with, a link in the
- * browser, a terminal is the system's own. What the desktop app has no screen
+ * (#391): what it notifies is said in that instance's window. A file of the
+ * repository opens in the program the system shows its type with, when it is
+ * a type GING knows only to be shown (`opensDirectly`), and is shown in its
+ * folder otherwise; a link opens in the browser, a terminal is the system's
+ * own. What the desktop app has no screen
  * for yet — a file at a revision, a diff, a merge — is said to be so, and
  * answered as done: see `notSupportedYet`. */
 
+import fs from "node:fs";
 import path from "node:path";
 
 import type { HostLogger, L10n, Opener, Prompts } from "@ging/core/host/ports";
-import { isWebUrl } from "@ging/shared/webUrl";
+import { webUrl } from "@ging/shared/webUrl";
 
 /**
  * What the system opens things with: Electron's `shell`, and a terminal
@@ -58,38 +61,151 @@ export function openWebUrl(
   logger: Pick<HostLogger, "log" | "logError">,
   url: string
 ): void {
-  if (!isWebUrl(url)) {
+  // The address as parsed, not the text that was checked.
+  const href = webUrl(url);
+  if (href === null) {
     logger.log(`opener: not opening ${url}: not a web address`);
     return;
   }
-  os.openExternal(url).catch((e: unknown) =>
-    logger.logError(`opener: could not open ${url}: ${String(e)}`)
+  os.openExternal(href).catch((e: unknown) =>
+    logger.logError(`opener: could not open ${href}: ${String(e)}`)
   );
 }
 
-/** Extensions the system runs rather than shows, beyond Windows' `PATHEXT`:
- *  a shortcut, a script host's, an installer, a settings file it applies. */
-const RUN_ON_OPEN: Record<string, readonly string[]> = {
-  win32: [".lnk", ".url", ".scr", ".pif", ".hta", ".msi", ".msp", ".cpl", ".reg", ".ps1", ".jar"],
-  darwin: [".app", ".command", ".tool", ".terminal", ".pkg", ".mpkg", ".jar"],
-  linux: [".desktop", ".appimage", ".run", ".sh", ".jar"]
-};
+/**
+ * The extensions "Open File" hands to the system's program for them: images,
+ * documents, data and source that every platform shows in a viewer or an
+ * editor. Everything else is shown in its folder instead.
+ *
+ * An allowlist, not a list of what runs: which program the system opens a
+ * file with is the system's — and every installed app's — to register, so a
+ * list of what runs is never complete (shortcuts, installers, script hosts,
+ * settings files the system applies, help files…) and fails open when it
+ * leaks. This one fails closed: an unlisted type costs the user a folder
+ * window, not a program run from somebody's repository. Left out on purpose:
+ * scripts some platform runs when opened (`.js` and `.vbs` on Windows, `.py`
+ * and `.rb` where an interpreter registered them, `.sh`, `.ps1`, `.bat`), and
+ * pages a browser opens with their scripts on (`.html`, `.svg`, `.xml`).
+ */
+const OPENED_DIRECTLY = new Set([
+  // Images.
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".bmp",
+  ".webp",
+  ".ico",
+  ".tif",
+  ".tiff",
+  ".avif",
+  // Documents and plain text.
+  ".pdf",
+  ".txt",
+  ".text",
+  ".md",
+  ".markdown",
+  ".rst",
+  ".adoc",
+  ".csv",
+  ".tsv",
+  ".log",
+  ".diff",
+  ".patch",
+  // Data and configuration.
+  ".json",
+  ".jsonc",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".properties",
+  // Source a compiler reads, which no platform runs.
+  ".c",
+  ".h",
+  ".cc",
+  ".cpp",
+  ".cxx",
+  ".hpp",
+  ".hh",
+  ".cs",
+  ".java",
+  ".kt",
+  ".scala",
+  ".go",
+  ".rs",
+  ".swift",
+  ".m",
+  ".mm",
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+  ".dart",
+  ".hs",
+  ".vue",
+  ".svelte"
+]);
 const DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
+const EXECUTE_BITS = 0o111;
 
-/** Whether the system would run `file` rather than show it, by its extension.
- *  A repository is anybody's: "Open File" on a script in it must not run it. */
-export function opensAsProgram(
+/**
+ * Whether "Open File" hands `file` — a real path, not a link — to the
+ * system's program for it, rather than showing it in its folder. A repository
+ * is anybody's: opening a file in it must never run it. So the file's type
+ * must be one `OPENED_DIRECTLY` lists; on Windows, not one `PATHEXT` makes a
+ * program; and elsewhere it must not be executable, which macOS (and some
+ * Linux desktops) run in a terminal whatever its name. Windows ignores the
+ * dots and spaces a name ends with, so they are not read as its extension.
+ */
+export function opensDirectly(
   file: string,
   platform: NodeJS.Platform,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  mode: number
 ): boolean {
-  const ext = path.extname(file).toLowerCase();
-  if (ext === "") return false;
-  const run = [...(RUN_ON_OPEN[platform] ?? RUN_ON_OPEN.linux)];
+  const name =
+    platform === "win32" ? path.basename(file).replace(/[. ]+$/, "") : path.basename(file);
+  const ext = path.extname(name).toLowerCase();
+  if (!OPENED_DIRECTLY.has(ext)) return false;
   if (platform === "win32") {
-    run.push(...(env.PATHEXT ?? DEFAULT_PATHEXT).toLowerCase().split(";"));
+    return !(env.PATHEXT ?? DEFAULT_PATHEXT).toLowerCase().split(";").includes(ext);
   }
-  return run.includes(ext);
+  return (mode & EXECUTE_BITS) === 0;
+}
+
+/** What `openFile` reads of the file system: a seam, so the vitest suite can
+ *  hand over links and modes no test machine has to make. */
+export type FileFacts = {
+  /** The path with every link followed; rejects when there is none. */
+  realpath(file: string): Promise<string>;
+  /** Its permission bits. */
+  mode(file: string): Promise<number>;
+};
+
+const systemFiles: FileFacts = {
+  // The native one: on Windows it spells the path as the file system does,
+  // case and all, so two spellings of one folder compare equal.
+  realpath: (file) => realpathNative(file),
+  mode: async (file) => (await fs.promises.stat(file)).mode
+};
+
+function realpathNative(file: string): Promise<string> {
+  return new Promise((resolve, reject) =>
+    fs.realpath.native(file, (e, resolved) => (e ? reject(e) : resolve(resolved)))
+  );
+}
+
+/** Whether `file` is `root` or inside it; both real paths. */
+function isWithin(root: string, file: string): boolean {
+  const relative = path.relative(root, file);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 type DesktopOpenerDeps = {
@@ -98,29 +214,46 @@ type DesktopOpenerDeps = {
   prompts: Pick<Prompts, "showInformation" | "showError">;
   l10n: L10n;
   logger: Pick<HostLogger, "log" | "logError">;
+  /** The repository the instance shows: the only one it opens files from. */
+  repoRoot: () => string;
   platform: NodeJS.Platform;
   env: NodeJS.ProcessEnv;
+  files?: FileFacts;
 };
 
 export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
-  const { os, prompts, l10n, logger, platform, env } = deps;
+  const { os, prompts, l10n, logger, repoRoot, platform, env, files = systemFiles } = deps;
   const notYet = (what: string) => notSupportedYet(deps, what);
+  /** Log why `file` is not opened, and reject with it. */
+  const refuse = (file: string, why: string): never => {
+    logger.logError(`opener: not opening ${file}: ${why}`);
+    throw new Error(why);
+  };
 
   return {
     openFile: async (file) => {
-      const native = path.normalize(file);
-      if (opensAsProgram(native, platform, env)) {
-        // Shown where it is instead: the user can still run it from there,
-        // knowing that is what they do.
-        logger.log(`opener: ${native} would run as a program; showing it in its folder`);
-        os.showItemInFolder(native);
+      const asked = path.normalize(file);
+      // A colon past the drive letter names a stream of the file, not the
+      // file — `a.bat::$DATA` is `a.bat`, and no extension check sees it.
+      if (platform === "win32" && asked.indexOf(":", 2) !== -1) {
+        refuse(asked, "not a plain file path");
+      }
+      // What the request names is the repository's own working tree; the
+      // webview builds it from a path git gave, so `..`, an absolute path or a
+      // link out of the repository is nothing it should name.
+      const [real, root] = await Promise.all([files.realpath(asked), files.realpath(repoRoot())]);
+      if (!isWithin(root, real)) refuse(asked, "not in the repository");
+      // Judged on what the path leads to: a link named `notes.txt` can lead
+      // to a program.
+      if (!opensDirectly(real, platform, env, await files.mode(real))) {
+        // Shown where it is instead: the user can still open it from there,
+        // knowing what it is.
+        logger.log(`opener: ${real} is no type GING opens; showing it in its folder`);
+        os.showItemInFolder(real);
         return;
       }
-      const failure = await os.openPath(native);
-      if (failure !== "") {
-        logger.logError(`opener: could not open ${native}: ${failure}`);
-        throw new Error(failure);
-      }
+      const failure = await os.openPath(real);
+      if (failure !== "") refuse(real, failure);
     },
     openExternalUrl: (url) => openWebUrl(os, logger, url),
     openTerminal: (cwd, name) => {

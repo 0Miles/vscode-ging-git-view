@@ -3,15 +3,43 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { L10nArg } from "@ging/core/host/ports";
-import { createDesktopOpener, type OsShell, opensAsProgram } from "@ging/desktop/ports/opener";
+import {
+  createDesktopOpener,
+  type FileFacts,
+  opensDirectly,
+  type OsShell
+} from "@ging/desktop/ports/opener";
 
 // The desktop Opener (#391), over a fake of what the system opens things
-// with: nothing here starts a program, a browser or a terminal.
+// with and of the file system: nothing here starts a program, a browser or a
+// terminal, and the links and modes are the fake's.
 
 const NOT_YET = "desktop.notSupportedYet";
+const REPO = path.resolve("/work/repo");
+const at = (...parts: string[]) => path.join(REPO, ...parts);
+
+/** A file system of `links` (path → where it leads) and `modes` (real path →
+ *  permission bits); any other path is its own real path, mode 0o644. A path
+ *  under `missing` does not exist. */
+function fakeFiles(
+  links: Record<string, string> = {},
+  modes: Record<string, number> = {},
+  missing: string[] = []
+): FileFacts {
+  return {
+    realpath: async (file) => {
+      const normal = path.normalize(file);
+      if (missing.includes(normal)) throw new Error(`ENOENT: ${normal}`);
+      return links[normal] ?? path.resolve(normal);
+    },
+    mode: async (file) => modes[file] ?? 0o644
+  };
+}
 
 function setUp({
   platform = "linux" as NodeJS.Platform,
+  env = {} as NodeJS.ProcessEnv,
+  files = fakeFiles(),
   openPath = async (_file: string) => "",
   openTerminal = async (_cwd: string, _title: string) => {}
 } = {}) {
@@ -48,60 +76,138 @@ function setUp({
       log: (line) => logged.push(line),
       logError: (line) => logged.push(`ERROR: ${line}`)
     },
+    repoRoot: () => REPO,
     platform,
-    env: {}
+    env,
+    files
   });
   return { opener, calls, logged };
 }
 
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-describe("the desktop Opener", () => {
-  it("opens a working-tree file with the system's program for it", async () => {
+describe("the desktop Opener's openFile", () => {
+  it("opens a file of a type it knows only to be shown with the system's program", async () => {
     const { opener, calls, logged } = setUp();
 
-    await opener.openFile("/work/repo/src/a.txt");
+    await opener.openFile(`${REPO}/src/a.txt`);
 
-    expect(calls).toEqual([["openPath", path.normalize("/work/repo/src/a.txt")]]);
+    expect(calls).toEqual([["openPath", at("src", "a.txt")]]);
     expect(logged).toEqual([]);
   });
 
   it("rejects, saying why in the log, when the system could not open the file", async () => {
     const { opener, logged } = setUp({ openPath: async () => "Failed to open path" });
 
-    await expect(opener.openFile("/work/repo/a.txt")).rejects.toThrow("Failed to open path");
-    expect(logged).toEqual([expect.stringMatching(/^ERROR: opener: could not open .*a\.txt/)]);
+    await expect(opener.openFile(at("a.txt"))).rejects.toThrow("Failed to open path");
+    expect(logged).toEqual([expect.stringMatching(/^ERROR: opener: not opening .*a\.txt/)]);
   });
 
-  it("shows a file the system would run in its folder instead of opening it", async () => {
-    const { opener, calls } = setUp({ platform: "win32" });
+  it.each(["setup.bat", "run.js", "tool.py", "page.html", "Makefile", "x.weird"])(
+    "shows %s in its folder instead of opening it",
+    async (name) => {
+      const { opener, calls } = setUp({ platform: "win32" });
 
-    await opener.openFile("C:/work/repo/setup.bat");
+      await opener.openFile(at(name));
 
-    expect(calls).toEqual([["showItemInFolder", path.normalize("C:/work/repo/setup.bat")]]);
+      expect(calls).toEqual([["showItemInFolder", at(name)]]);
+    }
+  );
+
+  it("judges a link by the file it leads to", async () => {
+    const files = fakeFiles({ [at("notes.txt")]: at("bin", "tool.exe") });
+    const { opener, calls } = setUp({ platform: "win32", files });
+
+    await opener.openFile(at("notes.txt"));
+
+    expect(calls).toEqual([["showItemInFolder", at("bin", "tool.exe")]]);
   });
 
-  it("opens web addresses in the browser, and nothing else", async () => {
+  it.each(["darwin", "linux"] as const)(
+    "shows an executable file in its folder on %s, whatever its name",
+    async (platform) => {
+      const files = fakeFiles({}, { [at("notes.txt")]: 0o755, [at("run")]: 0o700 });
+      const { opener, calls } = setUp({ platform, files });
+
+      await opener.openFile(at("notes.txt"));
+      await opener.openFile(at("run"));
+
+      expect(calls).toEqual([
+        ["showItemInFolder", at("notes.txt")],
+        ["showItemInFolder", at("run")]
+      ]);
+    }
+  );
+
+  it.each(["a.bat.", "a.bat ", "a.bat. . "])(
+    "reads no trailing dots or spaces as a Windows extension: %j",
+    async (name) => {
+      const { opener, calls } = setUp({ platform: "win32" });
+
+      await opener.openFile(at(name));
+
+      expect(calls).toEqual([["showItemInFolder", at(name)]]);
+    }
+  );
+
+  it("refuses a Windows path naming a stream of a file", async () => {
+    const { opener, calls, logged } = setUp({ platform: "win32" });
+
+    await expect(opener.openFile("C:/work/repo/a.txt::$DATA")).rejects.toThrow(
+      "not a plain file path"
+    );
+    expect(calls).toEqual([]);
+    expect(logged).toEqual([expect.stringContaining("ERROR: opener: not opening")]);
+  });
+
+  const outside = path.resolve("/etc/passwd.txt");
+  it.each([
+    ["by `..`", `${REPO}/../other/a.txt`],
+    ["absolute", outside],
+    ["through a link", at("escape.txt")]
+  ])("refuses a path out of the repository, %s", async (_how, file) => {
+    const { opener, calls } = setUp({ files: fakeFiles({ [at("escape.txt")]: outside }) });
+
+    await expect(opener.openFile(file)).rejects.toThrow("not in the repository");
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a file that is not there", async () => {
+    const { opener, calls } = setUp({ files: fakeFiles({}, {}, [at("gone.txt")]) });
+
+    await expect(opener.openFile(at("gone.txt"))).rejects.toThrow("ENOENT");
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("the desktop Opener", () => {
+  it("opens web addresses in the browser, as parsed, and nothing else", async () => {
     const { opener, calls, logged } = setUp();
 
     opener.openExternalUrl("https://example.com/issues/1");
+    opener.openExternalUrl("HTTPS://Example.com/a b");
     opener.openExternalUrl("file:///etc/passwd");
     opener.openExternalUrl("ms-settings:privacy");
+    opener.openExternalUrl("javascript:alert(1)");
 
-    expect(calls).toEqual([["openExternal", "https://example.com/issues/1"]]);
+    expect(calls).toEqual([
+      ["openExternal", "https://example.com/issues/1"],
+      ["openExternal", "https://example.com/a%20b"]
+    ]);
     expect(logged).toEqual([
       "opener: not opening file:///etc/passwd: not a web address",
-      "opener: not opening ms-settings:privacy: not a web address"
+      "opener: not opening ms-settings:privacy: not a web address",
+      "opener: not opening javascript:alert(1): not a web address"
     ]);
   });
 
   it("starts the system's terminal in the folder, titled as asked", async () => {
     const { opener, calls } = setUp();
 
-    opener.openTerminal("/work/repo", "GING: repo");
+    opener.openTerminal(REPO, "GING: repo");
     await settled();
 
-    expect(calls).toEqual([["openTerminal", path.normalize("/work/repo"), "GING: repo"]]);
+    expect(calls).toEqual([["openTerminal", REPO, "GING: repo"]]);
   });
 
   it("says so in an error when no terminal could be started", async () => {
@@ -124,14 +230,12 @@ describe("the desktop Opener", () => {
   // The stubs: each says the desktop app cannot do it yet, and answers as
   // done, so the graph adds no "Unable to open" box of its own.
   describe("what the desktop app cannot show yet", () => {
-    const side = { repo: "/work/repo", filePath: "a.txt", commit: "abc" };
+    const side = { repo: REPO, filePath: "a.txt", commit: "abc" };
+    type TestOpener = ReturnType<typeof setUp>["opener"];
 
     it.each([
-      ["openFileAtRevision", (o: ReturnType<typeof setUp>["opener"]) => o.openFileAtRevision(side)],
-      [
-        "diffWithWorking",
-        (o: ReturnType<typeof setUp>["opener"]) => o.diffWithWorking(side, "/work/repo/a.txt", "t")
-      ]
+      ["openFileAtRevision", (o: TestOpener) => o.openFileAtRevision(side)],
+      ["diffWithWorking", (o: TestOpener) => o.diffWithWorking(side, at("a.txt"), "t")]
     ])("%s resolves after the notice", async (_name, open) => {
       const { opener, calls, logged } = setUp();
 
@@ -146,7 +250,7 @@ describe("the desktop Opener", () => {
 
       await expect(
         opener.openCommitDiff({
-          repo: "/work/repo",
+          repo: REPO,
           commitHash: "abc",
           oldFilePath: "a.txt",
           newFilePath: "a.txt",
@@ -159,7 +263,7 @@ describe("the desktop Opener", () => {
     it("openMergeEditor gives the notice", () => {
       const { opener, calls, logged } = setUp();
 
-      opener.openMergeEditor("/work/repo", "a.txt");
+      opener.openMergeEditor(REPO, "a.txt");
 
       expect(calls).toEqual([["showInformation", NOT_YET]]);
       expect(logged).toEqual(["desktop: merging a.txt (#410) is not supported yet"]);
@@ -167,28 +271,32 @@ describe("the desktop Opener", () => {
   });
 });
 
-describe("opensAsProgram", () => {
-  it("knows Windows' runnable extensions, PATHEXT's included", () => {
-    const env = { PATHEXT: ".COM;.EXE;.BAT;.CMD;.VBS;.JS;.PY" };
-    for (const file of ["a.exe", "b.CMD", "c.js", "d.py", "e.lnk", "f.hta", "g.msi"]) {
-      expect(opensAsProgram(file, "win32", env), file).toBe(true);
-    }
-    for (const file of ["a.txt", "b.ts", "README", "c.png", "d.json"]) {
-      expect(opensAsProgram(file, "win32", env), file).toBe(false);
+describe("opensDirectly", () => {
+  it("opens only the types it lists, on every platform", () => {
+    for (const platform of ["win32", "darwin", "linux"] as const) {
+      for (const file of ["a.txt", "b.md", "c.png", "d.json", "e.ts", "f.pdf"]) {
+        expect(opensDirectly(file, platform, {}, 0o644), `${platform} ${file}`).toBe(true);
+      }
+      for (const file of ["a.exe", "b.sh", "c.js", "d.py", "e.html", "f.svg", "README", ".env"]) {
+        expect(opensDirectly(file, platform, {}, 0o644), `${platform} ${file}`).toBe(false);
+      }
     }
   });
 
-  it("falls back to Windows' own PATHEXT when the variable is not set", () => {
-    expect(opensAsProgram("a.vbs", "win32", {})).toBe(true);
-    expect(opensAsProgram("a.ts", "win32", {})).toBe(false);
+  it("opens nothing Windows' PATHEXT makes a program, a listed type included", () => {
+    expect(opensDirectly("a.txt", "win32", { PATHEXT: ".EXE;.TXT" }, 0)).toBe(false);
+    expect(opensDirectly("a.md", "win32", { PATHEXT: ".EXE;.TXT" }, 0)).toBe(true);
   });
 
-  it("knows what macOS and Linux run when opened", () => {
-    expect(opensAsProgram("Run.command", "darwin", {})).toBe(true);
-    expect(opensAsProgram("App.app", "darwin", {})).toBe(true);
-    expect(opensAsProgram("a.desktop", "linux", {})).toBe(true);
-    expect(opensAsProgram("tool.AppImage", "linux", {})).toBe(true);
-    expect(opensAsProgram("a.md", "darwin", {})).toBe(false);
-    expect(opensAsProgram("a.c", "linux", {})).toBe(false);
+  it("opens no executable file outside Windows", () => {
+    expect(opensDirectly("a.txt", "darwin", {}, 0o744)).toBe(false);
+    expect(opensDirectly("a.txt", "linux", {}, 0o701)).toBe(false);
+    // Windows has no such bits to read.
+    expect(opensDirectly("a.txt", "win32", {}, 0o777)).toBe(true);
+  });
+
+  it("strips a Windows name's trailing dots and spaces before reading its type", () => {
+    expect(opensDirectly("a.bat.", "win32", {}, 0)).toBe(false);
+    expect(opensDirectly("a.txt. ", "win32", {}, 0)).toBe(true);
   });
 });

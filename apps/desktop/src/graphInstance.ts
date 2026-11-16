@@ -99,6 +99,8 @@ export function createGraphInstance(
   const opener = createDesktopOpener({
     ...notifier,
     os: shared.os,
+    // Files are opened from the repository the graph shows, and no other.
+    repoRoot: () => current,
     platform: process.platform,
     env: process.env
   });

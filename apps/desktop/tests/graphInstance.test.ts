@@ -155,6 +155,7 @@ describe("a graph instance", () => {
   it("opens files, links and terminals through the system", async () => {
     const { repos, open, opened } = setUp();
     const page = open(repos[0]);
+    fs.writeFileSync(path.join(repos[0], "README.md"), "# readme\n");
 
     await page.receive({ command: "openFile", repo: repos[0], filePath: "README.md" });
     await page.receive({ command: "openExternalUrl", url: "https://example.com/1" });
@@ -162,7 +163,7 @@ describe("a graph instance", () => {
 
     expect(sentOf(page.posted, "openFile")).toEqual([{ command: "openFile", success: true }]);
     expect(opened).toEqual([
-      ["openPath", path.normalize(`${repos[0]}/README.md`)],
+      ["openPath", fs.realpathSync.native(path.join(repos[0], "README.md"))],
       ["openExternal", "https://example.com/1"],
       ["openTerminal", path.normalize(repos[0]), `GING: ${path.basename(repos[0])}`]
     ]);

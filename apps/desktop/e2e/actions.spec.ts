@@ -1,7 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
@@ -332,6 +341,65 @@ test("a file clicked in the Commit Details View says the diff is not here yet, a
   );
 });
 
+test("the graph's page leaves the app only through the opener", async () => {
+  const fixture = makeFixtureRepo(env);
+  cleanUp.push(fixture.path);
+  app = await _electron.launch({
+    executablePath: ELECTRON,
+    args: [
+      "--lang=en-US",
+      APP_DIR,
+      `--user-data-dir=${path.join(scratch, "userData")}`,
+      "--repo",
+      fixture.path
+    ],
+    env: env as Record<string, string>
+  });
+  const electronApp = app;
+  const page = await electronApp.firstWindow();
+  const rows = page.locator("#commitTable tr.commit");
+  await expect(rows).toHaveCount(fixture.commits.length);
+  await standIn(electronApp, scratch);
+
+  // A new window and a navigation away, each to the web and elsewhere.
+  await page.evaluate(() => {
+    window.open("https://example.com/opened");
+    window.open("file:///C:/Windows/System32/calc.exe");
+  });
+  await page.evaluate(() => {
+    const away = document.createElement("a");
+    away.href = "https://example.com/followed";
+    document.body.append(away);
+    away.click();
+  });
+  await page.evaluate(() => {
+    window.location.href = "file:///etc/passwd";
+  });
+
+  // The web addresses went to the browser, as parsed; nothing else went
+  // anywhere, and the graph is still the page shown, in the only window.
+  await expect
+    .poll(() => seenOutside(electronApp))
+    .toEqual([
+      { kind: "openExternal", url: "https://example.com/opened" },
+      { kind: "openExternal", url: "https://example.com/followed" }
+    ]);
+  // Read straight off the page: Playwright's locators would wait on the
+  // navigation it saw start, which the app cancelled and never finishes.
+  expect(
+    await page.evaluate(() => document.querySelectorAll("#commitTable tr.commit").length)
+  ).toBe(fixture.commits.length);
+  expect(await page.evaluate(() => location.href)).toMatch(/^ging:\/\/app\//);
+  expect(electronApp.windows()).toHaveLength(1);
+  await electronApp.close();
+  app = null;
+  // The `file:` ones may never reach the app's guards — Chromium refuses a
+  // local file to a page that is not one — so only their effect is checked.
+  expect(readFileSync(path.join(scratch, "userData", "logs", "main.log"), "utf8")).not.toContain(
+    "ERROR:"
+  );
+});
+
 test("every message the dispatch handles finishes, and the webview reports no failure", async () => {
   // About seventy messages, most of them running git, one after another.
   test.setTimeout(240_000);
@@ -379,6 +447,18 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     return git("rev-parse", "stash@{0}");
   };
   const head = () => git("rev-parse", "HEAD");
+  // A script, untracked, for "Open File" to refuse to run.
+  writeFileSync(path.join(fixture.path, "run.bat"), "@echo off\r\n");
+  // On Linux the app looks its terminal up on the PATH's absolute folders: one
+  // put first there, so the walk does not depend on what the machine has
+  // installed. It is never run — the spawn is stood in for.
+  const bin = path.join(scratch, "bin");
+  const fakeTerminal = path.join(bin, "x-terminal-emulator");
+  if (process.platform === "linux") {
+    mkdirSync(bin);
+    writeFileSync(fakeTerminal, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    env.PATH = `${bin}:${env.PATH ?? ""}`;
+  }
 
   userDataWithAvatar();
   const saveDir = path.join(scratch, "saved");
@@ -408,7 +488,27 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     repo
   );
   const { action, batch } = actionsOn(repo);
-  const file = path.normalize(`${repo}/file.txt`);
+  /** A file of the fixture as the opener names it: its real path. */
+  const inRepo = (name: string) => realpathSync.native(path.join(fixture.path, name));
+  /** The terminal the app starts in `cwd`: always a program named by its
+   *  absolute path, never one the repository could hold (#391). */
+  const terminal = (cwd: string) => {
+    const name = `GING: ${path.basename(repo)}`;
+    if (process.platform === "win32") {
+      const cmd = env.ComSpec!;
+      expect(path.isAbsolute(cmd)).toBe(true);
+      return {
+        kind: "terminal",
+        command: cmd,
+        args: ["/d", "/c", "start", `"${name}"`, `"${cmd}"`],
+        cwd
+      };
+    }
+    if (process.platform === "darwin") {
+      return { kind: "terminal", command: "/usr/bin/open", args: ["-a", "Terminal", cwd], cwd };
+    }
+    return { kind: "terminal", command: fakeTerminal, args: [], cwd };
+  };
   const notice = { kind: "box", type: "info", message: NOT_SUPPORTED, buttons: [] };
   /** No box saying something failed in the graph's own page. */
   const noErrorDialog = () => expect(page.locator("#dialog.active")).toHaveCount(0);
@@ -507,18 +607,27 @@ test("every message the dispatch handles finishes, and the webview reports no fa
       answer: success("openFile"),
       check: (answer, outside) => {
         succeeded(answer);
-        expect(outside).toEqual([{ kind: "openPath", file }]);
+        expect(outside).toEqual([{ kind: "openPath", file: inRepo("file.txt") }]);
       }
     }),
+    // A script the system would run: shown in its folder, never opened.
+    step("openFile", () => ({ repo, filePath: "run.bat" }), {
+      answer: success("openFile"),
+      check: (answer, outside) => {
+        succeeded(answer);
+        expect(outside).toEqual([{ kind: "showItemInFolder", file: inRepo("run.bat") }]);
+      }
+    }),
+    // Not a web address: refused, and nothing opened. Its refusal is done by
+    // the time the next message is handled, so the next step's check that it
+    // alone opened something covers this one too.
+    step("openExternalUrl", () => ({ url: pathToFileURL(inRepo("run.bat")).href })),
     step("openExternalUrl", () => ({ url: "https://example.com/issues/1" }), {
       check: (_answer, outside) =>
         expect(outside).toEqual([{ kind: "openExternal", url: "https://example.com/issues/1" }])
     }),
     step("openTerminal", () => ({ repo }), {
-      check: (_answer, outside) =>
-        expect(outside).toEqual([
-          expect.objectContaining({ kind: "terminal", cwd: path.normalize(repo) })
-        ])
+      check: (_answer, outside) => expect(outside).toEqual([terminal(path.normalize(repo))])
     }),
 
     // The stubs: a notice, answered as done, and no error box.
