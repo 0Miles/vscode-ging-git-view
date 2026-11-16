@@ -575,16 +575,14 @@ export class Graph {
         this.vertices[i].registerUnavailablePoint(curPoint.x, parentVertex, parentBranch);
         lastPoint = curPoint;
 
-        if (foundPointToParent) {
-          vertex.registerParentProcessed();
-          break;
-        }
+        if (foundPointToParent) break;
       }
-      // The downward scan never found a point connecting to the parent — only
-      // possible when the parent vertex sits *above* this one, which
-      // `loadCommits` no longer hands over. Mark the parent processed anyway so
-      // findStart() makes progress instead of looping on this vertex forever.
-      if (!foundPointToParent) vertex.registerParentProcessed();
+      // The scan always breaks on the parent: `loadCommits` hands over only
+      // parents listed below, and a vertex on a branch holds a point connecting
+      // to itself on that branch.
+      // Marking it processed out here, found or not, still keeps findStart()
+      // from looping on this vertex forever should that ever stop holding.
+      vertex.registerParentProcessed();
     } else {
       // Branch is normal
       let branch = new Branch(this.getAvailableColour(startAt));

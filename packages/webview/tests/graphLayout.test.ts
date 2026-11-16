@@ -35,6 +35,14 @@ function commit(hash: string, parentHashes: string[]): GitCommitNode {
   return { hash, parentHashes, author: "T", email: "t@t.com", date: 1, message: hash, refs: [] };
 }
 
+/** Lay out `commits`, HEAD on the first row, and read back each row's width. */
+function widthsOf(commits: GitCommitNode[], onlyFollowFirstParent: boolean): number[] {
+  const g = makeGraph();
+  g.loadCommits(commits, commits[0].hash, lookupOf(commits), onlyFollowFirstParent);
+  g.render(null);
+  return g.getWidthsAtVertices();
+}
+
 function circleCount(): number {
   // Count vertex nodes only — the HEAD node draws an extra decorative
   // .currentHalo ring that is not a vertex.
@@ -219,21 +227,14 @@ describe("graph layout when only the first parent is followed (#205)", () => {
     commit("C", []) // 2
   ];
 
-  function widthsOf(onlyFollowFirstParent: boolean): number[] {
-    const g = makeGraph();
-    g.loadCommits(firstParentChain, "M2", lookupOf(firstParentChain), onlyFollowFirstParent);
-    g.render(null);
-    return g.getWidthsAtVertices();
-  }
-
   it("draws the first-parent chain as one straight lane, with no line for an unloaded second parent", () => {
-    expect(widthsOf(true)).toEqual([30, 30, 30]);
+    expect(widthsOf(firstParentChain, true)).toEqual([30, 30, 30]);
   });
 
   it("still draws a merge's second parent off the bottom edge when every parent is followed", () => {
     // The ordinary mode is unchanged: each unloaded second parent takes a lane
     // from its merge down.
-    expect(widthsOf(false)).toEqual([30, 46, 62]);
+    expect(widthsOf(firstParentChain, false)).toEqual([30, 46, 62]);
   });
 
   it("still runs a line off the bottom edge for a first parent the page has not reached", () => {
@@ -245,11 +246,8 @@ describe("graph layout when only the first parent is followed (#205)", () => {
       commit("S", ["S0"]), // 1: first parent is on the next page
       commit("M1", ["C", "X1"]) // 2: last row of the page
     ];
-    const g = makeGraph();
-    g.loadCommits(pageTail, "M2", lookupOf(pageTail), true);
-    g.render(null);
     // S's lane is still open beside M1, the last row.
-    expect(g.getWidthsAtVertices()).toEqual([30, 46, 46]);
+    expect(widthsOf(pageTail, true)).toEqual([30, 46, 46]);
   });
 
   it("still joins a merge to a second parent that was loaded, so a merged branch whose ref remains stays connected", () => {
@@ -262,11 +260,8 @@ describe("graph layout when only the first parent is followed (#205)", () => {
       commit("X2", ["C"]), // 2: the merged branch's tip, still behind a ref
       commit("C", []) // 3
     ];
-    const g = makeGraph();
-    g.loadCommits(withMergedTip, "M2", lookupOf(withMergedTip), true);
-    g.render(null);
     // X2's lane runs from the merge down, so it is open beside M1 too.
-    expect(g.getWidthsAtVertices()).toEqual([30, 46, 46, 30]);
+    expect(widthsOf(withMergedTip, true)).toEqual([30, 46, 46, 30]);
   });
 });
 
@@ -279,13 +274,6 @@ describe("graph layout when only the first parent is followed (#205)", () => {
 // A merge's second parent that another branch still reaches can come out above
 // the merge — with a commit-graph file and `--topo-order`, routinely.
 describe("graph layout when a parent is listed above its child (#431)", () => {
-  function widthsOf(commits: GitCommitNode[], onlyFollowFirstParent: boolean): number[] {
-    const g = makeGraph();
-    g.loadCommits(commits, commits[0].hash, lookupOf(commits), onlyFollowFirstParent);
-    g.render(null);
-    return g.getWidthsAtVertices();
-  }
-
   // The rows `git log --first-parent --topo-order --branches` prints once a
   // commit-graph exists: branch B grew from PR2 after M merged it, and B's
   // lane is listed whole before main's.
