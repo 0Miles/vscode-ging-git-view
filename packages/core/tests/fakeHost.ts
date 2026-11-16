@@ -245,10 +245,16 @@ export function fakePorts() {
       uncommittedChangesAtHead: () => true,
       showSpecificBranches: () => ["main"],
       showTags: () => false,
+      // One tier, as the desktop host has: what `update` wrote is the user's.
+      inspect: (key) => ({
+        source: Object.hasOwn(held.settings, key) ? "global" : null,
+        scopes: ["global"]
+      }),
       // Keeps what it is told in `held.settings`; the reads above stay fixed,
-      // so a test steers them as before.
-      update: async (key, value) => {
-        calls.push(["config.update", key, value]);
+      // so a test steers them as before. A scope named is logged after the
+      // value.
+      update: async (key, value, scope) => {
+        calls.push(["config.update", key, value, ...(scope === undefined ? [] : [scope])]);
         if (answers.updateRejects !== undefined) throw new Error(answers.updateRejects);
         held.settings[key] = structuredClone(value);
       }

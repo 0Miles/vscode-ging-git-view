@@ -123,6 +123,80 @@ test("a pick narrows its rows as the filter is typed, and answers the row chosen
   expect(await answers(page)).toEqual([{ command: "hostPromptAnswer", id: 3, answer: 2 }]);
 });
 
+test("a pick's rows show their detail under the label, and a rule where a group starts", async ({
+  page
+}) => {
+  await hostSays(
+    page,
+    prompt(7, {
+      kind: "pick",
+      items: [
+        { label: "Add a host...", detail: "A self-hosted forge" },
+        { label: "git.example.com", description: "Gitea", separatorAbove: true },
+        {
+          label: "github.com",
+          description: "GitHub",
+          detail: "https://github.com/owner/repo/compare/my-branch"
+        }
+      ],
+      placeholder: "Select a host",
+      matchOnDescription: false
+    })
+  );
+  const rows = page.locator("#hostPrompt .hostPromptItem");
+  await expect(rows.locator(".hostPromptItemDetail")).toHaveText([
+    "A self-hosted forge",
+    "https://github.com/owner/repo/compare/my-branch"
+  ]);
+  await expect(rows.nth(1)).toHaveClass(/separatorAbove/);
+  await expect(page.locator("#hostPrompt .separatorAbove")).toHaveCount(1);
+  // The detail sits under the label, not beside it.
+  const label = await rows.nth(0).locator(".hostPromptItemLabel").boundingBox();
+  const detail = await rows.nth(0).locator(".hostPromptItemDetail").boundingBox();
+  expect(detail!.y).toBeGreaterThanOrEqual(label!.y + label!.height);
+  // Not filtered on: only the labels are.
+  await page.keyboard.type("compare");
+  await expect(rows.filter({ visible: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#hostPrompt")).toBeHidden();
+});
+
+test("an input asked again after a refusal starts from the text refused, saying why", async ({
+  page
+}) => {
+  await hostSays(
+    page,
+    prompt(8, {
+      kind: "input",
+      prompt: "URL to open",
+      password: false,
+      value: "https://x/new",
+      error: "The URL must contain {branch}."
+    })
+  );
+  const input = page.locator("#hostPromptInput");
+  const why = page.locator("#hostPrompt .hostPromptError");
+  await expect(input).toHaveValue("https://x/new");
+  await expect(why).toHaveText("The URL must contain {branch}.");
+  await expect(why).toHaveAttribute("role", "alert");
+  await expect(input).toHaveAttribute("aria-invalid", "true");
+  await expect(input).toHaveAccessibleDescription("The URL must contain {branch}.");
+
+  await page.keyboard.press("End");
+  await page.keyboard.type("/{branch}");
+  await page.keyboard.press("Enter");
+  expect(await answers(page)).toEqual([
+    { command: "hostPromptAnswer", id: 8, answer: "https://x/new/{branch}" }
+  ]);
+
+  // A prompt that refused nothing says nothing.
+  await hostSays(page, prompt(9, { kind: "input", prompt: "Host", password: false }));
+  await expect(page.locator("#hostPrompt")).toContainText("Host");
+  await expect(why).toHaveCount(0);
+  await expect(input).not.toHaveAttribute("aria-invalid", "true");
+  await page.keyboard.press("Escape");
+});
+
 test("a pickMany answers the rows checked, whether the filter shows them or not", async ({
   page
 }) => {

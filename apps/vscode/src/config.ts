@@ -7,6 +7,7 @@ import {
   normalizePullRequestProviders,
   type PullRequestProvider
 } from "@ging/core/backend/utils/pullRequest";
+import type { SettingInspection, SettingScope } from "@ging/core/host/ports";
 import { CommitOrdering, DateType, GitResetMode } from "@ging/shared/backend/types";
 import { mergeContextMenuActionsVisibility } from "@ging/shared/backend/utils/contextMenuVisibility";
 import {
@@ -240,11 +241,33 @@ export const config = {
     resolveGitPath(
       vscode.workspace.getConfiguration("git").get<string | string[] | null>("path", null)
     ),
-  /** `HostConfig.update`: the user's settings, whatever folder is open. VS Code
-   *  itself refuses a key no extension registered, and its own
-   *  `onDidChangeConfiguration` tells what reacts to the change. */
-  update: (key: string, value: unknown): PromiseLike<void> =>
-    vscode.workspace.getConfiguration().update(key, value, vscode.ConfigurationTarget.Global)
+  /** `HostConfig.inspect`: the workspace's value over the user's, as VS Code
+   *  reads them (a folder's own is not one GING writes); the workspace is
+   *  offered only while there is one. */
+  inspect: (key: string): SettingInspection => {
+    const inspected = vscode.workspace.getConfiguration().inspect<unknown>(key);
+    const source =
+      inspected?.workspaceValue !== undefined
+        ? "workspace"
+        : inspected?.globalValue !== undefined
+          ? "global"
+          : null;
+    return {
+      source,
+      scopes: vscode.workspace.workspaceFolders === undefined ? ["global"] : ["global", "workspace"]
+    };
+  },
+  /** `HostConfig.update`: the user's settings unless `scope` names the
+   *  workspace's. VS Code itself refuses a key no extension registered, and
+   *  its own `onDidChangeConfiguration` tells what reacts to the change. */
+  update: (key: string, value: unknown, scope: SettingScope = "global"): PromiseLike<void> =>
+    vscode.workspace.getConfiguration().update(key, value, SCOPE_TARGET[scope])
+};
+
+/** The VS Code settings each `SettingScope` is. */
+const SCOPE_TARGET: Record<SettingScope, vscode.ConfigurationTarget> = {
+  global: vscode.ConfigurationTarget.Global,
+  workspace: vscode.ConfigurationTarget.Workspace
 };
 
 export type Config = typeof config;

@@ -10,6 +10,7 @@ import type { ResponseMessage } from "@ging/shared/types";
 import {
   fakePorts,
   fakeWebview,
+  git,
   makeRepo,
   makeTempDir,
   rmrf,
@@ -68,6 +69,8 @@ function setUp() {
     }
   });
   const instances: { dispose(): void }[] = [];
+  /** The settings each instance asked the app to show. */
+  const revealed: string[] = [];
   onTestFinished(() => {
     instances.forEach((instance) => instance.dispose());
     shared.dispose();
@@ -78,17 +81,18 @@ function setUp() {
    *  own prompts were asked. */
   const open = (repo: string) => {
     const page = fakeWebview();
+    const { ports, answers, calls } = fakePorts();
     shared.repoSource.addRepo(repo);
-    const prompts = fakePorts();
     const instance = createGraphInstance(shared, {
       repo,
       channel: page.webview,
-      prompts: prompts.ports.prompts
+      prompts: ports.prompts,
+      revealSetting: (key) => revealed.push(key)
     });
     instances.push(instance);
-    return { instance, asked: prompts.calls, ...page };
+    return { instance, answers, asked: calls, ...page };
   };
-  return { shared, repos, open, logged, opened };
+  return { shared, repos, open, logged, opened, revealed };
 }
 
 const sentOf = (posted: ResponseMessage[], command: ResponseMessage["command"]) =>
@@ -209,6 +213,29 @@ describe("a graph instance", () => {
       { command: "branchFilterCleared" }
     ]);
     expect(page.asked).toEqual([]);
+  });
+
+  it("configures the provider of a host Create Pull Request knows none for, in its own prompts, into the app's settings", async () => {
+    const { shared, repos, open, revealed, logged } = setUp();
+    const page = open(repos[0]);
+    git(["remote", "add", "origin", "https://git.example.com/owner/repo.git"], repos[0]);
+    const configure = shared.l10n.t("pullRequest.configureProvider");
+    page.answers.showError = configure;
+    page.answers.replies = ["Gitea / Forgejo", shared.l10n.t("pullRequest.providers.showSetting")];
+
+    await page.receive({ command: "selectRepo", repo: repos[0] });
+    await page.receive({
+      command: "createPullRequest",
+      repo: repos[0],
+      branchName: "main",
+      remote: "origin"
+    });
+
+    await expect.poll(() => revealed).toEqual(["ging-git-view.pullRequests.providers"]);
+    expect(shared.config.pullRequestProviders()).toEqual([
+      { host: "git.example.com", type: "gitea" }
+    ]);
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
   });
 
   it("shares the avatar cache, but stops receiving avatars once disposed", async () => {

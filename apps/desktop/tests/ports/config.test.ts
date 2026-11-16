@@ -56,6 +56,28 @@ describe("the desktop HostConfig", () => {
     expect(config.autoFetchIntervalMinutes()).toBe(10);
   });
 
+  it("says with inspect that a setting is the user's once the file holds it, and offers only that tier", async () => {
+    const { config, set } = subject();
+    const key = "ging-git-view.pullRequests.providers";
+    expect(config.inspect(key)).toEqual({ source: null, scopes: ["global"] });
+
+    // A later request: the read above shared one parse of the file.
+    await new Promise((resolve) => setImmediate(resolve));
+    // An entry the schema would not allow is still the user's.
+    set({ "pullRequests.providers": "not a list" });
+    expect(config.inspect(key)).toEqual({ source: "global", scopes: ["global"] });
+  });
+
+  it("writes the one tier it has whichever scope update is given", async () => {
+    const { config } = subject();
+    const key = "ging-git-view.pullRequests.providers";
+
+    await config.update(key, [{ host: "git.example.com", type: "gitea" }], "workspace");
+
+    expect(config.pullRequestProviders()).toEqual([{ host: "git.example.com", type: "gitea" }]);
+    expect(config.inspect(key).source).toBe("global");
+  });
+
   // Beyond the port: what the desktop host's own services read (the avatar
   // fetch, the branch facts), as VS Code's Config answers them.
   it("answers the GitLab token and the inactivity cutoff, set or not", async () => {

@@ -84,6 +84,30 @@ export const HOST_PROMPT_STYLES = `
   color: var(--vscode-descriptionForeground);
   font-size: 0.9em;
 }
+#hostPrompt .hostPromptItem {
+  flex-wrap: wrap;
+}
+#hostPrompt .hostPromptItemDetail {
+  flex-basis: 100%;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+#hostPrompt .hostPromptItem.active .hostPromptItemDetail {
+  color: inherit;
+}
+#hostPrompt .hostPromptItem.separatorAbove {
+  margin-top: 4px;
+  border-top: 1px solid var(--vscode-widget-border);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+#hostPrompt .hostPromptError {
+  padding: 4px 6px;
+  border: 1px solid var(--vscode-errorForeground);
+  color: var(--vscode-errorForeground);
+  overflow-wrap: anywhere;
+}
 #hostPrompt .hostPromptItemWarning svg {
   display: block;
   width: 14px;

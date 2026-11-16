@@ -8,6 +8,7 @@ import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
 import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
+import { createPullRequestProviderCommands } from "@ging/core/extension/pullRequestProviderCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
@@ -27,6 +28,9 @@ type GraphInstanceOptions = {
   channel: WebviewChannel;
   /** Asks in its own window: a prompt git raises comes back here. */
   prompts: Prompts;
+  /** Show setting `key` in the app's settings, as they are now (#397): where
+   *  Manage Pull Request Providers' "show the setting" goes. */
+  revealSetting: (key: string) => void;
 };
 
 export type GraphInstance = {
@@ -47,7 +51,7 @@ export type GraphInstance = {
 
 export function createGraphInstance(
   shared: SharedServices,
-  { repo, channel, prompts }: GraphInstanceOptions
+  { repo, channel, prompts, revealSetting }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
   /** This instance's current repository; the graph moves it with `selectRepo`. */
@@ -104,6 +108,14 @@ export function createGraphInstance(
     platform: process.platform,
     env: process.env
   });
+  // Asked in this instance's page, as the failed Create Pull Request that
+  // offers it was. The settings are the app's: no workspace holds any.
+  const pullRequestProviders = createPullRequestProviderCommands({
+    prompts,
+    l10n,
+    config,
+    revealSetting
+  });
   const dispatch = registerMessageHandlers(
     bridge,
     {
@@ -139,11 +151,10 @@ export function createGraphInstance(
       // filter chip clears nothing, and the dispatch says so to the graph
       // (`branchFilterCleared` after a Show All that moved nothing).
       showAllBranches: async () => {},
-      // Stubs, said to the user rather than failed, each until its ticket:
-      // the provider setting moves into core with #398, the working tree's
-      // view is #403.
-      configurePullRequestProvider: (host) =>
-        notSupportedYet(notifier, `configuring the pull request provider of ${host} (#398)`),
+      // Core's own Manage Pull Request Providers (#398), asked in this page.
+      configurePullRequestProvider: (host) => void pullRequestProviders.manage(host),
+      // A stub, said to the user rather than failed, until the working
+      // tree's view (#403).
       openScmView: () => notSupportedYet(notifier, "the source control view (#403)")
     }
   );

@@ -337,7 +337,12 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       logger,
       page: { post: prompt }
     });
-    const instance = createGraphInstance(host, { repo, channel, prompts });
+    const instance = createGraphInstance(host, {
+      repo,
+      channel,
+      prompts,
+      revealSetting: (key) => settingsWindow?.reveal(key)
+    });
     const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
     show({
       page: () => ({
@@ -427,7 +432,9 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       createWindow,
       handle: handleSettings,
       opener: { openExternalUrl: (url) => openWebUrl(host.os, logger, url) },
-      logger
+      logger,
+      // Only ever a key the app has: the one Show Setting names.
+      valueOf: (key) => host.settings.get(key)
     });
     // Its Settings… entry (CmdOrCtrl+,) opens the window above.
     syncMenu();

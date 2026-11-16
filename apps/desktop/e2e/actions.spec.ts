@@ -260,6 +260,11 @@ type Step = {
   /** What else it must have done, read once it finished; for a command that
    *  answers nothing, how to tell it finished at all. */
   check?: (answer: ResponseMessage | undefined, outside: Seen[]) => void | Promise<void>;
+  /** Wait, once it has finished, for the graph's own reload after it: a user
+   *  acts on the graph that reload draws. That reload reads the working tree
+   *  (`git status`), which holds the index lock for a moment, and the next
+   *  change to the repository sent while it does would be refused. */
+  settle?: boolean;
 };
 
 function step<C extends Command>(
@@ -289,7 +294,8 @@ function actionsOn(repo: string) {
     ): Step =>
       step(command, () => ({ repo, ...request() }) as Omit<Request<C>, "command">, {
         answer: answered(command as ResponseMessage["command"]),
-        check: (answer) => expect(answer, command).toMatchObject({ status: null })
+        check: (answer) => expect(answer, command).toMatchObject({ status: null }),
+        settle: true
       }),
     /** A batch action's answer, and that git did it for every ref. */
     batch: <C extends BatchCommand>(
@@ -297,6 +303,8 @@ function actionsOn(repo: string) {
       request: () => Omit<Request<C>, "command" | "repo">
     ): Step =>
       step(command, () => ({ repo, ...request() }) as Omit<Request<C>, "command">, {
+        // No reload follows: the graph started no batch run of its own, so it
+        // has none to finish.
         answer: answered(command),
         check: (answer) => {
           const results = (answer as { results: { status: string | null }[] }).results;
@@ -440,12 +448,19 @@ test("every message the dispatch handles finishes, and the webview reports no fa
   const pick = branchOff("pick", "pick.txt");
   const more = branchOff("more", "more.txt");
   git("checkout", "--quiet", "main");
-  /** A stash of a change to file.txt, and its hash. */
-  const stash = () => {
-    writeFileSync(path.join(fixture.path, "file.txt"), "stashed\n");
-    git("stash", "push", "--quiet", "-m", "e2e");
+  /** A stash of a change to file.txt, and its hash. Made before the app
+   *  starts: once it runs, its own reads of the repository (a refresh's
+   *  `git status`) hold the index lock now and then, and a write of the test's
+   *  own would race them. */
+  const stash = (content: string) => {
+    writeFileSync(path.join(fixture.path, "file.txt"), `${content}\n`);
+    git("stash", "push", "--quiet", "-m", content);
     return git("rev-parse", "stash@{0}");
   };
+  // The second is on top: applied and popped first, then the first renamed
+  // and dropped.
+  stash("renamed later");
+  const applied = stash("applied then popped");
   const head = () => git("rev-parse", "HEAD");
   // A script, untracked, for "Open File" to refuse to run.
   writeFileSync(path.join(fixture.path, "run.bat"), "@echo off\r\n");
@@ -521,7 +536,6 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     answered(command, (msg) => "success" in msg);
   const succeeded = (answer: ResponseMessage | undefined) =>
     expect(answer).toMatchObject({ success: true });
-  let stashHash = "";
   let rebasedMore = "";
 
   const walk: Step[] = [
@@ -674,7 +688,9 @@ test("every message the dispatch handles finishes, and the webview reports no fa
         ])
     }),
     // No provider for the forge's host: the error offers to configure one —
-    // answered by its first button — and configuring is a stub until #398.
+    // answered by its first button — and configuring it is core's Manage Pull
+    // Request Providers (#398), which asks which forge in this page. Left
+    // unanswered: nothing is written, and nothing else is said.
     step("createPullRequest", () => ({ repo, branchName: "side", remote: "forge" }), {
       check: async (_answer, outside) => {
         expect(outside).toEqual([
@@ -683,9 +699,13 @@ test("every message the dispatch handles finishes, and the webview reports no fa
             type: "error",
             message: "No pull request provider is configured for git.example.test.",
             buttons: ["Configure a Provider...", "Cancel"]
-          },
-          notice
+          }
         ]);
+        const overlay = page.locator("#hostPrompt");
+        await expect(overlay).toBeVisible();
+        await expect(overlay.locator(".hostPromptItem").first()).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(overlay).toBeHidden();
         await noErrorDialog();
       }
     }),
@@ -704,7 +724,8 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     // What writes: files out of the repository, then the repository itself.
     step("fetch", () => ({ repo }), {
       answer: answered("fetch"),
-      check: (answer) => expect(answer).toMatchObject({ status: null })
+      check: (answer) => expect(answer).toMatchObject({ status: null }),
+      settle: true
     }),
     step("createArchive", () => ({ repo, ref: "main" }), {
       answer: success("createArchive"),
@@ -818,6 +839,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
       },
       {
         answer: answered("cleanUntrackedFiles"),
+        settle: true,
         check: (answer) => {
           expect(answer).toMatchObject({ status: null });
           expect(existsSync(path.join(fixture.path, "untracked.txt"))).toBe(false);
@@ -826,19 +848,19 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     ),
     action("applyStash", () => ({
       selector: "stash@{0}",
-      expectedHash: (stashHash = stash()),
+      expectedHash: applied,
       reinstateIndex: false
     })),
     action("resetUncommittedChanges", () => ({})),
     action("popStash", () => ({
       selector: "stash@{0}",
-      expectedHash: stashHash,
+      expectedHash: applied,
       reinstateIndex: false
     })),
     action("resetUncommittedChanges", () => ({})),
     action("renameStash", () => ({
       selector: "stash@{0}",
-      expectedHash: (stashHash = stash()),
+      expectedHash: git("rev-parse", "stash@{0}"),
       message: "renamed"
     })),
     action("dropStash", () => ({
@@ -863,7 +885,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
 
   const sent = new Set<Command>();
   /** Send one message of the walk, and wait until it has finished. */
-  const run = async ({ command, request, answer, check }: Step) => {
+  const run = async ({ command, request, answer, check, settle }: Step) => {
     const asked = request();
     const answersBefore = (await answersSoFar(page)).length;
     const outsideBefore = (await seenOutside(electronApp)).length;
@@ -875,11 +897,15 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     sent.add(command);
 
     let got: ResponseMessage | undefined;
+    /** Where its answer is among everything the host has posted. */
+    let answeredAt = -1;
     if (answer !== undefined) {
       await expect
         .poll(
           async () => {
-            got = (await answersSoFar(page)).slice(answersBefore).find(answer);
+            const all = await answersSoFar(page);
+            answeredAt = all.findIndex((msg, at) => at >= answersBefore && answer(msg));
+            got = all[answeredAt];
             return got !== undefined;
           },
           { message: `an answer to ${command}` }
@@ -892,6 +918,17 @@ test("every message the dispatch handles finishes, and the webview reports no fa
       await expect(async () =>
         check(got, (await seenOutside(electronApp)).slice(outsideBefore))
       ).toPass({ timeout: 10_000 });
+    }
+    if (settle === true) {
+      await expect
+        .poll(
+          async () =>
+            (await answersSoFar(page))
+              .slice(answeredAt + 1)
+              .some((msg) => msg.command === "loadCommits" && msg.token !== -1),
+          { message: `the graph's reload after ${command}` }
+        )
+        .toBe(true);
     }
   };
   // One after another: each changes what the next one acts on.
