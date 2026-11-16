@@ -17,6 +17,7 @@ import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { ExtensionState } from "@ging/core/extensionState";
 import type { Clipboard, HostLogger, HostStorage, L10n, Opener } from "@ging/core/host/ports";
+import { TabStates } from "@ging/core/tabStates";
 import { createDesktopConfig, type DesktopConfig } from "@ging/desktop/ports/config";
 import { createDesktopL10n } from "@ging/desktop/ports/l10n";
 import { createInterimOpener } from "@ging/desktop/ports/opener";
@@ -56,9 +57,12 @@ export type SharedServices = {
    *  the desktop host, the recently opened list); each instance boots on its
    *  own current repository among them. */
   repoSource: DesktopRepoSource;
-  /** One for now, so the current repository is the app's; #393 keeps one per
-   *  Tab. */
+  /** The app's: the known repositories, the dialog memory, the avatars. Its
+   *  own Current repository is unused here — each Tab has one (`tabStates`). */
   extensionState: ExtensionState;
+  /** The Tabs as they persist, each with an `ExtensionState` of its own whose
+   *  Current repository is the Tab's (#393). */
+  tabStates: TabStates;
   /** One cache; each instance registers its bridge and gets every avatar. */
   avatarManager: AvatarManager;
   /** Filters are kept per repository, and a repository is open in at most
@@ -150,6 +154,7 @@ export function createSharedServices({
     opener: createInterimOpener(logger),
     repoSource,
     extensionState,
+    tabStates: new TabStates(storage),
     avatarManager,
     branchFilterStore,
     branchFacts,

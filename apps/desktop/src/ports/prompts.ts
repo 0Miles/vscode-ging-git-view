@@ -36,6 +36,10 @@ type DesktopPromptsDeps = {
   l10n: L10n;
   logger: Pick<HostLogger, "log">;
   page: PromptPage;
+  /** Told when a question starts waiting for an answer with none waiting
+   *  before (`true`), and when the last one waiting is answered or dropped
+   *  (`false`): the tab strip marks a Tab that is asking (#393). */
+  onAsking?: (asking: boolean) => void;
 };
 
 /** The instance's `Prompts`, and what the main process tells it of its page. */
@@ -62,7 +66,8 @@ export function createDesktopPrompts({
   dialogs,
   l10n,
   logger,
-  page
+  page,
+  onAsking = () => {}
 }: DesktopPromptsDeps): DesktopPrompts {
   /** Asked and not yet answered, by id, in the order they were asked. */
   const pending = new Map<
@@ -88,6 +93,7 @@ export function createDesktopPrompts({
         labels: { ok: l10n.t("desktop.prompt.ok"), cancel: l10n.t("dialog.cancel") }
       };
       pending.set(message.id, { message, settle });
+      if (pending.size === 1) onAsking(true);
       if (listening) page.post(message);
     });
 
@@ -186,6 +192,7 @@ export function createDesktopPrompts({
         return;
       }
       pending.delete(reply.id);
+      if (pending.size === 0) onAsking(false);
       asked.settle(reply.answer);
     },
     pageLoading: () => {
@@ -194,8 +201,10 @@ export function createDesktopPrompts({
     dispose: () => {
       disposed = true;
       listening = false;
+      const asking = pending.size > 0;
       for (const { settle } of pending.values()) settle(null);
       pending.clear();
+      if (asking) onAsking(false);
     }
   };
 }

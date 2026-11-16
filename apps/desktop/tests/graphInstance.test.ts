@@ -66,7 +66,8 @@ function setUp() {
     const instance = createGraphInstance(shared, {
       repo,
       channel: page.webview,
-      prompts: fakePorts().ports.prompts
+      prompts: fakePorts().ports.prompts,
+      extensionState: shared.tabStates.newTab(repo)
     });
     instances.push(instance);
     return { instance, ...page };
@@ -87,6 +88,20 @@ describe("a graph instance", () => {
 
     expect(viewState.lastActiveRepo).toBe(repos[0]);
     expect(Object.keys(viewState.repos)).toEqual(expect.arrayContaining(repos));
+  });
+
+  it("boots on no other repository once its own has left the known set", () => {
+    const { shared, repos, open } = setUp();
+    const page = open(repos[0]);
+    open(repos[1]);
+
+    // Gone from the set, as `checkReposExist` drops a folder that is no
+    // repository any more: the Tab's graph must not move to the other one,
+    // which another Tab has open (#393).
+    shared.repoSource.dropRepo(repos[0]);
+
+    expect(sentOf(page.posted, "loadRepos").at(-1)).toMatchObject({ lastActiveRepo: null });
+    expect(page.instance.pageViewState().lastActiveRepo).toBeNull();
   });
 
   it("answers the graph's requests from its repository", async () => {

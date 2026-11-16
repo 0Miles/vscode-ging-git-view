@@ -1,13 +1,14 @@
 /* One webview instance of the desktop host: a graph on one repository, with a
  * dispatch, ports and git client of its own over the services every instance
- * shares (sharedServices.ts). The main process opens one today; #393's tabs open
- * one each (#388). */
+ * shares (sharedServices.ts). Each Tab opens one (#388, #393). */
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
-import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
-import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
+import {
+  type MessageHandlerDeps,
+  registerMessageHandlers
+} from "@ging/core/extension/messageHandler";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
@@ -24,8 +25,10 @@ type GraphInstanceOptions = {
   repo: string;
   /** Its page. */
   channel: WebviewChannel;
-  /** Asks in its own window: a prompt git raises comes back here. */
+  /** Asks in its own page: a prompt git raises comes back here. */
   prompts: Prompts;
+  /** Its Tab's: where its Current repository persists (`TabStates`). */
+  extensionState: MessageHandlerDeps["extensionState"];
 };
 
 export type GraphInstance = {
@@ -46,7 +49,7 @@ export type GraphInstance = {
 
 export function createGraphInstance(
   shared: SharedServices,
-  { repo, channel, prompts }: GraphInstanceOptions
+  { repo, channel, prompts, extensionState }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
   /** This instance's current repository; the graph moves it with `selectRepo`. */
@@ -84,10 +87,14 @@ export function createGraphInstance(
   fetchService.restartAutoFetch();
 
   // The known repositories are shared; which one the graph boots on is this
-  // instance's.
+  // instance's, and only ever its own: a Tab is one repository, and another
+  // is open in at most one Tab (GLOSSARY.md). Were it to fall back on any
+  // other known repository, as `pickBootRepo` does when its own leaves the
+  // set, the graph would follow that `loadRepos` into a repository another
+  // Tab may have open.
   const repoSource: RepoSource = {
     ...shared.repoSource,
-    getBootRepo: () => pickBootRepo(current, Object.keys(shared.repoSource.getRepos()))
+    getBootRepo: () => (Object.hasOwn(shared.repoSource.getRepos(), current) ? current : null)
   };
   const reposChanged = shared.repoSource.onDidChangeRepos((repos) => {
     void bridge.post({ command: "loadRepos", repos, lastActiveRepo: repoSource.getBootRepo() });
@@ -109,7 +116,7 @@ export function createGraphInstance(
     },
     {
       gitClient,
-      extensionState: shared.extensionState,
+      extensionState,
       avatarManager,
       branchFilterStore: shared.branchFilterStore,
       branchFacts,

@@ -1,8 +1,9 @@
-/* The desktop host's main process (#291): one window showing the webview's
- * desktop entry, themed after the system, and a single instance that takes
- * the command lines of later launches (#386). The window shows a graph on the
- * repository a launch names, through one webview instance with a dispatch of
- * its own over the services instances share (#388); #393 gives each tab one. */
+/* The desktop host's main process (#291): one window, themed after the system,
+ * and a single instance that takes the command lines of later launches (#386).
+ * The window's own page is the tab strip and, under it, the Welcome page
+ * (#393). Each Tab is a view of its own laid out below the strip, showing a
+ * graph on its repository through one webview instance with a dispatch of its
+ * own over the services instances share (#388). */
 
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,12 +19,15 @@ import {
   net,
   protocol,
   shell,
-  type WebContents
+  type WebContents,
+  webContents,
+  WebContentsView
 } from "electron";
 
 import { getNonce } from "@ging/core/backend/utils/nonce";
 import { resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
+import type { ExtensionState } from "@ging/core/extensionState";
 import type { HostLogger } from "@ging/core/host/ports";
 import { createDesktopClipboard } from "@ging/desktop/ports/clipboard";
 import { createDesktopLogger } from "@ging/desktop/ports/logger";
@@ -38,6 +42,11 @@ import {
   type HostPromptReply,
   isHostPromptReply
 } from "@ging/webview/desktop/hostPrompt";
+import {
+  isWindowRequest,
+  TAB_STRIP_HEIGHT,
+  type WindowStateMessage
+} from "@ging/webview/desktop/window/protocol";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 
 import { appMenuTemplate } from "./appMenu";
@@ -60,6 +69,7 @@ import {
 } from "./settings/settingsPage";
 import { createSettingsWindow, type SettingsWindow } from "./settingsWindow";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
+import { createTabs, type Tab } from "./tabs";
 import { type Theme, themeFor } from "./theme";
 import { readThemeChoice, writeThemeChoice } from "./themeChoice";
 
@@ -75,35 +85,41 @@ const HOST = "app";
 const PAGE_URL = `${SCHEME}://${HOST}/`;
 /** The settings page's path (#397), in a window of its own. */
 const SETTINGS_PATH = "/settings";
-/** The query parameter carrying the id of what a load of the page shows
- *  (`Shown.id`), so a load of a replaced page can be told from the current. */
-const PAGE_ID_PARAM = "page";
+/** A Tab's page's path, the Tab's id in `TAB_ID_PARAM` (#393). */
+const TAB_PATH = "/tab";
+const TAB_ID_PARAM = "id";
 /** The files in out/, next to this bundle, that `ging://app/<file>` serves:
  *  the page's assets and the script's source map. Nothing else is served. */
 const SERVED_FILES = new Set<string>([...Object.values(PAGE_ASSETS), `${PAGE_ASSETS.script}.map`]);
 
-/** The `Shown.id` a page URL carries, or null for one that carries none. */
-function pageIdOf(url: string): number | null {
-  const id = URL.canParse(url) ? new URL(url).searchParams.get(PAGE_ID_PARAM) : null;
-  return id === null ? null : Number(id);
-}
+/** Every page's: the preload, and nothing of Node's in the page. */
+const WEB_PREFERENCES = {
+  preload: path.join(__dirname, "preload.js"),
+  contextIsolation: true,
+  sandbox: true,
+  nodeIntegration: false
+};
 
 function currentTheme(): Theme {
   return themeFor(nativeTheme.shouldUseDarkColors ? "dark" : "light", process.platform);
 }
 
-/** What the window shows: a page, built anew at each load, and the webview
- *  instance answering it when it is a graph. `id` tells a load of this page
- *  from a load of the one it replaced. */
-type Shown = {
-  id: number;
+/** What a Tab's view shows: a graph, or a notice in its place. Built anew at
+ *  each load of the view's page. */
+type TabPage = {
   page: () => PageContent;
+  /** The webview instance answering it, when it is a graph. */
   instance: GraphInstance | null;
   /** The instance's prompts, asked in its page. */
   prompts: DesktopPrompts | null;
   /** Hand the instance a message its page posted. */
   deliver: (message: RequestMessage | HostPromptReply) => void;
+  /** A prompt of its is waiting for an answer: the tab strip marks it. */
+  asking: boolean;
 };
+
+/** What a Tab holds: its view, its persisted state, and what its view shows. */
+type TabContent = { view: WebContentsView; state: ExtensionState; page: TabPage };
 
 /** Report what a launch asked for, and what it asked to open, if anything. */
 function logLaunch(request: LaunchRequest, logger: HostLogger): void {
@@ -122,13 +138,15 @@ function dialogsFor(owner: BrowserWindow): NativeDialogs {
   };
 }
 
-/** Serve the app: `pageFor` builds the page a URL of it asks for. */
-function serveApp(pageFor: (url: string) => PageContent): void {
+/** Serve the app: `pageFor` builds the page a URL of it asks for, or answers
+ *  null for a URL that is no page. */
+function serveApp(pageFor: (url: URL) => PageContent | null): void {
   protocol.handle(SCHEME, (request) => {
     const url = new URL(request.url);
     if (url.host !== HOST) return new Response(null, { status: 404 });
-    if (url.pathname === "/" || url.pathname === SETTINGS_PATH) {
-      return new Response(buildDesktopPage(currentTheme(), pageFor(request.url)), {
+    const content = pageFor(url);
+    if (content !== null) {
+      return new Response(buildDesktopPage(currentTheme(), content), {
         headers: { "content-type": "text/html; charset=utf-8" }
       });
     }
@@ -145,23 +163,21 @@ function createWindow(): BrowserWindow {
     height: 800,
     // Painted before the page is, so the window does not flash the wrong colour.
     backgroundColor: theme.background,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false
-    }
+    webPreferences: WEB_PREFERENCES
   });
 }
 
-/** Every window follows the app's theme as it changes: the system's, or the
- *  one the user chose (`nativeTheme.themeSource`, #397). */
-function followSystemTheme(): void {
+/** Every page follows the app's theme as it changes: the system's, or the one
+ *  the user chose (`nativeTheme.themeSource`, #397) — each window's, and each
+ *  Tab's in its view, which `repaint` paints. */
+function followSystemTheme(repaint: (theme: Theme) => void): void {
   nativeTheme.on("updated", () => {
     const theme = currentTheme();
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.setBackgroundColor(theme.background);
-      win.webContents.send(CHANNELS.theme, theme);
+    for (const win of BrowserWindow.getAllWindows()) win.setBackgroundColor(theme.background);
+    repaint(theme);
+    // Every page there is: the windows' own and the Tabs' views'.
+    for (const contents of webContents.getAllWebContents()) {
+      if (!contents.isDestroyed()) contents.send(CHANNELS.theme, theme);
     }
   });
 }
@@ -213,8 +229,27 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   let shared: SharedServices | null = null;
   let win: BrowserWindow | null = null;
   let settingsWindow: SettingsWindow | null = null;
-  let shown: Shown | null = null;
-  let nextId = 0;
+  /** Why the Welcome page shows no repository: a launch named a path that is
+   *  none. Said only while no Tab is open, and forgotten once one is. */
+  let welcomeNotice: Notice | null = null;
+  /** The window's page has said it listens, since it last started loading. */
+  let windowListening = false;
+  /** Asked on the Welcome page, when there is no Tab to ask in: #394's and
+   *  #396's commands ask here. */
+  let welcomePrompts: DesktopPrompts | null = null;
+  /** The Tab whose view last had the keyboard handed to it. */
+  let keyboardTab: number | null = null;
+
+  const tabs = createTabs<TabContent>({
+    dispose: (content) => disposeTab(content),
+    onChange: () => tabsChanged()
+  });
+
+  /** The Tab whose view's page is `contents`. */
+  const tabOf = (contents: WebContents): Tab<TabContent> | null =>
+    tabs.list().find((tab) => tab.content.view.webContents === contents) ?? null;
+  /** The webview instance of the focused Tab: the menu's commands run there. */
+  const focusedInstance = () => tabs.focused()?.content.page.instance ?? null;
 
   /** The application menu, built anew for what the window shows now: which
    *  entries are enabled is the template's to say (appMenu.ts). Not before the
@@ -224,105 +259,128 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     const template = appMenuTemplate(
       shared.l10n,
       {
-        fetchRemote: () => void shown?.instance?.fetchRemote(),
+        // The focused Tab's, looked up when clicked: a click handed no window
+        // still finds it (#396).
+        fetchRemote: () => void focusedInstance()?.fetchRemote(),
         openSettings: () => settingsWindow?.open()
       },
       process.platform,
-      { hasGraph: Boolean(shown?.instance) }
+      { hasGraph: focusedInstance() !== null }
     );
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   };
 
-  /** Whatever the window shows is done: its instance, if any, disposed. */
-  const closeShown = () => {
-    shown?.instance?.dispose();
-    shown?.prompts?.dispose();
-    shown = null;
-    syncMenu();
+  /** Tell the window's page the Tabs and what the Welcome page says, once it
+   *  listens. */
+  const postWindowState = () => {
+    if (!windowListening || win === null || shared === null) return;
+    const repos = shared.repoSource.getRepos();
+    const focused = tabs.focused();
+    const message: WindowStateMessage = {
+      command: "windowState",
+      tabs: tabs.list().map((tab) => ({
+        id: tab.id,
+        title: repos[tab.repo]?.customName || path.basename(tab.repo),
+        tooltip: tab.repo,
+        focused: tab === focused,
+        asking: tab.content.page.asking
+      })),
+      notice: tabs.list().length === 0 ? welcomeNotice : null,
+      strings: { closeTab: shared.l10n.t("desktop.tab.close") }
+    };
+    win.webContents.send(CHANNELS.hostMessage, message);
   };
 
-  /** What is shown, if `url` is its page's: a page replaced but still
-   *  unloading, or reloading, is not. */
-  const shownAt = (url: string): Shown | null =>
-    shown !== null && pageIdOf(url) === shown.id ? shown : null;
-
-  /** Put `next` in the window; what was shown before is done. */
-  const show = (next: Omit<Shown, "id">) => {
-    closeShown();
-    shown = { id: ++nextId, ...next };
-    syncMenu();
-    void win?.loadURL(`${PAGE_URL}?${PAGE_ID_PARAM}=${shown.id}`);
-  };
-
-  /** A page with no graph, saying why when `notice` is not null. Nothing on
-   *  it should post anything; whatever does is said in the log. */
-  const showNotice = (notice: Notice | null) =>
-    show({
-      page: () => ({ notice }),
-      instance: null,
-      prompts: null,
-      deliver: (message) =>
-        logger.log(`webview: "${String(message?.command)}" reached a page with no graph`)
-    });
-
-  /** What `request` names, checked: a repository, a path that is none, or
-   *  `null` when it names nothing. */
-  const check = (request: LaunchRequest): Promise<RepoToOpen | null> =>
-    request.repo === null ? Promise.resolve(null) : repoToOpen(request.repo, desktopGitPath());
-
-  /** Open `target`: its repository in a graph of its own, or a notice that it
-   *  is none. The notice takes the place only of a page with no graph: a later
-   *  launch naming a bad path must not close the graph someone is using, so
-   *  there it is said in a box over it. Nothing named leaves what is shown,
-   *  and shows the empty page when nothing is. */
-  const open = (target: RepoToOpen | null) => {
-    if (shared === null || win === null) return;
-    const host = shared;
-    const owner = win;
-    if (target === null) {
-      if (shown === null) showNotice(null);
-      return;
-    }
-    if ("unusable" in target) {
-      logger.log(`launch: cannot open ${target.unusable}, not a Git repository`);
-      const notice: Notice = {
-        title: host.l10n.t("error.unableToLoadGitGraph"),
-        detail: host.l10n.t("desktop.cannotOpenRepo", target.unusable)
-      };
-      if (!shown?.instance) showNotice(notice);
-      else {
-        void dialogsFor(owner).showMessageBox({
-          type: "error",
-          message: notice.title,
-          detail: notice.detail
-        });
+  /** Lay the Tabs' views out below the strip, the focused one alone in the
+   *  window; the Welcome page shows where none is. The others are taken out
+   *  of the window rather than hidden in it: nothing draws a view that is in
+   *  no window. Each keeps the window's size all the same: a graph sizes what
+   *  it loads by its viewport. */
+  const layoutTabs = () => {
+    if (win === null || win.isDestroyed()) return;
+    const [width, height] = win.getContentSize();
+    const focused = tabs.focused();
+    const shown = win.contentView.children;
+    for (const tab of tabs.list()) {
+      const { view } = tab.content;
+      view.setBounds({
+        x: 0,
+        y: TAB_STRIP_HEIGHT,
+        width,
+        height: Math.max(0, height - TAB_STRIP_HEIGHT)
+      });
+      if (tab !== focused) {
+        if (shown.includes(view)) win.contentView.removeChildView(view);
+      } else if (!shown.includes(view)) {
+        win.contentView.addChildView(view);
       }
-      return;
     }
-    // The repository as the known set spells it, if it is known under another
-    // spelling (a symlink, say): otherwise it would be added twice, the second
-    // time with none of its state.
-    const repo =
-      resolveToKnownRepo(target.repo, Object.keys(host.repoSource.getRepos())) ?? target.repo;
-    logger.log(`launch: opening ${repo}`);
-    // The graph being replaced is done before the set changes, so it is not
-    // told of the change on its way out.
-    closeShown();
-    host.repoSource.addRepo(repo);
-    host.extensionState.setLastActiveRepo(repo);
+    // The keyboard goes where the user's eyes do: to the Tab brought forward.
+    if (focused !== null && focused.id !== keyboardTab) focused.content.view.webContents.focus();
+    keyboardTab = focused?.id ?? null;
+  };
 
-    const { channel, deliver, prompt } = channelTo(owner.webContents, logger);
-    // Asked in this instance's page: a prompt git raises for it comes back
-    // here through its askpass route. #393 gives each tab its own.
+  const tabsChanged = () => {
+    layoutTabs();
+    postWindowState();
+    syncMenu();
+    shared?.tabStates.save(
+      tabs.list().map((tab) => tab.content.state),
+      tabs.focused()?.content.state ?? null
+    );
+  };
+
+  /** A Tab is done: what its view showed, and the view. */
+  function disposeTab({ view, page }: TabContent): void {
+    page.instance?.dispose();
+    page.prompts?.dispose();
+    if (win !== null && !win.isDestroyed() && win.contentView.children.includes(view)) {
+      win.contentView.removeChildView(view);
+    }
+    if (!view.webContents.isDestroyed()) view.webContents.close();
+  }
+
+  /** A view for a Tab, not yet in the window nor loaded: its page's URL names
+   *  the Tab, which does not exist yet. `layoutTabs` puts it in the window. */
+  const makeView = (): WebContentsView => {
+    const view = new WebContentsView({ webPreferences: WEB_PREFERENCES });
+    view.setBackgroundColor(currentTheme().background);
+    // The page starting to load, the first time or again (a reload): the
+    // graph it brings has yet to pick its repository. Tied to the load, not
+    // to building the HTML, which a second fetch of it would repeat.
+    view.webContents.on("did-start-navigation", (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return;
+      const loading = tabOf(view.webContents)?.content.page;
+      loading?.instance?.pageLoading();
+      loading?.prompts?.pageLoading();
+    });
+    return view;
+  };
+
+  /** A graph on `repo` in `view`, its Current repository persisted in `state`. */
+  const graphPage = (
+    host: SharedServices,
+    owner: BrowserWindow,
+    view: WebContentsView,
+    repo: string,
+    state: ExtensionState
+  ): TabPage => {
+    const { channel, deliver, prompt } = channelTo(view.webContents, logger);
+    // Asked in this Tab's page: a prompt git raises for it comes back here
+    // through its askpass route, whichever Tab is in front (#393).
     const prompts = createDesktopPrompts({
       dialogs: dialogsFor(owner),
       l10n: host.l10n,
       logger,
-      page: { post: prompt }
+      page: { post: prompt },
+      onAsking: (asking) => {
+        page.asking = asking;
+        postWindowState();
+      }
     });
-    const instance = createGraphInstance(host, { repo, channel, prompts });
+    const instance = createGraphInstance(host, { repo, channel, prompts, extensionState: state });
     const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
-    show({
+    const page: TabPage = {
       page: () => ({
         graph: { viewState: instance.pageViewState(), l10n: strings, nonce: getNonce() }
       }),
@@ -333,8 +391,161 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       deliver: (message) => {
         if (isHostPromptReply(message)) prompts.receive(message);
         else deliver(message);
-      }
+      },
+      asking: false
+    };
+    return page;
+  };
+
+  /** In place of a graph, why there is none. Nothing on it should post
+   *  anything; whatever does is said in the log. */
+  const noticePage = (notice: Notice): TabPage => ({
+    page: () => ({ notice }),
+    instance: null,
+    prompts: null,
+    deliver: (message) =>
+      logger.log(`webview: "${String(message?.command)}" reached a page with no graph`),
+    asking: false
+  });
+
+  const loadTab = (tab: Tab<TabContent>) =>
+    void tab.content.view.webContents.loadURL(
+      `${PAGE_URL}${TAB_PATH.slice(1)}?${TAB_ID_PARAM}=${tab.id}`
+    );
+
+  /** Open `repo` — a repository, checked — in a Tab of its own, or focus the
+   *  Tab it is open in. A Tab that could not show it when the app started
+   *  shows it now. */
+  const openRepo = (repo: string) => {
+    if (shared === null || win === null) return;
+    const host = shared;
+    const owner = win;
+    welcomeNotice = null;
+    host.repoSource.addRepo(repo);
+    const existing = tabs.find(repo);
+    if (existing !== null && existing.content.page.instance === null) {
+      existing.content.state.setLastActiveRepo(repo);
+      existing.content.page = graphPage(
+        host,
+        owner,
+        existing.content.view,
+        repo,
+        existing.content.state
+      );
+      loadTab(existing);
+    }
+    const { tab, opened } = tabs.open(repo, () => {
+      const view = makeView();
+      const state = host.tabStates.newTab(repo);
+      return { view, state, page: graphPage(host, owner, view, repo, state) };
     });
+    if (opened) loadTab(tab);
+  };
+
+  /** The Tabs the app was left with, in their order, the one in front again in
+   *  front. A Tab whose folder is not there today says so in its place, and is
+   *  kept until it is closed: the disk may only be unmounted (GLOSSARY.md's
+   *  Current repository). */
+  const restoreTabs = () => {
+    if (shared === null || win === null) return;
+    const host = shared;
+    const owner = win;
+    const { tabs: states, active } = host.tabStates.restore();
+    let front: Tab<TabContent> | null = null;
+    for (const state of states) {
+      const persisted = state.getPersistedRepoPath();
+      // A write refused (`setLastActiveRepo`) left nothing to show.
+      if (persisted === null || tabs.find(persisted) !== null) continue;
+      const repo = state.getLastActiveRepo();
+      if (repo === null) {
+        logger.log(`tabs: cannot restore ${persisted}, its folder is not there`);
+      } else {
+        logger.log(`tabs: restoring ${repo}`);
+        host.repoSource.addRepo(repo);
+      }
+      const { tab } = tabs.open(persisted, () => {
+        const view = makeView();
+        const page =
+          repo === null
+            ? noticePage({
+                title: host.l10n.t("error.unableToLoadGitGraph"),
+                detail: host.l10n.t("desktop.cannotOpenRepo", persisted)
+              })
+            : graphPage(host, owner, view, repo, state);
+        return { view, state, page };
+      });
+      loadTab(tab);
+      if (state === active) front = tab;
+    }
+    if (front !== null) tabs.focus(front.id);
+  };
+
+  /** What `request` names, checked: a repository, a path that is none, or
+   *  `null` when it names nothing. */
+  const check = (request: LaunchRequest): Promise<RepoToOpen | null> =>
+    request.repo === null ? Promise.resolve(null) : repoToOpen(request.repo, desktopGitPath());
+
+  /** Open what a launch named: its repository in a Tab (#393), or a notice
+   *  that it is none. The notice is the Welcome page's only while no Tab is
+   *  open: a later launch naming a bad path must not take the place of a
+   *  graph someone is using, so there it is said in a box over it. */
+  const open = (target: RepoToOpen | null) => {
+    if (shared === null || win === null || target === null) return;
+    const host = shared;
+    if ("unusable" in target) {
+      logger.log(`launch: cannot open ${target.unusable}, not a Git repository`);
+      const notice: Notice = {
+        title: host.l10n.t("error.unableToLoadGitGraph"),
+        detail: host.l10n.t("desktop.cannotOpenRepo", target.unusable)
+      };
+      if (tabs.list().length === 0) {
+        welcomeNotice = notice;
+        postWindowState();
+      } else {
+        void dialogsFor(win).showMessageBox({
+          type: "error",
+          message: notice.title,
+          detail: notice.detail
+        });
+      }
+      return;
+    }
+    // The repository as a Tab or the known set spells it, if it is open or
+    // known under another spelling (a symlink, say): otherwise it would open
+    // in a second Tab, or be known twice, the second time with none of its
+    // state.
+    const repo =
+      resolveToKnownRepo(target.repo, [
+        ...tabs.list().map((tab) => tab.repo),
+        ...Object.keys(host.repoSource.getRepos())
+      ]) ?? target.repo;
+    logger.log(`launch: opening ${repo}`);
+    openRepo(repo);
+  };
+
+  /** What the window's own page posted: the strip's requests, and the replies
+   *  to the Welcome page's prompts. */
+  const fromWindowPage = (message: unknown) => {
+    if (isHostPromptReply(message)) {
+      welcomePrompts?.receive(message);
+      return;
+    }
+    if (!isWindowRequest(message)) {
+      logger.log(`window: "${String((message as { command?: unknown })?.command)}" is not its`);
+      return;
+    }
+    switch (message.command) {
+      case "windowReady":
+        windowListening = true;
+        postWindowState();
+        break;
+      case "focusTab":
+        tabs.focus(message.id);
+        break;
+      case "closeTab":
+        tabs.close(message.id);
+        break;
+    }
   };
 
   const launch = parseLaunchArgs(thisLaunch, runtime);
@@ -348,8 +559,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       logger.log("launch: a later launch forwarded nothing readable");
     } else {
       logLaunch(request, logger);
-      // One window, one instance (B): a repository it names takes the
-      // window's place. #393 opens it in a tab of its own instead.
+      // In a Tab of its own, or the one it is open in, brought forward.
       void check(request).then(open);
     }
     if (win !== null) {
@@ -360,10 +570,11 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   ipcMain.on(CHANNELS.webviewMessage, (event, message: RequestMessage | HostPromptReply) => {
     // The settings window's page talks to the settings, never to an instance.
     if (settingsWindow?.deliver(event.sender, message)) return;
-    if (win === null || event.sender !== win.webContents) return;
-    // Only from the page that is shown: one replaced but still unloading must
-    // not reach the instance that replaced it.
-    shownAt(event.senderFrame?.url ?? "")?.deliver(message);
+    if (win !== null && event.sender === win.webContents) {
+      fromWindowPage(message);
+      return;
+    }
+    tabOf(event.sender)?.content.page.deliver(message);
   });
 
   app.on("window-all-closed", () => app.quit());
@@ -373,7 +584,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   app.on("will-quit", (event) => {
     if (logClosed) return;
     event.preventDefault();
-    closeShown();
+    // Not closed one by one: the Tabs as they stand are what the next
+    // session opens.
+    tabs.disposeAll();
+    welcomePrompts?.dispose();
     shared?.dispose();
     void logger.close().finally(() => {
       logClosed = true;
@@ -398,7 +612,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       settings: host.settings,
       l10n: host.l10n,
       logger,
-      instances: () => (shown?.instance ? [shown.instance] : []),
+      instances: () =>
+        tabs
+          .list()
+          .flatMap((tab) => (tab.content.page.instance ? [tab.content.page.instance] : [])),
       setTheme: (choice) => {
         nativeTheme.themeSource = choice;
         void writeThemeChoice(host.storage.global, choice);
@@ -426,26 +643,55 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       }
     });
 
-    serveApp((url) =>
-      new URL(url).pathname === SETTINGS_PATH
-        ? settingsPage()
-        : (shownAt(url)?.page() ?? { notice: null })
-    );
-    followSystemTheme();
-    win = createWindow();
-    // The page of what is shown starting to load, the first time or again (a
-    // reload): the graph it brings has yet to pick its repository. Tied to the
-    // load, not to building the HTML, which a second fetch of it would repeat.
-    win.webContents.on("did-start-navigation", (details) => {
-      if (!details.isMainFrame || details.isSameDocument) return;
-      const loading = shownAt(details.url);
-      loading?.instance?.pageLoading();
-      loading?.prompts?.pageLoading();
+    serveApp((url) => {
+      if (url.pathname === "/") return { window: true };
+      if (url.pathname === SETTINGS_PATH) return settingsPage();
+      if (url.pathname === TAB_PATH) {
+        const id = Number(url.searchParams.get(TAB_ID_PARAM));
+        const tab = tabs.list().find((t) => t.id === id);
+        return tab?.content.page.page() ?? { notice: null };
+      }
+      return null;
     });
-    win.on("closed", () => {
-      closeShown();
+    followSystemTheme((theme) => {
+      for (const tab of tabs.list()) tab.content.view.setBackgroundColor(theme.background);
+    });
+    // A Tab's title is its repository's custom name, when it has one.
+    host.repoSource.onDidChangeRepos(postWindowState);
+
+    const owner = createWindow();
+    win = owner;
+    welcomePrompts = createDesktopPrompts({
+      dialogs: dialogsFor(owner),
+      l10n: host.l10n,
+      logger,
+      page: {
+        post: (message) => {
+          if (!owner.webContents.isDestroyed()) {
+            owner.webContents.send(CHANNELS.hostMessage, message);
+          }
+        }
+      }
+    });
+    // The window's page starting to load, the first time or again (a reload):
+    // until it says it listens, nothing is sent into it.
+    owner.webContents.on("did-start-navigation", (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return;
+      windowListening = false;
+      welcomePrompts?.pageLoading();
+    });
+    // The Tabs' views take the window's size: they are not the window's page,
+    // which the window sizes itself.
+    owner.on("resize", layoutTabs);
+    owner.on("maximize", layoutTabs);
+    owner.on("unmaximize", layoutTabs);
+    owner.on("closed", () => {
+      tabs.disposeAll();
+      welcomePrompts?.dispose();
       win = null;
     });
+    void owner.loadURL(PAGE_URL);
+    restoreTabs();
     open(await launchTarget);
   });
 } else {

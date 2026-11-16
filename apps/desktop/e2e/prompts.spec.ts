@@ -6,6 +6,7 @@ import path from "node:path";
 import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { focusedTabPage, windowPage } from "./tabPages";
 
 // A question of core's command services, asked through the desktop `Prompts`
 // (#390): the application menu runs `fetchRemote` in the main process, its
@@ -73,7 +74,7 @@ test("a pick of core's fetchRemote is asked in the page, and fetches the remote 
   }
   try {
     const electronApp = await launch("--repo", repo.path);
-    const page = await electronApp.firstWindow();
+    const page = await focusedTabPage(electronApp);
     await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
 
     // Offered while a graph is shown; clicked as a user would, through the
@@ -113,7 +114,7 @@ test("a pick of core's fetchRemote is asked in the page, and fetches the remote 
 
 test("the menu's graph entries are not offered on a page with no graph", async () => {
   const electronApp = await launch("--repo", path.join(scratch, "not-a-repo"));
-  const page = await electronApp.firstWindow();
+  const page = await windowPage(electronApp);
   await expect(page.locator("p")).toContainText("not a Git repository");
 
   expect(await menuEntry(electronApp, FETCH_REMOTE)).toMatchObject({ enabled: false });
