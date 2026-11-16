@@ -97,6 +97,19 @@ export function createDesktopPrompts({
       if (listening) page.post(message);
     });
 
+  /** The text `prompt` is answered with, once `validate` takes it. The page
+   *  cannot run `validate`, so a text it refuses is asked again, starting
+   *  from that text and saying why; the prompt never answers with it. */
+  const askInput = async (
+    prompt: Extract<HostPrompt, { kind: "input" }>,
+    validate: ((text: string) => string | undefined) | undefined
+  ): Promise<string | undefined> => {
+    const answer = await ask(prompt);
+    if (typeof answer !== "string") return undefined;
+    const error = validate?.(answer);
+    return error === undefined ? answer : askInput({ ...prompt, value: answer, error }, validate);
+  };
+
   /** A notice of `type` offering `labels`, plus a way out; resolves to the
    *  index of the label clicked, or `undefined` for the way out. With no
    *  labels, the system's own single button, whose answer is nothing. */
@@ -152,7 +165,13 @@ export function createDesktopPrompts({
     pick: async (items, { placeholder, matchOnDescription = false } = {}) => {
       const answer = await ask({
         kind: "pick",
-        items: items.map(({ label, description, warning }) => ({ label, description, warning })),
+        items: items.map(({ label, description, detail, separatorAbove, warning }) => ({
+          label,
+          description,
+          detail,
+          separatorAbove,
+          warning
+        })),
         placeholder,
         matchOnDescription
       });
@@ -161,9 +180,11 @@ export function createDesktopPrompts({
     pickMany: async (items, { placeholder, matchOnDescription = false } = {}) => {
       const answer = await ask({
         kind: "pickMany",
-        items: items.map(({ label, description, picked, warning }) => ({
+        items: items.map(({ label, description, detail, separatorAbove, picked, warning }) => ({
           label,
           description,
+          detail,
+          separatorAbove,
           picked,
           warning
         })),
@@ -174,10 +195,8 @@ export function createDesktopPrompts({
       // In the order of the rows, each once, whatever order the page listed them in.
       return items.filter((_, index) => answer.includes(index)).map((item) => item.value);
     },
-    input: async ({ prompt, placeholder, password = false, value }) => {
-      const answer = await ask({ kind: "input", prompt, placeholder, password, value });
-      return typeof answer === "string" ? answer : undefined;
-    },
+    input: ({ prompt, placeholder, password = false, value, validate }) =>
+      askInput({ kind: "input", prompt, placeholder, password, value }, validate),
 
     receive: (reply) => {
       if (reply.command === "hostPromptReady") {

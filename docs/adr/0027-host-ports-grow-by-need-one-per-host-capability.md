@@ -170,3 +170,17 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **路徑不再 resolve 的 Tab,重啟時照樣出現(內容是說明頁),字串留在清單裡，直到使用者關掉它。** 這是 GLOSSARY「字串留著不刪」套到 Tab 上的結果：沒有任何探測分得出「已刪除」與「這次沒掛載」。
 - **`branchFilterStore` 的前提(同一個存放庫至多開在一個 Tab)由兩處守住。** 開啟時以 `resolveToKnownRepo` 比對已開的 Tab 與 known repositories,同一個存放庫的另一種拼法會聚焦既有的 Tab;實例的 `getBootRepo` 只回答自己的 repo(不在 known set 時回答 `null`),不像 `pickBootRepo` 那樣退到別的 known repository —— 否則某個 repo 被移出集合時，那個 Tab 的圖形會跟著 `loadRepos` 換到另一個 Tab 開著的 repo。
 - **桌面版 app 自己的那份 `ExtensionState` 仍在,** 管 known repositories、dialog memory 與頭像;它的 current repository 在桌面版不再被寫。
+
+## 補記(2026-11-17,#398)
+
+**`managePullRequestProviders` 搬進 core 的 [pullRequestProviderCommands.ts](../../packages/core/src/extension/pullRequestProviderCommands.ts),port 跟著它的呼叫端長出四處:`HostConfig.update` 多了選填的 `scope`、`HostConfig` 多了 `inspect`、`PickItem` 多了 `detail` 與 `separatorAbove`、`Prompts.input` 多了 `validate`。**
+
+#397 的補記預告 core 會是 `update` 的第二個呼叫端，這張票就是那一個。VS Code 的外部行為不變，由 apps/vscode 的 `pullRequestProviders.test.ts` 在 VS Code 的 API 那一層釘住(搬移前先寫，搬移後原封不動通過)。
+
+- **`update(key, value, scope?)`,`scope` 是 `"global" | "workspace"`。** 不給就是 `global`,#397 的呼叫端不用改。VS Code 照原本的對應寫到 `ConfigurationTarget.Global` / `Workspace`;桌面版只有一層設定檔，不管 `scope` 寫什麼都寫那一層。folder scope 不在型別裡:provider 是 host 的性質，不是某個資料夾的(ADR-0021),而且沒有其他 GING 設定會寫到 folder。
+- **`inspect(key)` 回答 `{ source, scopes }`,不是 VS Code 的 `inspect` 原形。** 這個流程要知道的只有兩件事：值目前來自哪一層(`source`,陣列跨層不合併，編輯要寫回這一層才看得到)，以及這裡能寫哪幾層(`scopes`,取代原本的 `workspaceFolders === undefined`)。把 `globalValue` / `workspaceValue` / `workspaceFolderValue` 整包搬上 port,桌面版就得為一個它沒有的模型回答一堆 `undefined`。`scopes` 放在 `inspect` 而不是另開方法，因為「能寫哪幾層」在 VS Code 本來就依 key 而定(application 範圍的設定不能寫到 workspace)。桌面版回答 `{ source: 檔案裡有這個 key ? "global" : null, scopes: ["global"] }`,所以它永遠不會問「要存到哪一層」。
+- **`PickItem.detail` 與 `separatorAbove`。** 原本的 QuickPick 每個 forge 底下有一行範例 URL,「新增」那一列和 host 清單之間有一條分隔線。少了它們 VS Code 的畫面就變了。分隔線做成「這一列上方有一條線」的旗標，而不是一種沒有 `value` 的列：那樣 `pick` 的回答型別就得排除它，三個實作都要多一道過濾。VS Code 由 `quickPickItems` 在那一列前面插入 `QuickPickItemKind.Separator`;桌面版的 overlay 畫成上框線,`detail` 畫成第二行，不參與篩選(與 VS Code 預設的 `matchOnDetail: false` 相同)。
+- **`Prompts.input` 的 `validate(text) → string | undefined`。** 原本的 `showInputBox` 有 `validateInput`,邊打邊檢查,Enter 在不合格時無效。VS Code 照原樣接上。桌面版的頁面跑不了 main process 的函式，所以改成「回答之後才檢查」:不合格就從那段文字重問一次，帶著原因(host prompt 的 input 多了 `error`,overlay 以 `role="alert"` 顯示)。兩邊共同的保證寫在 port 上:prompt 不會用 `validate` 拒絕的文字回答。代價是桌面版要按下 Enter 才看得到原因，而且重問時 overlay 會關掉再開一次。重問是一個新的 prompt(新的 id),排在當時已在等的其他 prompt 後面，所以若有別的 prompt 在等(例如 askpass),它會先出現;port 的 alidate 註解寫明了宿主可以這樣做。
+- **「顯示設定」不是 port,是命令服務的 `revealSetting` hook。** 理由同 remote 命令的 `refreshGraph`:它是宿主交給這個服務的一個動作，不是 dispatch 要的能力，也避免和同時在改 `Opener` 的 #391 撞在同一個 interface。VS Code 是 `workbench.action.openSettings`;桌面版是設定視窗的 `reveal(key)`:沒開著就以 `?setting=` 開一個新視窗，開在那個設定那一列;已經開著就不重新載入(會丟掉其他列裡打了還沒送出的內容，例如還不是合法 JSON 的文字),而是把那個設定現在的值以 `settingUpdated` 送過去，再送 `revealSetting` 讓頁面捲到那一列並標示出來。
+- **桌面版寫入後沒有推送給各 graph instance。** `pullRequests.providers` 每次建立 pull request 時才讀，`pushSettingChange` 對它本來就什麼都不做。設定視窗若已開著而使用者沒有按「顯示設定」,它顯示的仍是舊值，這是設定頁本身的問題(它只聽自己寫入的回覆),見 #446。
+- **`MessageHandlerDeps.configurePullRequestProvider` 仍是 hook,但桌面版不再是 stub。** 它在桌面版直接呼叫這個命令服務，問在發起 Create Pull Request 的那個 instance 的頁面上。上面「為什麼未來的讀者會困惑」第二條說它跳回的是 VS Code 自己的 QuickPick 命令，現在兩個宿主跑的是同一份流程;它仍是 hook,是因為 VS Code 那邊照舊經由已註冊的命令執行，命令面板的入口與錯誤框的按鈕走同一條路。

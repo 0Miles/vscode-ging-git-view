@@ -81,6 +81,10 @@ const control = <T extends HTMLElement>(key: string) =>
 
 const change = (element: HTMLElement) => element.dispatchEvent(new Event("change"));
 
+/** The host telling the page to show setting `key`'s row. */
+const reveal = (key: string) =>
+  window.dispatchEvent(new MessageEvent("message", { data: { command: "revealSetting", key } }));
+
 describe("the desktop entry on a settings page", () => {
   it("builds one row per setting, its id the key, showing the value the host holds", async () => {
     await load(STATE);
@@ -94,6 +98,51 @@ describe("the desktop entry on a settings page", () => {
     expect(JSON.parse(control<HTMLTextAreaElement>("ging-git-view.graph.palette").value)).toEqual([
       "#000000"
     ]);
+  });
+
+  it("brings the row of the setting its URL names into view, and no other", async () => {
+    const scrolled: string[] = [];
+    // jsdom lays nothing out, so it has no scrollIntoView of its own.
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.id);
+    };
+    try {
+      window.history.replaceState(null, "", "?setting=ging-git-view.show.tags");
+      await load(STATE);
+      expect(scrolled).toEqual(["ging-git-view.show.tags"]);
+
+      scrolled.length = 0;
+      window.history.replaceState(null, "", "?setting=ging-theme");
+      await load(STATE);
+      expect(scrolled).toEqual([]);
+    } finally {
+      window.history.replaceState(null, "", window.location.pathname);
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
+  });
+
+  it("shows the row the host reveals, marked, leaving a draft typed in another row as it is", async () => {
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.id);
+    };
+    try {
+      await load(STATE);
+      // Typed, but not JSON, so never sent: only the page holds it.
+      const palette = control<HTMLTextAreaElement>("ging-git-view.graph.palette");
+      palette.value = "[oops";
+      change(palette);
+
+      reveal("ging-git-view.dates.format");
+      reveal("ging-git-view.show.tags");
+
+      const marked = Array.from(document.querySelectorAll(".settingRow.revealed"), (r) => r.id);
+      expect(marked).toEqual(["ging-git-view.show.tags"]);
+      expect(scrolled.at(-1)).toBe("ging-git-view.show.tags");
+      expect(palette.value).toBe("[oops");
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
   });
 
   it("renders a markdown description's link to another setting as a link to its row, and escapes the rest", async () => {

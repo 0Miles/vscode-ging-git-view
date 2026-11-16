@@ -378,7 +378,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         postWindowState();
       }
     });
-    const instance = createGraphInstance(host, { repo, channel, prompts, extensionState: state });
+    const instance = createGraphInstance(host, {
+      repo,
+      channel,
+      prompts,
+      extensionState: state,
+      revealSetting: (key) => settingsWindow?.reveal(key)
+    });
     const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
     const page: TabPage = {
       page: () => ({
@@ -626,7 +632,9 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       createWindow,
       handle: handleSettings,
       opener: host.opener,
-      logger
+      logger,
+      // Only ever a key the app has: the one Show Setting names.
+      valueOf: (key) => host.settings.get(key)
     });
     // Its Settings… entry (CmdOrCtrl+,) opens the window above.
     syncMenu();

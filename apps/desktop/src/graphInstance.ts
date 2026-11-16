@@ -9,6 +9,7 @@ import {
   type MessageHandlerDeps,
   registerMessageHandlers
 } from "@ging/core/extension/messageHandler";
+import { createPullRequestProviderCommands } from "@ging/core/extension/pullRequestProviderCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
@@ -29,6 +30,9 @@ type GraphInstanceOptions = {
   prompts: Prompts;
   /** Its Tab's: where its Current repository persists (`TabStates`). */
   extensionState: MessageHandlerDeps["extensionState"];
+  /** Show setting `key` in the app's settings, as they are now (#397): where
+   *  Manage Pull Request Providers' "show the setting" goes. */
+  revealSetting: (key: string) => void;
 };
 
 export type GraphInstance = {
@@ -49,7 +53,7 @@ export type GraphInstance = {
 
 export function createGraphInstance(
   shared: SharedServices,
-  { repo, channel, prompts, extensionState }: GraphInstanceOptions
+  { repo, channel, prompts, extensionState, revealSetting }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
   /** This instance's current repository; the graph moves it with `selectRepo`. */
@@ -100,6 +104,15 @@ export function createGraphInstance(
     void bridge.post({ command: "loadRepos", repos, lastActiveRepo: repoSource.getBootRepo() });
   });
 
+  // Asked in this instance's page, as the failed Create Pull Request that
+  // offers it was. The settings are the app's: no workspace holds any.
+  const pullRequestProviders = createPullRequestProviderCommands({
+    prompts,
+    l10n,
+    config,
+    revealSetting
+  });
+
   /** What #391 brings; until then said in the log, since nothing else will. */
   const notYet = (what: string) => logger.logError(`${what} is not available yet (#391)`);
   const dispatch = registerMessageHandlers(
@@ -130,7 +143,7 @@ export function createGraphInstance(
       // here the side-view is in the same page (#399), so nothing is held.
       onDelegatedRan: () => {},
       showAllBranches: async () => notYet("Show All"),
-      configurePullRequestProvider: () => notYet("Configuring a pull request provider"),
+      configurePullRequestProvider: (host) => void pullRequestProviders.manage(host),
       openScmView: () => notYet("The source control view")
     }
   );
