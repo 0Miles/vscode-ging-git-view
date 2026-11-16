@@ -63,3 +63,14 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 
 - **「設定改了立即生效」用一個本機的 bare remote 觀察。** [fixtureRepo.ts](../../apps/desktop/e2e/fixtureRepo.ts) 的 `addAheadRemote` 把 fixture repo 複製成 bare、設為 `origin`,再直接在 bare 裡做一個 commit,讓它比 fixture 的 `refs/remotes/origin/main` 多一個。從設定頁打開 auto-fetch、間隔設成最小的一分鐘之後,不重開 app,在一分多鐘內看到那個 ref 變成新的 commit。這條測試因此至少要一分鐘,`test.setTimeout` 是照設定的下限給的,不是為了讓它變綠而放寬。
 - **主題保留的斷言讀 `nativeTheme.themeSource`,不只讀頁面的顏色。** 系統本來就是淺色時,「重啟後是淺色」不能證明選擇被保存;`themeSource` 是 `light` 而不是 `system`,才能。
+
+## 補記(2026-11-17,#392)
+
+**askpass 與 interactive rebase 的 E2E 各一條([askpass.spec.ts](../../apps/desktop/e2e/askpass.spec.ts)、[interactiveRebase.spec.ts](../../apps/desktop/e2e/interactiveRebase.spec.ts)),都從圖形自己的按鈕與對話框觸發,斷言只讀頁面、git 與 log。** 兩個 helper 壞掉時(把打包產物裡的 `askpass.sh` 換成 `echo ""`、`sequenceEditor.sh` 換成 `exit 0`)兩條都會紅,這是它們當作 RunAsNode fuse 偵測器的根據。
+
+- **401 server 是 [unauthorizedRemote.ts](../../apps/desktop/e2e/unauthorizedRemote.ts)**:Node `http`,綁 127.0.0.1、port 由系統挑,每個請求一律回 401 加 `WWW-Authenticate: Basic`,有沒有帶帳密都一樣,並照到達的順序記下來。`info/refs` 以外的請求(例如 `HEAD /`)也回 401、也記,測試只讀它關心的那幾筆。git 2.40.1 實測:不帶帳密的 `info/refs` 一次,帶帳密的重試一次,然後放棄。
+- **頁面上看到的是 `askpass.sh` 切開後的 git 提示。** `askpass.sh` 用沒加引號的 `$*` 把 `Username for 'http://127.0.0.1:…': ` 拆成三個參數,`askpassMain` 取第一個字當 `placeholder`(`Username`、`Password`),取引號裡的 URL 組成標題 `GING: <url>`。所以「先問 Username、再問 Password」是讀 overlay 的 placeholder 與標題,第二題的 URL 帶著第一題填的帳號。這是產品現有的行為(沿用 VS Code 的 askpass),本票不改。
+- **錯誤框是圖形自己的 `#dialog`,不是原生對話框。** 從圖形的 Fetch 按鈕觸發,askpass 的 overlay 正好疊在進度框上(ADR-0031 的 #390 補記),失敗時進度框換成 `Unable to fetch` 的錯誤框。斷言只看標題與有沒有 `.errorReason`,不比對 git 的 stderr 全文。
+- **`wasApplied` 不掛測試用的全域來讀,讀它的後果。** rebase 對話框把中間那個 commit 取消勾選,只有 GING 自己寫的 todo 能表達;helper 沒跑的話,git 用自己的 todo 留下每個 commit,`rebaseInteractive` 會因 `wasApplied` 為 false 而失敗。所以「中間那個 commit 不見了、前後兩個照順序留著、沒有錯誤框、log 沒有 `ERROR:`」就是 `wasApplied` 為 true。
+- **fixture 的隔離補上 `GIT_CONFIG_GLOBAL`。** `isolatedGitEnv` 原本只把 `HOME` / `USERPROFILE` 指到暫存目錄;開發機上設了 `XDG_CONFIG_HOME` 時,git 仍會讀那裡的 `git/config`,裡面若有 credential helper,401 就不會走到 askpass。現在 `GIT_CONFIG_GLOBAL` 明確指到那個暫存的空 `.gitconfig`(Windows 上開不了 `/dev/null`,所以用空檔)。
+- **rebase 的 fixture repo 自己設 `user.name` / `user.email`(repo 層級)。** fixture 的 git 用 `GIT_AUTHOR_*` / `GIT_COMMITTER_*` 環境變數提交,app 的 git 拿不到它們,而隔離後的設定裡沒有任何身分,rebase 重放 commit 時會停在 `unable to auto-detect email address`。

@@ -7,17 +7,24 @@ import path from "node:path";
  * Git kept away from the developer's own configuration (ADR-0032): no system
  * config, and a home of its own whose global config is empty. Given to the
  * fixture's git and to the app's, so neither signs, hooks or rewrites line
- * ends the way someone's ~/.gitconfig says.
+ * ends the way someone's ~/.gitconfig says, nor hands a credential helper's
+ * answer to a remote that should have asked (#392).
  */
 export function isolatedGitEnv(home: string): NodeJS.ProcessEnv {
   mkdirSync(home, { recursive: true });
-  writeFileSync(path.join(home, ".gitconfig"), "");
+  const globalConfig = path.join(home, ".gitconfig");
+  writeFileSync(globalConfig, "");
   return {
     ...process.env,
     GIT_CONFIG_NOSYSTEM: "1",
     HOME: home,
     USERPROFILE: home,
-    // Nothing configured, so nobody is asked for anything either.
+    // Named outright, an empty file rather than /dev/null, which git on
+    // Windows cannot open: otherwise an XDG_CONFIG_HOME of the developer's
+    // still brings their git/config in beside the empty ~/.gitconfig.
+    GIT_CONFIG_GLOBAL: globalConfig,
+    // Never the terminal: a credential git needs is asked through the app's
+    // GIT_ASKPASS, which git prefers to it anyway, or by nobody.
     GIT_TERMINAL_PROMPT: "0"
   };
 }
