@@ -55,6 +55,12 @@ export type SettingsPageState = {
   strings: SettingsPageStrings;
 };
 
+/** The query parameter of the settings page's URL naming the setting the page
+ *  opens at, its row scrolled into view: how the host shows one setting, as
+ *  VS Code's settings editor does for "show the setting", in a window it opens
+ *  for it. In one already open, it sends `revealSetting` instead. */
+export const SETTING_PARAM = "setting";
+
 /** What the settings page asks of the desktop host. */
 export type SettingsRequest =
   | { command: "updateSetting"; key: string; value: unknown }
@@ -70,7 +76,16 @@ export type SettingsResponse = {
   error: string | null;
 };
 
+/** Host → page, unasked: bring setting `key`'s row into view and mark it. How
+ *  the host shows one setting in a settings window already open, whose page
+ *  is not reloaded for it — that would drop what the user has typed and not
+ *  yet sent. The host sends the setting's value first, as a `settingUpdated`. */
+export type SettingsReveal = { command: "revealSetting"; key: string };
+
+/** Everything the host sends a settings page. */
+export type SettingsHostMessage = SettingsResponse | SettingsReveal;
+
 /** A host message for the settings page must not be mistaken for one of the
  *  graph's: they share the page's `message` event (ADR-0031's consequences). */
-type Overlap = Extract<SettingsResponse["command"], ResponseMessage["command"]>;
+type Overlap = Extract<SettingsHostMessage["command"], ResponseMessage["command"]>;
 export const SETTINGS_COMMANDS_DO_NOT_OVERLAP: [Overlap] extends [never] ? true : never = true;

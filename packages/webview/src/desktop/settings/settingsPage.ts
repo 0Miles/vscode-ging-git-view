@@ -10,11 +10,11 @@ import { renderDescriptionMarkdown } from "./markdown";
 import type {
   SettingsPageSetting,
   SettingsPageState,
+  SettingsHostMessage,
   SettingsRequest,
-  SettingsResponse,
   ThemeChoice
 } from "./protocol";
-import { THEME_CHOICES } from "./protocol";
+import { SETTING_PARAM, THEME_CHOICES } from "./protocol";
 
 /** Only the desktop bundle carries these, so they live here rather than in
  *  `media/main.css`, which ships in the extension too (ADR-0031). */
@@ -23,7 +23,7 @@ body.settingsPage { padding: 0; }
 #settings { max-width: 820px; margin: 0 auto; padding: 16px 24px 48px; }
 #settings h1 { font-size: 26px; font-weight: normal; margin: 8px 0 16px; }
 .settingRow, .themeRow { padding: 10px 12px; margin: 0 -12px; border-left: 2px solid transparent; }
-.settingRow:target { border-left-color: var(--vscode-focusBorder); background: var(--vscode-list-hoverBackground); }
+.settingRow:target, .settingRow.revealed { border-left-color: var(--vscode-focusBorder); background: var(--vscode-list-hoverBackground); }
 .settingTitle { font-weight: 600; margin-bottom: 4px; }
 .settingCategory { font-weight: normal; }
 .settingDescription { color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
@@ -201,9 +201,25 @@ export function startSettingsPage(state: SettingsPageState, root: HTMLElement): 
     rows.set(setting.key, bindRow(setting, document.getElementById(setting.key)!, state));
   }
 
-  window.addEventListener("message", (event: MessageEvent<SettingsResponse | undefined>) => {
+  /** Setting `key`'s row in view, and marked as the one shown; nothing for a
+   *  key the page has no row for. */
+  const reveal = (key: string) => {
+    if (!rows.has(key)) return;
+    document
+      .querySelectorAll(".settingRow.revealed")
+      .forEach((marked) => marked.classList.remove("revealed"));
+    const element = document.getElementById(key);
+    element?.classList.add("revealed");
+    element?.scrollIntoView({ block: "start" });
+  };
+
+  window.addEventListener("message", (event: MessageEvent<SettingsHostMessage | undefined>) => {
     const message = event.data;
-    // Only the host's answers to this page; anything else is not for it.
+    // Only the host's messages to this page; anything else is not for it.
+    if (message?.command === "revealSetting") {
+      reveal(message.key);
+      return;
+    }
     if (message?.command !== "settingUpdated") return;
     const row = rows.get(message.key);
     if (row === undefined) return;
@@ -212,4 +228,8 @@ export function startSettingsPage(state: SettingsPageState, root: HTMLElement): 
       message.error === null ? null : fillTemplate(state.strings.notSaved, message.error)
     );
   });
+
+  // Opened at one setting (`SETTING_PARAM`).
+  const shown = new URLSearchParams(window.location.search).get(SETTING_PARAM);
+  if (shown !== null) reveal(shown);
 }

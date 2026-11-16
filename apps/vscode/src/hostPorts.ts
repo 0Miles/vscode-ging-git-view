@@ -27,6 +27,9 @@ const quickPickOptions = ({ placeholder, matchOnDescription }: PickOptions = {})
   matchOnDescription
 });
 
+/** The row VS Code draws as a rule, for a `separatorAbove`. */
+const SEPARATOR = { label: "", kind: vscode.QuickPickItemKind.Separator };
+
 /** Each action as its own message item, so two with one label stay apart. */
 const messageItems = <T>(actions: readonly ChooseAction<T>[]) =>
   actions.map(({ label, value }) => ({ title: label, value }));
@@ -45,15 +48,21 @@ export const vscodePrompts: Prompts = {
         ...messageItems(actions)
       )
     )?.value,
-  pick: async (items, options) =>
-    (await vscode.window.showQuickPick(quickPickItems(items), quickPickOptions(options)))?.value,
+  pick: async (items, options) => {
+    const row = await vscode.window.showQuickPick(
+      quickPickItems(items, SEPARATOR),
+      quickPickOptions(options)
+    );
+    // A separator is never chosen, so whatever row comes back has a value.
+    return row !== undefined && "value" in row ? row.value : undefined;
+  },
   pickMany: async (items, options) =>
     (
-      await vscode.window.showQuickPick(quickPickItems(items), {
+      await vscode.window.showQuickPick(quickPickItems(items, SEPARATOR), {
         ...quickPickOptions(options),
         canPickMany: true
       })
-    )?.map((item) => item.value),
+    )?.flatMap((row) => ("value" in row ? [row.value] : [])),
   pickSaveLocation: async ({ saveLabel, filters, defaultPath }) =>
     (
       await vscode.window.showSaveDialog({
@@ -62,14 +71,16 @@ export const vscodePrompts: Prompts = {
         defaultUri: vscode.Uri.file(defaultPath)
       })
     )?.fsPath,
-  input: ({ prompt, placeholder, password, value }) =>
+  input: ({ prompt, placeholder, password, value, validate }) =>
     vscode.window.showInputBox({
       placeHolder: placeholder,
       prompt,
       password,
       value,
       // The port's prompt stays up until it is answered (see `Prompts.input`).
-      ignoreFocusOut: true
+      ignoreFocusOut: true,
+      // Checked as it is typed; Enter is refused while it says why.
+      ...(validate !== undefined && { validateInput: (text) => validate(text) ?? null })
     })
 };
 

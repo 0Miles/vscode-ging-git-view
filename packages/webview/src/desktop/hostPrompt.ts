@@ -15,6 +15,10 @@ import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 export type HostPromptItem = {
   label: string;
   description?: string;
+  /** A second line under the label (`PickItem.detail`); not filtered on. */
+  detail?: string;
+  /** A rule above the row (`PickItem.separatorAbove`). */
+  separatorAbove?: boolean;
   /** Checked when a pickMany opens. */
   picked?: boolean;
   /** Marked as a warning (`PickItem.warning`); the page draws the mark. */
@@ -44,6 +48,9 @@ export type HostPrompt =
       password: boolean;
       /** Text the answer starts from. */
       value?: string;
+      /** Why the text last answered was refused (`Prompts.input`'s
+       *  `validate`): the host asks again from it, saying why. */
+      error?: string;
     };
 
 /** The words on the overlay's own buttons, in the host's language: they come
