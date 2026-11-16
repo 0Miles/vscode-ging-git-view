@@ -5,7 +5,9 @@
  * which answers the defaults and is reported. What it may hold is the schema
  * derived from the extension's (deriveSchema.ts). */
 
-import { isPlainObject, readJsonObject } from "@ging/desktop/jsonFile";
+import * as fs from "node:fs";
+
+import { isPlainObject, readJsonObject, writeWhole } from "@ging/desktop/jsonFile";
 
 import type { SchemaNode, SettingSchema, SettingsSchema } from "./deriveSchema";
 
@@ -16,7 +18,43 @@ export type Settings = {
    *  afresh, so a change made in between reaches it. Throws for a key that is
    *  not a setting: that is a typo in the app, not in the user's file. */
   get(key: string): unknown;
+  /** Write `value` for `key` into the file, every other entry left as it was,
+   *  through a temporary file renamed over it. Rejects, writing nothing, with
+   *  a `SettingRefused` for a key that is not a setting or a value its schema
+   *  does not allow — strictly: a number out of range or a list with one bad
+   *  entry is refused, not clamped or filtered as a read does, since the user
+   *  is there to be told — with a `SettingsFileNotAnObject` for a file that
+   *  is not a JSON object, which is the user's, and writing over it would lose
+   *  what they wrote; and with an ordinary error for one it cannot read or
+   *  write. A read after it resolves sees the
+   *  value. Writes go out one at a time, in the order asked. */
+  update(key: string, value: unknown): Promise<void>;
 };
+
+/** Why `Settings.update` wrote nothing: the key or the value, not the file. */
+export class SettingRefused extends Error {
+  constructor(
+    readonly key: string,
+    readonly reason: "unknownKey" | "notAllowed"
+  ) {
+    super(
+      reason === "unknownKey"
+        ? `${key} is not a desktop setting`
+        : `The value given for ${key} is not one its schema allows`
+    );
+    this.name = "SettingRefused";
+  }
+}
+
+/** Why `Settings.update` wrote nothing: the file is there but is not a JSON
+ *  object — not JSON, or JSON of another kind — and is the user's to fix.
+ *  Any other failure is reading or writing it. */
+export class SettingsFileNotAnObject extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "SettingsFileNotAnObject";
+  }
+}
 
 const NOT_ALLOWED = Symbol("not allowed");
 
@@ -71,6 +109,73 @@ function allowed(node: SchemaNode, given: unknown, patterns: Patterns): unknown 
   return value;
 }
 
+/** Whether `value` is exactly what `node` allows, all the way down: what a
+ *  write must be, where a read would make do (`allowed`). */
+function conforms(node: SchemaNode, value: unknown, patterns: Patterns): boolean {
+  if (node.enum !== undefined && !node.enum.includes(value)) return false;
+  switch (node.type) {
+    case "boolean":
+      return typeof value === "boolean";
+    case "string":
+      return typeof value === "string" && patterns.get(node)?.test(value) !== false;
+    case "number":
+    case "integer":
+      return (
+        typeof value === "number" &&
+        Number.isFinite(value) &&
+        (node.type === "number" || Number.isInteger(value)) &&
+        value >= (node.minimum ?? -Infinity) &&
+        value <= (node.maximum ?? Infinity)
+      );
+    case "array": {
+      const items = node.items;
+      return (
+        Array.isArray(value) &&
+        (items === undefined || value.every((entry) => conforms(items, entry, patterns)))
+      );
+    }
+    case "object": {
+      if (!isPlainObject(value)) return false;
+      const properties = node.properties ?? {};
+      if ((node.required ?? []).some((name) => !Object.hasOwn(value, name))) return false;
+      return Object.entries(value).every(([name, entry]) => {
+        if (Object.hasOwn(properties, name)) return conforms(properties[name], entry, patterns);
+        const extra = node.additionalProperties;
+        return extra === undefined || extra === true
+          ? true
+          : extra !== false && conforms(extra, entry, patterns);
+      });
+    }
+  }
+}
+
+/** The object `file` holds, for a write to change one entry of: `{}` for no
+ *  file, and a rejection for one that cannot be read or is not an object. */
+async function readForWrite(file: string): Promise<Record<string, unknown>> {
+  let text: string;
+  try {
+    text = await fs.promises.readFile(file, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw new Error(`Cannot read ${file}: ${String(e)}`, { cause: e });
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new SettingsFileNotAnObject(
+      `Cannot parse ${file}, so it is left as it is: ${String(e)}`,
+      {
+        cause: e
+      }
+    );
+  }
+  if (!isPlainObject(parsed)) {
+    throw new SettingsFileNotAnObject(`${file} does not hold an object, so it is left as it is`);
+  }
+  return parsed;
+}
+
 export function openSettings(
   file: string,
   schema: SettingsSchema,
@@ -105,6 +210,10 @@ export function openSettings(
     return cached;
   };
 
+  // One write at a time, so two in quick succession do not both start from
+  // the file as it was before either.
+  let writing: Promise<void> = Promise.resolve();
+
   return {
     get(key) {
       const setting = byKey.get(key);
@@ -113,6 +222,22 @@ export function openSettings(
       if (!Object.hasOwn(values, key)) return setting.default;
       const value = allowed(setting, values[key], patterns);
       return value === NOT_ALLOWED ? setting.default : value;
+    },
+    update(key, value) {
+      const setting = byKey.get(key);
+      if (setting === undefined) return Promise.reject(new SettingRefused(key, "unknownKey"));
+      if (!conforms(setting, value, patterns)) {
+        return Promise.reject(new SettingRefused(key, "notAllowed"));
+      }
+      const write = writing.then(async () => {
+        const values = await readForWrite(file);
+        values[key] = value;
+        await writeWhole(file, `${JSON.stringify(values, null, 2)}\n`);
+        // Not left to the next task: whoever wrote it reads it back at once.
+        cached = null;
+      });
+      writing = write.catch(() => {});
+      return write;
     }
   };
 }

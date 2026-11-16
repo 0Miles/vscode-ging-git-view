@@ -120,6 +120,21 @@ describe("a graph instance", () => {
     expect(gone.posted.length).toBe(before);
   });
 
+  it("tells its page of a Repository Setting default the host wrote", async () => {
+    const { shared, repos, open } = setUp();
+    const page = open(repos[0]);
+
+    await shared.config.update("ging-git-view.show.stashes", false);
+    page.instance.settingChanged("ging-git-view.show.stashes");
+
+    expect(sentOf(page.posted, "setRepoSettingDefaults")).toEqual([
+      expect.objectContaining({
+        defaults: expect.objectContaining({ showStashes: false }),
+        changed: ["showStashes"]
+      })
+    ]);
+  });
+
   it("shares the avatar cache, but stops receiving avatars once disposed", async () => {
     const { repos, open } = setUp();
     const asking = open(repos[0]);

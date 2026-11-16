@@ -149,3 +149,14 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **三種通知與 `pickSaveLocation`** 照舊是系統原生的對話框,經過 `NativeDialogs`(ADR-0032)。票面只把四種詢問移進頁面;通知沒有「一格被進度框占住」的問題,存檔位置本來就該是系統的檔案對話框。
 - **`PickItem.warning`** 在 overlay 畫成警告圖示,label 本身不帶任何圖示語法。
 - 它多了三個 port 以外的方法,由 main process 呼叫:`receive`(頁面的回覆)、`pageLoading`(頁面重新載入,未回答的 prompt 等新頁面準備好後重送)、`dispose`(實例結束,未回答的一律回答取消)。
+
+## 補記(2026-11-17,#397)
+
+**`HostConfig` 長出了 `update(key, value)`:寫進使用者的全域設定,不帶 scope。呼叫端是桌面版的設定頁,core 自己今天不呼叫它。**
+
+票面要求三邊一起補(port、VS Code 的 `Config`、`fakeHost`),所以這是 port 上第一個「呼叫端在宿主、不在 core」的方法。放在 `HostConfig` 而不是桌面版自己的介面,是因為「寫一個設定」本來就是每個宿主都有的能力,之後 C6(#398)把 `managePullRequestProviders` 搬進 core 時,core 會是第二個呼叫端,屆時不必再開一次 port。
+
+- **key 照 settings.json 的寫法給全名**(`ging-git-view.autoFetch.intervalMinutes`),不是去掉 section 的名字。桌面版的設定檔、設定頁的列 id、`REPO_SETTING_DEFAULT_KEYS` 都用全名,呼叫端不必為了這一個方法換一套拼法。VS Code 的實作因此用不帶 section 的 `getConfiguration()` 寫到 `ConfigurationTarget.Global`;不認得的 key 由 VS Code 自己拒絕。
+- **寫入不負責推送。** port 只寫;寫完之後誰要被告知(auto-fetch 計時器、圖形的 Repository Setting 預設值),由宿主照它對「設定變了」本來的反應去做。VS Code 有 `onDidChangeConfiguration`,所以 `update` 之後什麼都不用多做;桌面版沒有,所以設定頁寫入成功後,main process 對每個 graph instance 呼叫 `settingChanged`([settingsPush.ts](../../apps/desktop/src/settingsPush.ts))。把推送放進 `update`,VS Code 那邊就會推兩次。
+- **桌面版的寫入比讀取嚴格。** 讀的時候,超出範圍的數字會被夾回範圍、清單裡不合格的項目會被丟掉(#387,使用者手寫的檔案能用多少用多少);寫的時候這些一律拒絕(`SettingRefused`),因為寫入的一方是設定頁,使用者就在那裡,告訴他比默默改掉他輸入的值好。設定檔不是 JSON 時也拒絕寫入:那是使用者的檔案,寫進去就蓋掉他寫的東西。
+- **`REPO_SETTING_DEFAULT_KEYS` 從 `apps/vscode` 的 `config.ts` 搬到 core 的 [repoSettings.ts](../../packages/core/src/extension/repoSettings.ts)。** 兩個宿主都要從「哪個 key 變了」算出 `setRepoSettingDefaults` 的 `changed`,各寫一份就會漂移。VS Code 這邊只改了 import。

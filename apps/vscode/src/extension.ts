@@ -19,6 +19,7 @@ import { createRemoteCommands, type RemoteTarget } from "@ging/core/extension/re
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import {
+  REPO_SETTING_DEFAULT_KEYS,
   resolveShowRemoteBranches,
   type SideViewField,
   sideViewStateChanged
@@ -36,7 +37,7 @@ import {
 import type { BatchSkipped, RepoSettingField } from "@ging/shared/types";
 
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/uri";
-import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
+import { config, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import {
   createBlameController,

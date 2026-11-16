@@ -5,11 +5,10 @@
  * (ExtensionState), and #393's tabs may yet give the workspace tier a narrower
  * meaning. */
 
-import * as fs from "node:fs";
 import * as path from "node:path";
 
 import type { HostStorage, StateStore } from "@ging/core/host/ports";
-import { readJsonObject } from "@ging/desktop/jsonFile";
+import { readJsonObject, writeWhole } from "@ging/desktop/jsonFile";
 
 const STATE_FILE = "state.json";
 const GLOBAL_STORAGE_FOLDER = "globalStorage";
@@ -21,15 +20,6 @@ export type DesktopStorageOptions = {
    *  rather than rejected into the void. */
   onError?: (message: string) => void;
 };
-
-/** Write `text` to `file` whole or not at all: a crash mid-write leaves the
- *  previous file, not half of the new one. */
-async function writeWhole(file: string, text: string): Promise<void> {
-  const temp = `${file}.tmp`;
-  await fs.promises.mkdir(path.dirname(file), { recursive: true });
-  await fs.promises.writeFile(temp, text, "utf8");
-  await fs.promises.rename(temp, file);
-}
 
 /** The state kept in `userDataPath`, as it is on disk now. One process opens
  *  it at a time: the app holds the single-instance lock. */

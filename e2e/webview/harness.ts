@@ -21,3 +21,19 @@ export function buildHarness(entry: Entry): void {
 export function harnessPage(entry: Entry): string {
   return pathToFileURL(path.join(ROOT, "out", "webview-harness", entry, "index.html")).href;
 }
+
+/** Build the desktop entry's settings page (#397) into
+ *  out/webview-harness/desktop-settings/. */
+export function buildSettingsHarness(): void {
+  execFileSync(process.execPath, [
+    path.join(ROOT, "scripts", "webview-harness.js"),
+    "--entry=desktop",
+    "--page=settings"
+  ]);
+}
+
+/** The file:// URL of the settings page, built by the global setup. */
+export function settingsHarnessPage(): string {
+  return pathToFileURL(path.join(ROOT, "out", "webview-harness", "desktop-settings", "index.html"))
+    .href;
+}

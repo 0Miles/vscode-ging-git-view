@@ -120,6 +120,38 @@ describe("buildDesktopPage with nothing to show", () => {
   });
 });
 
+describe("buildDesktopPage for the settings", () => {
+  const state = {
+    settings: [],
+    theme: "dark" as const,
+    strings: { title: "Settings </script><b>x" } as never
+  };
+
+  it("is a settings page, with the element its bundle builds in", () => {
+    const doc = parse(
+      buildDesktopPage(themeFor("light", "win32"), { settings: { state, nonce: "n0nce" } })
+    );
+    expect(doc.documentElement.dataset.gingPage).toBe("settings");
+    expect(doc.getElementById("settings")).not.toBeNull();
+    expect(doc.body.className).toBe("vscode-light");
+  });
+
+  it("hands the bundle its settings in a script only its nonce allows", () => {
+    const html = buildDesktopPage(themeFor("dark", "win32"), {
+      settings: { state, nonce: "n0nce" }
+    });
+    const doc = parse(html);
+    const csp = doc.querySelector('meta[http-equiv="Content-Security-Policy"]')!;
+    expect(csp.getAttribute("content")).toContain("script-src 'self' 'nonce-n0nce'");
+    const inline = [...doc.scripts].filter((s) => !s.hasAttribute("src"));
+    expect(inline.map((s) => s.getAttribute("nonce"))).toEqual(["n0nce"]);
+    const globals: Record<string, unknown> = {};
+    new Function("window", inline[0].text.replace(/^var /, "window."))(globals);
+    expect(globals.settingsPage).toEqual(state);
+    expect(html).not.toContain("</script><b>x");
+  });
+});
+
 describe("applyTheme", () => {
   it("switches a page to another theme, keeping the body's other classes", () => {
     const doc = pageFor("dark");

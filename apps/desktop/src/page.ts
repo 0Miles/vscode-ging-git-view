@@ -1,4 +1,5 @@
 import type { GitGraphViewState } from "@ging/shared/types";
+import type { SettingsPageState } from "@ging/webview/desktop/settings/protocol";
 import { escapeHtml, escapeJsonForHtml } from "@ging/webview/utils/html";
 import type { LocalizedStrings } from "@ging/webview/webviewL10n";
 import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
@@ -13,7 +14,8 @@ export const PAGE_ASSETS = { stylesheet: "main.css", script: "web.js" } as const
 export type Notice = { title: string; detail: string };
 
 /** What a page shows: a graph, or in its place a notice saying why there is
- *  none — `null` when nothing was asked for, which is a page left empty. */
+ *  none — `null` when nothing was asked for, which is a page left empty — or
+ *  the app's settings (#397). */
 export type PageContent =
   | {
       graph: {
@@ -23,7 +25,14 @@ export type PageContent =
         nonce: string;
       };
     }
-  | { notice: Notice | null };
+  | { notice: Notice | null }
+  | {
+      settings: {
+        state: SettingsPageState;
+        /** Allows the inline script that hands the bundle `settingsPage`. */
+        nonce: string;
+      };
+    };
 
 /** Each graph colour as a variable on `<body>`, and the rules that hand a
  *  `data-color` its colour, as the VS Code host writes them. */
@@ -46,9 +55,10 @@ function graphColourStyles(colours: string[]): { variables: string; rules: strin
  * `<body>`, which `main.css` relies on and does not repeat.
  *
  * A graph page also carries what the graph boots with: its markup, and the
- * `viewState` and `l10n` globals. Which kind a page is, graph or notice, is
- * written on `<html>` as `data-ging-page`, and the bundle starts the graph by
- * it (`desktop/main.ts`).
+ * `viewState` and `l10n` globals; a settings page, the `settingsPage` global
+ * and the element it is built in. Which kind a page is — graph, notice or
+ * settings — is written on `<html>` as `data-ging-page`, and the bundle starts
+ * what it shows by it (`desktop/main.ts`).
  */
 export function buildDesktopPage(theme: Theme, content: PageContent): string {
   const style = Object.entries(theme.variables)
@@ -57,11 +67,17 @@ export function buildDesktopPage(theme: Theme, content: PageContent): string {
   const bodyClass = bodyClassOf(theme.kind);
   const graph = "graph" in content ? content.graph : null;
   const notice = "notice" in content ? content.notice : null;
+  const settings = "settings" in content ? content.settings : null;
 
   let scriptSrc = "'self'";
   let colourRules = "";
   let body: string;
-  if (graph !== null) {
+  if (settings !== null) {
+    scriptSrc = `'self' 'nonce-${settings.nonce}'`;
+    body = `<body class="${bodyClass}">
+<main id="settings"></main>
+<script nonce="${settings.nonce}">var settingsPage = ${escapeJsonForHtml(settings.state)};</script>`;
+  } else if (graph !== null) {
     const colours = graphColourStyles(graph.viewState.graphColours);
     scriptSrc = `'self' 'nonce-${graph.nonce}'`;
     colourRules = colours.rules;
@@ -78,8 +94,9 @@ ${buildWebviewMarkup(graph.l10n)}
   }
 
   // The kind stated, not left for the bundle to infer from what is missing.
+  const kind = settings !== null ? "settings" : graph !== null ? "graph" : "notice";
   return `<!DOCTYPE html>
-<html lang="en" data-ging-page="${graph !== null ? "graph" : "notice"}" style="${escapeHtml(style)}">
+<html lang="en" data-ging-page="${kind}" style="${escapeHtml(style)}">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src ${scriptSrc}; img-src data:;">

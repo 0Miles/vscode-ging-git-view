@@ -70,3 +70,46 @@ export function makeFixtureRepo(env: NodeJS.ProcessEnv): FixtureRepo {
   const third = commit("Third commit");
   return { path: repo, commits: [third, feature, second, first] };
 }
+
+/**
+ * A bare clone of `repo`, beside it, added to it as `origin` and fetched; then
+ * a commit made on the remote's `main` alone, which `repo` has not fetched
+ * yet. Answers the remote's folder and that commit: `repo`'s
+ * `refs/remotes/origin/main` becomes it once something fetches. Local only
+ * (ADR-0032), as a path.
+ */
+export function addAheadRemote(
+  repo: FixtureRepo,
+  env: NodeJS.ProcessEnv
+): { path: string; aheadCommit: string } {
+  const remote = `${repo.path}-remote.git`;
+  const run = (cwd: string, ...args: string[]) =>
+    execFileSync("git", args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: {
+        ...env,
+        GIT_AUTHOR_NAME: "Bob",
+        GIT_AUTHOR_EMAIL: "bob@example.com",
+        GIT_COMMITTER_NAME: "Bob",
+        GIT_COMMITTER_EMAIL: "bob@example.com"
+      }
+    })
+      .toString()
+      .trim();
+  run(repo.path, "clone", "--bare", "--template=", repo.path, remote);
+  run(repo.path, "remote", "add", "origin", remote);
+  run(repo.path, "fetch", "origin");
+  // Made in the remote itself, so the local repository has never seen it.
+  const aheadCommit = run(
+    remote,
+    "commit-tree",
+    "main^{tree}",
+    "-p",
+    "main",
+    "-m",
+    "Remote commit"
+  );
+  run(remote, "update-ref", "refs/heads/main", aheadCommit);
+  return { path: remote, aheadCommit };
+}

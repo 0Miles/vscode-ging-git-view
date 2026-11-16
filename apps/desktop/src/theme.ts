@@ -59,6 +59,8 @@ const COLORS: Record<string, readonly [dark: string, light: string]> = {
   // registry
   "--vscode-editor-findMatchHighlightBackground": ["#ea5c0055", "#ea5c0055"],
   "--vscode-editor-foreground": ["#cccccc", "#3b3b3b"],
+  // registry (the base statusBarItem.warningBackground darkens, below)
+  "--vscode-editorWarning-foreground": ["#cca700", "#bf8803"],
   "--vscode-editorWidget-background": ["#202020", "#f8f8f8"],
   // registry: transparent(editorWidget.foreground, 0.2)
   "--vscode-editorWidget-border": ["#cccccc33", "#3b3b3b33"],

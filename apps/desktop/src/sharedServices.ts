@@ -16,13 +16,14 @@ import {
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { ExtensionState } from "@ging/core/extensionState";
-import type { Clipboard, HostLogger, L10n, Opener } from "@ging/core/host/ports";
+import type { Clipboard, HostLogger, HostStorage, L10n, Opener } from "@ging/core/host/ports";
 import { createDesktopConfig, type DesktopConfig } from "@ging/desktop/ports/config";
 import { createDesktopL10n } from "@ging/desktop/ports/l10n";
 import { createInterimOpener } from "@ging/desktop/ports/opener";
 import { createDesktopRepoSource, type DesktopRepoSource } from "@ging/desktop/ports/repoSource";
 import { openDesktopStorage } from "@ging/desktop/ports/storage";
 import { openDesktopSettings } from "@ging/desktop/settings/schema";
+import type { Settings } from "@ging/desktop/settings/settingsFile";
 
 /** There is no `git.path` of VS Code's to follow: the git on the PATH. Known
  *  before the shared services are, so a launch's path can be checked while the app
@@ -42,6 +43,11 @@ type SharedServicesOptions = {
 
 export type SharedServices = {
   config: DesktopConfig;
+  /** What `config` reads, by key, for the settings page to show (#397). */
+  settings: Settings;
+  /** What `extensionState` keeps; the desktop host's own state (the theme it
+   *  was left in, #397) goes in its global tier beside core's. */
+  storage: HostStorage;
   l10n: L10n;
   logger: HostLogger;
   clipboard: Clipboard;
@@ -84,12 +90,10 @@ export function createSharedServices({
   logger,
   clipboard
 }: SharedServicesOptions): SharedServices {
-  const config = createDesktopConfig(
-    openDesktopSettings(userDataPath, { onError: logger.logError })
-  );
-  const extensionState = new ExtensionState(
-    openDesktopStorage(userDataPath, { onError: logger.logError })
-  );
+  const settings = openDesktopSettings(userDataPath, { onError: logger.logError });
+  const config = createDesktopConfig(settings);
+  const storage = openDesktopStorage(userDataPath, { onError: logger.logError });
+  const extensionState = new ExtensionState(storage);
   const repoSource = createDesktopRepoSource(extensionState, { gitPath: desktopGitPath });
 
   const avatarManager = new AvatarManager(
@@ -138,6 +142,8 @@ export function createSharedServices({
 
   return {
     config,
+    settings,
+    storage,
     l10n: createDesktopL10n(locale),
     logger,
     clipboard,

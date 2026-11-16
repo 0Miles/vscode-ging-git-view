@@ -4,7 +4,11 @@ import * as path from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import type { SettingSchema, SettingsSchema } from "@ging/desktop/settings/deriveSchema";
-import { openSettings } from "@ging/desktop/settings/settingsFile";
+import {
+  openSettings,
+  SettingRefused,
+  SettingsFileNotAnObject
+} from "@ging/desktop/settings/settingsFile";
 
 import { makeTempDir, rmrf } from "@ging/core/tests/helpers";
 
@@ -47,15 +51,16 @@ const SCHEMA: SettingsSchema = {
 /** Let the current request finish: the next read is the next request's. */
 const nextRequest = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-function subject() {
+function subject(schema: SettingsSchema = SCHEMA) {
   const dir = makeTempDir("ging-desktop-settings-");
   onTestFinished(() => rmrf(dir));
   const file = path.join(dir, "settings.json");
   const errors: string[] = [];
-  const settings = openSettings(file, SCHEMA, { onError: (message) => errors.push(message) });
+  const settings = openSettings(file, schema, { onError: (message) => errors.push(message) });
   return {
     settings,
     errors,
+    file,
     write: (values: unknown) => fs.writeFileSync(file, JSON.stringify(values)),
     writeText: (content: string) => fs.writeFileSync(file, content)
   };
@@ -147,5 +152,149 @@ describe("the desktop settings file", () => {
     expect(() => subject().settings.get("ging-git-view.keepWebviewAlive")).toThrow(
       /keepWebviewAlive/
     );
+  });
+});
+
+describe("writing the desktop settings file", () => {
+  const read = (s: ReturnType<typeof subject>) =>
+    JSON.parse(fs.readFileSync(s.file, "utf8")) as Record<string, unknown>;
+
+  it("creates the file for the first value written", async () => {
+    const s = subject();
+    await s.settings.update("ging-git-view.show.tags", false);
+    expect(read(s)).toEqual({ "ging-git-view.show.tags": false });
+    expect(s.settings.get("ging-git-view.show.tags")).toBe(false);
+  });
+
+  it("writes one key and leaves every other entry as it was, even ones it does not know", async () => {
+    const s = subject();
+    s.write({
+      "ging-git-view.graph.edgeStyle": "angular",
+      "editor.fontSize": 14,
+      "ging-git-view.show.tags": "not even a boolean"
+    });
+
+    await s.settings.update("ging-git-view.autoFetch.intervalMinutes", 5);
+
+    expect(read(s)).toEqual({
+      "ging-git-view.graph.edgeStyle": "angular",
+      "editor.fontSize": 14,
+      "ging-git-view.show.tags": "not even a boolean",
+      "ging-git-view.autoFetch.intervalMinutes": 5
+    });
+  });
+
+  it("answers the new value at once, within the same request as earlier reads", async () => {
+    const s = subject();
+    expect(s.settings.get("ging-git-view.graph.edgeStyle")).toBe("rounded");
+    await s.settings.update("ging-git-view.graph.edgeStyle", "angular");
+    expect(s.settings.get("ging-git-view.graph.edgeStyle")).toBe("angular");
+  });
+
+  it("leaves no temporary file behind", async () => {
+    const s = subject();
+    await s.settings.update("ging-git-view.show.tags", false);
+    expect(fs.readdirSync(path.dirname(s.file))).toEqual(["settings.json"]);
+  });
+
+  it("writes two quick updates one after the other, keeping both", async () => {
+    const s = subject();
+    await Promise.all([
+      s.settings.update("ging-git-view.show.tags", false),
+      s.settings.update("ging-git-view.graph.edgeStyle", "angular")
+    ]);
+    expect(read(s)).toEqual({
+      "ging-git-view.show.tags": false,
+      "ging-git-view.graph.edgeStyle": "angular"
+    });
+  });
+
+  it.each([
+    ["the wrong type", "ging-git-view.show.tags", "yes"],
+    ["a value off its enum", "ging-git-view.graph.edgeStyle", "wavy"],
+    [
+      "a number past its maximum, which a read would clamp",
+      "ging-git-view.autoFetch.intervalMinutes",
+      120
+    ],
+    ["a number below its minimum", "ging-git-view.autoFetch.intervalMinutes", 0],
+    ["a number that is not finite", "ging-git-view.autoFetch.intervalMinutes", Infinity],
+    [
+      "a list with one entry its items refuse, which a read would drop",
+      "ging-git-view.graph.palette",
+      ["#123456", "red"]
+    ],
+    ["an array where an object belongs", "ging-git-view.columnVisibility", []],
+    ["nothing at all", "ging-git-view.show.tags", undefined]
+  ])("refuses %s, and leaves the file as it was", async (_, key, value) => {
+    const s = subject();
+    s.write({ "ging-git-view.show.tags": true });
+
+    const refusal = await s.settings.update(key, value).catch((e: unknown) => e);
+
+    expect(refusal).toBeInstanceOf(SettingRefused);
+    expect(refusal).toMatchObject({ key, reason: "notAllowed" });
+    expect(read(s)).toEqual({ "ging-git-view.show.tags": true });
+  });
+
+  it("refuses a key that is not a setting, writing nothing", async () => {
+    const s = subject();
+    const refusal = await s.settings
+      .update("ging-git-view.keepWebviewAlive", false)
+      .catch((e: unknown) => e);
+    expect(refusal).toMatchObject({ key: "ging-git-view.keepWebviewAlive", reason: "unknownKey" });
+    expect(fs.existsSync(s.file)).toBe(false);
+  });
+
+  it("holds an object to its declared properties", async () => {
+    const s = subject({
+      settings: [
+        setting("ging-git-view.columnVisibility", {
+          type: "object",
+          properties: { date: { type: "boolean" } },
+          additionalProperties: false,
+          default: {}
+        })
+      ]
+    });
+    await expect(
+      s.settings.update("ging-git-view.columnVisibility", { date: false })
+    ).resolves.toBeUndefined();
+    await expect(
+      s.settings.update("ging-git-view.columnVisibility", { date: "no" })
+    ).rejects.toBeInstanceOf(SettingRefused);
+    await expect(
+      s.settings.update("ging-git-view.columnVisibility", { size: 1 })
+    ).rejects.toBeInstanceOf(SettingRefused);
+  });
+
+  it("leaves a file it cannot parse as it is, and says why", async () => {
+    const s = subject();
+    s.writeText('{ "ging-git-view.show.tags": false, }');
+
+    const failure = await s.settings
+      .update("ging-git-view.graph.edgeStyle", "angular")
+      .catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(SettingsFileNotAnObject);
+    expect(String(failure)).toMatch(/Cannot parse .*settings\.json/);
+    expect(fs.readFileSync(s.file, "utf8")).toBe('{ "ging-git-view.show.tags": false, }');
+  });
+
+  it("rejects with the reason when the file cannot be written, and still writes the next", async () => {
+    const s = subject();
+    // A folder where the temporary file would be written: the write cannot land.
+    fs.mkdirSync(`${s.file}.tmp`);
+
+    const failure = await s.settings
+      .update("ging-git-view.show.tags", false)
+      .catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(SettingRefused);
+    expect(fs.existsSync(s.file)).toBe(false);
+    fs.rmSync(`${s.file}.tmp`, { recursive: true, force: true });
+    await s.settings.update("ging-git-view.show.tags", false);
+    expect(read(s)).toEqual({ "ging-git-view.show.tags": false });
   });
 });

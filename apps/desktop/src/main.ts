@@ -52,8 +52,16 @@ import {
 } from "./launchArgs";
 import { buildDesktopPage, type Notice, PAGE_ASSETS, type PageContent } from "./page";
 import { type RepoToOpen, repoToOpen } from "./repoToOpen";
+import { DESKTOP_SETTINGS_SCHEMA } from "./settings/schema";
+import {
+  buildSettingsPageState,
+  createSettingsPageHandler,
+  schemaLocale
+} from "./settings/settingsPage";
+import { createSettingsWindow, type SettingsWindow } from "./settingsWindow";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
 import { type Theme, themeFor } from "./theme";
+import { readThemeChoice, writeThemeChoice } from "./themeChoice";
 
 /**
  * The page and its files are served from `ging://app/`, not `file://`: a
@@ -65,6 +73,8 @@ import { type Theme, themeFor } from "./theme";
 const SCHEME = "ging";
 const HOST = "app";
 const PAGE_URL = `${SCHEME}://${HOST}/`;
+/** The settings page's path (#397), in a window of its own. */
+const SETTINGS_PATH = "/settings";
 /** The query parameter carrying the id of what a load of the page shows
  *  (`Shown.id`), so a load of a replaced page can be told from the current. */
 const PAGE_ID_PARAM = "page";
@@ -117,7 +127,7 @@ function serveApp(pageFor: (url: string) => PageContent): void {
   protocol.handle(SCHEME, (request) => {
     const url = new URL(request.url);
     if (url.host !== HOST) return new Response(null, { status: 404 });
-    if (url.pathname === "/") {
+    if (url.pathname === "/" || url.pathname === SETTINGS_PATH) {
       return new Response(buildDesktopPage(currentTheme(), pageFor(request.url)), {
         headers: { "content-type": "text/html; charset=utf-8" }
       });
@@ -144,7 +154,8 @@ function createWindow(): BrowserWindow {
   });
 }
 
-/** Every window follows the system's theme as it changes (#397 adds a choice). */
+/** Every window follows the app's theme as it changes: the system's, or the
+ *  one the user chose (`nativeTheme.themeSource`, #397). */
 function followSystemTheme(): void {
   nativeTheme.on("updated", () => {
     const theme = currentTheme();
@@ -201,6 +212,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
 
   let shared: SharedServices | null = null;
   let win: BrowserWindow | null = null;
+  let settingsWindow: SettingsWindow | null = null;
   let shown: Shown | null = null;
   let nextId = 0;
 
@@ -211,7 +223,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     if (shared === null) return;
     const template = appMenuTemplate(
       shared.l10n,
-      { fetchRemote: () => void shown?.instance?.fetchRemote() },
+      {
+        fetchRemote: () => void shown?.instance?.fetchRemote(),
+        openSettings: () => settingsWindow?.open()
+      },
       process.platform,
       { hasGraph: Boolean(shown?.instance) }
     );
@@ -343,6 +358,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     }
   });
   ipcMain.on(CHANNELS.webviewMessage, (event, message: RequestMessage | HostPromptReply) => {
+    // The settings window's page talks to the settings, never to an instance.
+    if (settingsWindow?.deliver(event.sender, message)) return;
     if (win === null || event.sender !== win.webContents) return;
     // Only from the page that is shown: one replaced but still unloading must
     // not reach the instance that replaced it.
@@ -364,7 +381,56 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     });
   });
   void app.whenReady().then(async () => {
-    serveApp((url) => shownAt(url)?.page() ?? { notice: null });
+    // After ready: the locale is not known before it. Before the window, whose
+    // first paint is in the theme the user left the app in.
+    const host = createSharedServices({
+      userDataPath: app.getPath("userData"),
+      locale: app.getLocale(),
+      helperDir: __dirname,
+      logger,
+      clipboard: createDesktopClipboard(clipboard)
+    });
+    shared = host;
+    nativeTheme.themeSource = readThemeChoice(host.storage.global);
+
+    const handleSettings = createSettingsPageHandler({
+      config: host.config,
+      settings: host.settings,
+      l10n: host.l10n,
+      logger,
+      instances: () => (shown?.instance ? [shown.instance] : []),
+      setTheme: (choice) => {
+        nativeTheme.themeSource = choice;
+        void writeThemeChoice(host.storage.global, choice);
+      }
+    });
+    settingsWindow = createSettingsWindow({
+      url: `${PAGE_URL}${SETTINGS_PATH.slice(1)}`,
+      createWindow,
+      handle: handleSettings,
+      opener: host.opener,
+      logger
+    });
+    // Its Settings… entry (CmdOrCtrl+,) opens the window above.
+    syncMenu();
+    const settingsPage = (): PageContent => ({
+      settings: {
+        state: buildSettingsPageState({
+          schema: DESKTOP_SETTINGS_SCHEMA,
+          settings: host.settings,
+          locale: schemaLocale(app.getLocale()),
+          l10n: host.l10n,
+          theme: readThemeChoice(host.storage.global)
+        }),
+        nonce: getNonce()
+      }
+    });
+
+    serveApp((url) =>
+      new URL(url).pathname === SETTINGS_PATH
+        ? settingsPage()
+        : (shownAt(url)?.page() ?? { notice: null })
+    );
     followSystemTheme();
     win = createWindow();
     // The page of what is shown starting to load, the first time or again (a
@@ -380,15 +446,6 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       closeShown();
       win = null;
     });
-    // After ready: the locale is not known before it.
-    shared = createSharedServices({
-      userDataPath: app.getPath("userData"),
-      locale: app.getLocale(),
-      helperDir: __dirname,
-      logger,
-      clipboard: createDesktopClipboard(clipboard)
-    });
-    syncMenu();
     open(await launchTarget);
   });
 } else {

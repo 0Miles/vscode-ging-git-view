@@ -1,4 +1,4 @@
-import type { GitRepoState, RepoScopeSettings } from "@ging/shared/types";
+import type { GitRepoState, RepoScopeSettings, RepoSettingField } from "@ging/shared/types";
 
 /**
  * Per-repo settings resolution, kept free of vscode so it can be tested on its
@@ -44,6 +44,25 @@ export function resolveShowRemoteBranches(
 ): boolean {
   return state?.showRemoteBranches ?? globalDefault;
 }
+
+/** The setting behind each Repository Setting's default, keyed by the
+ *  `GitRepoState` field that overrides it: a change to one moves what a repo
+ *  without its own override gets, so the host tells an open graph (#211).
+ *  Held to the type, so a Repository Setting added there and missed here fails
+ *  to compile rather than leaving the graph on the old value until it reloads.
+ *  Both hosts push from it: VS Code on a configuration change, the desktop
+ *  host after its settings page writes one (#397). */
+export const REPO_SETTING_DEFAULT_KEYS = {
+  onlyFollowFirstParent: "ging-git-view.history.firstParentOnly",
+  includeReflogCommits: "ging-git-view.history.includeReflogCommits",
+  showStashes: "ging-git-view.show.stashes",
+  showTagOnlyCommits: "ging-git-view.show.tagOnlyCommits",
+  showRemoteHeads: "ging-git-view.show.remoteHeads",
+  showInactiveBranches: "ging-git-view.branches.showInactiveByDefault",
+  showMergedBranches: "ging-git-view.branches.showMergedByDefault",
+  showRemoteBranches: "ging-git-view.show.remoteBranches",
+  commitOrdering: "ging-git-view.history.commitOrder"
+} satisfies Record<RepoSettingField, string>;
 
 /** The fields the Branches side-view draws itself from. */
 const SIDE_VIEW_FIELDS = [
