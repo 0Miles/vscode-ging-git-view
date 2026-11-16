@@ -379,7 +379,14 @@ export class Graph {
    *  the real ones — but the walk only loads a later parent when some shown
    *  ref reaches it, so an unloaded later parent gets no line off the bottom
    *  edge (#205). A loaded one keeps its line: that is a merged branch whose
-   *  ref remains, and cutting it would leave the branch looking unmerged. */
+   *  ref remains, and cutting it would leave the branch looking unmerged.
+   *
+   *  In either mode a parent listed at or above its child gets no line. A line
+   *  runs down from child to parent, so there is none to draw, and looking for
+   *  one ran a lane off the bottom edge as if the parent were unloaded (#431).
+   *  `--first-parent` lists rows that way for real: it keeps a commit below
+   *  its first-parent children only, so a merge's second parent that another
+   *  branch reaches can come out above the merge. A spliced stash can too. */
   public loadCommits(
     commits: GitCommitNode[],
     commitHead: string | null,
@@ -399,8 +406,9 @@ export class Graph {
     }
     for (i = 0; i < commits.length; i++) {
       for (j = 0; j < commits[i].parentHashes.length; j++) {
-        if (typeof commitLookup[commits[i].parentHashes[j]] === "number") {
-          this.vertices[i].addParent(this.vertices[commitLookup[commits[i].parentHashes[j]]]);
+        const parentRow = commitLookup[commits[i].parentHashes[j]];
+        if (typeof parentRow === "number") {
+          if (parentRow > i) this.vertices[i].addParent(this.vertices[parentRow]);
         } else if (!onlyFollowFirstParent || j === 0) {
           this.vertices[i].addParent(nullVertex);
         }
@@ -566,16 +574,18 @@ export class Graph {
         }
       }
       // The downward scan never found a point connecting to the parent — only
-      // possible when the parent vertex sits *above* this one (e.g. a stash
-      // placed by date above its base commit). Mark the parent processed anyway
-      // so findStart() makes progress instead of looping on this vertex forever.
+      // possible when the parent vertex sits *above* this one, which
+      // `loadCommits` no longer hands over. Mark the parent processed anyway so
+      // findStart() makes progress instead of looping on this vertex forever.
       if (!foundPointToParent) vertex.registerParentProcessed();
     } else {
       // Branch is normal
       let branch = new Branch(this.getAvailableColour(startAt));
       vertex.addToBranch(branch, lastPoint.x);
       vertex.registerUnavailablePoint(lastPoint.x, vertex, branch);
-      for (i = startAt + 1; i < this.vertices.length; i++) {
+      // A vertex with no parent to run to ends its lane at its own row: a root
+      // commit, or a node whose parents are all listed above it.
+      for (i = startAt + 1; parentVertex !== null && i < this.vertices.length; i++) {
         curPoint =
           parentVertex === this.vertices[i] && !parentVertex.isNotOnBranch()
             ? this.vertices[i].getPoint()
@@ -593,10 +603,8 @@ export class Graph {
           if (parentVertex === null || parentVertexOnBranch) break;
         }
       }
-      // Reached the bottom of the graph with a parent still pending: either an
-      // off-graph parent (the null vertex), or a parent lying *above* this
-      // vertex so the downward scan never reached it (e.g. a stash placed by
-      // date above its base commit). Either way mark it processed so the branch
+      // Reached the bottom of the graph with a parent still pending: an
+      // off-graph parent (the null vertex). Mark it processed so the branch
       // ends here and findStart doesn't loop on this vertex forever.
       if (i === this.vertices.length && parentVertex !== null) {
         vertex.registerParentProcessed();
