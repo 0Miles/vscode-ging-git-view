@@ -1,10 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { execSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   blameLocation,
   repoContainingPath,
   resolveToKnownRepo
 } from "@ging/core/backend/utils/repoMatch";
+
+import { makeTempDir, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 describe("repoContainingPath", () => {
   it("returns the repo whose root contains the file", () => {
@@ -56,6 +62,71 @@ describe("resolveToKnownRepo", () => {
 
   it("returns null when the path cannot be resolved", () => {
     expect(resolveToKnownRepo("/missing", ["/real/repo"], failingRealpath)).toBeNull();
+  });
+});
+
+/** `dir` spelled with its Windows 8.3 short names, as `cmd` expands `%~sI`. */
+function shortPathOf(dir: string): string {
+  return execSync(`for %I in ("${dir}") do @echo %~sI`, { shell: "cmd.exe" }).toString().trim();
+}
+
+// The real file system, through the default realpath: the spellings one
+// directory can go by that only the OS can tell are the same (#413).
+describe("resolveToKnownRepo (real file system)", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const d of dirs.splice(0)) rmrf(d);
+  });
+
+  /** A repository folder under a parent whose name is too long for 8.3, so
+   *  the parent has a short name wherever the volume generates them. */
+  function makeLongNamedRepo(): { parent: string; repo: string } {
+    const parent = makeTempDir("ging repo match long name ");
+    dirs.push(parent);
+    const repo = path.join(parent, "repo");
+    fs.mkdirSync(repo);
+    return { parent, repo };
+  }
+
+  it("maps a Windows 8.3 short path to the known repo spelled with long names", (ctx) => {
+    if (process.platform !== "win32") ctx.skip("8.3 short names exist only on Windows");
+    const { parent, repo } = makeLongNamedRepo();
+    const shortParent = shortPathOf(parent);
+    if (shortParent.toLowerCase() === parent.toLowerCase()) {
+      ctx.skip("this volume generates no 8.3 short names");
+    }
+    const known = toRepoPath(repo);
+
+    expect(resolveToKnownRepo(toRepoPath(path.join(shortParent, "repo")), [known])).toBe(known);
+  });
+
+  it("maps a path spelled in another letter case to the known repo, on Windows", (ctx) => {
+    if (process.platform !== "win32") ctx.skip("paths differing in case are different paths");
+    const { repo } = makeLongNamedRepo();
+    const known = toRepoPath(repo);
+
+    expect(resolveToKnownRepo(known.toUpperCase(), [known])).toBe(known);
+  });
+
+  it("still follows a link when the native realpath fails, as on some network drives", () => {
+    const { parent, repo } = makeLongNamedRepo();
+    const link = path.join(parent, "link");
+    fs.symlinkSync(repo, link, "junction");
+    vi.spyOn(fs.realpathSync, "native").mockImplementation(() => {
+      throw new Error("EISDIR: illegal operation on a directory, realpath");
+    });
+    const known = toRepoPath(repo);
+
+    expect(resolveToKnownRepo(toRepoPath(link), [known])).toBe(known);
+  });
+
+  it("matches nothing for a path that does not exist", () => {
+    const { parent, repo } = makeLongNamedRepo();
+
+    expect(
+      resolveToKnownRepo(toRepoPath(path.join(parent, "gone")), [toRepoPath(repo)])
+    ).toBeNull();
   });
 });
 
