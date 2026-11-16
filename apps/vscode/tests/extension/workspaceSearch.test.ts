@@ -8,7 +8,20 @@ import { createRepoSearch } from "@ging/vscode/extension/workspaceSearch";
 
 import { rmrf } from "@ging/core/tests/helpers";
 
-import { useSeededRepo } from "./helpers";
+import { useSharedRepo } from "./helpers";
+
+/**
+ * Mocha budget for a test that searches a directory tree.
+ *
+ * The search asks git about each directory it visits, one spawn apiece, and
+ * the deepest tests here visit two. Nothing else is left in a test body: the
+ * trees are built once per suite. Measured in the extension host on Windows,
+ * those two spawns take 0.2–0.9s on an idle machine and 1.2–2.6s with every
+ * core oversubscribed twice over, which is past Mocha's default 2000ms by
+ * themselves (#425). With a typecheck and a lint run on top of that load, one
+ * test took 8.0s. This is about four times that.
+ */
+const SEARCH_TIMEOUT_MS = 30_000;
 
 function makeStubs(initialRepoPaths: string[] = [], maxDepth = 2, gitPath = "git") {
   const repos: Record<string, { columnWidths: null }> = {};
@@ -49,10 +62,35 @@ function makeStubs(initialRepoPaths: string[] = [], maxDepth = 2, gitPath = "git
   };
 }
 
-suite("workspaceSearch / searchDirectoryForRepos", () => {
+suite("workspaceSearch / searchDirectoryForRepos", function () {
+  this.timeout(SEARCH_TIMEOUT_MS);
+
+  // Every tree the tests search is laid out once, before the first test, and
+  // removed after the last. No test writes to them, and building or removing
+  // one inside a test spends that test's budget on it (#425).
   let repo: string;
-  useSeededRepo((dir) => {
+  let fixtures: string;
+  let plainDir: string;
+  let nestedParent: string;
+  let deepParent: string;
+
+  useSharedRepo((dir) => {
     repo = dir;
+  });
+
+  suiteSetup(() => {
+    fixtures = fs.mkdtempSync(repo + "-search-");
+    plainDir = fixtures + "/plain";
+    nestedParent = fixtures + "/nested";
+    deepParent = fixtures + "/deep";
+    fs.mkdirSync(plainDir);
+    fs.cpSync(repo, nestedParent + "/nested-repo", { recursive: true });
+    fs.cpSync(repo, deepParent + "/level1/level2/repo", { recursive: true });
+  });
+
+  // rmrf, not rmSync: the copies hold git's read-only objects. See `rmrf`.
+  suiteTeardown(() => {
+    rmrf(fixtures);
   });
 
   test("returns true and adds repo when a git repo is found", async () => {
@@ -64,14 +102,9 @@ suite("workspaceSearch / searchDirectoryForRepos", () => {
 
   test("returns false for a non-repo directory", async () => {
     const { repoSearch, added } = makeStubs();
-    const dir = fs.mkdtempSync(repo + "-plain-");
-    try {
-      const found = await repoSearch.searchDirectoryForRepos(dir, 0);
-      assert.strictEqual(found, false);
-      assert.deepStrictEqual(added, []);
-    } finally {
-      rmrf(dir);
-    }
+    const found = await repoSearch.searchDirectoryForRepos(plainDir, 0);
+    assert.strictEqual(found, false);
+    assert.deepStrictEqual(added, []);
   });
 
   test("returns false for a non-existent directory", async () => {
@@ -90,35 +123,17 @@ suite("workspaceSearch / searchDirectoryForRepos", () => {
   });
 
   test("finds repo nested at depth 1", async () => {
-    const parent = fs.mkdtempSync(repo + "-parent-");
-    const nested = parent + "/nested-repo";
-    fs.mkdirSync(nested);
-    // copy repo into nested
-    fs.cpSync(repo, nested, { recursive: true });
-    try {
-      const { repoSearch, added } = makeStubs();
-      const found = await repoSearch.searchDirectoryForRepos(parent, 1);
-      assert.strictEqual(found, true);
-      assert.ok(added.some((p) => p.startsWith(parent)));
-    } finally {
-      rmrf(parent);
-    }
+    const { repoSearch, added } = makeStubs();
+    const found = await repoSearch.searchDirectoryForRepos(nestedParent, 1);
+    assert.strictEqual(found, true);
+    assert.deepStrictEqual(added, [nestedParent + "/nested-repo"]);
   });
 
   test("does not find repos beyond maxDepth", async () => {
-    const parent = fs.mkdtempSync(repo + "-deep-");
-    const level1 = parent + "/level1";
-    const level2 = level1 + "/level2";
-    fs.mkdirSync(level2, { recursive: true });
-    fs.cpSync(repo, level2 + "/repo", { recursive: true });
-    try {
-      const { repoSearch, added } = makeStubs();
-      const found = await repoSearch.searchDirectoryForRepos(parent, 1);
-      assert.strictEqual(found, false);
-      assert.deepStrictEqual(added, []);
-    } finally {
-      rmrf(parent);
-    }
+    const { repoSearch, added } = makeStubs();
+    const found = await repoSearch.searchDirectoryForRepos(deepParent, 1);
+    assert.strictEqual(found, false);
+    assert.deepStrictEqual(added, []);
   });
 });
 
