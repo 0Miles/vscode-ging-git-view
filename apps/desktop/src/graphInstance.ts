@@ -16,6 +16,7 @@ import type { Prompts, RepoSource } from "@ging/core/host/ports";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
 import type { GitGraphViewState } from "@ging/shared/types";
 
+import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
 
 type GraphInstanceOptions = {
@@ -34,6 +35,9 @@ export type GraphInstance = {
    *  repository, which the dispatch must bind again rather than take as
    *  already bound. */
   pageLoading(): void;
+  /** The host wrote setting `key` (`HostConfig.update`): react as VS Code
+   *  does to a configuration change (settingsPush.ts). */
+  settingChanged(key: string): void;
   dispose(): void;
 };
 
@@ -125,6 +129,12 @@ export function createGraphInstance(
     pageViewState: () =>
       buildGraphViewState({ config, repoSource, extensionState: shared.extensionState }),
     pageLoading: dispatch.onPanelShown,
+    settingChanged: (key) =>
+      pushSettingChange(
+        key,
+        { restartAutoFetch: fetchService.restartAutoFetch, post: (msg) => void bridge.post(msg) },
+        config
+      ),
     dispose: () => {
       dispatch.dispose();
       reposChanged.dispose();

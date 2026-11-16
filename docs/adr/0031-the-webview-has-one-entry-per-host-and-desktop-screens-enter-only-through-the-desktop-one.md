@@ -58,3 +58,13 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 `--repo` 指的不是 Git 存放庫時，說明頁只取代**沒有圖形**的頁面。視窗裡已經開著圖形時 —— 例如第二次啟動經 single-instance 轉來一個無效的路徑 —— 圖形留著，同一段說明改成蓋在上面的錯誤對話框(經過 `NativeDialogs`,見 ADR-0032):一個打錯的路徑，不應該關掉使用者正在用的圖形。判斷寫在 `desktop/` 底下,VS Code 入口不讀這個屬性;[desktopEntryNoGraph.test.ts](../../packages/webview/tests/desktopEntryNoGraph.test.ts) 釘住兩種頁面的行為。
 
 宿主給 webview 的訊息由 preload 以 `window.postMessage` 送進頁面,形狀與 VS Code 的一樣,圖形的 `message` listener 不必知道是哪個宿主。`viewState` 與 `l10n` 跟 VS Code 一樣寫成兩段帶 nonce 的 inline script,CSP 只放行那個 nonce。
+
+## 補記(2026-11-17,#397)
+
+**設定頁是桌面入口的第三種頁面(`data-ging-page="settings"`),開在自己的視窗裡,從 `ging://app/settings` 提供。** 頁面帶一段帶 nonce 的 inline script,給 bundle `settingsPage` 這個全域:每個設定一列(由 `schema.generated.json` 依 app 的語系轉出,值是當下讀到的)、主題的選擇、頁面自己的字串。控制項由 webview 依 schema 的型別決定(布林、enum、數字、字串,清單與物件用 JSON 文字框),沒有任何一列是手刻的。每一列的 id 就是設定的全名,#387 把 `` `#key#` `` 轉成的 `#key` 連結因此直接落在那一列上。
+
+- **設定頁的訊息型別在 [desktop/settings/protocol.ts](../../packages/webview/src/desktop/settings/protocol.ts),不在 `RequestMessage` / `ResponseMessage`。** 頁面送出 `updateSetting`、`setTheme`;宿主回 `settingUpdated`(當下的值,以及沒存成時的原因)。「後果」第三條要求的「command 不得與 `ResponseMessage` 重疊」寫成了型別檢查(`SETTINGS_COMMANDS_DO_NOT_OVERLAP`)。設定頁不啟動圖形,所以頁面上只有一個 listener;它仍然略過不是 `settingUpdated` 的訊息。main process 依送出訊息的 `webContents` 分流:設定視窗的訊息不會進到任何 graph instance 的 dispatch。
+- **設定頁的樣式由它自己的模組在啟動時插進一個 `<style>`,不放進 `media/main.css`,也不另開一個樣式表檔。** 「後果」只要求不放進會進 `.vsix` 的 `main.css`。另開檔案就得多一條 esbuild 複製、多一個 `PAGE_ASSETS` 白名單項目、harness 也要跟著搬;樣式跟著模組走,就只在桌面的 bundle 裡,CSP 的 `style-src 'unsafe-inline'` 本來就放行。等桌面專屬的樣式多到需要共用(側檢視 #399、working tree #403),再由那張票決定是否抽成檔案。
+- **設定頁裡往外的連結(描述裡的 `https://`)用 `target="_blank"`,由設定視窗的 `setWindowOpenHandler` 交給 `Opener.openExternalUrl`;其他任何會換掉頁面的導覽都擋掉。** 在 #391 之前,`Opener` 是只寫 log 的過渡版,所以點下去暫時只會留一行 log。
+- **入口暫時是每個視窗的 `before-input-event` 認 `CmdOrCtrl+,`([shortcuts.ts](../../apps/desktop/src/shortcuts.ts))。** 應用程式選單在 #396;那張票給「設定…」掛上同一個 accelerator 時,要把這個 listener 拿掉,判斷式的 vitest 換成選單 template 的測試(ADR-0032)。
+- **主題手動切換交給 Electron 的 `nativeTheme.themeSource`(`system` / `dark` / `light`),選擇存在 `HostStorage` 的 global 層,key 是 `desktopTheme`。** 啟動時在建立第一個視窗之前套用,所以第一次繪製就是對的顏色。設 `themeSource` 會讓 `shouldUseDarkColors` 改變並發出 `updated`,原本「跟著系統換主題」的那條路(#386)就把新主題推給每個視窗,圖形頁與設定頁一起換,不需要第二條推送路線。

@@ -3,6 +3,16 @@
  * or something else reads as an empty one. */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
+
+/** Write `text` to `file` whole or not at all: a crash mid-write leaves the
+ *  previous file, not half of the new one. */
+export async function writeWhole(file: string, text: string): Promise<void> {
+  const temp = `${file}.tmp`;
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  await fs.promises.writeFile(temp, text, "utf8");
+  await fs.promises.rename(temp, file);
+}
 
 export const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

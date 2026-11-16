@@ -29,9 +29,31 @@ function subject() {
 describe("the desktop HostConfig", () => {
   it("answers every method from a setting the desktop app has", () => {
     const { config } = subject();
-    for (const [name, method] of Object.entries(config)) {
+    // Every read; `update` writes, and has its own tests below.
+    for (const [name, method] of Object.entries(config).filter(([n]) => n !== "update")) {
       expect(() => (method as () => unknown)(), name).not.toThrow();
     }
+  });
+
+  it("writes a setting with update, which the next read answers", async () => {
+    const { config, set } = subject();
+    set({ "show.tags": false });
+
+    await config.update("ging-git-view.autoFetch.intervalMinutes", 1);
+
+    expect(config.autoFetchIntervalMinutes()).toBe(1);
+    expect(config.showTags()).toBe(false);
+  });
+
+  it("refuses with update what the settings file refuses", async () => {
+    const { config } = subject();
+    await expect(config.update("ging-git-view.autoFetch.intervalMinutes", 0)).rejects.toThrow(
+      /intervalMinutes/
+    );
+    await expect(config.update("ging-git-view.keepWebviewAlive", false)).rejects.toThrow(
+      /keepWebviewAlive/
+    );
+    expect(config.autoFetchIntervalMinutes()).toBe(10);
   });
 
   // Beyond the port: what the desktop host's own services read (the avatar

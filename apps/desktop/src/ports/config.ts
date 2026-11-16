@@ -137,6 +137,8 @@ export function createDesktopConfig(settings: Settings): DesktopConfig {
     uncommittedChangesAtHead: () =>
       get("graph.uncommittedMarker") === "Open Circle at the Checked Out Commit",
     showSpecificBranches: () => get("onOpen.branchSelection"),
-    showTags: () => get("show.tags")
+    showTags: () => get("show.tags"),
+    // The key in full, as the settings file and the settings page spell it.
+    update: (key, value) => settings.update(key, value)
   };
 }

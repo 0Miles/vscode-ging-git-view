@@ -17,9 +17,13 @@
  *   --entry=desktop  packages/webview/src/desktop/main.ts, bundled here: no app
  *                    builds it yet (apps/desktop, #386).
  *
+ * With --entry=desktop, --page=settings writes the desktop entry's settings
+ * page (#397) instead of a graph, to out/webview-harness/desktop-settings/.
+ *
  * Usage:
  *   pnpm run compile                                  # for --entry=vscode
- *   node scripts/webview-harness.js [--entry=desktop] # writes out/webview-harness/<entry>/
+ *   node scripts/webview-harness.js [--entry=desktop [--page=settings]]
+ *                                                     # writes out/webview-harness/<entry>/
  *   (cd out/webview-harness/vscode && python3 -m http.server 8771)
  *   open http://localhost:8771/                       # or file://, or drive with Playwright
  *
@@ -36,6 +40,7 @@ const esbuild = require("esbuild/lib/main.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const APP = path.join(ROOT, "apps", "vscode");
+const DESKTOP = path.join(ROOT, "apps", "desktop");
 const WEBVIEW = path.join(ROOT, "packages", "webview");
 const OUT = path.join(ROOT, "out", "webview-harness");
 
@@ -330,6 +335,105 @@ function buildWebviewHarness(entry) {
 }
 
 /**
+ * What the desktop host boots its settings page with (#397), built by the
+ * desktop app's own code from the schema it ships, as the app would with no
+ * settings file and in English. Bundled from TypeScript, as the viewState
+ * fixture is, so the harness cannot drift from the app.
+ *
+ * @param {string} out
+ * @returns {import("../packages/webview/src/desktop/settings/protocol").SettingsPageState}
+ */
+function loadSettingsPageState(out) {
+  const outfile = path.join(out, "settingsPageState.cjs");
+  esbuild.buildSync({
+    stdin: {
+      contents: [
+        'export { buildSettingsPageState } from "./src/settings/settingsPage";',
+        'export { DESKTOP_SETTINGS_SCHEMA } from "./src/settings/schema";',
+        'export { createL10n } from "./src/ports/l10n";',
+        'export { default as english } from "@ging/shared/l10n/bundle.l10n.json";'
+      ].join("\n"),
+      resolveDir: DESKTOP,
+      sourcefile: "settingsPageState.ts",
+      loader: "ts"
+    },
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    outfile,
+    logLevel: "silent"
+  });
+  // Typed by hand: the desktop app's own modules resolve through its aliases,
+  // which this script's typecheck does not have.
+  /** @type {{
+   *   DESKTOP_SETTINGS_SCHEMA: { settings: { key: string, default: unknown }[] },
+   *   buildSettingsPageState: (options: object) => import("../packages/webview/src/desktop/settings/protocol").SettingsPageState,
+   *   createL10n: (base: Record<string, string>) => unknown,
+   *   english: Record<string, string>
+   * }} */
+  const app = require(outfile);
+  const schema = app.DESKTOP_SETTINGS_SCHEMA;
+  return app.buildSettingsPageState({
+    schema,
+    // No settings file: every setting at its default.
+    settings: {
+      get: (/** @type {string} */ key) => schema.settings.find((s) => s.key === key)?.default
+    },
+    locale: "en",
+    l10n: app.createL10n(app.english),
+    theme: "system"
+  });
+}
+
+/**
+ * Writes the desktop entry's settings page (#397) to
+ * out/webview-harness/desktop-settings/index.html. The host's half answers each
+ * `updateSetting` as saved, and keeps every message on window.harnessRequests.
+ *
+ * @returns {string} The page's absolute path.
+ */
+function buildSettingsHarness() {
+  const out = path.join(OUT, "desktop-settings");
+  fs.mkdirSync(out, { recursive: true });
+  const state = loadSettingsPageState(out);
+  const rootVars = Object.entries(THEME_VARS)
+    .map(([k, v]) => `${k}:${v};`)
+    .join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="en" data-ging-page="settings">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" type="text/css" href="./main.css">
+<style>:root{${rootVars}} body{background-color:var(--vscode-editor-background);color:var(--vscode-editor-foreground);}</style>
+</head>
+<body class="vscode-dark">
+  <main id="settings"></main>
+  <script>
+    window.settingsPage = ${JSON.stringify(state)};
+    window.harnessRequests = [];
+    window.acquireVsCodeApi = () => ({
+      postMessage(msg) {
+        window.harnessRequests.push(msg);
+        if (msg.command !== "updateSetting") return;
+        const data = { command: "settingUpdated", key: msg.key, value: msg.value, error: null };
+        queueMicrotask(() => window.dispatchEvent(new MessageEvent("message", { data })));
+      },
+      getState() { return null; },
+      setState() {}
+    });
+  </script>
+  <script src="./webview.js"></script>
+</body>
+</html>`;
+
+  placeEntryBundle("desktop", out);
+  const index = path.join(out, "index.html");
+  fs.writeFileSync(index, html);
+  return index;
+}
+
+/**
  * @param {string} value
  * @returns {value is HarnessEntry}
  */
@@ -337,12 +441,20 @@ function isHarnessEntry(value) {
   return /** @type {readonly string[]} */ (ENTRIES).includes(value);
 }
 
-const flag = process.argv.slice(2).find((a) => a.startsWith("--entry="));
+const args = process.argv.slice(2);
+const flag = args.find((a) => a.startsWith("--entry="));
 const entry = flag === undefined ? "vscode" : flag.slice("--entry=".length);
 if (!isHarnessEntry(entry)) {
   process.stderr.write(`Unknown --entry "${entry}"; expected one of: ${ENTRIES.join(", ")}.\n`);
   process.exit(1);
 }
-process.stdout.write(
-  "Wrote " + buildWebviewHarness(entry) + " — open it in a browser, as a file or served.\n"
-);
+const pageFlag = args.find((a) => a.startsWith("--page="));
+const pageKind = pageFlag === undefined ? "graph" : pageFlag.slice("--page=".length);
+if (pageKind !== "graph" && !(pageKind === "settings" && entry === "desktop")) {
+  process.stderr.write(
+    `Unknown --page "${pageKind}" for --entry=${entry}; expected graph, or settings with --entry=desktop.\n`
+  );
+  process.exit(1);
+}
+const written = pageKind === "settings" ? buildSettingsHarness() : buildWebviewHarness(entry);
+process.stdout.write("Wrote " + written + " — open it in a browser, as a file or served.\n");
