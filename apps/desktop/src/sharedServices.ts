@@ -40,6 +40,8 @@ type SharedServicesOptions = {
   helperDir: string;
   logger: HostLogger;
   clipboard: Clipboard;
+  /** What Version Information lists before the OS and git (#396). */
+  hostVersions: readonly { name: string; version: string }[];
 };
 
 export type SharedServices = {
@@ -84,6 +86,8 @@ export type SharedServices = {
   askpass: Pick<AskpassManager, "route">;
   helperDir: string;
   gitPath: () => string;
+  /** GING's version and the host's, as Version Information lists them. */
+  hostVersions: readonly { name: string; version: string }[];
   dispose(): void;
 };
 
@@ -92,7 +96,8 @@ export function createSharedServices({
   locale,
   helperDir,
   logger,
-  clipboard
+  clipboard,
+  hostVersions
 }: SharedServicesOptions): SharedServices {
   const settings = openDesktopSettings(userDataPath, { onError: logger.logError });
   const config = createDesktopConfig(settings);
@@ -162,6 +167,7 @@ export function createSharedServices({
     askpass,
     helperDir,
     gitPath: desktopGitPath,
+    hostVersions,
     dispose: () => {
       askpass.dispose();
       branchFilterStore.dispose();

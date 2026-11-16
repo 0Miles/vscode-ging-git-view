@@ -1,10 +1,11 @@
+import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import { createGraphInstance } from "@ging/desktop/graphInstance";
-import { createSharedServices } from "@ging/desktop/sharedServices";
+import { createSharedServices, type SharedServices } from "@ging/desktop/sharedServices";
 import type { ResponseMessage } from "@ging/shared/types";
 
 import {
@@ -51,7 +52,8 @@ function setUp() {
       logError: (line) => logged.push(`ERROR: ${line}`),
       reveal: () => {}
     },
-    clipboard: { writeText: async () => {} }
+    clipboard: { writeText: async () => {} },
+    hostVersions: [{ name: "GING", version: "1.2.3" }]
   });
   const instances: { dispose(): void }[] = [];
   /** The settings each instance asked the app to show. */
@@ -62,21 +64,25 @@ function setUp() {
     [userData, ...repos].forEach(rmrf);
   });
 
-  /** An instance on `repo`, as the main process opens one. */
-  const open = (repo: string) => {
+  /** An instance on `repo`, as the main process opens one; `services` stand
+   *  in for some of the shared ones. */
+  const open = (repo: string, services: Partial<SharedServices> = {}) => {
     const page = fakeWebview();
-    const { ports, answers } = fakePorts();
+    const { ports, answers, calls } = fakePorts();
     shared.repoSource.addRepo(repo);
     const state = shared.tabStates.newTab(repo);
-    const instance = createGraphInstance(shared, {
-      repo,
-      channel: page.webview,
-      prompts: ports.prompts,
-      extensionState: state,
-      revealSetting: (key) => revealed.push(key)
-    });
+    const instance = createGraphInstance(
+      { ...shared, ...services },
+      {
+        repo,
+        channel: page.webview,
+        prompts: ports.prompts,
+        extensionState: state,
+        revealSetting: (key) => revealed.push(key)
+      }
+    );
     instances.push(instance);
-    return { instance, answers, state, ...page };
+    return { instance, answers, calls, state, ...page };
   };
   return { shared, repos, open, logged, revealed };
 }
@@ -195,6 +201,61 @@ describe("a graph instance", () => {
       { host: "git.example.com", type: "gitea" }
     ]);
     expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("runs the menu's remote commands on its own repository, asking in its own prompts", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    const other = open(repos[1]);
+    for (const repo of repos) git(["remote", "add", "origin", "https://example.com/r.git"], repo);
+    page.answers.replies = ["origin", shared.l10n.t("remotes.rename"), "upstream"];
+
+    await page.instance.commands.manageRemotes();
+
+    const remotes = (repo: string) =>
+      cp.execFileSync("git", ["remote"], { cwd: repo }).toString().trim();
+    expect(remotes(repos[0])).toBe("upstream");
+    expect(remotes(repos[1])).toBe("origin");
+    expect(other.calls).toEqual([]);
+    // A change to its repository redraws its graph.
+    expect(sentOf(page.posted, "refresh").length).toBeGreaterThan(0);
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("answers the figures of its own repository for Show Statistics", async () => {
+    const { repos, open } = setUp();
+    git(["commit", "--allow-empty", "-m", "second"], repos[1]);
+    const page = open(repos[0]);
+    open(repos[1]);
+
+    expect(await page.instance.commands.statistics()).toMatchObject({ total: 1 });
+  });
+
+  it("opens the system terminal in its repository, named after its folder", () => {
+    const { shared, repos, open } = setUp();
+    const terminals: [string, string][] = [];
+    const page = open(repos[0], {
+      opener: { ...shared.opener, openTerminal: (cwd, name) => void terminals.push([cwd, name]) }
+    });
+
+    page.instance.commands.openTerminal();
+
+    expect(terminals).toEqual([[repos[0], `GING: ${path.basename(repos[0])}`]]);
+  });
+
+  it("lists the app's versions and git's in Version Information, offering to copy them", async () => {
+    const { repos, open } = setUp();
+    const page = open(repos[0]);
+
+    await page.instance.commands.versionInfo();
+
+    expect(page.calls).toEqual([
+      [
+        "showInformation",
+        expect.stringMatching(/^GING: 1\.2\.3\nOS: .+\ngit version /),
+        { modal: true, actions: ["Copy"] }
+      ]
+    ]);
   });
 
   it("shares the avatar cache, but stops receiving avatars once disposed", async () => {
