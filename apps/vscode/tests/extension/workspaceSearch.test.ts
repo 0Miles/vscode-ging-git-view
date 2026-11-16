@@ -11,17 +11,24 @@ import { rmrf } from "@ging/core/tests/helpers";
 import { useSharedRepo } from "./helpers";
 
 /**
- * Mocha budget for a test that searches a directory tree.
+ * Mocha budgets for the tests that search a directory tree, by how many
+ * directories the search visits: it asks git about each one, a spawn apiece.
+ * Nothing else is left in a test body, the trees being built once per suite.
  *
- * The search asks git about each directory it visits, one spawn apiece, and
- * the deepest tests here visit two. Nothing else is left in a test body: the
- * trees are built once per suite. Measured in the extension host on Windows,
- * those two spawns take 0.2–0.9s on an idle machine and 1.2–2.6s with every
- * core oversubscribed twice over, which is past Mocha's default 2000ms by
- * themselves (#425). With a typecheck and a lint run on top of that load, one
- * test took 8.0s. This is about four times that.
+ * Measured in the extension host on Windows (#425). One spawn: 0.1–0.3s on an
+ * idle machine, 1.1–1.6s with every core oversubscribed twice over, and 2.6s
+ * with a typecheck and a lint run on top of that. Two spawns: 160–799ms idle,
+ * 1.2–2.6s oversubscribed, and 8.0s with the typecheck and lint on top. Both
+ * pass Mocha's default 2000ms, and each budget is about four times the worst
+ * of its own numbers.
  */
-const SEARCH_TIMEOUT_MS = 30_000;
+const ONE_SPAWN_TIMEOUT_MS = 10_000;
+const TWO_SPAWN_TIMEOUT_MS = 30_000;
+
+/** Mocha budget for removing the suite's trees: two repo copies, whose
+ *  read-only git objects make `rmrf` retry. Removing one took 0.15s idle and
+ *  0.3–0.5s under the same load, 2.6s once (#425). */
+const TEARDOWN_TIMEOUT_MS = 10_000;
 
 function makeStubs(initialRepoPaths: string[] = [], maxDepth = 2, gitPath = "git") {
   const repos: Record<string, { columnWidths: null }> = {};
@@ -62,9 +69,7 @@ function makeStubs(initialRepoPaths: string[] = [], maxDepth = 2, gitPath = "git
   };
 }
 
-suite("workspaceSearch / searchDirectoryForRepos", function () {
-  this.timeout(SEARCH_TIMEOUT_MS);
-
+suite("workspaceSearch / searchDirectoryForRepos", () => {
   // Every tree the tests search is laid out once, before the first test, and
   // removed after the last. No test writes to them, and building or removing
   // one inside a test spends that test's budget on it (#425).
@@ -89,18 +94,22 @@ suite("workspaceSearch / searchDirectoryForRepos", function () {
   });
 
   // rmrf, not rmSync: the copies hold git's read-only objects. See `rmrf`.
-  suiteTeardown(() => {
-    rmrf(fixtures);
+  // Nothing to remove when the seed could not be made.
+  suiteTeardown(function () {
+    this.timeout(TEARDOWN_TIMEOUT_MS);
+    if (fixtures) rmrf(fixtures);
   });
 
-  test("returns true and adds repo when a git repo is found", async () => {
+  test("returns true and adds repo when a git repo is found", async function () {
+    this.timeout(ONE_SPAWN_TIMEOUT_MS);
     const { repoSearch, added } = makeStubs();
     const found = await repoSearch.searchDirectoryForRepos(repo, 0);
     assert.strictEqual(found, true);
     assert.deepStrictEqual(added, [repo]);
   });
 
-  test("returns false for a non-repo directory", async () => {
+  test("returns false for a non-repo directory", async function () {
+    this.timeout(ONE_SPAWN_TIMEOUT_MS);
     const { repoSearch, added } = makeStubs();
     const found = await repoSearch.searchDirectoryForRepos(plainDir, 0);
     assert.strictEqual(found, false);
@@ -122,14 +131,16 @@ suite("workspaceSearch / searchDirectoryForRepos", function () {
     assert.deepStrictEqual(added, []);
   });
 
-  test("finds repo nested at depth 1", async () => {
+  test("finds repo nested at depth 1", async function () {
+    this.timeout(TWO_SPAWN_TIMEOUT_MS);
     const { repoSearch, added } = makeStubs();
     const found = await repoSearch.searchDirectoryForRepos(nestedParent, 1);
     assert.strictEqual(found, true);
     assert.deepStrictEqual(added, [nestedParent + "/nested-repo"]);
   });
 
-  test("does not find repos beyond maxDepth", async () => {
+  test("does not find repos beyond maxDepth", async function () {
+    this.timeout(TWO_SPAWN_TIMEOUT_MS);
     const { repoSearch, added } = makeStubs();
     const found = await repoSearch.searchDirectoryForRepos(deepParent, 1);
     assert.strictEqual(found, false);
