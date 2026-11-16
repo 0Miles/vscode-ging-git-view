@@ -1,11 +1,18 @@
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import {
+  _electron,
+  type ElectronApplication,
+  expect,
+  type Locator,
+  type Page,
+  test
+} from "@playwright/test";
 
 import { TAB_STRIP_HEIGHT } from "@ging/webview/desktop/window/protocol";
 
@@ -243,6 +250,9 @@ test("closing the last Tab shows the Welcome page, with nothing to run the graph
  *  request came with, decoded. */
 async function serverAskingForCredentials() {
   const received: string[] = [];
+  /** The connections git has open to it: a git waiting on its prompt keeps
+   *  one, and lets it go once it is done. */
+  const connections = new Set<Socket>();
   const server = http.createServer((request, response) => {
     const auth = request.headers.authorization;
     if (auth?.startsWith("Basic ")) {
@@ -250,6 +260,10 @@ async function serverAskingForCredentials() {
     }
     response.writeHead(401, { "WWW-Authenticate": 'Basic realm="ging-e2e"' });
     response.end();
+  });
+  server.on("connection", (socket) => {
+    connections.add(socket);
+    socket.on("close", () => connections.delete(socket));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
@@ -259,13 +273,32 @@ async function serverAskingForCredentials() {
      *  the host when git asks for the password. */
     asking: new RegExp(`^GING: http://(\\w+@)?127\\.0\\.0\\.1:${port}`),
     received,
+    /** How many connections git still has open. */
+    openConnections: () => connections.size,
     close: () =>
       new Promise<void>((resolve) => {
-        // A git still waiting on its prompt holds its connection open.
+        // A workaround, not what the app should leave behind: a test that
+        // fails while git is still on the network leaves that git running,
+        // since closing a Tab or the app does not stop the git it started
+        // (#450). Without this, the server never closes and the test hangs.
         server.closeAllConnections();
         server.close(() => resolve());
       })
   };
+}
+
+/** Start a fetch in Tab `tab` from the menu, and wait for git's question for
+ *  a username in its page. */
+async function fetchAsking(
+  electronApp: ElectronApplication,
+  tab: Locator,
+  page: Page,
+  asking: RegExp
+): Promise<void> {
+  await tab.click();
+  await expect(tab).toContainClass("focused");
+  expect(await clickMenu(electronApp, FETCH_REMOTE)).toBe(true);
+  await expect(credentialPrompt(page).message).toHaveText(asking);
 }
 
 /** The credential prompt shown in `page`: what it names, and its field. */
@@ -310,26 +343,22 @@ test("two Tabs fetching from servers that ask for credentials each ask in their 
 
     // The menu's fetch runs in the focused Tab: the first, then the second,
     // each fetch left waiting on git's question for a username.
-    await firstTab.click();
-    await expect(firstTab).toContainClass("focused");
-    expect(await clickMenu(electronApp, FETCH_REMOTE)).toBe(true);
-    await expect(credentialPrompt(firstPage).message).toHaveText(servers[0].asking);
-    await secondTab.click();
-    await expect(secondTab).toContainClass("focused");
-    expect(await clickMenu(electronApp, FETCH_REMOTE)).toBe(true);
-    await expect(credentialPrompt(secondPage).message).toHaveText(servers[1].asking);
+    await fetchAsking(electronApp, firstTab, firstPage, servers[0].asking);
+    await fetchAsking(electronApp, secondTab, secondPage, servers[1].asking);
 
     // Each asked in its own page only — one prompt there, its own server's —
-    // and the Tab behind is marked in the strip as asking.
+    // and only the Tab behind is marked in the strip as asking: the one in
+    // front shows its prompt itself.
     await expect(credentialPrompt(firstPage).message).toHaveCount(1);
     await expect(credentialPrompt(firstPage).message).toHaveText(servers[0].asking);
     await expect(firstTab.locator(".tabAsking")).toHaveCount(1);
-    await expect(secondTab.locator(".tabAsking")).toHaveCount(1);
+    await expect(secondTab.locator(".tabAsking")).toHaveCount(0);
 
     // Answered in each page, and each answer reaches its own Tab's git.
     await answer(secondPage, servers[1].asking, "Username", "bob");
     await answer(secondPage, servers[1].asking, "Password", "secret-b");
     await firstTab.click();
+    await expect(firstTab.locator(".tabAsking")).toHaveCount(0);
     await answer(firstPage, servers[0].asking, "Username", "alice");
     await answer(firstPage, servers[0].asking, "Password", "secret-a");
     await expect.poll(() => servers[0].received).toEqual(["alice:secret-a"]);
@@ -340,6 +369,101 @@ test("two Tabs fetching from servers that ask for credentials each ask in their 
     await app?.close();
     app = null;
   }
+});
+
+/** A fixture repository whose `origin` is `server`. */
+function repoFetchingFrom(server: { url: string }): FixtureRepo {
+  const repo = fixtureRepo();
+  execFileSync("git", ["remote", "add", "origin", server.url], { cwd: repo.path, env });
+  return repo;
+}
+
+test("closing a Tab while its git waits on a prompt lets that git go", async () => {
+  const server = await serverAskingForCredentials();
+  try {
+    const repo = repoFetchingFrom(server);
+    const electronApp = await launch("--repo", repo.path);
+    await answerMessageBoxes(electronApp);
+    const window = await windowPage(electronApp);
+    const page = await focusedTabPage(electronApp);
+    await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
+    const tab = window.locator("#tabStrip .tab");
+    await fetchAsking(electronApp, tab, page, server.asking);
+    expect(server.openConnections()).toBeGreaterThan(0);
+
+    await tab.locator(".tabClose").click();
+
+    // The prompt answered as dismissed: git is done, and so is its connection.
+    await expect(window.locator("#tabStrip")).toBeHidden();
+    await expect.poll(server.openConnections, { timeout: 15_000 }).toBe(0);
+    expect(await closeAndReadLog()).not.toContain("ERROR:");
+  } finally {
+    await app?.close();
+    app = null;
+    await server.close();
+  }
+});
+
+test("quitting while a Tab's git waits on a prompt quits, and lets that git go", async () => {
+  const server = await serverAskingForCredentials();
+  try {
+    const repos = [repoFetchingFrom(server), fixtureRepo()];
+    const electronApp = await launch("--repo", repos[0].path);
+    await answerMessageBoxes(electronApp);
+    const window = await windowPage(electronApp);
+    const page = await focusedTabPage(electronApp);
+    await expect(page.locator("#commitTable tr.commit")).toHaveCount(repos[0].commits.length);
+    // A second Tab, so the one asking is not the last to be disposed of.
+    await launchAgain("--repo", repos[1].path);
+    await focusedTabPage(electronApp, 2);
+    await fetchAsking(electronApp, window.locator("#tabStrip .tab").first(), page, server.asking);
+
+    // Closing the app waits for its process to exit.
+    const logged = await closeAndReadLog();
+    await expect.poll(server.openConnections, { timeout: 15_000 }).toBe(0);
+    expect(logged).not.toContain("ERROR:");
+
+    // Both Tabs are still what the next session opens.
+    const reopened = await windowPage(await launch());
+    await expect(reopened.locator("#tabStrip .tab")).toHaveCount(2);
+  } finally {
+    await app?.close();
+    app = null;
+    await server.close();
+  }
+});
+
+test("a Tab's page asking for another Tab's repository stays on its own", async () => {
+  const [first, second] = [fixtureRepo(), fixtureRepo()];
+  const electronApp = await launch("--repo", first.path);
+  const window = await windowPage(electronApp);
+  const firstPage = await focusedTabPage(electronApp);
+  await launchAgain("--repo", second.path);
+  await focusedTabPage(electronApp, 2);
+  await window.locator("#tabStrip .tab").first().click();
+
+  // Shown its own repository alone: no repo dropdown to pick another from.
+  await expect(firstPage.locator("#repoTitleName")).toHaveText(path.basename(first.path));
+  await expect(firstPage.locator("#repoTitle")).not.toContainClass("multipleRepos");
+  // And a page that asks all the same, as the graph's own selectRepo would.
+  await firstPage.evaluate((repo) => {
+    (globalThis as unknown as { acquireVsCodeApi(): { postMessage(m: unknown): void } })
+      .acquireVsCodeApi()
+      .postMessage({ command: "selectRepo", repo });
+  }, spelled(second));
+  await firstPage.locator("#refreshBtn").click();
+  await expect(firstPage.locator("#commitTable tr.commit")).toHaveCount(first.commits.length);
+
+  const logged = await closeAndReadLog();
+  expect(logged).toContain(
+    `tabs: the Tab on ${spelled(first)} stays on it, not ${spelled(second)}`
+  );
+  expect(logged).not.toContain("ERROR:");
+  // Each Tab still on its own repository after a restart.
+  const reopened = await windowPage(await launch());
+  await expect
+    .poll(async () => (await stripTabs(reopened)).map(({ title }) => title))
+    .toEqual([path.basename(first.path), path.basename(second.path)]);
 });
 
 test("a Tab's page reloaded keeps its Tab and its graph", async () => {

@@ -36,9 +36,24 @@ type TabsDeps<C> = {
   dispose(content: C): void;
   /** Told after every change to the list, its order or its focus. */
   onChange(): void;
+  /** Told when disposing of a Tab threw: the others are disposed of all the
+   *  same, so one Tab's failure leaves no other's prompts, watcher or timers
+   *  behind. */
+  onDisposeError?(error: unknown): void;
 };
 
-export function createTabs<C>({ dispose, onChange }: TabsDeps<C>): Tabs<C> {
+export function createTabs<C>({
+  dispose: disposeContent,
+  onChange,
+  onDisposeError = () => {}
+}: TabsDeps<C>): Tabs<C> {
+  const dispose = (content: C) => {
+    try {
+      disposeContent(content);
+    } catch (e) {
+      onDisposeError(e);
+    }
+  };
   let tabs: Tab<C>[] = [];
   let focusedId: number | null = null;
   let nextId = 0;

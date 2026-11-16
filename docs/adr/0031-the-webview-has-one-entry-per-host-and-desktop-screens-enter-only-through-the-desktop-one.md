@@ -98,3 +98,5 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **Welcome page 裝了 host prompt 的 listener。** 「補記(#390)」說「之後的 Welcome page 要問時，由它照這個協定接上」;沒有 Tab 時，選單的命令(#396)與 #394 的開啟流程就問在這裡。有 Tab 時，Tab 的 view 蓋住 Welcome page,所以宿主只在沒有 Tab 時用它。
 - **`notice` 頁仍在,但只給 Tab 用:** 重啟時路徑已經不在的 Tab,在原位置顯示「無法開啟」,直到使用者關掉它(GLOSSARY 的 Current repository:字串留著不刪)。啟動參數指錯路徑而沒有任何 Tab 時，說明改由 `windowState` 的 `notice` 畫在 Welcome page 上，不再換掉整頁。
 - **分頁列的樣式由 `windowPage.ts` 插進一個 `<style>`,** 理由同「補記(#397)」的設定頁;只用 `theme.ts` 已經提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。
+- **「這個 Tab 在等回答」的標記只畫在後面的 Tab 上。** 前景 Tab 的 prompt 就在畫面上，不需要再提醒;背景 Tab 的 prompt 畫在看不見的頁面裡，分頁列是使用者唯一看得到它的地方。標記不會把那個 Tab 拉到前面：搶走使用者正在用的 Tab 比晚一點回答更糟。
+- **Tab 的頁面不會被導覽走。** Tab 的 view 若被導覽到 `?id=M`,會畫出 Tab M 的圖形，訊息卻仍送到自己的實例。所以每個 Tab 的 webContents 擋掉 `will-navigate`、`window.open` 一律不開新視窗(網址交給 `Opener.openExternalUrl`),寫在 [pageGuard.ts](../../apps/desktop/src/pageGuard.ts) 的 `keepPageInPlace`,與設定視窗(「補記(#397)」)的規則相同;main process 自己的 `loadURL` 與重新載入不受影響。

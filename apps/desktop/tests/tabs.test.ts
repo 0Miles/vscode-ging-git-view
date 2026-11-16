@@ -106,6 +106,25 @@ describe("the desktop host's Tabs", () => {
     expect(tabs.focused()).toBe(a);
   });
 
+  it("dispose of every Tab when the window goes, even after one of them throws", () => {
+    const disposed: string[] = [];
+    const errors: unknown[] = [];
+    const tabs = createTabs<string>({
+      dispose: (content) => {
+        disposed.push(content);
+        if (content === "/a") throw new Error("gone already");
+      },
+      onChange: () => {},
+      onDisposeError: (e) => errors.push(e)
+    });
+    for (const repo of ["/a", "/b", "/c"]) tabs.open(repo, () => repo);
+
+    tabs.disposeAll();
+
+    expect(disposed).toEqual(["/a", "/b", "/c"]);
+    expect(errors).toEqual([new Error("gone already")]);
+  });
+
   it("dispose of every Tab when the window goes, without a change to save", () => {
     const { tabs, open, disposed, changes } = setUp();
     open("/a");

@@ -67,15 +67,16 @@ function setUp() {
     const page = fakeWebview();
     const { ports, answers } = fakePorts();
     shared.repoSource.addRepo(repo);
+    const state = shared.tabStates.newTab(repo);
     const instance = createGraphInstance(shared, {
       repo,
       channel: page.webview,
       prompts: ports.prompts,
-      extensionState: shared.tabStates.newTab(repo),
+      extensionState: state,
       revealSetting: (key) => revealed.push(key)
     });
     instances.push(instance);
-    return { instance, answers, ...page };
+    return { instance, answers, state, ...page };
   };
   return { shared, repos, open, logged, revealed };
 }
@@ -92,7 +93,7 @@ describe("a graph instance", () => {
     const viewState = first.instance.pageViewState();
 
     expect(viewState.lastActiveRepo).toBe(repos[0]);
-    expect(Object.keys(viewState.repos)).toEqual(expect.arrayContaining(repos));
+    expect(Object.keys(viewState.repos)).toEqual([repos[0]]);
   });
 
   it("boots on no other repository once its own has left the known set", () => {
@@ -132,12 +133,30 @@ describe("a graph instance", () => {
     const another = toRepoPath(makeRepo());
     onTestFinished(() => rmrf(another));
     shared.repoSource.addRepo(another);
+    shared.repoSource.updateRepoState(repos[0], { customName: "Renamed" });
 
-    expect(sentOf(live.posted, "loadRepos").at(-1)).toMatchObject({
-      lastActiveRepo: repos[0],
-      repos: expect.objectContaining({ [another]: expect.anything() })
+    // Its own repository alone, as it is now: another Tab's is none of its.
+    const told = sentOf(live.posted, "loadRepos").at(-1);
+    expect(told).toMatchObject({ lastActiveRepo: repos[0] });
+    expect(told).toHaveProperty("repos", {
+      [repos[0]]: expect.objectContaining({ customName: "Renamed" })
     });
     expect(gone.posted.length).toBe(before);
+  });
+
+  it("stays on its own repository when its page asks for another", async () => {
+    const { repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    open(repos[1]);
+    expect(Object.keys(page.instance.pageViewState().repos)).toEqual([repos[0]]);
+
+    await page.receive({ command: "selectRepo", repo: repos[0] });
+    await page.receive({ command: "selectRepo", repo: repos[1] });
+
+    // Never handed to the dispatch, which would have written it to the Tab's
+    // state: a known repository passes `setLastActiveRepo`'s rule.
+    expect(page.state.getLastActiveRepo()).toBe(repos[0]);
+    expect(logged).toContain(`tabs: the Tab on ${repos[0]} stays on it, not ${repos[1]}`);
   });
 
   it("tells its page of a Repository Setting default the host wrote", async () => {

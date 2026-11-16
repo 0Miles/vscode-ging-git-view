@@ -70,4 +70,5 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 
 - **「其他 Tab 不在畫面上」讀 `BrowserWindow.contentView.children`,不讀 `document.visibilityState`。** main process 把沒聚焦的 Tab 的 view 從視窗拿下來(不只是隱藏),不在任何視窗裡的 view 不會被繪製;但實測在 Playwright 驅動下，被拿下來的 view 的 page 仍回答 `visible`,這個值在 E2E 裡看不出差別,所以 E2E 讀的是哪些 view 在視窗裡、擺在哪裡。
 - **兩個 Tab 同時需要認證的 fetch,用兩個只回 401 的本機 server。** 兩個 port 不同，askpass 的提示(`GING: http://127.0.0.1:<port>`)因此分得出是誰的;server 記下每次請求帶來的帳密，證明每個 Tab 頁面上的回答回到的是自己那個 Tab 的 git。fetch 從選單的 `ging.fetchRemote` 觸發，同時驗證「選單命令送到目前聚焦的 Tab」。認證失敗的錯誤框經 `NativeDialogs` 由測試代答。
-- **測試結束時先關 server 的所有連線，再關 app。** 一個還在等提示的 git 會把連線開著;不先切斷，它不會結束,Windows 上暫存目錄也刪不掉。
+- **git 在等提示時關掉 Tab、或結束 app,git 要拿到「取消」並自己結束。** 兩條 E2E 各驗一次：提示還開著時關掉那個 Tab,以及開著兩個 Tab、其中一個在等提示時結束 app;都要 app 照常結束、server 上 git 的連線歸零、log 沒有 `ERROR:`。後者守的是處置順序：視窗關掉之後才處置 Tab,任何一個 Tab 的處置失敗都不能讓後面的 Tab 留著沒處置。
+- **測試收尾時 `server.closeAllConnections()` 是繞道，不是預期行為。** 關掉 Tab 或結束 app 時，正在跑的 git 不會被終止([#450](https://github.com/0Miles/vscode-ging-git-view/issues/450)):git 卡在提示時拿到「取消」會自己結束，但測試若在 git 還連著 server 時失敗，那個 git 會一直留著,server 關不掉、Windows 上暫存目錄也刪不掉。#450 修好之後拿掉這個繞道。

@@ -168,7 +168,8 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **slot 只管字串存哪裡，規則留在 `ExtensionState`。** 讀的時候照舊經過 `resolveCurrentRepo`,寫的時候照舊是 `setLastActiveRepo` 的「不是 known repository、路徑也不可用，就記成沒有選取」。這和「`HostStorage` 開在 key-value 層」那一條的理由相同：開在規則之下，第二個宿主就不必重寫規則。
 - **分頁清單由 core 的 [tabStates.ts](../../packages/core/src/tabStates.ts) 保存，放在 workspace 層的 `openTabs`:** 依序列出每個 Tab 的路徑字串，以及聚焦的是哪一個。每個 Tab 的 `ExtensionState` 由它建立,slot 是清單裡那一格;Tab 自己寫入 current repository 時，整份清單跟著寫回。順序與聚焦由桌面版的分頁模型([tabs.ts](../../apps/desktop/src/tabs.ts))決定，它每次改變就把清單交給 `TabStates.save`,`TabStates` 不自己排序。
 - **路徑不再 resolve 的 Tab,重啟時照樣出現(內容是說明頁),字串留在清單裡，直到使用者關掉它。** 這是 GLOSSARY「字串留著不刪」套到 Tab 上的結果：沒有任何探測分得出「已刪除」與「這次沒掛載」。
-- **`branchFilterStore` 的前提(同一個存放庫至多開在一個 Tab)由兩處守住。** 開啟時以 `resolveToKnownRepo` 比對已開的 Tab 與 known repositories,同一個存放庫的另一種拼法會聚焦既有的 Tab;實例的 `getBootRepo` 只回答自己的 repo(不在 known set 時回答 `null`),不像 `pickBootRepo` 那樣退到別的 known repository —— 否則某個 repo 被移出集合時，那個 Tab 的圖形會跟著 `loadRepos` 換到另一個 Tab 開著的 repo。
+- **`branchFilterStore` 的前提(同一個存放庫至多開在一個 Tab)由三處守住。** 一是開啟：以 `resolveToKnownRepo` 比對已開的 Tab 與 known repositories,同一個存放庫的另一種拼法會聚焦既有的 Tab([tabWindow.ts](../../apps/desktop/src/tabWindow.ts))。二是每個實例交給圖形的 `RepoSource` 只有自己那一個 repo:`getRepos` 與 `loadRepos` 的廣播都只含它，`getBootRepo` 也只回答它(不在 known set 時回答 `null`),不像 `pickBootRepo` 那樣退到別的 known repository。圖形因此沒有別的 repo 可以挑：沒有存放庫下拉選單、CDV 檔案樹點子存放庫(#155)也不會切過去、它自己的 repo 被移出集合時也不會跟著 `loadRepos` 換到別的 Tab 開著的 repo。三是頁面仍送來別的 repo 的 `selectRepo` 時，實例在 channel 上就把它擋下、寫一行 log,dispatch 聽不到，Tab 的 current repository 不變。
+  - **為什麼不改成「把 `selectRepo` 轉給分頁(聚焦或開新 Tab)」。** 那要在圖形已經在頁面上切過去之後再把它拉回原本的 repo,等於桌面版要替 `gitGraphView.ts` 的切換流程補一條撤銷路徑;而今天桌面版沒有任何一個入口真的會切 repo(下拉選單本來就關著,`scmMultiRepoSelection: false`)。只給它自己的 repo,圖形從一開始就沒有東西可切，代價是桌面版暫時失去 #155 的「點子存放庫就切過去」。之後若要它，由開啟資料夾的 #394 讓子存放庫開在自己的 Tab。
 - **桌面版 app 自己的那份 `ExtensionState` 仍在,** 管 known repositories、dialog memory 與頭像;它的 current repository 在桌面版不再被寫。
 
 ## 補記(2026-11-17,#398)

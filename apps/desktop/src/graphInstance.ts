@@ -16,7 +16,7 @@ import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/seque
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
-import type { GitGraphViewState } from "@ging/shared/types";
+import type { GitGraphViewState, GitRepoSet } from "@ging/shared/types";
 
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
@@ -53,11 +53,28 @@ export type GraphInstance = {
 
 export function createGraphInstance(
   shared: SharedServices,
-  { repo, channel, prompts, extensionState, revealSetting }: GraphInstanceOptions
+  { repo, channel: page, prompts, extensionState, revealSetting }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
-  /** This instance's current repository; the graph moves it with `selectRepo`. */
-  let current = repo;
+  /** This instance's current repository, its Tab's, for as long as it lives. */
+  const current = repo;
+
+  // And should the page still ask for another — it was shown none, but a
+  // page is not to be taken at its word — the dispatch never hears it: the
+  // Tab would end up on a repository another Tab may have open.
+  const channel: WebviewChannel = {
+    postMessage: (message) => page.postMessage(message),
+    onDidReceiveMessage: (listener) =>
+      page.onDidReceiveMessage((message) => {
+        if (message.command === "selectRepo" && message.repo !== repo) {
+          if (message.repo) {
+            logger.log(`tabs: the Tab on ${repo} stays on it, not ${message.repo}`);
+          }
+          return;
+        }
+        return listener(message);
+      })
+  };
 
   // Its own askpass route, and its own rebase todo: two instances rebasing at
   // once must not run each other's todo, nor read each other's `wasApplied`.
@@ -90,18 +107,25 @@ export function createGraphInstance(
   });
   fetchService.restartAutoFetch();
 
-  // The known repositories are shared; which one the graph boots on is this
-  // instance's, and only ever its own: a Tab is one repository, and another
-  // is open in at most one Tab (GLOSSARY.md). Were it to fall back on any
-  // other known repository, as `pickBootRepo` does when its own leaves the
-  // set, the graph would follow that `loadRepos` into a repository another
-  // Tab may have open.
+  // A Tab is one repository, and a repository is open in at most one Tab
+  // (GLOSSARY.md; `branchFilterStore` counts on it). So the graph is shown
+  // its own repository alone out of the known set — no other to boot on when
+  // its own leaves the set, as `pickBootRepo` would fall back to; none in a
+  // repo dropdown; no sub-repository to switch to (#155) — and the known set
+  // itself stays the app's.
+  const own = (repos: GitRepoSet): GitRepoSet =>
+    Object.hasOwn(repos, repo) ? { [repo]: repos[repo] } : {};
   const repoSource: RepoSource = {
     ...shared.repoSource,
-    getBootRepo: () => (Object.hasOwn(shared.repoSource.getRepos(), current) ? current : null)
+    getRepos: () => own(shared.repoSource.getRepos()),
+    getBootRepo: () => (Object.hasOwn(shared.repoSource.getRepos(), repo) ? repo : null)
   };
   const reposChanged = shared.repoSource.onDidChangeRepos((repos) => {
-    void bridge.post({ command: "loadRepos", repos, lastActiveRepo: repoSource.getBootRepo() });
+    void bridge.post({
+      command: "loadRepos",
+      repos: own(repos),
+      lastActiveRepo: repoSource.getBootRepo()
+    });
   });
 
   // Asked in this instance's page, as the failed Create Pull Request that
@@ -136,9 +160,8 @@ export function createGraphInstance(
       branchCleanup: shared.branchCleanup,
       sequenceEditor,
       fetchService,
-      onSelectRepo: (selected) => {
-        current = selected;
-      },
+      // Only ever its own repository: see the channel above.
+      onSelectRepo: () => {},
       // The side-view's branch actions are delegated to the graph in VS Code;
       // here the side-view is in the same page (#399), so nothing is held.
       onDelegatedRan: () => {},
