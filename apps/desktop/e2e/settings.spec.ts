@@ -6,6 +6,7 @@ import path from "node:path";
 import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { focusedTabPage } from "./tabPages";
 
 // The settings window (#397): opened from the menu's Settings…, writing
 // through HostConfig.update, and the main process doing what VS Code does on
@@ -94,7 +95,7 @@ test("a change to the auto-fetch interval takes effect without a restart", async
   expect(remoteMain()).not.toBe(remote.aheadCommit);
 
   const electronApp = await launch("--repo", repo.path);
-  const graph = await electronApp.firstWindow();
+  const graph = await focusedTabPage(electronApp);
   await expect(graph.locator("#commitTable tr.commit").first()).toBeVisible();
   const settings = await openSettings(electronApp);
 
@@ -106,9 +107,10 @@ test("a change to the auto-fetch interval takes effect without a restart", async
   await expect(interval).toHaveValue("1");
   await expect(settings.locator(".settingError:visible")).toHaveCount(0);
 
-  // Nothing restarted: the same windows, and a fetch within the new minute.
+  // Nothing restarted: the same pages — the window's, the Tab's and the
+  // settings' — and a fetch within the new minute.
   await expect.poll(remoteMain, { timeout: 75_000, intervals: [1_000] }).toBe(remote.aheadCommit);
-  expect(electronApp.windows()).toHaveLength(2);
+  expect(electronApp.windows()).toHaveLength(3);
 
   const logged = await closeAndReadLog();
   expect(logged).toContain("settings: ging-git-view.autoFetch.enabled saved");
@@ -131,19 +133,21 @@ test("a description's link to the web opens in the browser, not in the app", asy
     };
   });
 
+  const pagesBefore = electronApp.windows().length;
   await settings.locator("a.externalLink", { hasText: "personal access token" }).click();
 
   await expect
     .poll(() => electronApp.evaluate(() => (globalThis as Record<string, unknown>).openedUrls))
     .toEqual(["https://docs.gitlab.com/user/profile/personal_access_tokens/"]);
-  expect(electronApp.windows()).toHaveLength(2);
+  // No page of the app's opened for it.
+  expect(electronApp.windows()).toHaveLength(pagesBefore);
   expect(await closeAndReadLog()).not.toContain("ERROR:");
 });
 
 test("a theme chosen by hand is kept after a restart", async () => {
   const repo = fixtureRepo();
   let electronApp = await launch("--repo", repo.path);
-  let graph = await electronApp.firstWindow();
+  let graph = await focusedTabPage(electronApp);
   let settings = await openSettings(electronApp);
 
   await settings.locator("#ging-theme select").selectOption("light");
@@ -152,7 +156,7 @@ test("a theme chosen by hand is kept after a restart", async () => {
 
   await closeAndReadLog();
   electronApp = await launch("--repo", repo.path);
-  graph = await electronApp.firstWindow();
+  graph = await focusedTabPage(electronApp);
 
   // The choice itself, not the system's theme happening to be light.
   expect(await electronApp.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe("light");

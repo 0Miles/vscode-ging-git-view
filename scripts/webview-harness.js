@@ -18,7 +18,9 @@
  *                    builds it yet (apps/desktop, #386).
  *
  * With --entry=desktop, --page=settings writes the desktop entry's settings
- * page (#397) instead of a graph, to out/webview-harness/desktop-settings/.
+ * page (#397) instead of a graph, to out/webview-harness/desktop-settings/,
+ * and --page=window the desktop window's own page (#393), to
+ * out/webview-harness/desktop-window/.
  *
  * Usage:
  *   pnpm run compile                                  # for --entry=vscode
@@ -434,6 +436,65 @@ function buildSettingsHarness() {
 }
 
 /**
+ * Writes the desktop window's own page (#393) — the tab strip over the Welcome
+ * page — to out/webview-harness/desktop-window/index.html. Its host sends
+ * nothing by itself: the E2E plays the host, posting the window's state and
+ * prompts to the page, and reads what the page posted off
+ * window.harnessRequests.
+ *
+ * @returns {string} The page's absolute path.
+ */
+function buildWindowHarness() {
+  const out = path.join(OUT, "desktop-window");
+  fs.mkdirSync(out, { recursive: true });
+  const rootVars = Object.entries(THEME_VARS)
+    .map(([k, v]) => `${k}:${v};`)
+    .join("");
+  // The height the main process lays the Tabs' views out by, taken from the
+  // protocol both sides import and kept on the harness's own global, for the
+  // E2E to hold the strip to.
+  const protocolFile = path.join(out, "windowProtocol.cjs");
+  esbuild.buildSync({
+    entryPoints: [path.join(WEBVIEW, "src", "desktop", "window", "protocol.ts")],
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    outfile: protocolFile,
+    logLevel: "silent"
+  });
+  /** @type {{ TAB_STRIP_HEIGHT: number }} */
+  const protocol = require(protocolFile);
+
+  const html = `<!DOCTYPE html>
+<html lang="en" data-ging-page="window">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" type="text/css" href="./main.css">
+<style>:root{${rootVars}} body{background-color:var(--vscode-editor-background);color:var(--vscode-editor-foreground);}</style>
+</head>
+<body class="vscode-dark">
+  <div id="tabStrip" hidden></div>
+  <main id="welcome"></main>
+  <script>
+    window.harnessTabStripHeight = ${JSON.stringify(protocol.TAB_STRIP_HEIGHT)};
+    window.harnessRequests = [];
+    window.acquireVsCodeApi = () => ({
+      postMessage(msg) { window.harnessRequests.push(msg); },
+      getState() { return null; },
+      setState() {}
+    });
+  </script>
+  <script src="./webview.js"></script>
+</body>
+</html>`;
+
+  placeEntryBundle("desktop", out);
+  const index = path.join(out, "index.html");
+  fs.writeFileSync(index, html);
+  return index;
+}
+
+/**
  * @param {string} value
  * @returns {value is HarnessEntry}
  */
@@ -450,11 +511,19 @@ if (!isHarnessEntry(entry)) {
 }
 const pageFlag = args.find((a) => a.startsWith("--page="));
 const pageKind = pageFlag === undefined ? "graph" : pageFlag.slice("--page=".length);
-if (pageKind !== "graph" && !(pageKind === "settings" && entry === "desktop")) {
+if (
+  pageKind !== "graph" &&
+  !((pageKind === "settings" || pageKind === "window") && entry === "desktop")
+) {
   process.stderr.write(
-    `Unknown --page "${pageKind}" for --entry=${entry}; expected graph, or settings with --entry=desktop.\n`
+    `Unknown --page "${pageKind}" for --entry=${entry}; expected graph, or settings or window with --entry=desktop.\n`
   );
   process.exit(1);
 }
-const written = pageKind === "settings" ? buildSettingsHarness() : buildWebviewHarness(entry);
+const written =
+  pageKind === "settings"
+    ? buildSettingsHarness()
+    : pageKind === "window"
+      ? buildWindowHarness()
+      : buildWebviewHarness(entry);
 process.stdout.write("Wrote " + written + " — open it in a browser, as a file or served.\n");

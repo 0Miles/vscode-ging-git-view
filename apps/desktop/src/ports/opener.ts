@@ -257,12 +257,19 @@ export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
     },
     openExternalUrl: (url) => openWebUrl(os, logger, url),
     openTerminal: (cwd, name) => {
-      const native = path.normalize(cwd);
-      os.openTerminal(native, name).catch((e: unknown) => {
-        // Nobody else hears of it: the port answers nothing.
-        logger.logError(`opener: could not open a terminal in ${native}: ${String(e)}`);
-        void prompts.showError(l10n.t("desktop.cannotOpenTerminal", String(e)));
-      });
+      const asked = path.normalize(cwd);
+      // In the repository of the Tab that asked, as `openFile` opens only
+      // from it: the folder the request names must be in it.
+      void Promise.all([files.realpath(asked), files.realpath(repoRoot())])
+        .then(([real, root]) => {
+          if (!isWithin(root, real)) throw new Error("not in the repository");
+          return os.openTerminal(real, name);
+        })
+        .catch((e: unknown) => {
+          // Nobody else hears of it: the port answers nothing.
+          logger.logError(`opener: could not open a terminal in ${asked}: ${String(e)}`);
+          void prompts.showError(l10n.t("desktop.cannotOpenTerminal", String(e)));
+        });
     },
 
     // The stubs. The port's contract is to reject what could not be opened,

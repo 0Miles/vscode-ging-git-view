@@ -87,3 +87,16 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **入口是 #390 那份選單 template 的「設定…」(`ging.settings`,`CmdOrCtrl+,`),放在照 `fileMenu` role 寫出來的 File 選單裡([appMenu.ts](../../apps/desktop/src/appMenu.ts))。** 它不看有沒有圖形,一律可按。#396 長出完整選單時,這一項(連同 id 與 accelerator)要保留;要搬位置(例如 macOS 慣例的 app 選單)由那張票決定。
 - **設定頁不裝 host prompt 的 listener(#390)。** 設定頁背後沒有 webview 實例,沒有誰會問;寫入失敗的原因直接顯示在那一列。
 - **主題手動切換交給 Electron 的 `nativeTheme.themeSource`(`system` / `dark` / `light`),選擇存在 `HostStorage` 的 global 層,key 是 `desktopTheme`。** 啟動時在建立第一個視窗之前套用,所以第一次繪製就是對的顏色。設 `themeSource` 會讓 `shouldUseDarkColors` 改變並發出 `updated`,原本「跟著系統換主題」的那條路(#386)就把新主題推給每個視窗,圖形頁與設定頁一起換,不需要第二條推送路線。
+
+## 補記(2026-11-17,#393)
+
+**桌面版的視窗有兩層頁面：視窗自己的頁面(`data-ging-page="window"`,`ging://app/`)是分頁列加上它底下的 Welcome page;每個 Tab 是一個 `WebContentsView`,載入自己的圖形頁(`ging://app/tab?id=N`),由 main process 排在分頁列下方。**
+
+- **一個 Tab 一份文件，不是一頁裡放好幾個圖形。** 上面「為什麼未來的讀者會困惑」第二條寫明 `gitGraphView.ts` 的狀態整個模組共用一份，`startGitGraphView()` 一頁只能呼叫一次。所以每個 Tab 要有自己的 webContents;用 `WebContentsView` 而不是 `<iframe>` 或 `<webview>`,是因為每個 Tab 因此有自己的 renderer,一個大 repo 的圖形不會卡住其他 Tab,reload 與 `did-start-navigation` 也照舊以 webContents 為單位(#388 的處理不必改)。
+- **分頁列由 webview 畫，高度是固定的 `TAB_STRIP_HEIGHT`(35px),宣告在 [desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts)。** main process 依同一個常數擺 Tab 的 view,不量頁面。[windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗分頁列真的是這個高度、Tab 橫排、名稱過長時截斷而不把關閉鈕擠出去。
+- **協定:宿主送 `windowState`(整份分頁清單與 Welcome page 的說明),頁面回 `windowReady`、`focusTab`、`closeTab`。** 型別在 `desktop/window/protocol.ts`,`WINDOW_COMMANDS_STAY_APART` 檢查它們不與 `ResponseMessage` / `RequestMessage` 撞名。點分頁只是「請求」,分頁列等宿主送來新的 state 才改變。`windowReady` 與 `hostPromptReady` 同理：頁面每次載入都送一次，宿主在那之前不送。
+- **Welcome page 裝了 host prompt 的 listener。** 「補記(#390)」說「之後的 Welcome page 要問時，由它照這個協定接上」;沒有 Tab 時，選單的命令(#396)與 #394 的開啟流程就問在這裡。有 Tab 時，Tab 的 view 蓋住 Welcome page,所以宿主只在沒有 Tab 時用它。
+- **`notice` 頁仍在,但只給 Tab 用:** 重啟時路徑已經不在的 Tab,在原位置顯示「無法開啟」,直到使用者關掉它(GLOSSARY 的 Current repository:字串留著不刪)。啟動參數指錯路徑而沒有任何 Tab 時，說明改由 `windowState` 的 `notice` 畫在 Welcome page 上，不再換掉整頁。
+- **分頁列的樣式由 `windowPage.ts` 插進一個 `<style>`,** 理由同「補記(#397)」的設定頁;只用 `theme.ts` 已經提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。
+- **「這個 Tab 在等回答」的標記只畫在後面的 Tab 上。** 前景 Tab 的 prompt 就在畫面上，不需要再提醒;背景 Tab 的 prompt 畫在看不見的頁面裡，分頁列是使用者唯一看得到它的地方。標記不會把那個 Tab 拉到前面：搶走使用者正在用的 Tab 比晚一點回答更糟。
+- **Tab 的頁面不會被導覽走。** Tab 的 view 若被導覽到 `?id=M`,會畫出 Tab M 的圖形，訊息卻仍送到自己的實例。所以每個 Tab 的 webContents 擋掉 `will-navigate`、`window.open` 一律不開新視窗(網址交給 `Opener.openExternalUrl`),寫在 [pageGuard.ts](../../apps/desktop/src/pageGuard.ts) 的 `keepPageInPlace`,與設定視窗(「補記(#397)」)的規則相同;main process 自己的 `loadURL` 與重新載入不受影響。

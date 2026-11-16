@@ -76,3 +76,12 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **改動 repo 的動作送出後,等圖形自己的重新載入(之後的 `loadCommits` 回答)到了才送下一個;測試自己對 repo 的寫入(stash)全在 app 啟動前做完。** 重新載入會讀 working tree(`git status` 這類命令會短暫拿著 `index.lock`),下一個動作若在那一刻送出,git 會以 `index.lock: File exists` 拒絕。使用者是看到重繪後的圖才會動作,所以這是照使用者的節奏送,不是放寬等待。產品本身的這個競爭(背景重新整理與使用者的動作重疊)記在 #451。batch 動作不等:圖形沒有自己發起的 batch run,不會重新載入。
 - **終端機斷言完整的程式與參數,而程式一律是絕對路徑。** Linux 上 app 只在 `PATH` 的絕對路徑資料夾裡找終端機,CI 的機器不一定裝了任何一個,所以 E2E 在暫存資料夾放一個假的 `x-terminal-emulator`、把那個資料夾排到 `PATH` 最前面;它不會被執行(spawn 已被替換),只讓斷言不依賴機器上裝了什麼。
 - **walk 也送一個系統會執行的檔案(`run.bat`)給 `openFile`,斷言是 `showItemInFolder` 而不是 `openPath`;送一個 `file:` URL 給 `openExternalUrl`,斷言什麼都沒開。** 另一條測試在圖形頁上 `window.open` 與點一個 `<a>`:web 位址交給瀏覽器替身,頁面還是圖形、視窗還是一個。`file:` 的那幾個多半在 Chromium 就被擋下(非 `file:` 的頁面不能開本機檔案),到不了 app 的 guard,所以只斷言結果,不斷言 log。Playwright 會一直等那個被取消的導覽,所以這條測試事後直接用 `page.evaluate` 讀 DOM,不用 locator。
+
+## 補記(2026-11-17,#393)
+
+**每個 Tab 是一個 `WebContentsView`,Playwright 把它們連同視窗自己的頁面都當成 app 的一個 page,出現的順序不固定，所以 `firstWindow()` 不再等於「圖形」。** E2E 依 URL 分辨([tabPages.ts](../../apps/desktop/e2e/tabPages.ts)):`ging://app/` 是視窗自己的頁面(分頁列與 Welcome page),`ging://app/tab?id=N` 是 Tab N 的頁面;聚焦的是哪一個 Tab,讀分頁列上 `.tab.focused` 的 `data-tab-id`。URL 與分頁列都是產品本來就有的東西，照「只讀產品本來就有的東西」不另開出口。既有的 E2E(graph、prompts、settings、window)都改用這組 helper。
+
+- **「其他 Tab 不在畫面上」讀 `BrowserWindow.contentView.children`,不讀 `document.visibilityState`。** main process 把沒聚焦的 Tab 的 view 從視窗拿下來(不只是隱藏),不在任何視窗裡的 view 不會被繪製;但實測在 Playwright 驅動下，被拿下來的 view 的 page 仍回答 `visible`,這個值在 E2E 裡看不出差別,所以 E2E 讀的是哪些 view 在視窗裡、擺在哪裡。
+- **兩個 Tab 同時需要認證的 fetch,用兩個只回 401 的本機 server。** 兩個 port 不同，askpass 的提示(`GING: http://127.0.0.1:<port>`)因此分得出是誰的;server 記下每次請求帶來的帳密，證明每個 Tab 頁面上的回答回到的是自己那個 Tab 的 git。fetch 從選單的 `ging.fetchRemote` 觸發，同時驗證「選單命令送到目前聚焦的 Tab」。認證失敗的錯誤框經 `NativeDialogs` 由測試代答。
+- **git 在等提示時關掉 Tab、或結束 app,git 要拿到「取消」並自己結束。** 兩條 E2E 各驗一次：提示還開著時關掉那個 Tab,以及開著兩個 Tab、其中一個在等提示時結束 app;都要 app 照常結束、server 上 git 的連線歸零、log 沒有 `ERROR:`。後者守的是處置順序：視窗關掉之後才處置 Tab,任何一個 Tab 的處置失敗都不能讓後面的 Tab 留著沒處置。
+- **測試收尾時 `server.closeAllConnections()` 是繞道，不是預期行為。** 關掉 Tab 或結束 app 時，正在跑的 git 不會被終止([#450](https://github.com/0Miles/vscode-ging-git-view/issues/450)):git 卡在提示時拿到「取消」會自己結束，但測試若在 git 還連著 server 時失敗，那個 git 會一直留著,server 關不掉、Windows 上暫存目錄也刪不掉。#450 修好之後拿掉這個繞道。

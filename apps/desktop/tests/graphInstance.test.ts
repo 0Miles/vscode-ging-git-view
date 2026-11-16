@@ -83,14 +83,16 @@ function setUp() {
     const page = fakeWebview();
     const { ports, answers, calls } = fakePorts();
     shared.repoSource.addRepo(repo);
+    const state = shared.tabStates.newTab(repo);
     const instance = createGraphInstance(shared, {
       repo,
       channel: page.webview,
       prompts: ports.prompts,
+      extensionState: state,
       revealSetting: (key) => revealed.push(key)
     });
     instances.push(instance);
-    return { instance, answers, asked: calls, ...page };
+    return { instance, answers, state, asked: calls, ...page };
   };
   return { shared, repos, open, logged, opened, revealed };
 }
@@ -107,7 +109,21 @@ describe("a graph instance", () => {
     const viewState = first.instance.pageViewState();
 
     expect(viewState.lastActiveRepo).toBe(repos[0]);
-    expect(Object.keys(viewState.repos)).toEqual(expect.arrayContaining(repos));
+    expect(Object.keys(viewState.repos)).toEqual([repos[0]]);
+  });
+
+  it("boots on no other repository once its own has left the known set", () => {
+    const { shared, repos, open } = setUp();
+    const page = open(repos[0]);
+    open(repos[1]);
+
+    // Gone from the set, as `checkReposExist` drops a folder that is no
+    // repository any more: the Tab's graph must not move to the other one,
+    // which another Tab has open (#393).
+    shared.repoSource.dropRepo(repos[0]);
+
+    expect(sentOf(page.posted, "loadRepos").at(-1)).toMatchObject({ lastActiveRepo: null });
+    expect(page.instance.pageViewState().lastActiveRepo).toBeNull();
   });
 
   it("answers the graph's requests from its repository", async () => {
@@ -133,12 +149,30 @@ describe("a graph instance", () => {
     const another = toRepoPath(makeRepo());
     onTestFinished(() => rmrf(another));
     shared.repoSource.addRepo(another);
+    shared.repoSource.updateRepoState(repos[0], { customName: "Renamed" });
 
-    expect(sentOf(live.posted, "loadRepos").at(-1)).toMatchObject({
-      lastActiveRepo: repos[0],
-      repos: expect.objectContaining({ [another]: expect.anything() })
+    // Its own repository alone, as it is now: another Tab's is none of its.
+    const told = sentOf(live.posted, "loadRepos").at(-1);
+    expect(told).toMatchObject({ lastActiveRepo: repos[0] });
+    expect(told).toHaveProperty("repos", {
+      [repos[0]]: expect.objectContaining({ customName: "Renamed" })
     });
     expect(gone.posted.length).toBe(before);
+  });
+
+  it("stays on its own repository when its page asks for another", async () => {
+    const { repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    open(repos[1]);
+    expect(Object.keys(page.instance.pageViewState().repos)).toEqual([repos[0]]);
+
+    await page.receive({ command: "selectRepo", repo: repos[0] });
+    await page.receive({ command: "selectRepo", repo: repos[1] });
+
+    // Never handed to the dispatch, which would have written it to the Tab's
+    // state: a known repository passes `setLastActiveRepo`'s rule.
+    expect(page.state.getLastActiveRepo()).toBe(repos[0]);
+    expect(logged).toContain(`tabs: the Tab on ${repos[0]} stays on it, not ${repos[1]}`);
   });
 
   it("tells its page of a Repository Setting default the host wrote", async () => {
@@ -166,11 +200,15 @@ describe("a graph instance", () => {
     await page.receive({ command: "openTerminal", repo: repos[0] });
 
     expect(sentOf(page.posted, "openFile")).toEqual([{ command: "openFile", success: true }]);
-    expect(opened).toEqual([
-      ["openPath", fs.realpathSync.native(path.join(repos[0], "README.md"))],
-      ["openExternal", "https://example.com/1"],
-      ["openTerminal", path.normalize(repos[0]), `GING: ${path.basename(repos[0])}`]
-    ]);
+    // The terminal once its folder is found in the repository: not awaited by
+    // the dispatch, whose port answers nothing.
+    await expect
+      .poll(() => opened)
+      .toEqual([
+        ["openPath", fs.realpathSync.native(path.join(repos[0], "README.md"))],
+        ["openExternal", "https://example.com/1"],
+        ["openTerminal", fs.realpathSync.native(repos[0]), `GING: ${path.basename(repos[0])}`]
+      ]);
   });
 
   it("says in its own window what the desktop app cannot do yet, and answers as done", async () => {

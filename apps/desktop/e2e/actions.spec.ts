@@ -17,6 +17,7 @@ import { _electron, type ElectronApplication, expect, type Page, test } from "@p
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { focusedTabPage, windowPage } from "./tabPages";
 
 // Every kind of message the graph's dispatch handles, sent from the page as the
 // webview sends them, on a fixture repository (#391). Each one finishes —
@@ -330,7 +331,7 @@ test("a file clicked in the Commit Details View says the diff is not here yet, a
     env: env as Record<string, string>
   });
   const electronApp = app;
-  const page = await electronApp.firstWindow();
+  const page = await focusedTabPage(electronApp);
   await standIn(electronApp, scratch);
 
   // As a user gets there: the newest commit's details, then its one file.
@@ -364,12 +365,19 @@ test("the graph's page leaves the app only through the opener", async () => {
     env: env as Record<string, string>
   });
   const electronApp = app;
-  const page = await electronApp.firstWindow();
+  const page = await focusedTabPage(electronApp);
   const rows = page.locator("#commitTable tr.commit");
   await expect(rows).toHaveCount(fixture.commits.length);
   await standIn(electronApp, scratch);
 
-  // A new window and a navigation away, each to the web and elsewhere.
+  const pagesBefore = electronApp.windows().length;
+  // A new window and a navigation away, each to the web and elsewhere, from
+  // the Tab's page and from the window's own: one guard keeps them all.
+  await (
+    await windowPage(electronApp)
+  ).evaluate(() => {
+    window.open("https://example.com/from-the-strip");
+  });
   await page.evaluate(() => {
     window.open("https://example.com/opened");
     window.open("file:///C:/Windows/System32/calc.exe");
@@ -385,10 +393,11 @@ test("the graph's page leaves the app only through the opener", async () => {
   });
 
   // The web addresses went to the browser, as parsed; nothing else went
-  // anywhere, and the graph is still the page shown, in the only window.
+  // anywhere, and the graph is still the page shown, with no page added.
   await expect
     .poll(() => seenOutside(electronApp))
     .toEqual([
+      { kind: "openExternal", url: "https://example.com/from-the-strip" },
       { kind: "openExternal", url: "https://example.com/opened" },
       { kind: "openExternal", url: "https://example.com/followed" }
     ]);
@@ -398,7 +407,7 @@ test("the graph's page leaves the app only through the opener", async () => {
     await page.evaluate(() => document.querySelectorAll("#commitTable tr.commit").length)
   ).toBe(fixture.commits.length);
   expect(await page.evaluate(() => location.href)).toMatch(/^ging:\/\/app\//);
-  expect(electronApp.windows()).toHaveLength(1);
+  expect(electronApp.windows()).toHaveLength(pagesBefore);
   await electronApp.close();
   app = null;
   // The `file:` ones may never reach the app's guards — Chromium refuses a
@@ -490,7 +499,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     env: env as Record<string, string>
   });
   const electronApp = app;
-  const page = await electronApp.firstWindow();
+  const page = await focusedTabPage(electronApp);
   await expect(page.locator("#commitTable tr.commit").first()).toBeVisible();
   await standIn(electronApp, saveDir);
   await listen(page);

@@ -210,6 +210,18 @@ describe("the desktop Opener", () => {
     expect(calls).toEqual([["openTerminal", REPO, "GING: repo"]]);
   });
 
+  it("starts no terminal outside its Tab's repository", async () => {
+    const { opener, calls, logged } = setUp();
+
+    opener.openTerminal(path.resolve("/work/other"), "GING: other");
+    await settled();
+
+    expect(calls).toEqual([
+      ["showError", "desktop.cannotOpenTerminal Error: not in the repository"]
+    ]);
+    expect(logged).toEqual([expect.stringContaining("ERROR: opener: could not open a terminal")]);
+  });
+
   it("says so in an error when no terminal could be started", async () => {
     const { opener, calls, logged } = setUp({
       openTerminal: async () => {

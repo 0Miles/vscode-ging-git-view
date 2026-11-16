@@ -5,6 +5,8 @@ import path from "node:path";
 
 import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
 
+import { windowPage } from "./tabPages";
+
 /** The app as `electron .` runs it: package.json's `main`, built into out/. */
 const APP_DIR = path.resolve(__dirname, "..");
 /** In Node, the `electron` package is the path to its binary. */
@@ -34,7 +36,8 @@ test.afterEach(async () => {
 });
 
 test("the desktop window opens on the desktop entry, themed after the system", async () => {
-  const page = await app.firstWindow();
+  // No repository named: the window's own page, the Welcome page in it.
+  const page = await windowPage(app);
 
   await expect(page.locator("html")).toHaveAttribute("data-ging-entry", "ging-desktop-entry");
   expect(

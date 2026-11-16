@@ -6,6 +6,7 @@ import path from "node:path";
 import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
 
 import { isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { focusedTabPage } from "./tabPages";
 
 // Manage Pull Request Providers on the desktop host (#398): core's flow, run
 // in the main process from a failed Create Pull Request. Its notices are the
@@ -63,7 +64,7 @@ test("a provider configured from a failed Create Pull Request is asked in the pa
   });
 
   const electronApp = await launch("--repo", repo.path);
-  const page = await electronApp.firstWindow();
+  const page = await focusedTabPage(electronApp);
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
 
   // Every system box answered with its first button — "Configure a

@@ -426,6 +426,7 @@
   "desktop.cannotOpenRepo": "无法打开 {0}：它不是 Git 仓库。",
   "desktop.notSupportedYet": "GING 桌面版尚未支持此功能。",
   "desktop.cannotOpenTerminal": "无法打开终端：{0}",
+  "desktop.tab.close": "关闭标签页",
   "desktop.settings.title": "设置",
   "desktop.settings.theme": "主题",
   "desktop.settings.themeDescription": "GING 窗口的配色：深色、浅色，或跟随系统。",
