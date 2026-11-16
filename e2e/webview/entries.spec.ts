@@ -1,25 +1,11 @@
-import { execFileSync } from "node:child_process";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-
 import { expect, test } from "@playwright/test";
 
-const ROOT = path.resolve(__dirname, "../..");
-
-/** Builds the harness page for one webview entry through the script's own
- *  command line, and returns the page's file:// URL. */
-function harnessPage(entry: string): string {
-  execFileSync(process.execPath, [
-    path.join(ROOT, "scripts", "webview-harness.js"),
-    `--entry=${entry}`
-  ]);
-  return pathToFileURL(path.join(ROOT, "out", "webview-harness", entry, "index.html")).href;
-}
+import { type Entry, harnessPage } from "./harness";
 
 // Each webview entry, loaded by the harness, draws the harness's sample commits
 // from its canned host answers. The desktop entry is told apart by the marker it
 // writes on <html>, which the VS Code entry must not carry (ADR-0031).
-const ENTRIES = [
+const ENTRIES: { entry: Entry; marker: string | null }[] = [
   { entry: "vscode", marker: null },
   { entry: "desktop", marker: "ging-desktop-entry" }
 ];

@@ -4,9 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 import { appMenuTemplate, MENU_IDS } from "@ging/desktop/appMenu";
 
 // The application menu as data (ADR-0032): what Electron builds it from, read
-// without Electron. Its entries are found by a stable id, the E2E's way in.
+// without Electron. Its entries are found by a stable id, the E2E's way in,
+// and when each is enabled is the template's to say: a direct `click()` does
+// not check it, so this is where it is held.
 
 const l10n = { t: (key: string) => `<${key}>` };
+const noCommands = { fetchRemote: () => {} };
 
 /** Every item of `template`, submenus included. */
 function itemsOf(template: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
@@ -16,22 +19,36 @@ function itemsOf(template: MenuItemConstructorOptions[]): MenuItemConstructorOpt
   ]);
 }
 
+function entry(template: MenuItemConstructorOptions[], id: string) {
+  return itemsOf(template).find((item) => item.id === id);
+}
+
 describe("the application menu", () => {
   it("runs the graph's fetchRemote from its entry, labelled in the app's language", () => {
     const fetchRemote = vi.fn();
-    const entry = itemsOf(appMenuTemplate(l10n, { fetchRemote }, "win32")).find(
-      (item) => item.id === MENU_IDS.fetchRemote
+    const item = entry(
+      appMenuTemplate(l10n, { fetchRemote }, "win32", { hasGraph: true }),
+      MENU_IDS.fetchRemote
     );
 
-    expect(entry?.label).toBe("<desktop.menu.fetchRemote>");
-    const click = entry?.click as (() => void) | undefined;
+    expect(item?.label).toBe("<desktop.menu.fetchRemote>");
+    const click = item?.click as (() => void) | undefined;
     click?.();
     expect(fetchRemote).toHaveBeenCalledTimes(1);
   });
 
+  it("offers fetchRemote only while a graph is shown", () => {
+    const enabled = (hasGraph: boolean) =>
+      entry(appMenuTemplate(l10n, noCommands, "linux", { hasGraph }), MENU_IDS.fetchRemote)
+        ?.enabled;
+
+    expect(enabled(true)).toBe(true);
+    expect(enabled(false)).toBe(false);
+  });
+
   it("keeps Electron's own menus, the app menu only where the platform has one", () => {
     const roles = (platform: NodeJS.Platform) =>
-      appMenuTemplate(l10n, { fetchRemote: () => {} }, platform)
+      appMenuTemplate(l10n, noCommands, platform, { hasGraph: true })
         .map((item) => item.role)
         .filter((role) => role !== undefined);
 
@@ -40,7 +57,7 @@ describe("the application menu", () => {
   });
 
   it("gives every entry of its own an id no other entry has", () => {
-    const ids = itemsOf(appMenuTemplate(l10n, { fetchRemote: () => {} }, "linux"))
+    const ids = itemsOf(appMenuTemplate(l10n, noCommands, "linux", { hasGraph: true }))
       .map((item) => item.id)
       .filter((id) => id !== undefined);
 

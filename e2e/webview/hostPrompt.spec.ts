@@ -1,8 +1,6 @@
-import { execFileSync } from "node:child_process";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
-
 import { expect, type Page, test } from "@playwright/test";
+
+import { harnessPage } from "./harness";
 
 // The host prompt overlay of the desktop entry (#390), in a real browser: the
 // desktop host's questions shown one at a time over the graph's own dialog,
@@ -10,19 +8,7 @@ import { expect, type Page, test } from "@playwright/test";
 // by posting its messages to the page as the preload does, and by reading the
 // page's replies off the harness's record of what it posted.
 
-const ROOT = path.resolve(__dirname, "../..");
-
-let harnessUrl: string;
-
-test.beforeAll(() => {
-  execFileSync(process.execPath, [
-    path.join(ROOT, "scripts", "webview-harness.js"),
-    "--entry=desktop"
-  ]);
-  harnessUrl = pathToFileURL(
-    path.join(ROOT, "out", "webview-harness", "desktop", "index.html")
-  ).href;
-});
+const harnessUrl = harnessPage("desktop");
 
 /** A message from the host, delivered to the page as the desktop preload
  *  delivers one. */
@@ -128,6 +114,9 @@ test("a pick narrows its rows as the filter is typed, and answers the row chosen
   await page.keyboard.type("or");
   await expect(rows.filter({ visible: true })).toHaveCount(2);
   await page.keyboard.press("ArrowDown");
+  // Focus stays in the filter; it names the row the arrows moved to.
+  await expect(filter).toHaveAttribute("aria-activedescendant", "hostPromptItem2");
+  await expect(page.locator("#hostPrompt")).toHaveAccessibleName("Select a remote to fetch");
   await page.keyboard.press("Enter");
 
   await expect(page.locator("#hostPrompt")).toBeHidden();
@@ -162,6 +151,7 @@ test("an input masks what is typed when asked for a password, and only then", as
 
   const input = page.locator("#hostPromptInput");
   await expect(input).toHaveAttribute("type", "text");
+  await expect(page.locator("#hostPrompt")).toHaveAccessibleName("Username");
   await page.keyboard.type("alice");
   await page.keyboard.press("Enter");
 

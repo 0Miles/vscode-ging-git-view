@@ -149,5 +149,3 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **三種通知與 `pickSaveLocation`** 照舊是系統原生的對話框,經過 `NativeDialogs`(ADR-0032)。票面只把四種詢問移進頁面;通知沒有「一格被進度框占住」的問題,存檔位置本來就該是系統的檔案對話框。
 - **`PickItem.warning`** 在 overlay 畫成警告圖示,label 本身不帶任何圖示語法。
 - 它多了三個 port 以外的方法,由 main process 呼叫:`receive`(頁面的回覆)、`pageLoading`(頁面重新載入,未回答的 prompt 等新頁面準備好後重送)、`dispose`(實例結束,未回答的一律回答取消)。
-
-**應用程式選單先有一項「Fetch 特定 remote」**([appMenu.ts](../../apps/desktop/src/appMenu.ts)),它是 Electron E2E 走完「core 命令服務的 `Prompts.pick`」整條路徑的入口:選單 → 實例的 `fetchService.fetchRemoteCommand()` → `Prompts.pick` → overlay → 選中的 remote 被 fetch。選單 template 是純資料模組,項目有穩定的 `id`,沒有圖形時 `enabled` 為 false,這幾點照 #396 的規則做;其餘的命令與「目前聚焦的分頁」由 #396 補上。Electron 原本的 File、Edit、View、Window 選單用 role 保留下來,複製貼上與重新載入的快捷鍵不變。

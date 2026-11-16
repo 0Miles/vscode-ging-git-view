@@ -19,6 +19,9 @@ const DESKTOP_ENTRY_MARKER = "ging-desktop-entry";
 /** A reply to the host's prompts, posted where the graph posts its requests.
  *  Not a `RequestMessage`, and never handled as one (ADR-0031). */
 function replyToHost(reply: HostPromptReply) {
+  // The cast is what ADR-0031 costs: the host API is typed for the graph's
+  // requests, and widening it to the desktop's replies would put them in the
+  // protocol both entries share.
   vscode.postMessage(reply as unknown as RequestMessage);
 }
 

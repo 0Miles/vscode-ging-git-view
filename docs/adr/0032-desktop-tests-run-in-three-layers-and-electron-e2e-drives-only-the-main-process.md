@@ -48,3 +48,11 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 
 - **fixture repo 由測試自己 `git init`。** [fixtureRepo.ts](../../apps/desktop/e2e/fixtureRepo.ts) 在暫存目錄建一個 commit 日期固定的 repo,fixture 的 git 與 app 的 git 都跑在上面說的隔離設定裡(`GIT_CONFIG_NOSYSTEM=1`,`HOME` / `USERPROFILE` 指到暫存目錄)。
 - **E2E 一律帶 `--lang=en-US`。** 斷言讀的是頁面上的英文字串;不帶的話,`app.getLocale()` 跟著開發機走,在中文的 Windows 上讀到的是 zh-tw。
+
+## 補記(2026-11-17,#390)
+
+**應用程式選單是 E2E 觸發 core 命令服務的入口,template 是純資料模組。** #390 的 Electron E2E 要走完「core 命令服務的 `Prompts.pick`」整條路徑,而 desktop 上 core 命令服務唯一的入口是選單(#396)。照「只讀產品本來就有的東西」,不在 main process 掛一個測試用的出口,所以先做出選單的一項「Fetch 特定 remote」([appMenu.ts](../../apps/desktop/src/appMenu.ts)),E2E 用 `Menu.getApplicationMenu().getMenuItemById("ging.fetchRemote").click()` 觸發。
+
+- **template 是純資料,哪一項 enabled 也由它決定。** `appMenuTemplate(l10n, commands, platform, { hasGraph })` 不碰 Electron;main process 在顯示的內容改變時用它重建整個選單,自己不改任何一項的 `enabled`。所以 accelerator 與 enabled 規則都由 vitest 驗([appMenu.test.ts](../../apps/desktop/tests/appMenu.test.ts)),E2E 另外斷言 `enabled`,因為直接 `click()` 不檢查它。
+- **Electron 原本的 File、Edit、View、Window 選單用 role 保留。** 自訂選單會取代預設選單;不保留的話,複製貼上與重新載入的快捷鍵會一起消失。
+- 其餘的命令、「目前聚焦的分頁」的判斷,由 #396 接手同一個 template。

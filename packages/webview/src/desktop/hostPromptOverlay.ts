@@ -36,8 +36,11 @@ export type HostPromptOverlay = {
   enqueue(message: HostPromptMessage): void;
 };
 
-/** A prompt drawn into the overlay: its own keys, and where focus starts. */
+/** A prompt drawn into the overlay: what names it, its own keys, and where
+ *  focus starts. */
 type Drawn = {
+  /** The text that says what is asked; a pick has none but its filter's. */
+  title?: HTMLElement;
   keydown?(e: KeyboardEvent): void;
   focus(): void;
 };
@@ -105,6 +108,7 @@ function drawInput(
     )
   );
   return {
+    title: message,
     keydown: (e) => {
       if (!answersWithEnter(e)) return;
       e.preventDefault();
@@ -123,7 +127,8 @@ function drawChoose(
   labels: HostPromptLabels,
   settle: Settle
 ): Drawn {
-  root.append(el("div", "hostPromptMessage", prompt.message));
+  const message = el("div", "hostPromptMessage", prompt.message);
+  root.append(message);
   if (prompt.detail !== undefined) root.append(el("div", "hostPromptDetail", prompt.detail));
   const actions = prompt.actions.map((label, index) =>
     button(label, () => settle(index), index === 0)
@@ -134,12 +139,13 @@ function drawChoose(
       button(labels.cancel, () => settle(null))
     )
   );
-  return { focus: () => (actions[0] ?? root).focus() };
+  return { title: message, focus: () => (actions[0] ?? root).focus() };
 }
 
 /** One row of a pick list: its label, its description, and the warning mark. */
 function itemRow(item: HostPromptItem, index: number): HTMLLIElement {
   const row = el("li", "hostPromptItem");
+  row.id = `hostPromptItem${index}`;
   row.dataset.index = String(index);
   if (item.warning === true) {
     const mark = el("span", "hostPromptItemWarning");
@@ -162,6 +168,8 @@ function filterOver(
 ): HTMLInputElement {
   const filter = textInput(prompt.placeholder);
   filter.className += " hostPromptFilter";
+  // Named by what it asks, the placeholder being all there is to read.
+  if (prompt.placeholder !== undefined) filter.setAttribute("aria-label", prompt.placeholder);
   filter.addEventListener("input", () => {
     const visible = matchingItems(prompt.items, filter.value, prompt.matchOnDescription);
     rows.forEach((row, index) => {
@@ -178,6 +186,7 @@ function drawPick(
   settle: Settle
 ): Drawn {
   const list = el("ul", "hostPromptList");
+  list.id = "hostPromptList";
   list.setAttribute("role", "listbox");
   const rows = prompt.items.map((item, index) => {
     const row = itemRow(item, index);
@@ -190,18 +199,30 @@ function drawPick(
   // The row Enter would choose: the first that shows, moved by the arrows.
   let visible = prompt.items.map((_, index) => index);
   let active = -1;
-  const activate = (index: number) => {
+  const filter = filterOver(prompt, rows, (shown) => {
+    visible = shown;
+    activate(shown[0] ?? -1);
+  });
+  // Focus stays in the filter while the arrows move through the rows, so the
+  // filter is the combobox that says which row is active.
+  filter.setAttribute("role", "combobox");
+  filter.setAttribute("aria-autocomplete", "list");
+  filter.setAttribute("aria-expanded", "true");
+  filter.setAttribute("aria-controls", list.id);
+  function activate(index: number) {
     active = index;
     rows.forEach((row, i) => {
       row.classList.toggle("active", i === index);
       row.setAttribute("aria-selected", String(i === index));
     });
-    rows[index]?.scrollIntoView({ block: "nearest" });
-  };
-  const filter = filterOver(prompt, rows, (shown) => {
-    visible = shown;
-    activate(shown[0] ?? -1);
-  });
+    const row = rows[index];
+    if (row === undefined) {
+      filter.removeAttribute("aria-activedescendant");
+      return;
+    }
+    filter.setAttribute("aria-activedescendant", row.id);
+    row.scrollIntoView({ block: "nearest" });
+  }
   activate(visible[0] ?? -1);
   root.append(filter, list);
 
@@ -363,6 +384,19 @@ export function createHostPromptOverlay(
             ? drawPick(target, prompt, settle)
             : drawPickMany(target, prompt, labels, settle);
     target.dataset.kind = prompt.kind;
+    // Named by its question; a pick, which has none, by its filter's words.
+    if (drawn.title !== undefined) {
+      drawn.title.id = "hostPromptTitle";
+      target.setAttribute("aria-labelledby", drawn.title.id);
+    } else {
+      target.removeAttribute("aria-labelledby");
+    }
+    const placeholder = "placeholder" in prompt ? prompt.placeholder : undefined;
+    if (drawn.title === undefined && placeholder !== undefined) {
+      target.setAttribute("aria-label", placeholder);
+    } else {
+      target.removeAttribute("aria-label");
+    }
     shown = { id: next.id, drawn };
     if (!target.open) {
       returnFocusTo = document.activeElement;

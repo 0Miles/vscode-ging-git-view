@@ -40,7 +40,7 @@ import {
 } from "@ging/webview/desktop/hostPrompt";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 
-import { appMenuTemplate, MENU_IDS } from "./appMenu";
+import { appMenuTemplate } from "./appMenu";
 import { CHANNELS } from "./channels";
 import { createGraphInstance, type GraphInstance } from "./graphInstance";
 import {
@@ -204,10 +204,18 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   let shown: Shown | null = null;
   let nextId = 0;
 
-  /** The menu's entries that act on a graph are there only while one is. */
+  /** The application menu, built anew for what the window shows now: which
+   *  entries are enabled is the template's to say (appMenu.ts). Not before the
+   *  shared services, whose language it speaks. */
   const syncMenu = () => {
-    const fetchRemote = Menu.getApplicationMenu()?.getMenuItemById(MENU_IDS.fetchRemote);
-    if (fetchRemote) fetchRemote.enabled = Boolean(shown?.instance);
+    if (shared === null) return;
+    const template = appMenuTemplate(
+      shared.l10n,
+      { fetchRemote: () => void shown?.instance?.fetchRemote() },
+      process.platform,
+      { hasGraph: Boolean(shown?.instance) }
+    );
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   };
 
   /** Whatever the window shows is done: its instance, if any, disposed. */
@@ -380,16 +388,6 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       logger,
       clipboard: createDesktopClipboard(clipboard)
     });
-    // After the shared services: the menu speaks the app's language.
-    Menu.setApplicationMenu(
-      Menu.buildFromTemplate(
-        appMenuTemplate(
-          shared.l10n,
-          { fetchRemote: () => void shown?.instance?.fetchRemote() },
-          process.platform
-        )
-      )
-    );
     syncMenu();
     open(await launchTarget);
   });
