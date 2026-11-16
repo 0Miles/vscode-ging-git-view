@@ -42,6 +42,11 @@ export function blameLocation(
  * on some network drives and RAM disks where Node's own implementation works
  * — the reason Node does not use it by default — so that one is the fallback;
  * it follows links only.
+ *
+ * The fallback is decided per call, so two paths compared could in theory be
+ * resolved by different implementations. That is accepted: the native one
+ * fails by volume, so two spellings of one directory fail together, and a
+ * mixed pair can only miss a match (what happened before), never invent one.
  */
 function defaultRealpath(p: string): string | null {
   try {

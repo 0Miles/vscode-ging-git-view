@@ -113,12 +113,13 @@ describe("resolveToKnownRepo (real file system)", () => {
     const { parent, repo } = makeLongNamedRepo();
     const link = path.join(parent, "link");
     fs.symlinkSync(repo, link, "junction");
-    vi.spyOn(fs.realpathSync, "native").mockImplementation(() => {
+    const native = vi.spyOn(fs.realpathSync, "native").mockImplementation(() => {
       throw new Error("EISDIR: illegal operation on a directory, realpath");
     });
     const known = toRepoPath(repo);
 
     expect(resolveToKnownRepo(toRepoPath(link), [known])).toBe(known);
+    expect(native).toHaveBeenCalled();
   });
 
   it("matches nothing for a path that does not exist", () => {
