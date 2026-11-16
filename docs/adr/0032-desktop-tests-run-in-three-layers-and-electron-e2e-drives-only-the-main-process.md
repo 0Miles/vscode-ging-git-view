@@ -72,3 +72,21 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **兩個 Tab 同時需要認證的 fetch,用兩個只回 401 的本機 server。** 兩個 port 不同，askpass 的提示(`GING: http://127.0.0.1:<port>`)因此分得出是誰的;server 記下每次請求帶來的帳密，證明每個 Tab 頁面上的回答回到的是自己那個 Tab 的 git。fetch 從選單的 `ging.fetchRemote` 觸發，同時驗證「選單命令送到目前聚焦的 Tab」。認證失敗的錯誤框經 `NativeDialogs` 由測試代答。
 - **git 在等提示時關掉 Tab、或結束 app,git 要拿到「取消」並自己結束。** 兩條 E2E 各驗一次：提示還開著時關掉那個 Tab,以及開著兩個 Tab、其中一個在等提示時結束 app;都要 app 照常結束、server 上 git 的連線歸零、log 沒有 `ERROR:`。後者守的是處置順序：視窗關掉之後才處置 Tab,任何一個 Tab 的處置失敗都不能讓後面的 Tab 留著沒處置。
 - **測試收尾時 `server.closeAllConnections()` 是繞道，不是預期行為。** 關掉 Tab 或結束 app 時，正在跑的 git 不會被終止([#450](https://github.com/0Miles/vscode-ging-git-view/issues/450)):git 卡在提示時拿到「取消」會自己結束，但測試若在 git 還連著 server 時失敗，那個 git 會一直留著,server 關不掉、Windows 上暫存目錄也刪不掉。#450 修好之後拿掉這個繞道。
+
+## 補記(2026-11-17,#396)
+
+**應用程式選單長成 desktop 上 core 命令服務的完整入口(不做 command palette)。** [appMenu.ts](../../apps/desktop/src/appMenu.ts) 的 template 仍是純資料:File(#394 的三項、設定…、Close / Quit)、Edit、Repository、View、Window、Help。Repository 底下是 Fetch、Fetch 特定 remote、Manage Remotes、Show/Hide Remote Branches、Manage Pull Request Providers、View Reflog、Show Statistics、Set Git User Details、Open in Terminal;Help 底下是 Version Information。
+
+- **四條規則的落點。** 一、每個 GING 自己的項目(含 File / Repository / Help 這三個子選單)都有穩定的 `id`,列在 `MENU_IDS`;Electron 的 role 選單與分隔線沒有。二、命令不收 click 傳進來的 window(`MenuItem.click()` 什麼都不傳),而是在被按下的那一刻自己找目標:main process 的 `menuCommands`。三、E2E 用 `getMenuItemById(id).click()` 觸發，旁邊另外讀 `enabled`([appMenu.spec.ts](../../apps/desktop/e2e/appMenu.spec.ts))。四、每個 `id` 的 label key、accelerator、在哪幾種焦點下 enabled,由 [appMenu.test.ts](../../apps/desktop/tests/appMenu.test.ts) 以一張表逐項驗。
+- **「目前聚焦的分頁」不經過 `BrowserWindow.getFocusedWindow()`。** 票面的規則(聚焦的視窗 → 最後聚焦的 → Welcome page)寫在 #393 之前，那時假設一個視窗一個圖形。#393 之後 app 只有一個帶分頁的主視窗，設定與統計視窗都不是圖形視窗，所以不論鍵盤在哪個視窗，目標都是主視窗聚焦的 Tab;沒有 Tab 時是 Welcome page。這等於票面規則在單一主視窗下的結果，少了一層會指向設定視窗的查詢。之後若有第二個主視窗，再把「最後聚焦的主視窗」加回這裡。
+- **焦點分三種(`MenuFocus`):`graph`、`notice`、`welcome`。** 由聚焦的 Tab 決定(`menuFocus`):有圖形、顯示說明頁(重啟時路徑已不在的 Tab)、或沒有 Tab。enabled 規則:Repository 的圖形項目只在 `graph`;會問問題的 app 層命令(Set Git User Details、Manage Pull Request Providers)在 `graph` 與 `welcome`,`notice` 時關掉 —— 說明頁背後沒有實例，也沒有 host prompt 的 listener,而 Welcome page 被那個 Tab 的 view 蓋住，問在那裡使用者看不到;設定…、Version Information 與 #394 的項目一律可按。Version Information 只用系統對話框，所以 `notice` 時用 Welcome page 那一份命令照樣能回答。
+- **沒有 Tab 時，命令問在 Welcome page。** main process 用 Welcome page 的 `Prompts` 建一份 [appCommands.ts](../../apps/desktop/src/appCommands.ts)(current repository 是 `null`,git client 不帶任何實例的 askpass route);有 Tab 時用該 Tab 實例裡同一個工廠建的那一份。Set Git User Details 在沒有存放庫時只剩「全域」可選，這是 core 原本的行為(ADR-0027)。
+- **Show Statistics 開在自己的視窗,Open in Terminal 交給 `Opener.openTerminal`。** 統計頁見 ADR-0031 的同日補記。終端機的名稱與圖形工具列的 Terminal 鈕相同(`GING: <資料夾名>`);`Opener` 在 #391 之前是只寫 log 的過渡版，所以這一項的 E2E 等 #391,今天由 vitest 驗它把 repo 與名稱交給了 `Opener`。
+- **accelerator 只有兩個:** 設定…的 `CmdOrCtrl+,`(#397),開啟資料夾…的 `CmdOrCtrl+O`。其餘命令沒有,表上明寫「沒有」,誤加一個會讓測試紅。
+
+**給 #394 的契約(開啟資料夾、最近使用清單、init)。** id、label 與位置已在 template 裡，#394 只要在 main process 交出 handler:
+
+- `AppMenuCommands.openFolder?()` → `ging.openFolder`,「開啟資料夾...」,`CmdOrCtrl+O`。
+- `AppMenuCommands.openRecent?(repo)` 加上 `AppMenuState.recentRepos`(最近的在前)→ 子選單 `ging.openRecent`,每一項的 id 是 `openRecentId(repo)`(`ging.openRecent:<路徑>`),label 是路徑;清單是空的時子選單在但不能按。
+- `AppMenuCommands.initRepository?()` → `ging.initRepository`,「初始化存放庫...」。
+- 三個 handler 都是選填:沒給就不出現在選單裡，給了才出現在 File 的最上面，和設定…之間隔一條分隔線。它們一律 enabled;需要別的規則時改 template 與表，不在 main process 改已建好的選單。handler 同樣不收 window,要問就問在 Welcome page 或聚焦的 Tab(`menuCommands` 的 `asking` 是現成的做法)。最近使用清單改變時，main process 要重建選單(`syncMenu`)。
