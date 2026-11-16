@@ -49,6 +49,9 @@ function make(answers?: { button?: number; savedTo?: string }) {
   return { prompts, logged, posted, listen, answerLast, ...fake };
 }
 
+/** An input's `validate` that takes only a text naming `{branch}`. */
+const needsBranch = (text: string) => (text.includes("{branch}") ? undefined : "Needs {branch}");
+
 /** Let the prompt's promise run up to its next await. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -206,6 +209,62 @@ describe("the desktop prompts' questions, asked in the page", () => {
     });
     answerLast(1);
     expect(await picked).toBe(upstream);
+  });
+
+  it("shows a row's detail and a rule above it, in a pick and a pickMany alike", () => {
+    const { prompts, posted, listen } = make();
+    listen();
+    const items = [
+      { label: "Add a host...", detail: "A self-hosted forge", value: 0 },
+      { label: "github.com", description: "GitHub", separatorAbove: true, value: 1 }
+    ];
+
+    void prompts.pick(items);
+    void prompts.pickMany(items);
+
+    for (const { prompt } of posted) {
+      expect(prompt).toMatchObject({
+        items: [
+          { label: "Add a host...", detail: "A self-hosted forge" },
+          { label: "github.com", description: "GitHub", separatorAbove: true }
+        ]
+      });
+    }
+  });
+
+  it("asks an input again from a text its validate refuses, saying why, until one is taken", async () => {
+    const { prompts, posted, listen, answerLast } = make();
+    listen();
+
+    const typed = prompts.input({ prompt: "URL", value: "https://x/", validate: needsBranch });
+    answerLast("https://x/new");
+    await settled();
+    expect(posted.map((m) => m.prompt)).toEqual([
+      { kind: "input", prompt: "URL", password: false, value: "https://x/" },
+      {
+        kind: "input",
+        prompt: "URL",
+        password: false,
+        value: "https://x/new",
+        error: "Needs {branch}"
+      }
+    ]);
+    expect(posted[1].id).not.toBe(posted[0].id);
+
+    answerLast("https://x/{branch}");
+    expect(await typed).toBe("https://x/{branch}");
+    expect(posted).toHaveLength(2);
+  });
+
+  it("answers an input dismissed after a refusal as dismissed", async () => {
+    const { prompts, listen, answerLast } = make();
+    listen();
+
+    const typed = prompts.input({ prompt: "Host", validate: () => "Not a hostname" });
+    answerLast("https://x");
+    await settled();
+    answerLast(null);
+    expect(await typed).toBeUndefined();
   });
 
   it("answers an index that is no row as dismissed", async () => {

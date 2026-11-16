@@ -99,9 +99,17 @@ function drawInput(
   // Masked as a password field masks it; what is typed is never shown.
   if (prompt.password) input.type = "password";
   input.value = prompt.value ?? "";
+  root.append(message, input);
+  // The text answered last was refused: asked again from it, saying why.
+  if (prompt.error !== undefined) {
+    const why = el("div", "hostPromptError", prompt.error);
+    why.id = "hostPromptError";
+    why.setAttribute("role", "alert");
+    input.setAttribute("aria-invalid", "true");
+    input.setAttribute("aria-describedby", why.id);
+    root.append(why);
+  }
   root.append(
-    message,
-    input,
     buttonRow(
       button(labels.ok, () => settle(input.value), true),
       button(labels.cancel, () => settle(null))
@@ -142,9 +150,13 @@ function drawChoose(
   return { title: message, focus: () => (actions[0] ?? root).focus() };
 }
 
-/** One row of a pick list: its label, its description, and the warning mark. */
+/** One row of a pick list: its label, its description, its detail under
+ *  them, the warning mark, and a rule above it when it starts a group. */
 function itemRow(item: HostPromptItem, index: number): HTMLLIElement {
-  const row = el("li", "hostPromptItem");
+  const row = el(
+    "li",
+    item.separatorAbove === true ? "hostPromptItem separatorAbove" : "hostPromptItem"
+  );
   row.id = `hostPromptItem${index}`;
   row.dataset.index = String(index);
   if (item.warning === true) {
@@ -156,6 +168,7 @@ function itemRow(item: HostPromptItem, index: number): HTMLLIElement {
   if (item.description !== undefined) {
     row.append(el("span", "hostPromptItemDescription", item.description));
   }
+  if (item.detail !== undefined) row.append(el("span", "hostPromptItemDetail", item.detail));
   return row;
 }
 

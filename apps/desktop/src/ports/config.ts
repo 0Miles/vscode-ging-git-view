@@ -138,6 +138,9 @@ export function createDesktopConfig(settings: Settings): DesktopConfig {
       get("graph.uncommittedMarker") === "Open Circle at the Checked Out Commit",
     showSpecificBranches: () => get("onOpen.branchSelection"),
     showTags: () => get("show.tags"),
+    // One tier of settings, the user's: the settings file. No workspace holds
+    // any, so none is offered, and a scope named is that one tier.
+    inspect: (key) => ({ source: settings.has(key) ? "global" : null, scopes: ["global"] }),
     // The key in full, as the settings file and the settings page spell it.
     update: (key, value) => settings.update(key, value)
   };

@@ -96,6 +96,27 @@ describe("the desktop entry on a settings page", () => {
     ]);
   });
 
+  it("brings the row of the setting its URL names into view, and no other", async () => {
+    const scrolled: string[] = [];
+    // jsdom lays nothing out, so it has no scrollIntoView of its own.
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.id);
+    };
+    try {
+      window.history.replaceState(null, "", "?setting=ging-git-view.show.tags");
+      await load(STATE);
+      expect(scrolled).toEqual(["ging-git-view.show.tags"]);
+
+      scrolled.length = 0;
+      window.history.replaceState(null, "", "?setting=ging-theme");
+      await load(STATE);
+      expect(scrolled).toEqual([]);
+    } finally {
+      window.history.replaceState(null, "", window.location.pathname);
+      delete (Element.prototype as Partial<Element>).scrollIntoView;
+    }
+  });
+
   it("renders a markdown description's link to another setting as a link to its row, and escapes the rest", async () => {
     await load(STATE);
     const description = document.getElementById("ging-git-view.dates.customFormat")!;

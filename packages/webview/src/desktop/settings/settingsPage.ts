@@ -14,7 +14,7 @@ import type {
   SettingsResponse,
   ThemeChoice
 } from "./protocol";
-import { THEME_CHOICES } from "./protocol";
+import { SETTING_PARAM, THEME_CHOICES } from "./protocol";
 
 /** Only the desktop bundle carries these, so they live here rather than in
  *  `media/main.css`, which ships in the extension too (ADR-0031). */
@@ -212,4 +212,10 @@ export function startSettingsPage(state: SettingsPageState, root: HTMLElement): 
       message.error === null ? null : fillTemplate(state.strings.notSaved, message.error)
     );
   });
+
+  // Opened at one setting (`SETTING_PARAM`): its row in view.
+  const shown = new URLSearchParams(window.location.search).get(SETTING_PARAM);
+  if (shown !== null && rows.has(shown)) {
+    document.getElementById(shown)?.scrollIntoView({ block: "start" });
+  }
 }

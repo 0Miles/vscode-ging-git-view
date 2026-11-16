@@ -55,6 +55,11 @@ export type SettingsPageState = {
   strings: SettingsPageStrings;
 };
 
+/** The query parameter of the settings page's URL naming the setting the page
+ *  opens at, its row scrolled into view: how the host shows one setting, as
+ *  VS Code's settings editor does for "show the setting". */
+export const SETTING_PARAM = "setting";
+
 /** What the settings page asks of the desktop host. */
 export type SettingsRequest =
   | { command: "updateSetting"; key: string; value: unknown }

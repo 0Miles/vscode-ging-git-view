@@ -7,13 +7,17 @@ import type { BrowserWindow, WebContents } from "electron";
 
 import type { HostLogger, Opener } from "@ging/core/host/ports";
 import { isWebUrl } from "@ging/shared/webUrl";
-import type { SettingsResponse } from "@ging/webview/desktop/settings/protocol";
+import { SETTING_PARAM, type SettingsResponse } from "@ging/webview/desktop/settings/protocol";
 
 import { CHANNELS } from "./channels";
 
 export type SettingsWindow = {
   /** Open the settings, or bring the window they are in forward. */
   open(): void;
+  /** Open the settings at setting `key`'s row, or bring the window forward
+   *  and load them there anew: they are shown as they are now, a write made
+   *  elsewhere since included. */
+  reveal(key: string): void;
   /** Hand the settings a message `sender` posted; anything not from the
    *  settings window's page answers false and is left to whoever else it is
    *  for. */
@@ -40,12 +44,16 @@ export function createSettingsWindow({
 }): SettingsWindow {
   let win: BrowserWindow | null = null;
 
-  const open = () => {
-    if (win !== null) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-      return;
-    }
+  /** The window, brought forward; `null` when there is none yet. */
+  const raise = (): BrowserWindow | null => {
+    if (win === null) return null;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+    return win;
+  };
+
+  /** Open a window on `at`. */
+  const create = (at: string) => {
     const opened = createWindow();
     win = opened;
     opened.webContents.setWindowOpenHandler(({ url: target }) => {
@@ -58,11 +66,21 @@ export function createSettingsWindow({
     opened.on("closed", () => {
       win = null;
     });
-    void opened.loadURL(url);
+    void opened.loadURL(at);
   };
 
   return {
-    open,
+    open: () => {
+      if (raise() === null) create(url);
+    },
+    reveal: (key) => {
+      // The page scrolls the setting its query names into view. A query, not
+      // a fragment: a fragment's change does not load the page anew.
+      const at = `${url}?${SETTING_PARAM}=${encodeURIComponent(key)}`;
+      const shown = raise();
+      if (shown === null) create(at);
+      else void shown.loadURL(at);
+    },
     deliver(sender, message) {
       if (win === null || sender !== win.webContents) return false;
       const contents = win.webContents;

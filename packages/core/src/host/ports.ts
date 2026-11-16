@@ -128,15 +128,36 @@ export interface HostConfig {
   showSpecificBranches(): string[];
   showTags(): boolean;
 
+  /** Where `key`'s value comes from now, and where it could be written. */
+  inspect(key: string): SettingInspection;
+
   /** Write `key`, spelled as in VS Code's settings.json (`ging-git-view.…`),
-   *  to the user's settings — the global ones: no host keeps a GING setting
-   *  per folder that GING would write. Rejects, writing nothing, for a key
+   *  to the settings of `scope`: the user's global ones when it is left out.
+   *  A host with one tier of settings writes that tier whatever `scope` says
+   *  (`inspect` never offers it another); none keeps a GING setting per
+   *  folder that GING would write. Rejects, writing nothing, for a key
    *  the host has no such setting for, a value its schema does not allow, or
    *  a write that failed. Writing is all it does: what reacts to a setting
    *  changing (the auto-fetch timer, an open graph's Repository Setting
    *  defaults) is told by the host, as for a change made anywhere else. */
-  update(key: string, value: unknown): PromiseLike<void>;
+  update(key: string, value: unknown, scope?: SettingScope): PromiseLike<void>;
 }
+
+/** A tier of settings `HostConfig.update` writes: the user's own, which apply
+ *  everywhere, or the open workspace's, which override them there. */
+export type SettingScope = "global" | "workspace";
+
+/** What `HostConfig.inspect` says of a setting. */
+export type SettingInspection = {
+  /** The scope whose value is in force — the workspace's over the user's —
+   *  or `null` when neither sets it and the default applies. A list set in
+   *  both is the workspace's alone: scopes replace a value whole, never
+   *  merge it, so a change has to go back to this scope to be seen. */
+  source: SettingScope | null;
+  /** The scopes `update` can write it to here, the user's first: the
+   *  workspace's only while there is a workspace to hold one. */
+  scopes: readonly SettingScope[];
+};
 
 /** One tier of persisted key-value state. Writes are not awaited by anyone: a
  *  read after a write sees the write. */
@@ -168,6 +189,12 @@ export type PickItem<T> = {
   label: string;
   /** Shown beside the label, dimmer. */
   description?: string;
+  /** A second line under the label, dimmer still: what choosing the row
+   *  would make concrete, such as the URL it opens. Not filtered on. */
+  detail?: string;
+  /** A rule above the row, setting it and the rows after it apart from the
+   *  ones before. */
+  separatorAbove?: boolean;
   /** Checked when a `pickMany` opens; ignored by `pick`. */
   picked?: boolean;
   /** Marked the way the host marks a warning — a commit git's garbage
@@ -231,6 +258,10 @@ export interface Prompts {
     password?: boolean;
     /** Text the answer starts from, e.g. the name being changed. */
     value?: string;
+    /** Why `text` is not an answer, shown with the prompt, or `undefined`
+     *  when it is one. The prompt never answers with text this refuses: it
+     *  stays up, saying why, until the text is one or it is dismissed. */
+    validate?: (text: string) => string | undefined;
   }): PromiseLike<string | undefined>;
 }
 
