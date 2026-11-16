@@ -152,7 +152,10 @@ export type SettingInspection = {
   /** The scope whose value is in force — the workspace's over the user's —
    *  or `null` when neither sets it and the default applies. A list set in
    *  both is the workspace's alone: scopes replace a value whole, never
-   *  merge it, so a change has to go back to this scope to be seen. */
+   *  merge it, so a change has to go back to this scope to be seen. A
+   *  folder's own value, where a host has one (VS Code's
+   *  `workspaceFolderValue`), is not considered: no GING setting is written
+   *  per folder, as before the flow moved into core. */
   source: SettingScope | null;
   /** The scopes `update` can write it to here, the user's first: the
    *  workspace's only while there is a workspace to hold one. */
@@ -260,7 +263,10 @@ export interface Prompts {
     value?: string;
     /** Why `text` is not an answer, shown with the prompt, or `undefined`
      *  when it is one. The prompt never answers with text this refuses: it
-     *  stays up, saying why, until the text is one or it is dismissed. */
+     *  stays up, saying why, until the text is one or it is dismissed. A
+     *  host may check only once the text is answered and then ask again; a
+     *  prompt asked meanwhile may then come first (the desktop host's asks
+     *  again as a new prompt, behind any already waiting). */
     validate?: (text: string) => string | undefined;
   }): PromiseLike<string | undefined>;
 }

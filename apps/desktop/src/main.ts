@@ -414,7 +414,9 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       createWindow,
       handle: handleSettings,
       opener: host.opener,
-      logger
+      logger,
+      // Only ever a key the app has: the one Show Setting names.
+      valueOf: (key) => host.settings.get(key)
     });
     // Its Settings… entry (CmdOrCtrl+,) opens the window above.
     syncMenu();

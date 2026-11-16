@@ -7,7 +7,11 @@ import type { BrowserWindow, WebContents } from "electron";
 
 import type { HostLogger, Opener } from "@ging/core/host/ports";
 import { isWebUrl } from "@ging/shared/webUrl";
-import { SETTING_PARAM, type SettingsResponse } from "@ging/webview/desktop/settings/protocol";
+import {
+  SETTING_PARAM,
+  type SettingsHostMessage,
+  type SettingsResponse
+} from "@ging/webview/desktop/settings/protocol";
 
 import { CHANNELS } from "./channels";
 
@@ -15,8 +19,9 @@ export type SettingsWindow = {
   /** Open the settings, or bring the window they are in forward. */
   open(): void;
   /** Open the settings at setting `key`'s row, or bring the window forward
-   *  and load them there anew: they are shown as they are now, a write made
-   *  elsewhere since included. */
+   *  and show that row there, with the value the app holds now — a write made
+   *  elsewhere since included. An open window is not reloaded: what is typed
+   *  and not yet sent in its other rows stays. */
   reveal(key: string): void;
   /** Hand the settings a message `sender` posted; anything not from the
    *  settings window's page answers false and is left to whoever else it is
@@ -29,10 +34,13 @@ export function createSettingsWindow({
   createWindow,
   handle,
   opener,
-  logger
+  logger,
+  valueOf
 }: {
   /** The settings page's address. */
   url: string;
+  /** What the app holds for setting `key` now, as the page shows it. */
+  valueOf: (key: string) => unknown;
   /** A window as the app makes them: themed, with the preload. */
   createWindow: () => BrowserWindow;
   /** What the page posted, and how to answer it. */
@@ -69,24 +77,31 @@ export function createSettingsWindow({
     void opened.loadURL(at);
   };
 
+  /** Send `message` to the page of `shown`, unless it is gone. */
+  const send = (shown: BrowserWindow, message: SettingsHostMessage) => {
+    if (!shown.webContents.isDestroyed()) shown.webContents.send(CHANNELS.hostMessage, message);
+  };
+
   return {
     open: () => {
       if (raise() === null) create(url);
     },
     reveal: (key) => {
-      // The page scrolls the setting its query names into view. A query, not
-      // a fragment: a fragment's change does not load the page anew.
-      const at = `${url}?${SETTING_PARAM}=${encodeURIComponent(key)}`;
       const shown = raise();
-      if (shown === null) create(at);
-      else void shown.loadURL(at);
+      if (shown === null) {
+        // A new page, which scrolls the setting its query names into view.
+        create(`${url}?${SETTING_PARAM}=${encodeURIComponent(key)}`);
+        return;
+      }
+      // Not reloaded, which would drop what is typed and not yet sent in its
+      // other rows: told the value now, then to show the row.
+      send(shown, { command: "settingUpdated", key, value: valueOf(key), error: null });
+      send(shown, { command: "revealSetting", key });
     },
     deliver(sender, message) {
       if (win === null || sender !== win.webContents) return false;
-      const contents = win.webContents;
-      const reply = (answer: SettingsResponse) => {
-        if (!contents.isDestroyed()) contents.send(CHANNELS.hostMessage, answer);
-      };
+      const shown = win;
+      const reply = (answer: SettingsResponse) => send(shown, answer);
       handle(message, reply).catch((e: unknown) =>
         logger.logError(`settings: handling a message failed: ${String(e)}`)
       );
