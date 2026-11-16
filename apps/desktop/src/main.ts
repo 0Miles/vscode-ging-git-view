@@ -4,6 +4,7 @@
  * repository a launch names, through one webview instance with a dispatch of
  * its own over the services instances share (#388); #393 gives each tab one. */
 
+import childProcess from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -27,6 +28,7 @@ import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
 import type { HostLogger } from "@ging/core/host/ports";
 import { createDesktopClipboard } from "@ging/desktop/ports/clipboard";
 import { createDesktopLogger } from "@ging/desktop/ports/logger";
+import { type OsShell, openWebUrl } from "@ging/desktop/ports/opener";
 import {
   createDesktopPrompts,
   type DesktopPrompts,
@@ -60,6 +62,7 @@ import {
 } from "./settings/settingsPage";
 import { createSettingsWindow, type SettingsWindow } from "./settingsWindow";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
+import { launchTerminal, terminalLaunches } from "./terminal";
 import { type Theme, themeFor } from "./theme";
 import { readThemeChoice, writeThemeChoice } from "./themeChoice";
 
@@ -121,6 +124,20 @@ function dialogsFor(owner: BrowserWindow): NativeDialogs {
     showSaveDialog: (options) => dialog.showSaveDialog(owner, options)
   };
 }
+
+/** What the system opens things with, each looked up when called — Electron's
+ *  `shell` and Node's `spawn` — so the E2E can stand in for them and start no
+ *  program, browser or terminal (ADR-0032). */
+const systemOs: OsShell = {
+  openPath: (file) => shell.openPath(file),
+  showItemInFolder: (file) => shell.showItemInFolder(file),
+  openExternal: (url) => shell.openExternal(url),
+  openTerminal: (cwd, title) =>
+    launchTerminal(
+      (command, args, options) => childProcess.spawn(command, args, options),
+      terminalLaunches(process.platform, process.env, cwd, title)
+    )
+};
 
 /** Serve the app: `pageFor` builds the page a URL of it asks for. */
 function serveApp(pageFor: (url: string) => PageContent): void {
@@ -388,7 +405,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       locale: app.getLocale(),
       helperDir: __dirname,
       logger,
-      clipboard: createDesktopClipboard(clipboard)
+      clipboard: createDesktopClipboard(clipboard),
+      os: systemOs
     });
     shared = host;
     nativeTheme.themeSource = readThemeChoice(host.storage.global);
@@ -408,7 +426,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       url: `${PAGE_URL}${SETTINGS_PATH.slice(1)}`,
       createWindow,
       handle: handleSettings,
-      opener: host.opener,
+      opener: { openExternalUrl: (url) => openWebUrl(host.os, logger, url) },
       logger
     });
     // Its Settings… entry (CmdOrCtrl+,) opens the window above.

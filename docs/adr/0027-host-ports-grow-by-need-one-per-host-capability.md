@@ -160,3 +160,22 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **寫入不負責推送。** port 只寫;寫完之後誰要被告知(auto-fetch 計時器、圖形的 Repository Setting 預設值),由宿主照它對「設定變了」本來的反應去做。VS Code 有 `onDidChangeConfiguration`,所以 `update` 之後什麼都不用多做;桌面版沒有,所以設定頁寫入成功後,main process 對每個 graph instance 呼叫 `settingChanged`([settingsPush.ts](../../apps/desktop/src/settingsPush.ts))。把推送放進 `update`,VS Code 那邊就會推兩次。
 - **桌面版的寫入比讀取嚴格。** 讀的時候,超出範圍的數字會被夾回範圍、清單裡不合格的項目會被丟掉(#387,使用者手寫的檔案能用多少用多少);寫的時候這些一律拒絕(`SettingRefused`),因為寫入的一方是設定頁,使用者就在那裡,告訴他比默默改掉他輸入的值好。設定檔不是 JSON 時也拒絕寫入:那是使用者的檔案,寫進去就蓋掉他寫的東西。
 - **`REPO_SETTING_DEFAULT_KEYS` 從 `apps/vscode` 的 `config.ts` 搬到 core 的 [repoSettings.ts](../../packages/core/src/extension/repoSettings.ts)。** 兩個宿主都要從「哪個 key 變了」算出 `setRepoSettingDefaults` 的 `changed`,各寫一份就會漂移。VS Code 這邊只改了 import。
+
+## 補記(2026-11-17,#391)
+
+**桌面版的 `Opener` 不再是過渡版,而且改成每個 webview 實例一份。** [opener.ts](../../apps/desktop/src/ports/opener.ts) 的 `createDesktopOpener` 取代 `createInterimOpener`,由 [graphInstance.ts](../../apps/desktop/src/graphInstance.ts) 用該實例自己的 `Prompts` 建出來。上表「`Opener`(過渡版)」那一列的處置改為「每個實例一個」:`Opener` 有話要說(stub 的通知、終端機開不起來)時,要說在發起那次請求的視窗裡,而全域一份的 `Opener` 不知道是哪個視窗。系統那一側(Electron 的 `shell` 與啟動終端機)沒有狀態,所以是全域一份的 `OsShell`,放在 `SharedServices.os`。
+
+- **`openFile` 交給系統預設程式(`shell.openPath`),失敗時 reject。** 例外是系統會「執行」而不是「顯示」的檔案(Windows 的 `PATHEXT` 加上捷徑、安裝檔、`.reg` 等;macOS 的 `.app`、`.command`;Linux 的 `.desktop`、`.AppImage` 等,見 `opensAsProgram`):repo 是任何人都能放東西進去的,「Open File」不該變成「執行它」,所以改成在檔案總管裡選取它(`shell.showItemInFolder`),並且照樣回答成功。代價是 Windows 上 `.js` 這類副檔名也在 `PATHEXT` 裡,點下去只會打開資料夾。
+- **`openExternalUrl` 只放行 `http:` / `https:`(`isWebUrl`),其他寫 log 後不開。** 呼叫端是 issue 連結(使用者設定拼出來的 URL)與設定頁的描述連結;`file:` 或自訂 scheme 交給系統等於叫它執行東西。設定視窗的 `setWindowOpenHandler` 走同一個 `openWebUrl`,所以 ADR-0031 的 #397 補記說的「點下去暫時只會留一行 log」到此結束。開啟失敗只寫 log:這個方法沒有回傳值,設定視窗也沒有 `Prompts`。
+- **`openTerminal` 開系統的終端機**([terminal.ts](../../apps/desktop/src/terminal.ts)):Windows 用 `cmd /c start "<title>" cmd.exe`(與 VS Code 的外部終端機相同;Windows 11 上會由預設終端機應用程式接手),macOS 用 `open -a Terminal <cwd>`,Linux 依序試 `x-terminal-emulator`、桌面環境自己的(gnome-terminal / konsole / xfce4-terminal)、`xterm`,只在程式不存在(`ENOENT`)時換下一個。一律 detached、不接 stdio。開不起來時寫 log,並在該實例的視窗用 `showError` 說。
+- **四個 stub:`openFileAtRevision`(→ #405)、`diffWithWorking`(→ #404)、`openCommitDiff`(→ #404)、`openMergeEditor`(→ #410)。** 先通知「GING 桌面版尚未支援這項功能」(`desktop.notSupportedYet`,`showInformation`,不等它被關掉),再 resolve,`openCommitDiff` 回 `true`。這是刻意偏離 port 註解「開不了就 reject」的契約:reject 的話,圖形會再跳一個自己的「無法開啟」錯誤框,使用者會看到兩個框,其中一個說的是錯的。偏離只在桌面實作的註解裡寫明,port 本身的契約不變;取代它的 D 票把 stub 換成真實作時一併移除。log 用 `log` 而不是 `logError`:這不是錯誤。
+
+**`MessageHandlerDeps` 的 5 個 hook 在桌面版的處置:**
+
+| hook                           | 處置                                                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `onSelectRepo`                 | no-op(沒有側檢視要跟著換 repo);只更新實例自己的 current repository,auto-fetch 讀它                     |
+| `onDelegatedRan`               | no-op:側檢視與圖形會在同一個頁面(#399),沒有要為 reload 留著的委派訊息                                  |
+| `showAllBranches`              | no-op,#399 改成真實作。圖形的篩選 chip 清不掉篩選;dispatch 照樣回 `branchFilterCleared`,圖形不會一直等 |
+| `configurePullRequestProvider` | stub:通知尚未支援,#398 把 `managePullRequestProviders` 搬進 core 後取代                                |
+| `openScmView`                  | stub:通知尚未支援,#403 的 working tree 檢視取代                                                        |

@@ -63,3 +63,13 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 
 - **「設定改了立即生效」用一個本機的 bare remote 觀察。** [fixtureRepo.ts](../../apps/desktop/e2e/fixtureRepo.ts) 的 `addAheadRemote` 把 fixture repo 複製成 bare、設為 `origin`,再直接在 bare 裡做一個 commit,讓它比 fixture 的 `refs/remotes/origin/main` 多一個。從設定頁打開 auto-fetch、間隔設成最小的一分鐘之後,不重開 app,在一分多鐘內看到那個 ref 變成新的 commit。這條測試因此至少要一分鐘,`test.setTimeout` 是照設定的下限給的,不是為了讓它變綠而放寬。
 - **主題保留的斷言讀 `nativeTheme.themeSource`,不只讀頁面的顏色。** 系統本來就是淺色時,「重啟後是淺色」不能證明選擇被保存;`themeSource` 是 `light` 而不是 `system`,才能。
+
+## 補記(2026-11-17,#391)
+
+**「巡過所有動作」的 E2E 從頁面送出 dispatch 處理的每一種 message,而不是點遍整個 UI。**[actions.spec.ts](../../apps/desktop/e2e/actions.spec.ts) 在頁面裡呼叫 `acquireVsCodeApi().postMessage`,與 webview 自己送出的路徑相同,一種接一種送出,每一種都等到它的回答(或它在 app 外做的事)才送下一種。驗的是 main process 的整合路徑:dispatch、ports、git 都是真的。
+
+- **「每一種」由型別強制。** `EVERY_COMMAND` 是 `Record<Exclude<RequestMessage["command"], "reportError">, true>`,`RequestMessage` 多一種 command 就編譯失敗;跑完再比對實際送出的集合與它相等。`reportError` 不送:它就是 webview 在回報失敗,而這條測試的結論是沒有失敗。
+- **「不丟例外、`reportError` 為零次」讀 log。** handler 丟出的例外由 main process 記成 `ERROR:`(`channelTo`),webview 的回報也記成 `ERROR: webview …`,所以關掉 app 之後 log 裡沒有任何 `ERROR:`,兩件事都成立。沒有回答的 command 在 app 關掉之前一定已經跑完:頁面的訊息依序到達 dispatch,而那些 handler 不等任何東西。
+- **app 外的副作用一律在 main process 裡替換掉,與替換 `dialog.showMessageBox` 同一個做法。** 產品端呼叫時才去查:`NativeDialogs` 查 `dialog`,桌面版 `OsShell` 查 `shell.openPath` / `showItemInFolder` / `openExternal`,`Clipboard` 查 `clipboard.writeText`,終端機查 `child_process.spawn`。E2E 用 `electronApp.evaluate` 換掉它們並記下被叫了什麼;`child_process` 經由 `process.mainModule.require` 取得,只攔 `detached` 的 spawn(app 只有開終端機時這樣 spawn),git 的照常執行。所以這條測試不開瀏覽器、不開終端機、不碰剪貼簿。
+- **網路一樣只用本機。** `origin` 是本機的 bare repo;另外兩個 remote 只為了拼 pull request 的 URL,設了 `remote.<name>.skipFetchAll`,`fetch --all` 不會去連。`fetchAvatar` 回答的是預先放進 user data 的頭像快取,不會去問頭像服務。
+- **每個 stub 都斷言「通知出現、沒有錯誤框」**:main process 那一側只出現一個 `info` 對話框(`desktop.notSupportedYet`),頁面上的 `#dialog` 沒有打開。另外有一條從 UI 點進去的:在 Commit Details View 點檔案,走的是 webview 自己送出 `viewDiff` 的路徑。

@@ -41,6 +41,8 @@ function setUp() {
   const userData = userDataWithAvatar();
   const repos = [makeRepo(), makeRepo()].map(toRepoPath);
   const logged: string[] = [];
+  /** What the system was asked to open: nothing here starts anything. */
+  const opened: unknown[][] = [];
   const shared = createSharedServices({
     userDataPath: userData,
     locale: "en",
@@ -50,7 +52,20 @@ function setUp() {
       logError: (line) => logged.push(`ERROR: ${line}`),
       reveal: () => {}
     },
-    clipboard: { writeText: async () => {} }
+    clipboard: { writeText: async () => {} },
+    os: {
+      openPath: async (file) => {
+        opened.push(["openPath", file]);
+        return "";
+      },
+      showItemInFolder: (file) => opened.push(["showItemInFolder", file]),
+      openExternal: async (url) => {
+        opened.push(["openExternal", url]);
+      },
+      openTerminal: async (cwd, title) => {
+        opened.push(["openTerminal", cwd, title]);
+      }
+    }
   });
   const instances: { dispose(): void }[] = [];
   onTestFinished(() => {
@@ -59,19 +74,21 @@ function setUp() {
     [userData, ...repos].forEach(rmrf);
   });
 
-  /** An instance on `repo`, as the main process opens one. */
+  /** An instance on `repo`, as the main process opens one; `asked` is what its
+   *  own prompts were asked. */
   const open = (repo: string) => {
     const page = fakeWebview();
     shared.repoSource.addRepo(repo);
+    const prompts = fakePorts();
     const instance = createGraphInstance(shared, {
       repo,
       channel: page.webview,
-      prompts: fakePorts().ports.prompts
+      prompts: prompts.ports.prompts
     });
     instances.push(instance);
-    return { instance, ...page };
+    return { instance, asked: prompts.calls, ...page };
   };
-  return { shared, repos, open, logged };
+  return { shared, repos, open, logged, opened };
 }
 
 const sentOf = (posted: ResponseMessage[], command: ResponseMessage["command"]) =>
@@ -133,6 +150,64 @@ describe("a graph instance", () => {
         changed: ["showStashes"]
       })
     ]);
+  });
+
+  it("opens files, links and terminals through the system", async () => {
+    const { repos, open, opened } = setUp();
+    const page = open(repos[0]);
+
+    await page.receive({ command: "openFile", repo: repos[0], filePath: "README.md" });
+    await page.receive({ command: "openExternalUrl", url: "https://example.com/1" });
+    await page.receive({ command: "openTerminal", repo: repos[0] });
+
+    expect(sentOf(page.posted, "openFile")).toEqual([{ command: "openFile", success: true }]);
+    expect(opened).toEqual([
+      ["openPath", path.normalize(`${repos[0]}/README.md`)],
+      ["openExternal", "https://example.com/1"],
+      ["openTerminal", path.normalize(repos[0]), `GING: ${path.basename(repos[0])}`]
+    ]);
+  });
+
+  it("says in its own window what the desktop app cannot do yet, and answers as done", async () => {
+    const { repos, open, logged } = setUp();
+    const asking = open(repos[0]);
+    const other = open(repos[1]);
+    const repo = repos[0];
+    const file = { repo, commitHash: "HEAD", filePath: "f" };
+
+    await asking.receive({ command: "viewFileAtRevision", ...file });
+    await asking.receive({ command: "viewDiffWithWorking", ...file });
+    await asking.receive({
+      command: "viewDiff",
+      repo,
+      commitHash: "HEAD",
+      oldFilePath: "f",
+      newFilePath: "f",
+      type: "M"
+    });
+    await asking.receive({ command: "openMergeEditor", repo, filePath: "f" });
+    await asking.receive({ command: "openScmView" });
+
+    const notice = ["showInformation", "This is not available in the GING desktop app yet."];
+    expect(asking.asked).toEqual([notice, notice, notice, notice, notice]);
+    expect(other.asked).toEqual([]);
+    // Answered as done: the graph adds no "Unable to open" box of its own.
+    for (const command of ["viewFileAtRevision", "viewDiffWithWorking", "viewDiff"] as const) {
+      expect(sentOf(asking.posted, command)).toEqual([{ command, success: true }]);
+    }
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("answers the graph's Show All once it has run, which clears nothing yet", async () => {
+    const { repos, open } = setUp();
+    const page = open(repos[0]);
+
+    await page.receive({ command: "clearBranchFilter", repo: repos[0] });
+
+    expect(sentOf(page.posted, "branchFilterCleared")).toEqual([
+      { command: "branchFilterCleared" }
+    ]);
+    expect(page.asked).toEqual([]);
   });
 
   it("shares the avatar cache, but stops receiving avatars once disposed", async () => {
