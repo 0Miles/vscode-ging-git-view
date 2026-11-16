@@ -34,6 +34,9 @@ export type GraphInstance = {
    *  repository, which the dispatch must bind again rather than take as
    *  already bound. */
   pageLoading(): void;
+  /** Core's `fetchRemote` command on its current repository: asks which
+   *  remote when there are several (the application menu, #390). */
+  fetchRemote(): Promise<void>;
   dispose(): void;
 };
 
@@ -125,6 +128,7 @@ export function createGraphInstance(
     pageViewState: () =>
       buildGraphViewState({ config, repoSource, extensionState: shared.extensionState }),
     pageLoading: dispatch.onPanelShown,
+    fetchRemote: () => fetchService.fetchRemoteCommand(),
     dispose: () => {
       dispatch.dispose();
       reposChanged.dispose();
