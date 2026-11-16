@@ -44,6 +44,11 @@ _Avoid_: window, 視窗, panel
 桌面 host 一個 Tab 都沒有時顯示的頁面,存放庫從這裡開始開啟。對應 VS Code host 的 ADR-0011。中文寫作「歡迎頁」。桌面 host 專屬。
 _Avoid_: start page, empty state
 
+**Host prompt**:
+宿主替 core 向使用者問的一個問題:從清單挑一列或幾列(pick、pickMany)、在幾個按鈕之間選一個(choose)、或輸入一行字(input),都經過 `Prompts` port。問的是 core 的命令服務與 askpass,不是圖形。VS Code host 用原生的 quick pick、輸入框與 modal;桌面 host 畫在 webview 的 **host prompt overlay** 裡 —— 疊在圖形的對話框之上,一次一個,先來先問,不取代、也不關閉圖形的對話框([#390](https://github.com/0Miles/vscode-ging-git-view/issues/390),ADR-0031)。
+圖形自己的對話框(webview 的 `#dialog`)不是 host prompt:那是圖形為自己的動作問的,只有一格。
+_Avoid_: dialog, 對話框(這兩個詞留給 `#dialog`)
+
 ### 分支的狀態
 
 Default branch 是基準;merged 與 inactive 是兩個彼此獨立的事實,一個分支可以兩者皆是、皆非、或只中其一;hidable 則由前兩者推導而來,是唯一決定淡化與隱藏的集合。Redundant 涵蓋 merged 涵蓋不到的那一半,但它不參與 hidable,也不改變畫面的預設呈現。Cleanup candidate 由三個事實一起推導,決定的卻是另一件事 —— 提議刪除誰;它與 hidable 的豁免規則只差一項,兩者不可互換。以上都是算出來的事實;branch filter 則是使用者自己挑的,兩者一起決定圖形看得到什麼。
