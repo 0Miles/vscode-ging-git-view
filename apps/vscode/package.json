@@ -1821,7 +1821,7 @@
     },
     "colors": [
       {
-        "id": "ging-git-view.blameAnnotationForeground",
+        "id": "gingGitView.blameAnnotationForeground",
         "description": "%color.blameAnnotationForeground%",
         "defaults": {
           "dark": "editorCodeLens.foreground",

@@ -47,6 +47,7 @@ import { config } from "@ging/vscode/config";
 import * as l10n from "@ging/vscode/l10n";
 
 import { openCommitDiff } from "./openCommitDiff";
+import { BLAME_ANNOTATION_COLOR_ID } from "./themeColorIds";
 import { watchPaths } from "./watchPaths";
 
 /** The hover's icons as theme icons, which its MarkdownString is made to
@@ -59,7 +60,6 @@ const HOVER_ICONS: Record<BlameHoverIcon, string> = {
 
 const SECTION = "ging-git-view";
 const ENABLED_KEY = "blame.enabled";
-const COLOR_ID = "ging-git-view.blameAnnotationForeground";
 /** The hidden command a hover's SHA links run. */
 const COPY_SHA_COMMAND = "ging-git-view.blame.copySha";
 /** The hidden command a hover's link to the line's change runs. */
@@ -164,7 +164,7 @@ export function createBlameController(deps: {
   avatars: BlameAvatarDeps;
 }): vscode.Disposable {
   const decoration = vscode.window.createTextEditorDecorationType({
-    after: { color: new vscode.ThemeColor(COLOR_ID), margin: "0 0 0 3em" }
+    after: { color: new vscode.ThemeColor(BLAME_ANNOTATION_COLOR_ID), margin: "0 0 0 3em" }
   });
   const cache = createBlameCache<Promise<FileBlame | null>>();
   // What the hovers look up, each kept bounded; only the latest request of each
