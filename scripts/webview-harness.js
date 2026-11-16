@@ -287,7 +287,7 @@ function buildWebviewHarness(entry) {
   <div id="findWidget"><input id="findInput" type="text"><span id="findCount"></span><div id="findPrev" class="findBtn"></div><div id="findNext" class="findBtn"></div><div id="findOpenCdv" class="findBtn">&#9776;</div><div id="findClose" class="findBtn"></div></div>
   <ul id="contextMenu" role="menu" tabindex="-1"></ul>
   <div id="dialogBacking"></div>
-  <div id="dialog"></div>
+  <div id="dialog" tabindex="-1"></div>
   <div id="scrollShadow"></div>
   <script>
     window.l10n = new Proxy({}, { get: (_, p) => (typeof p === "string" ? p : "") });

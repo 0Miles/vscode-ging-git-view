@@ -4,7 +4,11 @@ import * as path from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import type { SettingSchema, SettingsSchema } from "@ging/desktop/settings/deriveSchema";
-import { openSettings, SettingRefused } from "@ging/desktop/settings/settingsFile";
+import {
+  openSettings,
+  SettingRefused,
+  SettingsFileNotAnObject
+} from "@ging/desktop/settings/settingsFile";
 
 import { makeTempDir, rmrf } from "@ging/core/tests/helpers";
 
@@ -272,7 +276,7 @@ describe("writing the desktop settings file", () => {
       .update("ging-git-view.graph.edgeStyle", "angular")
       .catch((e: unknown) => e);
 
-    expect(failure).not.toBeInstanceOf(SettingRefused);
+    expect(failure).toBeInstanceOf(SettingsFileNotAnObject);
     expect(String(failure)).toMatch(/Cannot parse .*settings\.json/);
     expect(fs.readFileSync(s.file, "utf8")).toBe('{ "ging-git-view.show.tags": false, }');
   });

@@ -1,3 +1,4 @@
+import { isWebUrl } from "@ging/shared/webUrl";
 import { escapeHtml, renderInlineMarkdown } from "@ging/webview/utils/html";
 
 /** A link written `[text](target)`; the target has no spaces or parentheses. */
@@ -14,7 +15,7 @@ function link(text: string, target: string): string {
   if (target.startsWith("#")) {
     return `<a class="settingLink" href="${escapeHtml(target)}">${inline(text)}</a>`;
   }
-  if (/^https?:\/\//.test(target)) {
+  if (isWebUrl(target)) {
     return `<a class="externalLink" href="${escapeHtml(target)}" target="_blank" rel="noopener">${inline(text)}</a>`;
   }
   return inline(text);

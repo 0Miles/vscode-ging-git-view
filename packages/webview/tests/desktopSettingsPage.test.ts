@@ -24,7 +24,8 @@ const STATE: SettingsPageState = {
     {
       key: "ging-git-view.dates.customFormat",
       title: "Dates: Custom Format",
-      description: "Used when [`Dates: Format`](#ging-git-view.dates.format) is <b>custom</b>.",
+      description:
+        "Used when [`Dates: Format`](#ging-git-view.dates.format) is <b>custom</b>. [Docs](https://example.com/d) [x](javascript:alert(1))",
       markdown: true,
       type: "string",
       default: "DD MMM YYYY",
@@ -98,9 +99,13 @@ describe("the desktop entry on a settings page", () => {
   it("renders a markdown description's link to another setting as a link to its row, and escapes the rest", async () => {
     await load(STATE);
     const description = document.getElementById("ging-git-view.dates.customFormat")!;
-    const link = description.querySelector("a")!;
-    expect(link.getAttribute("href")).toBe("#ging-git-view.dates.format");
-    expect(link.querySelector("code")?.textContent).toBe("Dates: Format");
+    const links = Array.from(description.querySelectorAll("a"));
+    expect(links.map((a) => [a.getAttribute("href"), a.getAttribute("target")])).toEqual([
+      ["#ging-git-view.dates.format", null],
+      // Out to the user's browser, by way of the host; anything else is text.
+      ["https://example.com/d", "_blank"]
+    ]);
+    expect(links[0].querySelector("code")?.textContent).toBe("Dates: Format");
     expect(description.querySelector("b")).toBeNull();
     expect(description.textContent).toContain("<b>custom</b>");
   });

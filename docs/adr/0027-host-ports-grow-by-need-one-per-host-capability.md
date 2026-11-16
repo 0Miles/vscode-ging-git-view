@@ -141,6 +141,15 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 | `Watcher`                                                       | 每個實例一個                        | 看的是該實例的 current repository,mute 的是該實例自己的 mutation                                                                                                                                |
 | `Prompts`(過渡版)                                               | 每個實例一個                        | 附著在它的視窗上;askpass 的 route 也是這一份                                                                                                                                                    |
 
+## 補記(2026-11-17,#390)
+
+**桌面版的 `Prompts` 不再是過渡版。** [prompts.ts](../../apps/desktop/src/ports/prompts.ts) 的 `createDesktopPrompts` 取代 `createInterimPrompts`,仍是每個 webview 實例一份(上表「`Prompts`(過渡版)」那一列的處置不變,只是不再是過渡版):
+
+- **pick、pickMany、choose、input** 問在那個實例自己的頁面上,畫在 webview 桌面入口的 host prompt overlay 裡,協定與 overlay 的位置見 ADR-0031 的同日補記。`input` 失焦不消失(「後果」第二條)由 overlay 是 modal 保證:它只在回答或取消時關。`pick` 與 `pickMany` 也不因失焦消失;port 的註解說「可以」消失,不是「必須」。
+- **三種通知與 `pickSaveLocation`** 照舊是系統原生的對話框,經過 `NativeDialogs`(ADR-0032)。票面只把四種詢問移進頁面;通知沒有「一格被進度框占住」的問題,存檔位置本來就該是系統的檔案對話框。
+- **`PickItem.warning`** 在 overlay 畫成警告圖示,label 本身不帶任何圖示語法。
+- 它多了三個 port 以外的方法,由 main process 呼叫:`receive`(頁面的回覆)、`pageLoading`(頁面重新載入,未回答的 prompt 等新頁面準備好後重送)、`dispose`(實例結束,未回答的一律回答取消)。
+
 ## 補記(2026-11-17,#397)
 
 **`HostConfig` 長出了 `update(key, value)`:寫進使用者的全域設定,不帶 scope。呼叫端是桌面版的設定頁,core 自己今天不呼叫它。**

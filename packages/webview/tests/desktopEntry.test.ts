@@ -61,6 +61,11 @@ describe("the desktop entry", () => {
     expect(document.documentElement.dataset.gingEntry).toBe("ging-desktop-entry");
   });
 
+  it("tells the desktop host it is listening for its prompts (#390)", () => {
+    // Not a request: read off the wire as the host reads it.
+    expect(mock.sentMessages.map((m) => m.command as string)).toContain("hostPromptReady");
+  });
+
   it("boots the same graph view the VS Code entry does", () => {
     expect(mock.sentOf("loadBranches")).toHaveLength(1);
 
@@ -74,7 +79,9 @@ describe("the desktop entry", () => {
     // The desktop host's own messages (`HostPromptMessage`, #390) travel the
     // same `message` channel but are kept out of `ResponseMessage` (ADR-0031),
     // so the graph's listener hears them too. That is only safe while the
-    // dispatch drops a command it has no arm for; this pins it.
+    // dispatch drops a command it has no arm for; this pins it. (Malformed, so
+    // the overlay's listener drops it as well: jsdom has no modal dialog to
+    // show it in. The overlay itself is the webview E2E's, e2e/webview.)
     mock.clearMessages();
 
     receive({ command: "hostPrompt" } as unknown as GG.ResponseMessage);

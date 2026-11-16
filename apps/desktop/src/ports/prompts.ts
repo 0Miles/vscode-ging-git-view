@@ -1,10 +1,19 @@
-/* The desktop `Prompts` (`@ging/core/host/ports`) for now (#388): only what
- * the dispatch asks — the three notices and where to save a file — shown as
- * the system's own dialogs. The in-page host prompts of #390 replace it. */
+/* The desktop `Prompts` (`@ging/core/host/ports`), one per webview instance
+ * (#388, #390). The questions — pick, pickMany, choose, input — are asked in
+ * that instance's page, in the host prompt overlay of the webview's desktop
+ * entry, which stands over the graph's own dialog rather than taking its slot
+ * (ADR-0031). The notices and where to save a file are the system's own
+ * dialogs. */
 
 import type { MessageBoxOptions, SaveDialogOptions } from "electron";
 
 import type { HostLogger, L10n, Prompts } from "@ging/core/host/ports";
+import type {
+  HostPrompt,
+  HostPromptAnswer,
+  HostPromptMessage,
+  HostPromptReply
+} from "@ging/webview/desktop/hostPrompt";
 
 /**
  * Electron's `dialog`, as far as the prompts use it, already attached to the
@@ -17,17 +26,75 @@ export type NativeDialogs = {
   showSaveDialog(options: SaveDialogOptions): Promise<{ canceled: boolean; filePath?: string }>;
 };
 
-type InterimPromptsDeps = {
-  dialogs: NativeDialogs;
-  l10n: L10n;
-  logger: Pick<HostLogger, "logError">;
+/** The page of the instance that asks: where its prompts are shown. */
+export type PromptPage = {
+  post(message: HostPromptMessage): void;
 };
 
-export function createInterimPrompts({ dialogs, l10n, logger }: InterimPromptsDeps): Prompts {
-  /** A box of `type` offering `labels`, plus a way out; resolves to the index
-   *  of the label clicked, or `undefined` for the way out. With no labels, the
-   *  system's own single button, whose answer is nothing. */
-  const ask = async (
+type DesktopPromptsDeps = {
+  dialogs: NativeDialogs;
+  l10n: L10n;
+  logger: Pick<HostLogger, "log">;
+  page: PromptPage;
+};
+
+/** The instance's `Prompts`, and what the main process tells it of its page. */
+export type DesktopPrompts = Prompts & {
+  /** A reply the page posted: that it is listening, or an answer. */
+  receive(reply: HostPromptReply): void;
+  /** The page is loading anew: until it says it is listening, prompts wait.
+   *  The ones it was showing are shown again, not lost — git may be blocked
+   *  on one waiting for a credential. */
+  pageLoading(): void;
+  /** The instance is gone: what is still asked is answered as dismissed, and
+   *  so is whatever is asked from now on. */
+  dispose(): void;
+};
+
+/** `index` as a position in `list`, or `undefined` when it is none. */
+function at<T>(list: readonly T[], index: HostPromptAnswer): T | undefined {
+  return typeof index === "number" && Number.isInteger(index) && index >= 0 && index < list.length
+    ? list[index]
+    : undefined;
+}
+
+export function createDesktopPrompts({
+  dialogs,
+  l10n,
+  logger,
+  page
+}: DesktopPromptsDeps): DesktopPrompts {
+  /** Asked and not yet answered, by id, in the order they were asked. */
+  const pending = new Map<
+    number,
+    { message: HostPromptMessage; settle: (answer: HostPromptAnswer) => void }
+  >();
+  let nextId = 0;
+  let listening = false;
+  let disposed = false;
+
+  /** Ask `prompt` in the page, now or once it listens; resolves to the
+   *  page's answer, `null` when dismissed. */
+  const ask = (prompt: HostPrompt): Promise<HostPromptAnswer> =>
+    new Promise((settle) => {
+      if (disposed) {
+        settle(null);
+        return;
+      }
+      const message: HostPromptMessage = {
+        command: "hostPrompt",
+        id: ++nextId,
+        prompt,
+        labels: { ok: l10n.t("desktop.prompt.ok"), cancel: l10n.t("dialog.cancel") }
+      };
+      pending.set(message.id, { message, settle });
+      if (listening) page.post(message);
+    });
+
+  /** A notice of `type` offering `labels`, plus a way out; resolves to the
+   *  index of the label clicked, or `undefined` for the way out. With no
+   *  labels, the system's own single button, whose answer is nothing. */
+  const notify = async (
     type: "info" | "warning" | "error",
     message: string,
     labels: readonly string[]
@@ -41,19 +108,10 @@ export function createInterimPrompts({ dialogs, l10n, logger }: InterimPromptsDe
     return response < labels.length ? response : undefined;
   };
 
-  /** What #390 brings: for now the question is answered as dismissed, and the
-   *  log says it was asked, since nothing on screen will. */
-  const notYet = (method: string, about: string): Promise<undefined> => {
-    logger.logError(
-      `Prompts.${method} is not available yet (#390), answered as dismissed: ${about}`
-    );
-    return Promise.resolve(undefined);
-  };
-
   return {
     showInformation: async (message, { actions = [] } = {}) => {
       // `modal` changes nothing: a system dialog is modal either way.
-      const index = await ask(
+      const index = await notify(
         "info",
         message,
         actions.map((action) => action.label)
@@ -61,10 +119,10 @@ export function createInterimPrompts({ dialogs, l10n, logger }: InterimPromptsDe
       return index === undefined ? undefined : actions[index].value;
     },
     showWarning: (message) => {
-      void ask("warning", message, []);
+      void notify("warning", message, []);
     },
     showError: async (message, ...actions) => {
-      const index = await ask("error", message, actions);
+      const index = await notify("error", message, actions);
       return index === undefined ? undefined : actions[index];
     },
     pickSaveLocation: async ({ saveLabel, filters, defaultPath }) => {
@@ -75,9 +133,69 @@ export function createInterimPrompts({ dialogs, l10n, logger }: InterimPromptsDe
       });
       return canceled || filePath === undefined || filePath === "" ? undefined : filePath;
     },
-    choose: (message) => notYet("choose", message),
-    pick: (items) => notYet("pick", items.map((item) => item.label).join(", ")),
-    pickMany: (items) => notYet("pickMany", items.map((item) => item.label).join(", ")),
-    input: ({ prompt }) => notYet("input", prompt)
+
+    choose: async (message, { detail, actions }) => {
+      const answer = await ask({
+        kind: "choose",
+        message,
+        ...(detail !== undefined && { detail }),
+        actions: actions.map((action) => action.label)
+      });
+      return at(actions, answer)?.value;
+    },
+    pick: async (items, { placeholder, matchOnDescription = false } = {}) => {
+      const answer = await ask({
+        kind: "pick",
+        items: items.map(({ label, description, warning }) => ({ label, description, warning })),
+        placeholder,
+        matchOnDescription
+      });
+      return at(items, answer)?.value;
+    },
+    pickMany: async (items, { placeholder, matchOnDescription = false } = {}) => {
+      const answer = await ask({
+        kind: "pickMany",
+        items: items.map(({ label, description, picked, warning }) => ({
+          label,
+          description,
+          picked,
+          warning
+        })),
+        placeholder,
+        matchOnDescription
+      });
+      if (!Array.isArray(answer)) return undefined;
+      // In the order of the rows, each once, whatever order the page listed them in.
+      return items.filter((_, index) => answer.includes(index)).map((item) => item.value);
+    },
+    input: async ({ prompt, placeholder, password = false, value }) => {
+      const answer = await ask({ kind: "input", prompt, placeholder, password, value });
+      return typeof answer === "string" ? answer : undefined;
+    },
+
+    receive: (reply) => {
+      if (reply.command === "hostPromptReady") {
+        listening = true;
+        for (const { message } of pending.values()) page.post(message);
+        return;
+      }
+      const asked = pending.get(reply.id);
+      if (asked === undefined) {
+        // Answered twice, or after the instance let it go: nobody is waiting.
+        logger.log(`prompts: an answer to prompt ${reply.id}, which nobody is waiting for`);
+        return;
+      }
+      pending.delete(reply.id);
+      asked.settle(reply.answer);
+    },
+    pageLoading: () => {
+      listening = false;
+    },
+    dispose: () => {
+      disposed = true;
+      listening = false;
+      for (const { settle } of pending.values()) settle(null);
+      pending.clear();
+    }
   };
 }

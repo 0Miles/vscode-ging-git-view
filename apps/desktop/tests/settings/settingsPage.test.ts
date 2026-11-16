@@ -145,14 +145,33 @@ describe("what the host does with the settings page's messages", () => {
     await s.post({ command: "updateSetting", key: "ging-git-view.show.tags", value: false });
 
     expect(s.changed).toEqual([]);
+    // The page gets the translated reason; the system's own words go to the log.
     expect(s.replies).toEqual([
-      expect.objectContaining({
+      {
+        command: "settingUpdated",
         key: "ging-git-view.show.tags",
         value: true,
-        error: expect.stringMatching(/^The settings file could not be written: /)
+        error: "The settings file could not be read or written."
+      }
+    ]);
+    expect(s.logged).toEqual([
+      expect.stringMatching(/^ERROR: settings: .*show\.tags not saved: \S/)
+    ]);
+  });
+
+  it("tells a settings file that is not JSON from one that cannot be written", async () => {
+    const s = subject();
+    fs.writeFileSync(path.join(s.dir, "settings.json"), "{ broken");
+
+    await s.post({ command: "updateSetting", key: "ging-git-view.show.tags", value: false });
+
+    expect(s.replies).toEqual([
+      expect.objectContaining({
+        error:
+          "The settings file does not hold a JSON object, so it was left as it is. Fix it, then try again."
       })
     ]);
-    expect(s.logged).toEqual([expect.stringMatching(/^ERROR: settings: .*show\.tags not saved/)]);
+    expect(s.logged).toEqual([expect.stringMatching(/^ERROR: settings: .*Cannot parse/)]);
   });
 
   it("applies a theme the user chose, and nothing that is not one", async () => {

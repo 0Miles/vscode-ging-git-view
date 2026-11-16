@@ -49,9 +49,17 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **fixture repo 由測試自己 `git init`。** [fixtureRepo.ts](../../apps/desktop/e2e/fixtureRepo.ts) 在暫存目錄建一個 commit 日期固定的 repo,fixture 的 git 與 app 的 git 都跑在上面說的隔離設定裡(`GIT_CONFIG_NOSYSTEM=1`,`HOME` / `USERPROFILE` 指到暫存目錄)。
 - **E2E 一律帶 `--lang=en-US`。** 斷言讀的是頁面上的英文字串;不帶的話,`app.getLocale()` 跟著開發機走,在中文的 Windows 上讀到的是 zh-tw。
 
+## 補記(2026-11-17,#390)
+
+**應用程式選單是 E2E 觸發 core 命令服務的入口,template 是純資料模組。** #390 的 Electron E2E 要走完「core 命令服務的 `Prompts.pick`」整條路徑,而 desktop 上 core 命令服務唯一的入口是選單(#396)。照「只讀產品本來就有的東西」,不在 main process 掛一個測試用的出口,所以先做出選單的一項「Fetch 特定 remote」([appMenu.ts](../../apps/desktop/src/appMenu.ts)),E2E 用 `Menu.getApplicationMenu().getMenuItemById("ging.fetchRemote").click()` 觸發。
+
+- **template 是純資料,哪一項 enabled 也由它決定。** `appMenuTemplate(l10n, commands, platform, { hasGraph })` 不碰 Electron;main process 在顯示的內容改變時用它重建整個選單,自己不改任何一項的 `enabled`。所以 accelerator 與 enabled 規則都由 vitest 驗([appMenu.test.ts](../../apps/desktop/tests/appMenu.test.ts)),E2E 另外斷言 `enabled`,因為直接 `click()` 不檢查它。
+- **Electron 原本的 File、Edit、View、Window 選單用 role 保留。** 自訂選單會取代預設選單;不保留的話,複製貼上與重新載入的快捷鍵會一起消失。
+- 其餘的命令、「目前聚焦的分頁」的判斷,由 #396 接手同一個 template。
+
 ## 補記(2026-11-17,#397)
 
-**要經過 main process 的按鍵,E2E 用 Electron 自己的 `webContents.sendInputEvent` 送,不用 Playwright 的 `page.keyboard`。** 設定頁的入口 `CmdOrCtrl+,` 是 main process 在視窗的 `before-input-event` 上認的(在 #396 的選單之前,見 ADR-0031 的補記)。Playwright 的鍵盤經 CDP 直接送進頁面,main process 看不到,實測 `before-input-event` 不會觸發;`sendInputEvent` 走的是視窗的輸入,跟使用者按鍵一樣先經過 main process。這不違反「accelerator 不用 E2E 測」:判斷式本身由 vitest 測,E2E 驗的是「按鍵進了視窗之後,設定視窗真的開出來」這條整合路徑。
+**設定頁的入口是選單的「設定…」(id `ging.settings`,accelerator `CmdOrCtrl+,`),E2E 照 #390 的做法用 `getMenuItemById("ging.settings").click()` 開它。** accelerator 與「有沒有圖形都能按」由 [appMenu.test.ts](../../apps/desktop/tests/appMenu.test.ts) 驗。為了放這一項,File 選單從 `fileMenu` role 改成照 role 的內容寫出來(macOS 是 Close Window,其他平台是 Quit),上一則補記「File 用 role 保留」的用意 —— 預設選單的快捷鍵不消失 —— 不變。
 
 - **「設定改了立即生效」用一個本機的 bare remote 觀察。** [fixtureRepo.ts](../../apps/desktop/e2e/fixtureRepo.ts) 的 `addAheadRemote` 把 fixture repo 複製成 bare、設為 `origin`,再直接在 bare 裡做一個 commit,讓它比 fixture 的 `refs/remotes/origin/main` 多一個。從設定頁打開 auto-fetch、間隔設成最小的一分鐘之後,不重開 app,在一分多鐘內看到那個 ref 變成新的 commit。這條測試因此至少要一分鐘,`test.setTimeout` 是照設定的下限給的,不是為了讓它變綠而放寬。
 - **主題保留的斷言讀 `nativeTheme.themeSource`,不只讀頁面的顏色。** 系統本來就是淺色時,「重啟後是淺色」不能證明選擇被保存;`themeSource` 是 `light` 而不是 `system`,才能。

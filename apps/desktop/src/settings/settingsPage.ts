@@ -13,7 +13,7 @@ import type {
 } from "@ging/webview/desktop/settings/protocol";
 
 import type { Locale, SettingsSchema } from "./deriveSchema";
-import { type Settings, SettingRefused } from "./settingsFile";
+import { type Settings, SettingRefused, SettingsFileNotAnObject } from "./settingsFile";
 
 /** The schema's language for Electron's `app.getLocale()`: the l10n bundles'
  *  choice, which the schema's locales are named after. */
@@ -78,14 +78,16 @@ export type SettingsPageDeps = {
   setTheme: (choice: ThemeChoice) => void;
 };
 
-/** Why a write failed, in the user's words. */
+/** Why a write failed, in the user's words; the system's own words, in
+ *  English, go to the log only. */
 function failure(e: unknown, l10n: L10n): string {
   if (e instanceof SettingRefused) {
     return l10n.t(
       e.reason === "unknownKey" ? "desktop.settings.unknownSetting" : "desktop.settings.notAllowed"
     );
   }
-  return l10n.t("desktop.settings.cannotWrite", e instanceof Error ? e.message : String(e));
+  if (e instanceof SettingsFileNotAnObject) return l10n.t("desktop.settings.cannotParse");
+  return l10n.t("desktop.settings.cannotWrite");
 }
 
 /** What the host does with each message its settings page posts. A setting

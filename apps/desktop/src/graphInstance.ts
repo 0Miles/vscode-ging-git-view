@@ -38,6 +38,9 @@ export type GraphInstance = {
   /** The host wrote setting `key` (`HostConfig.update`): react as VS Code
    *  does to a configuration change (settingsPush.ts). */
   settingChanged(key: string): void;
+  /** Core's `fetchRemote` command on its current repository: asks which
+   *  remote when there are several (the application menu, #390). */
+  fetchRemote(): Promise<void>;
   dispose(): void;
 };
 
@@ -135,6 +138,7 @@ export function createGraphInstance(
         { restartAutoFetch: fetchService.restartAutoFetch, post: (msg) => void bridge.post(msg) },
         config
       ),
+    fetchRemote: () => fetchService.fetchRemoteCommand(),
     dispose: () => {
       dispatch.dispose();
       reposChanged.dispose();

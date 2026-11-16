@@ -23,9 +23,10 @@ export type Settings = {
    *  a `SettingRefused` for a key that is not a setting or a value its schema
    *  does not allow — strictly: a number out of range or a list with one bad
    *  entry is refused, not clamped or filtered as a read does, since the user
-   *  is there to be told — and with an ordinary error for a file it cannot
-   *  read, parse or write: a file that is not JSON is the user's, and writing
-   *  over it would lose what they wrote. A read after it resolves sees the
+   *  is there to be told — with a `SettingsFileNotAnObject` for a file that
+   *  is not a JSON object, which is the user's, and writing over it would lose
+   *  what they wrote; and with an ordinary error for one it cannot read or
+   *  write. A read after it resolves sees the
    *  value. Writes go out one at a time, in the order asked. */
   update(key: string, value: unknown): Promise<void>;
 };
@@ -42,6 +43,16 @@ export class SettingRefused extends Error {
         : `The value given for ${key} is not one its schema allows`
     );
     this.name = "SettingRefused";
+  }
+}
+
+/** Why `Settings.update` wrote nothing: the file is there but is not a JSON
+ *  object — not JSON, or JSON of another kind — and is the user's to fix.
+ *  Any other failure is reading or writing it. */
+export class SettingsFileNotAnObject extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "SettingsFileNotAnObject";
   }
 }
 
@@ -152,10 +163,15 @@ async function readForWrite(file: string): Promise<Record<string, unknown>> {
   try {
     parsed = JSON.parse(text);
   } catch (e) {
-    throw new Error(`Cannot parse ${file}, so it is left as it is: ${String(e)}`, { cause: e });
+    throw new SettingsFileNotAnObject(
+      `Cannot parse ${file}, so it is left as it is: ${String(e)}`,
+      {
+        cause: e
+      }
+    );
   }
   if (!isPlainObject(parsed)) {
-    throw new Error(`${file} does not hold an object, so it is left as it is`);
+    throw new SettingsFileNotAnObject(`${file} does not hold an object, so it is left as it is`);
   }
   return parsed;
 }

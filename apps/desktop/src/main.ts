@@ -13,6 +13,7 @@ import {
   clipboard,
   dialog,
   ipcMain,
+  Menu,
   nativeTheme,
   net,
   protocol,
@@ -26,10 +27,20 @@ import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
 import type { HostLogger } from "@ging/core/host/ports";
 import { createDesktopClipboard } from "@ging/desktop/ports/clipboard";
 import { createDesktopLogger } from "@ging/desktop/ports/logger";
-import { createInterimPrompts, type NativeDialogs } from "@ging/desktop/ports/prompts";
+import {
+  createDesktopPrompts,
+  type DesktopPrompts,
+  type NativeDialogs
+} from "@ging/desktop/ports/prompts";
 import type { RequestMessage } from "@ging/shared/types";
+import {
+  type HostPromptMessage,
+  type HostPromptReply,
+  isHostPromptReply
+} from "@ging/webview/desktop/hostPrompt";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 
+import { appMenuTemplate } from "./appMenu";
 import { CHANNELS } from "./channels";
 import { createGraphInstance, type GraphInstance } from "./graphInstance";
 import {
@@ -49,7 +60,6 @@ import {
 } from "./settings/settingsPage";
 import { createSettingsWindow, type SettingsWindow } from "./settingsWindow";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
-import { isOpenSettingsShortcut } from "./shortcuts";
 import { type Theme, themeFor } from "./theme";
 import { readThemeChoice, writeThemeChoice } from "./themeChoice";
 
@@ -89,8 +99,10 @@ type Shown = {
   id: number;
   page: () => PageContent;
   instance: GraphInstance | null;
+  /** The instance's prompts, asked in its page. */
+  prompts: DesktopPrompts | null;
   /** Hand the instance a message its page posted. */
-  deliver: (message: RequestMessage) => void;
+  deliver: (message: RequestMessage | HostPromptReply) => void;
 };
 
 /** Report what a launch asked for, and what it asked to open, if anything. */
@@ -155,18 +167,23 @@ function followSystemTheme(): void {
 }
 
 /** The page in `contents`, as a webview instance talks to it; `deliver` hands
- *  it what the page posted. */
+ *  it what the page posted, and `prompt` shows it one of the instance's
+ *  prompts, on the same channel as the graph's messages (ADR-0031). */
 function channelTo(contents: WebContents, logger: HostLogger) {
   let listener: ((message: RequestMessage) => void | Promise<void>) | null = null;
+  const send = (message: unknown): boolean => {
+    if (contents.isDestroyed()) return false;
+    contents.send(CHANNELS.hostMessage, message);
+    return true;
+  };
   const channel: WebviewChannel = {
     onDidReceiveMessage: (l) => {
       listener = l;
     },
-    postMessage: (message) => {
-      if (contents.isDestroyed()) return Promise.resolve(false);
-      contents.send(CHANNELS.hostMessage, message);
-      return Promise.resolve(true);
-    }
+    postMessage: (message) => Promise.resolve(send(message))
+  };
+  const prompt = (message: HostPromptMessage) => {
+    send(message);
   };
   const deliver = (message: RequestMessage) => {
     // A handler that throws has no one else to tell: the dispatch answers what
@@ -175,7 +192,7 @@ function channelTo(contents: WebContents, logger: HostLogger) {
       logger.logError(`webview: handling "${message.command}" failed: ${String(e)}`)
     );
   };
-  return { channel, deliver };
+  return { channel, deliver, prompt };
 }
 
 const thisLaunch: LaunchCommandLine = { argv: process.argv, workingDirectory: process.cwd() };
@@ -199,10 +216,29 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   let shown: Shown | null = null;
   let nextId = 0;
 
+  /** The application menu, built anew for what the window shows now: which
+   *  entries are enabled is the template's to say (appMenu.ts). Not before the
+   *  shared services, whose language it speaks. */
+  const syncMenu = () => {
+    if (shared === null) return;
+    const template = appMenuTemplate(
+      shared.l10n,
+      {
+        fetchRemote: () => void shown?.instance?.fetchRemote(),
+        openSettings: () => settingsWindow?.open()
+      },
+      process.platform,
+      { hasGraph: Boolean(shown?.instance) }
+    );
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  };
+
   /** Whatever the window shows is done: its instance, if any, disposed. */
   const closeShown = () => {
     shown?.instance?.dispose();
+    shown?.prompts?.dispose();
     shown = null;
+    syncMenu();
   };
 
   /** What is shown, if `url` is its page's: a page replaced but still
@@ -214,6 +250,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   const show = (next: Omit<Shown, "id">) => {
     closeShown();
     shown = { id: ++nextId, ...next };
+    syncMenu();
     void win?.loadURL(`${PAGE_URL}?${PAGE_ID_PARAM}=${shown.id}`);
   };
 
@@ -223,6 +260,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     show({
       page: () => ({ notice }),
       instance: null,
+      prompts: null,
       deliver: (message) =>
         logger.log(`webview: "${String(message?.command)}" reached a page with no graph`)
     });
@@ -273,23 +311,29 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     host.repoSource.addRepo(repo);
     host.extensionState.setLastActiveRepo(repo);
 
-    const { channel, deliver } = channelTo(owner.webContents, logger);
-    const instance = createGraphInstance(host, {
-      repo,
-      channel,
-      prompts: createInterimPrompts({
-        dialogs: dialogsFor(owner),
-        l10n: host.l10n,
-        logger
-      })
+    const { channel, deliver, prompt } = channelTo(owner.webContents, logger);
+    // Asked in this instance's page: a prompt git raises for it comes back
+    // here through its askpass route. #393 gives each tab its own.
+    const prompts = createDesktopPrompts({
+      dialogs: dialogsFor(owner),
+      l10n: host.l10n,
+      logger,
+      page: { post: prompt }
     });
+    const instance = createGraphInstance(host, { repo, channel, prompts });
     const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
     show({
       page: () => ({
         graph: { viewState: instance.pageViewState(), l10n: strings, nonce: getNonce() }
       }),
       instance,
-      deliver
+      prompts,
+      // The page's replies to the prompts are not requests: the dispatch never
+      // sees them (ADR-0031).
+      deliver: (message) => {
+        if (isHostPromptReply(message)) prompts.receive(message);
+        else deliver(message);
+      }
     });
   };
 
@@ -313,7 +357,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       win.focus();
     }
   });
-  ipcMain.on(CHANNELS.webviewMessage, (event, message: RequestMessage) => {
+  ipcMain.on(CHANNELS.webviewMessage, (event, message: RequestMessage | HostPromptReply) => {
+    // The settings window's page talks to the settings, never to an instance.
     if (settingsWindow?.deliver(event.sender, message)) return;
     if (win === null || event.sender !== win.webContents) return;
     // Only from the page that is shown: one replaced but still unloading must
@@ -359,24 +404,15 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         void writeThemeChoice(host.storage.global, choice);
       }
     });
-    /** A window that opens the settings on `CmdOrCtrl+,` (#396's menu takes
-     *  this over). */
-    const appWindow = () => {
-      const made = createWindow();
-      made.webContents.on("before-input-event", (event, input) => {
-        if (!isOpenSettingsShortcut(input, process.platform)) return;
-        event.preventDefault();
-        settingsWindow?.open();
-      });
-      return made;
-    };
     settingsWindow = createSettingsWindow({
       url: `${PAGE_URL}${SETTINGS_PATH.slice(1)}`,
-      createWindow: appWindow,
+      createWindow,
       handle: handleSettings,
       opener: host.opener,
       logger
     });
+    // Its Settings… entry (CmdOrCtrl+,) opens the window above.
+    syncMenu();
     const settingsPage = (): PageContent => ({
       settings: {
         state: buildSettingsPageState({
@@ -396,13 +432,15 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         : (shownAt(url)?.page() ?? { notice: null })
     );
     followSystemTheme();
-    win = appWindow();
+    win = createWindow();
     // The page of what is shown starting to load, the first time or again (a
     // reload): the graph it brings has yet to pick its repository. Tied to the
     // load, not to building the HTML, which a second fetch of it would repeat.
     win.webContents.on("did-start-navigation", (details) => {
       if (!details.isMainFrame || details.isSameDocument) return;
-      shownAt(details.url)?.instance?.pageLoading();
+      const loading = shownAt(details.url);
+      loading?.instance?.pageLoading();
+      loading?.prompts?.pageLoading();
     });
     win.on("closed", () => {
       closeShown();

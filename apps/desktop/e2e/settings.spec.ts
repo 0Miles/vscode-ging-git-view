@@ -7,7 +7,7 @@ import { _electron, type ElectronApplication, expect, type Page, test } from "@p
 
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 
-// The settings window (#397): opened with CmdOrCtrl+, from the graph, writing
+// The settings window (#397): opened from the menu's Settings…, writing
 // through HostConfig.update, and the main process doing what VS Code does on
 // a configuration change. Read through the pages, Electron's own API and the
 // app's log (ADR-0032).
@@ -48,17 +48,18 @@ function fixtureRepo(): FixtureRepo {
   return repo;
 }
 
-/** Open the settings with CmdOrCtrl+, in the graph's window. The keys go in
- *  through Electron's own `sendInputEvent`, which the main process sees as
- *  the window's input, as it does a user's; Playwright's keyboard reaches the
- *  page alone, past the main process. */
-async function openSettings(electronApp: ElectronApplication, graph: Page): Promise<Page> {
+/** Open the settings from the application menu's Settings… entry, found by
+ *  its id as #390's E2E finds its own (ADR-0032); its accelerator is the
+ *  template's, tested in appMenu.test.ts. */
+async function openSettings(electronApp: ElectronApplication): Promise<Page> {
   const opened = electronApp.waitForEvent("window");
-  await electronApp.evaluate(({ BrowserWindow }, url) => {
-    const win = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL() === url)!;
-    const modifier = process.platform === "darwin" ? "meta" : "control";
-    win.webContents.sendInputEvent({ type: "keyDown", keyCode: ",", modifiers: [modifier] });
-  }, graph.url());
+  expect(
+    await electronApp.evaluate(({ Menu }) => {
+      const item = Menu.getApplicationMenu()?.getMenuItemById("ging.settings");
+      item?.click();
+      return item ? { enabled: item.enabled, accelerator: item.accelerator } : null;
+    })
+  ).toEqual({ enabled: true, accelerator: "CmdOrCtrl+," });
   const settings = await opened;
   await expect(settings.locator("html")).toHaveAttribute("data-ging-page", "settings");
   return settings;
@@ -95,7 +96,7 @@ test("a change to the auto-fetch interval takes effect without a restart", async
   const electronApp = await launch("--repo", repo.path);
   const graph = await electronApp.firstWindow();
   await expect(graph.locator("#commitTable tr.commit").first()).toBeVisible();
-  const settings = await openSettings(electronApp, graph);
+  const settings = await openSettings(electronApp);
 
   await row(settings, "ging-git-view.autoFetch.enabled").locator("input[type=checkbox]").check();
   const interval = row(settings, "ging-git-view.autoFetch.intervalMinutes").locator("input");
@@ -119,7 +120,7 @@ test("a theme chosen by hand is kept after a restart", async () => {
   const repo = fixtureRepo();
   let electronApp = await launch("--repo", repo.path);
   let graph = await electronApp.firstWindow();
-  let settings = await openSettings(electronApp, graph);
+  let settings = await openSettings(electronApp);
 
   await settings.locator("#ging-theme select").selectOption("light");
   await expect(graph.locator("body")).toContainClass("vscode-light");
@@ -138,7 +139,7 @@ test("a theme chosen by hand is kept after a restart", async () => {
       document.documentElement.style.getPropertyValue("--vscode-editor-background")
     )
   ).toBe("#ffffff");
-  settings = await openSettings(electronApp, graph);
+  settings = await openSettings(electronApp);
   await expect(settings.locator("body")).toContainClass("vscode-light");
   await expect(settings.locator("#ging-theme select")).toHaveValue("light");
   expect(await closeAndReadLog()).not.toContain("ERROR:");

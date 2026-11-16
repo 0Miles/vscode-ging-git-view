@@ -1,14 +1,14 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 import { expect, type Page, test } from "@playwright/test";
 
+import { settingsHarnessPage } from "./harness";
+
 // The desktop entry's settings page (#397), built by the harness from the
-// schema the desktop app ships: a row per setting, markdown links between
-// them, and an `updateSetting` for each change. The host's half is the
-// harness's: it answers every update as saved.
+// schema the desktop app ships (built once by globalSetup.ts): a row per
+// setting, markdown links between them, and an `updateSetting` for each
+// change. The host's half is the harness's: it answers every update as saved.
 
 const ROOT = path.resolve(__dirname, "../..");
 
@@ -20,16 +20,6 @@ const SCHEMA = (
   ) as { settings: SchemaSetting[] }
 ).settings;
 
-function settingsPage(): string {
-  execFileSync(process.execPath, [
-    path.join(ROOT, "scripts", "webview-harness.js"),
-    "--entry=desktop",
-    "--page=settings"
-  ]);
-  return pathToFileURL(path.join(ROOT, "out", "webview-harness", "desktop-settings", "index.html"))
-    .href;
-}
-
 /** The row of a setting, by its key: the row's id. */
 const row = (page: Page, key: string) => page.locator(`[id="${key}"]`);
 
@@ -40,7 +30,7 @@ test.beforeEach(async ({ page }) => {
     if (m.type() === "error") errors.push(m.text());
   });
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(settingsPage());
+  await page.goto(settingsHarnessPage());
 });
 test.afterEach(() => expect(errors).toEqual([]));
 

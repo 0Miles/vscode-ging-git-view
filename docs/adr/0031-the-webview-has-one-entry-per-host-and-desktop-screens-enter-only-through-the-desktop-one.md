@@ -59,12 +59,31 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 
 宿主給 webview 的訊息由 preload 以 `window.postMessage` 送進頁面,形狀與 VS Code 的一樣,圖形的 `message` listener 不必知道是哪個宿主。`viewState` 與 `l10n` 跟 VS Code 一樣寫成兩段帶 nonce 的 inline script,CSP 只放行那個 nonce。
 
+## 補記(2026-11-17,#390)
+
+**host prompt overlay 是一個 modal 的 `<dialog>`,放在 top layer,而且是 `<html>` 的子元素,不是 `<body>` 的。**[hostPromptOverlay.ts](../../packages/webview/src/desktop/hostPromptOverlay.ts) 在第一個 prompt 到達時才把它建進頁面。
+
+- **不放在 `<body>` 裡。** `#dialog` 開著時,圖形的 `setBackgroundInert` 會把 `<body>` 的每個子元素標成 `inert`,之後才加進來的也會被 `lateBackgroundObserver` 補標。overlay 若在 `<body>` 裡,askpass 正好在進度框開著時問帳密,問題就畫出來了卻答不了。改 `markInert` 讓它認得 overlay 也做得到,但那是兩個宿主共用的 `gitGraphView.ts` 認得一個桌面專屬的元素,正是這份 ADR 要避免的。`<html>` 底下多一個 `<body>` 以外的元素不合 HTML 的內容模型,但瀏覽器照常繪製,`showModal()` 也照常把它放進 top layer。
+- **用 `showModal()`,不自己寫 z-index 與 focus trap。** top layer 本來就在 `#dialog`(z-index 401)之上;modal 讓頁面其餘部分在它開著時全部 inert,`#dialog` 也包括在內,所以不必另寫一套 focus trap。它不碰 `#dialog` 的內容與 class:進度框照常留著,batch run 的 retry offer 不會被寫掉,`showDialog` 的 abandon 判斷也就不會觸發。最後一個 prompt 回答後,焦點回到開啟前持有它的元素;那個元素在 overlay 開著時被圖形換掉了的話,`#dialog` 還開著就回到 `#dialog`。
+- **鍵盤事件停在 overlay。** 圖形的 `documentKeydown` 在 `#dialog` 開著時,會把 Enter 當成按下 `#dialogAction`、把 Tab 拉回 `#dialog`;`documentKeyup` 在 Escape 放開時關掉 `#dialog`。overlay 在自己身上 `stopPropagation` 這幾種事件,`document` 上的 listener 就聽不到。Escape 在 keyup 才關掉 prompt,keydown 時 `preventDefault`:瀏覽器內建的「Escape 關閉 modal」發生在 keydown,若讓它關,接下來的 keyup 會落在已經回到 `#dialog` 的焦點上,把 `#dialog` 一起關掉。[hostPrompt.spec.ts](../../e2e/webview/hostPrompt.spec.ts) 在進度框與 retry offer 上各驗一次;拿掉 keydown 或 keyup 的 `stopPropagation`,它就會紅。
+- **一次一個,先來先問(FIFO)。** 佇列在頁面上;宿主想問就送,不等上一個回答。兩個 prompt 之間 overlay 不關,焦點不會在兩題之間跳回 `#dialog`。
+- **樣式由桌面 bundle 寫進頁面**([hostPromptStyles.ts](../../packages/webview/src/desktop/hostPromptStyles.ts)),不另設一個樣式表檔。「後果」說樣式放在只有桌面會載入的樣式表;一個由桌面入口自己插入的 `<style>` 同樣只有桌面會載入,而且不必替 `PAGE_ASSETS`、`esbuild.js` 與 harness 各加一個檔案。CSP 的 `style-src` 本來就有 `'unsafe-inline'`。overlay 不在 `<body>` 裡,繼承不到 `body` 的字型與顏色,所以樣式自己寫明。
+
+**協定:宿主送 `HostPromptMessage`,頁面回 `HostPromptReply`,型別都在 [hostPrompt.ts](../../packages/webview/src/desktop/hostPrompt.ts)。**
+
+- **`hostPrompt`** 帶一個 id、prompt 本身(pick 的列只有 label、description、picked、warning,沒有 value),以及 OK / Cancel 按鈕的文字。按鈕文字由宿主隨每個 prompt 送來,不放進 `webviewL10n`:overlay 因此不依賴圖形頁的 `l10n` 全域,`webviewL10n` 也不會為了桌面多帶兩個 VS Code 用不到的字串。
+- **頁面回答的是索引,不是 value。** value 是任意的 `T`(例如 Manage Remotes 的 `ConfiguredRemote | null`),不一定能過 IPC,也不該交給頁面;宿主保留 value,依索引對回去。pick 回一個索引、pickMany 回索引陣列、choose 回動作的索引、input 回字串;`null` 是取消。
+- **`hostPromptReady`**:頁面每次載入、裝好 listener 之後送一次。宿主在那之前把 prompt 留著不送。頁面重新載入時,還沒回答的 prompt 在新頁面說它準備好之後重送,不當成取消:git 可能正卡在一個帳密提示上,重新整理不該讓那次 push 失敗。實例被處置時,未回答的一律回答取消。
+- **頁面的回覆不進 dispatch。** main process 在交給實例的 dispatch 之前,先用 `isHostPromptReply` 把回覆分給那個實例的 `Prompts`。「後果」要求的型別檢查是 `COMMANDS_STAY_APART`:`HostPromptMessage` 與 `ResponseMessage`、`HostPromptReply` 與 `RequestMessage` 的 command 交集必須是 `never`,否則編譯失敗。
+- **只在 `graph` 頁裝 listener。** prompt 是 webview 實例在問,而 notice 頁背後沒有實例。之後的 Welcome page(#394)要問時,由它照這個協定接上。
+
 ## 補記(2026-11-17,#397)
 
 **設定頁是桌面入口的第三種頁面(`data-ging-page="settings"`),開在自己的視窗裡,從 `ging://app/settings` 提供。** 頁面帶一段帶 nonce 的 inline script,給 bundle `settingsPage` 這個全域:每個設定一列(由 `schema.generated.json` 依 app 的語系轉出,值是當下讀到的)、主題的選擇、頁面自己的字串。控制項由 webview 依 schema 的型別決定(布林、enum、數字、字串,清單與物件用 JSON 文字框),沒有任何一列是手刻的。每一列的 id 就是設定的全名,#387 把 `` `#key#` `` 轉成的 `#key` 連結因此直接落在那一列上。
 
 - **設定頁的訊息型別在 [desktop/settings/protocol.ts](../../packages/webview/src/desktop/settings/protocol.ts),不在 `RequestMessage` / `ResponseMessage`。** 頁面送出 `updateSetting`、`setTheme`;宿主回 `settingUpdated`(當下的值,以及沒存成時的原因)。「後果」第三條要求的「command 不得與 `ResponseMessage` 重疊」寫成了型別檢查(`SETTINGS_COMMANDS_DO_NOT_OVERLAP`)。設定頁不啟動圖形,所以頁面上只有一個 listener;它仍然略過不是 `settingUpdated` 的訊息。main process 依送出訊息的 `webContents` 分流:設定視窗的訊息不會進到任何 graph instance 的 dispatch。
 - **設定頁的樣式由它自己的模組在啟動時插進一個 `<style>`,不放進 `media/main.css`,也不另開一個樣式表檔。** 「後果」只要求不放進會進 `.vsix` 的 `main.css`。另開檔案就得多一條 esbuild 複製、多一個 `PAGE_ASSETS` 白名單項目、harness 也要跟著搬;樣式跟著模組走,就只在桌面的 bundle 裡,CSP 的 `style-src 'unsafe-inline'` 本來就放行。等桌面專屬的樣式多到需要共用(側檢視 #399、working tree #403),再由那張票決定是否抽成檔案。
-- **設定頁裡往外的連結(描述裡的 `https://`)用 `target="_blank"`,由設定視窗的 `setWindowOpenHandler` 交給 `Opener.openExternalUrl`;其他任何會換掉頁面的導覽都擋掉。** 在 #391 之前,`Opener` 是只寫 log 的過渡版,所以點下去暫時只會留一行 log。
-- **入口暫時是每個視窗的 `before-input-event` 認 `CmdOrCtrl+,`([shortcuts.ts](../../apps/desktop/src/shortcuts.ts))。** 應用程式選單在 #396;那張票給「設定…」掛上同一個 accelerator 時,要把這個 listener 拿掉,判斷式的 vitest 換成選單 template 的測試(ADR-0032)。
+- **設定頁裡往外的連結(描述裡的 `https://`)用 `target="_blank"`,由設定視窗的 `setWindowOpenHandler` 交給 `Opener.openExternalUrl`;其他任何會換掉頁面的導覽都擋掉。** 頁面畫成外部連結的條件與視窗放行的條件是同一個 `isWebUrl`([webUrl.ts](../../packages/shared/src/webUrl.ts)),放在兩邊都能 import 的 `@ging/shared`。 在 #391 之前,`Opener` 是只寫 log 的過渡版,所以點下去暫時只會留一行 log。
+- **入口是 #390 那份選單 template 的「設定…」(`ging.settings`,`CmdOrCtrl+,`),放在照 `fileMenu` role 寫出來的 File 選單裡([appMenu.ts](../../apps/desktop/src/appMenu.ts))。** 它不看有沒有圖形,一律可按。#396 長出完整選單時,這一項(連同 id 與 accelerator)要保留;要搬位置(例如 macOS 慣例的 app 選單)由那張票決定。
+- **設定頁不裝 host prompt 的 listener(#390)。** 設定頁背後沒有 webview 實例,沒有誰會問;寫入失敗的原因直接顯示在那一列。
 - **主題手動切換交給 Electron 的 `nativeTheme.themeSource`(`system` / `dark` / `light`),選擇存在 `HostStorage` 的 global 層,key 是 `desktopTheme`。** 啟動時在建立第一個視窗之前套用,所以第一次繪製就是對的顏色。設 `themeSource` 會讓 `shouldUseDarkColors` 改變並發出 `updated`,原本「跟著系統換主題」的那條路(#386)就把新主題推給每個視窗,圖形頁與設定頁一起換,不需要第二條推送路線。
