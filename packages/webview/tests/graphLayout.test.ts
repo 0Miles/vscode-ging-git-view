@@ -208,7 +208,8 @@ describe("graph layout across a widened commit window", () => {
 // arrives with a second parent that is never loaded. Drawn, that parent becomes
 // the id -1 sentinel: one more line off the bottom edge per merge, the mesh #205
 // reports.
-// In that mode the graph drops a line only for a later parent nobody loaded.
+// In that mode the graph drops a line only for a later parent nobody loaded,
+// or one listed above the merge (#431, below).
 describe("graph layout when only the first parent is followed (#205)", () => {
   // M2 and M1 merge pull requests whose branch commits (X2, X1) the walk never
   // reached; every row's first parent is the next row.
@@ -233,6 +234,22 @@ describe("graph layout when only the first parent is followed (#205)", () => {
     // The ordinary mode is unchanged: each unloaded second parent takes a lane
     // from its merge down.
     expect(widthsOf(false)).toEqual([30, 46, 62]);
+  });
+
+  it("still runs a line off the bottom edge for a first parent the page has not reached", () => {
+    // The page ends before S0 and C, the first parents of S and M1. Only later
+    // parents lose their line: S's lane must stay open past the last row, or
+    // the branch would look like it starts at S until the next page loads.
+    const pageTail = [
+      commit("M2", ["M1", "X2"]), // 0
+      commit("S", ["S0"]), // 1: first parent is on the next page
+      commit("M1", ["C", "X1"]) // 2: last row of the page
+    ];
+    const g = makeGraph();
+    g.loadCommits(pageTail, "M2", lookupOf(pageTail), true);
+    g.render(null);
+    // S's lane is still open beside M1, the last row.
+    expect(g.getWidthsAtVertices()).toEqual([30, 46, 46]);
   });
 
   it("still joins a merge to a second parent that was loaded, so a merged branch whose ref remains stays connected", () => {

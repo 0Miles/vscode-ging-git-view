@@ -386,7 +386,14 @@ export class Graph {
    *  one ran a lane off the bottom edge as if the parent were unloaded (#431).
    *  `--first-parent` lists rows that way for real: it keeps a commit below
    *  its first-parent children only, so a merge's second parent that another
-   *  branch reaches can come out above the merge. A spliced stash can too. */
+   *  branch reaches can come out above the merge. A spliced stash can too.
+   *
+   *  The cost: in that case the merge loses the very line #205 kept, so the
+   *  branch above it looks unmerged while first parents are followed. The
+   *  alternatives were worse. Moving the merge above its parent abandons git's
+   *  row order and makes loaded rows jump when the next page arrives. Drawing
+   *  the line from the parent down to the merge reads as the merge being that
+   *  branch's ancestor, which is false history rather than a missing line. */
   public loadCommits(
     commits: GitCommitNode[],
     commitHead: string | null,
