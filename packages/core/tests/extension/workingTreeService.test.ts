@@ -56,7 +56,7 @@ describe("the working tree service", () => {
     fs.writeFileSync(path.join(repo, "f"), "changed");
     fs.writeFileSync(path.join(repo, "new"), "new");
 
-    const staged = await service.stage(null);
+    const staged = await service.stage(["f", "new"]);
     expect(staged.status?.staged.map((file) => file.path)).toEqual(["f", "new"]);
 
     const unstaged = await service.unstage(["new"]);

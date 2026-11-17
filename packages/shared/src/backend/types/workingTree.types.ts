@@ -17,6 +17,9 @@ export type WorkingTreeFile = {
   /** Where a staged rename or copy came from. */
   oldPath?: string;
   change: WorkingTreeChange;
+  /** A submodule. Shown but never staged: submodule management is out of
+   *  #291's scope, and a submodule changed only inside has nothing to stage. */
+  submodule?: true;
 };
 
 /** The working tree as `git status` reads it (#403). A file changed both in the

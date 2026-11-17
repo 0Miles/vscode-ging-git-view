@@ -30,9 +30,10 @@ export type WorkingTreeServiceDeps = {
 
 export type WorkingTreeService = {
   status(): Promise<WorkingTreeAnswer>;
-  /** Stage these files whole, or every change with `null`. */
+  /** Stage these files whole; never an unmerged one. "Stage All" names every
+   *  file listed. */
   stage(paths: WholeFiles): Promise<WorkingTreeAnswer>;
-  /** Unstage these files whole, or everything staged with `null`. */
+  /** Unstage these files whole; never an unmerged one. */
   unstage(paths: WholeFiles): Promise<WorkingTreeAnswer>;
   commit(message: string): Promise<WorkingTreeAnswer>;
 };

@@ -19,6 +19,10 @@ import {
 /** The column's width, which `body` gives up on its right while it is open. */
 export const WORKING_TREE_WIDTH = 320;
 
+/** The most rows a list draws; the rest are counted under it. "Stage All" still
+ *  names them all. A folder of build output nobody ignored can list thousands. */
+const MAX_ROWS = 500;
+
 /** Whether the panel was open, kept per viewer across reloads and restarts. */
 const OPEN_KEY = "ging.workingTree.open";
 
@@ -51,8 +55,8 @@ body.workingTreeOpen #findWidget { right: ${WORKING_TREE_WIDTH + 14}px; }
   font: inherit; font-weight: normal; text-transform: none;
 }
 #workingTree .wtIconButton svg { fill: currentColor; width: 12px; height: 12px; }
-#workingTree .wtIconButton:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
-#workingTree .wtIconButton:disabled { color: var(--vscode-disabledForeground); cursor: default; }
+#workingTree .wtIconButton:hover:not([aria-disabled="true"]) { background: var(--vscode-toolbar-hoverBackground); }
+#workingTree .wtIconButton[aria-disabled="true"] { color: var(--vscode-disabledForeground); cursor: default; }
 #workingTree button:focus-visible, #workingTree textarea:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 #workingTree .wtCommit { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 8px; flex: 0 0 auto; }
 #workingTree textarea {
@@ -65,8 +69,8 @@ body.workingTreeOpen #findWidget { right: ${WORKING_TREE_WIDTH + 14}px; }
   padding: 4px 8px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 2px;
   color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit;
 }
-#workingTree .wtCommitButton:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
-#workingTree .wtCommitButton:disabled { opacity: 0.5; cursor: default; }
+#workingTree .wtCommitButton:hover:not([aria-disabled="true"]) { background: var(--vscode-button-hoverBackground); }
+#workingTree .wtCommitButton[aria-disabled="true"] { opacity: 0.5; cursor: default; }
 #workingTree .wtError { color: var(--vscode-errorForeground); white-space: pre-wrap; overflow-wrap: anywhere; }
 #workingTree .wtError:empty { display: none; }
 #workingTree .wtLists { flex: 1 1 auto; overflow: auto; padding-bottom: 8px; }
@@ -80,8 +84,10 @@ body.workingTreeOpen #findWidget { right: ${WORKING_TREE_WIDTH + 14}px; }
 #workingTree .wtFile:hover { background: var(--vscode-list-hoverBackground); }
 #workingTree .wtName { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #workingTree .wtDir { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
-#workingTree .wtFile .wtIconButton { visibility: hidden; }
-#workingTree .wtFile:hover .wtIconButton, #workingTree .wtFile:focus-within .wtIconButton { visibility: visible; }
+#workingTree .wtFile .wtIconButton { opacity: 0; }
+#workingTree .wtFile:hover .wtIconButton, #workingTree .wtFile:focus-within .wtIconButton { opacity: 1; }
+#workingTree .wtFile.submodule .wtName { font-style: italic; }
+#workingTree .wtMore { padding: 1px 6px 1px 20px; line-height: 22px; color: var(--vscode-descriptionForeground); }
 #workingTree .wtLetter { flex: 0 0 auto; width: 12px; text-align: center; font-weight: 600; }
 #workingTree .wtLetter.added, #workingTree .wtLetter.copied { color: var(--vscode-gitDecoration-addedResourceForeground); }
 #workingTree .wtLetter.modified, #workingTree .wtLetter.renamed, #workingTree .wtLetter.typeChanged { color: var(--vscode-gitDecoration-modifiedResourceForeground); }
@@ -182,51 +188,111 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     if (open) load();
   };
 
-  /** The rows of `area`, each with its button, or none for a conflict. */
+  /** The files of `area` its "all" button names: every one listed but the
+   *  submodules, each by every path it has in the index. */
+  const allPathsOf = (files: WorkingTreeFile[]) =>
+    files.filter((file) => file.submodule !== true).flatMap(pathsOf);
+
+  /** A button; `aria-disabled` rather than `disabled`, which would drop the
+   *  keyboard's focus off it while a request is out. */
+  const iconButton = (action: string, label: string, text: string, off: boolean) =>
+    `<button class="wtIconButton" type="button" data-action="${action}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"${off ? ' aria-disabled="true"' : ""}>${text}</button>`;
+
+  /** The rows of `area`, each with its button, or none for a conflict or a
+   *  submodule; at most `MAX_ROWS`, the rest counted. */
   const fileRows = (files: WorkingTreeFile[], area: Area, s: WorkingTreeStrings) =>
     files
+      .slice(0, MAX_ROWS)
       .map((file, index) => {
         const slash = file.path.lastIndexOf("/");
         const name = file.path.slice(slash + 1);
         const dir = slash === -1 ? "" : file.path.slice(0, slash);
         const action =
-          area === "staged"
-            ? `<button class="wtIconButton" type="button" data-action="unstage" title="${escapeHtml(s.unstage)}" aria-label="${escapeHtml(s.unstage)}"${busy ? " disabled" : ""}>&minus;</button>`
-            : area === "unstaged"
-              ? `<button class="wtIconButton" type="button" data-action="stage" title="${escapeHtml(s.stage)}" aria-label="${escapeHtml(s.stage)}"${busy ? " disabled" : ""}>+</button>`
-              : "";
-        const tooltip = file.oldPath === undefined ? file.path : `${file.oldPath} → ${file.path}`;
-        return `<div class="wtFile" role="listitem" data-area="${area}" data-index="${index}" data-path="${escapeHtml(file.path)}" title="${escapeHtml(tooltip)}"${options.showDiff ? ' tabindex="0"' : ""}><span class="wtName">${escapeHtml(name)}</span><span class="wtDir">${escapeHtml(dir)}</span>${action}<span class="wtLetter ${file.change}" title="${escapeHtml(s.changes[file.change])}">${LETTERS[file.change]}</span></div>`;
+          file.submodule === true
+            ? ""
+            : area === "staged"
+              ? iconButton("unstage", s.unstage, "&minus;", busy)
+              : area === "unstaged"
+                ? iconButton("stage", s.stage, "+", busy)
+                : "";
+        const where = file.oldPath === undefined ? file.path : `${file.oldPath} → ${file.path}`;
+        const tooltip = file.submodule === true ? `${where}\n${s.submodule}` : where;
+        return `<div class="wtFile${file.submodule === true ? " submodule" : ""}" role="listitem" data-area="${area}" data-index="${index}" data-path="${escapeHtml(file.path)}" title="${escapeHtml(tooltip)}"${options.showDiff ? ' tabindex="0"' : ""}><span class="wtName">${escapeHtml(name)}</span><span class="wtDir">${escapeHtml(dir)}</span>${action}<span class="wtLetter ${file.change}" title="${escapeHtml(s.changes[file.change])}">${LETTERS[file.change]}</span></div>`;
       })
-      .join("");
+      .join("") +
+    (files.length > MAX_ROWS
+      ? `<div class="wtMore">${escapeHtml(s.more.replace("{0}", String(files.length - MAX_ROWS)))}</div>`
+      : "");
 
   const group = (
     area: Area,
     title: string,
     files: WorkingTreeFile[],
-    all: { action: string; label: string } | null,
+    all: { action: string; label: string; text: string } | null,
     s: WorkingTreeStrings
   ) =>
     files.length === 0
       ? ""
       : `<div class="wtGroup" data-area="${area}"><div class="wtGroupHeader"><span class="wtGroupTitle">${escapeHtml(title)} <span class="wtCount">${files.length}</span></span>${
-          all === null
-            ? ""
-            : `<button class="wtIconButton" type="button" data-action="${all.action}" title="${escapeHtml(all.label)}" aria-label="${escapeHtml(all.label)}"${busy ? " disabled" : ""}>${all.action === "stageAll" ? "+" : "&minus;"}</button>`
+          all === null ? "" : iconButton(all.action, all.label, all.text, busy)
         }</div><div role="list">${fileRows(files, area, s)}</div></div>`;
+
+  /** Nothing to commit, or nothing to commit with. */
+  const cannotCommit = () => busy || (status?.staged.length ?? 0) === 0 || message.trim() === "";
+
+  /** Where the keyboard is in the panel, so a redraw can put it back. */
+  type FocusAt = { action: string; area: string | null; path: string | null; index: number };
+  const focusAt = (): FocusAt | null => {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !panel.contains(active)) return null;
+    const row = active.closest<HTMLElement>(".wtFile");
+    return {
+      action: active.dataset.action ?? (row === active ? "row" : ""),
+      area: active.closest<HTMLElement>("[data-area]")?.dataset.area ?? null,
+      path: row?.dataset.path ?? null,
+      index: Number(row?.dataset.index ?? -1)
+    };
+  };
+  /** The keyboard back where it was: the same button on the same file; with
+   *  that file gone from its list (staged, say), the same button on the file
+   *  that took its place, or the list's own; failing those, the first
+   *  button left in the lists. */
+  const refocus = (at: FocusAt) => {
+    const inArea = (selector: string) =>
+      Array.from(panel.querySelectorAll<HTMLElement>(`[data-area="${at.area}"] ${selector}`));
+    const onRow = (row: HTMLElement | undefined) =>
+      row === undefined
+        ? null
+        : at.action === "row"
+          ? row
+          : row.querySelector<HTMLElement>(`[data-action="${at.action}"]`);
+    const rows = inArea(".wtFile");
+    const target =
+      (at.path === null
+        ? panel.querySelector<HTMLElement>(
+            at.area === null
+              ? `[data-action="${at.action}"]`
+              : `[data-area="${at.area}"] .wtGroupHeader [data-action="${at.action}"]`
+          )
+        : (onRow(rows.find((row) => row.dataset.path === at.path)) ??
+          onRow(rows[Math.min(at.index, rows.length - 1)]) ??
+          inArea(".wtGroupHeader button")[0])) ??
+      panel.querySelector<HTMLElement>(".wtLists button") ??
+      panel.querySelector<HTMLElement>("textarea");
+    target?.focus();
+  };
 
   function render(): void {
     const s = strings;
     if (s === null) return;
-    // The box keeps its text, caret and focus across redraws: it is built
-    // once and only moved back in.
+    const at = focusAt();
+    // The box keeps its text and caret across redraws: it is built once and
+    // only moved back in.
     const box =
       panel.querySelector<HTMLTextAreaElement>("textarea") ?? document.createElement("textarea");
-    const hadFocus = document.activeElement === box;
     box.placeholder = s.message;
     box.setAttribute("aria-label", s.message);
     if (box.value !== message) box.value = message;
-    const staged = status?.staged ?? [];
     const lists =
       status === null
         ? ""
@@ -237,27 +303,27 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
               "staged",
               s.staged,
               status.staged,
-              { action: "unstageAll", label: s.unstageAll },
+              { action: "unstageAll", label: s.unstageAll, text: "&minus;" },
               s
             ) +
             group(
               "unstaged",
               s.unstaged,
               status.unstaged,
-              { action: "stageAll", label: s.stageAll },
+              { action: "stageAll", label: s.stageAll, text: "+" },
               s
             );
     panel.innerHTML = `<div class="wtHeader"><span class="wtTitle">${escapeHtml(s.title)}${
       status?.branch ? ` <span class="wtBranch">${escapeHtml(status.branch)}</span>` : ""
-    }</span><button class="wtIconButton" type="button" data-action="close" title="${escapeHtml(s.close)}" aria-label="${escapeHtml(s.close)}">${svgIcons.close}</button></div><div class="wtCommit"><button class="wtCommitButton" type="button" data-action="commit"${
-      busy || staged.length === 0 || message.trim() === "" ? " disabled" : ""
+    }</span>${iconButton("close", s.close, svgIcons.close, false)}</div><div class="wtCommit"><button class="wtCommitButton" type="button" data-action="commit"${
+      cannotCommit() ? ' aria-disabled="true"' : ""
     }>${escapeHtml(s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error ?? "")}</div></div><div class="wtLists">${lists}</div>`;
     panel.querySelector(".wtCommit")!.prepend(box);
-    if (hadFocus) box.focus();
+    if (at !== null) refocus(at);
   }
 
   const commit = () => {
-    if (busy || (status?.staged.length ?? 0) === 0 || message.trim() === "") return;
+    if (cannotCommit()) return;
     send({ command: "workingTreeCommit", message });
   };
 
@@ -266,11 +332,16 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     return status?.[area][Number(row.dataset.index)] ?? null;
   };
 
+  /** Ask for `paths`, when there are any. */
+  const sendPaths = (command: "workingTreeStage" | "workingTreeUnstage", paths: string[]) => {
+    if (paths.length > 0) send({ command, paths });
+  };
+
   panel.addEventListener("click", (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const button = target?.closest<HTMLButtonElement>("button[data-action]") ?? null;
     if (button !== null) {
-      if (button.disabled) return;
+      if (button.getAttribute("aria-disabled") === "true") return;
       const row = button.closest<HTMLElement>(".wtFile");
       const file = row === null ? null : fileOf(row);
       switch (button.dataset.action) {
@@ -280,17 +351,19 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
         case "commit":
           commit();
           break;
+        // Every file listed, by name: never "everything", which would take
+        // in the conflicted files too (#410's).
         case "stageAll":
-          send({ command: "workingTreeStage", paths: null });
+          sendPaths("workingTreeStage", allPathsOf(status?.unstaged ?? []));
           break;
         case "unstageAll":
-          send({ command: "workingTreeUnstage", paths: null });
+          sendPaths("workingTreeUnstage", allPathsOf(status?.staged ?? []));
           break;
         case "stage":
-          if (file !== null) send({ command: "workingTreeStage", paths: pathsOf(file) });
+          if (file !== null) sendPaths("workingTreeStage", pathsOf(file));
           break;
         case "unstage":
-          if (file !== null) send({ command: "workingTreeUnstage", paths: pathsOf(file) });
+          if (file !== null) sendPaths("workingTreeUnstage", pathsOf(file));
           break;
       }
       return;
@@ -303,9 +376,9 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     if (!(event.target instanceof HTMLTextAreaElement)) return;
     message = event.target.value;
     const button = panel.querySelector<HTMLButtonElement>(".wtCommitButton");
-    if (button !== null) {
-      button.disabled = busy || (status?.staged.length ?? 0) === 0 || message.trim() === "";
-    }
+    if (button === null) return;
+    if (cannotCommit()) button.setAttribute("aria-disabled", "true");
+    else button.removeAttribute("aria-disabled");
   });
   // The panel's keys are its own: the graph's document listener would take
   // the arrows, Enter and Space for its rows.

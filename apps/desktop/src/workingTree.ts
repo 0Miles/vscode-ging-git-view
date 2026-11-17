@@ -11,13 +11,16 @@ import type {
   WorkingTreeStrings
 } from "@ging/webview/desktop/workingTree/protocol";
 
-/** The panel's words, in the app's language. */
-export function workingTreeStrings(l10n: Pick<L10n, "t">): WorkingTreeStrings {
-  const t = (key: string) => l10n.t(`desktop.workingTree.${key}`);
+/** The panel's words, in the app's language, its shortcut the platform's. */
+export function workingTreeStrings(
+  l10n: Pick<L10n, "t">,
+  platform: NodeJS.Platform
+): WorkingTreeStrings {
+  const t = (key: string, ...args: string[]) => l10n.t(`desktop.workingTree.${key}`, ...args);
   return {
     title: t("title"),
     close: t("close"),
-    message: t("message"),
+    message: t("message", platform === "darwin" ? "⌘Enter" : "Ctrl+Enter"),
     commit: t("commit"),
     staged: t("staged"),
     unstaged: t("unstaged"),
@@ -27,6 +30,9 @@ export function workingTreeStrings(l10n: Pick<L10n, "t">): WorkingTreeStrings {
     unstage: t("unstage"),
     unstageAll: t("unstageAll"),
     clean: t("clean"),
+    // Filled in by the panel, which knows the count.
+    more: t("more", "{0}"),
+    submodule: t("submodule"),
     changes: {
       added: t("change.added"),
       modified: t("change.modified"),
@@ -40,11 +46,11 @@ export function workingTreeStrings(l10n: Pick<L10n, "t">): WorkingTreeStrings {
   };
 }
 
-/** Answer one of the panel's requests: the working tree after it, and why it
- *  failed, if it did. */
+/** Answer one of the panel's requests: the working tree after it, why it
+ *  failed, if it did, and the panel's `strings`. */
 export async function answerWorkingTree(
   service: WorkingTreeService,
-  l10n: Pick<L10n, "t">,
+  strings: WorkingTreeStrings,
   request: WorkingTreeRequest
 ): Promise<WorkingTreeStatusMessage> {
   const answer = await (() => {
@@ -63,6 +69,6 @@ export async function answerWorkingTree(
     command: "workingTreeStatus",
     request: request.command,
     ...answer,
-    strings: workingTreeStrings(l10n)
+    strings
   };
 }

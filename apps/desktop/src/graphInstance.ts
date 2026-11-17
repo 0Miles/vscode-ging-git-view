@@ -27,7 +27,7 @@ import {
 
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
-import { answerWorkingTree } from "./workingTree";
+import { answerWorkingTree, workingTreeStrings } from "./workingTree";
 
 type GraphInstanceOptions = {
   /** The repository it opens on, already checked (`repoToOpen`). */
@@ -135,8 +135,9 @@ export function createGraphInstance(
    *  posted past the type, as the host prompts are (ADR-0031). */
   const postToPanel = (message: WorkingTreeMessage) =>
     void page.postMessage(message as unknown as ResponseMessage);
+  const panelStrings = workingTreeStrings(l10n, process.platform);
   const answerPanel = async (request: WorkingTreeRequest) =>
-    postToPanel(await answerWorkingTree(workingTree, l10n, request));
+    postToPanel(await answerWorkingTree(workingTree, panelStrings, request));
   fetchService.restartAutoFetch();
 
   // A Tab is one repository, and a repository is open in at most one Tab

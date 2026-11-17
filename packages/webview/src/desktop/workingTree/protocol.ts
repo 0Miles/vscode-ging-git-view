@@ -12,7 +12,7 @@ import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 export type WorkingTreeStrings = {
   title: string;
   close: string;
-  /** The commit message box's placeholder. */
+  /** The commit message box's placeholder, naming the platform's shortcut. */
   message: string;
   commit: string;
   staged: string;
@@ -24,6 +24,10 @@ export type WorkingTreeStrings = {
   unstageAll: string;
   /** Said in place of the lists when nothing has changed. */
   clean: string;
+  /** Under a list cut short: `{0}` is how many rows were left out. */
+  more: string;
+  /** On a submodule's row, which the panel does not stage. */
+  submodule: string;
   /** Each kind of change, for the letter's tooltip. */
   changes: Record<WorkingTreeChange, string>;
 };
@@ -31,9 +35,10 @@ export type WorkingTreeStrings = {
 /** Page → host. */
 export type WorkingTreeRequest =
   | { command: "workingTreeLoad" }
-  /** Whole files; `paths: null` is every change. */
-  | { command: "workingTreeStage"; paths: string[] | null }
-  | { command: "workingTreeUnstage"; paths: string[] | null }
+  /** Whole files, each named: "Stage All" names every file listed, never
+   *  "everything", which would take in the conflicted ones too. */
+  | { command: "workingTreeStage"; paths: string[] }
+  | { command: "workingTreeUnstage"; paths: string[] }
   | { command: "workingTreeCommit"; message: string };
 
 /** Host → page. */
@@ -74,8 +79,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-const isPaths = (value: unknown): value is string[] | null =>
-  value === null || (Array.isArray(value) && value.every((path) => typeof path === "string"));
+const isPaths = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((path) => typeof path === "string");
 
 /** Whether `data`, posted by a Tab's page, is one of the panel's requests. */
 export function isWorkingTreeRequest(data: unknown): data is WorkingTreeRequest {

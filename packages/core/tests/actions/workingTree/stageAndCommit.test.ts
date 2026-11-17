@@ -42,14 +42,32 @@ describe("stageFiles", () => {
     expect(short(r)).toBe(["M  f", "D  g", "A  new", "?? left"].join("\n"));
   });
 
-  it("stages every change with no paths", async () => {
+  it("stages more files than a Windows command line holds", async () => {
+    const r = repo();
+    // Some 70,000 characters of paths: past the 32,767 of a Windows command
+    // line, which is why they go through a pathspec file. Few files, long
+    // names: writing files is what costs here.
+    const dir = "a-folder-whose-name-is-long-enough-to-count";
+    const names = Array.from(
+      { length: 700 },
+      (_, i) => `${dir}/a-file-whose-name-is-long-enough-to-count-as-well-${i}.txt`
+    );
+    expect(names.join(" ").length).toBeGreaterThan(65_000);
+    fs.mkdirSync(path.join(r, dir));
+    for (const name of names) fs.writeFileSync(path.join(r, name), "x");
+
+    await stageFiles(simpleGit(r), names);
+
+    expect(out(r, "diff", "--cached", "--name-only").trim().split("\n")).toHaveLength(700);
+  });
+
+  it("stages nothing for no paths", async () => {
     const r = repo();
     fs.writeFileSync(path.join(r, "f"), "changed");
-    fs.writeFileSync(path.join(r, "new"), "new");
 
-    await stageFiles(simpleGit(r), null);
+    await stageFiles(simpleGit(r), []);
 
-    expect(short(r)).toBe(["M  f", "A  new"].join("\n"));
+    expect(short(r)).toBe(" M f");
   });
 
   it("takes a path as written, not as a pattern", async () => {
@@ -87,13 +105,13 @@ describe("unstageFiles", () => {
     expect(short(r)).toBe([" D f", "?? moved"].join("\n"));
   });
 
-  it("unstages everything with no paths", async () => {
+  it("unstages every file named", async () => {
     const r = repo();
     fs.writeFileSync(path.join(r, "f"), "changed");
     fs.writeFileSync(path.join(r, "new"), "new");
     git(["add", "."], r);
 
-    await unstageFiles(simpleGit(r), null);
+    await unstageFiles(simpleGit(r), ["f", "new"]);
 
     expect(short(r)).toBe([" M f", "?? new"].join("\n"));
   });
@@ -109,12 +127,76 @@ describe("unstageFiles", () => {
     await unstageFiles(simpleGit(r), ["a"]);
     expect(short(r)).toBe(["A  b", "?? a"].join("\n"));
 
-    await unstageFiles(simpleGit(r), null);
+    await unstageFiles(simpleGit(r), ["b"]);
     expect(short(r)).toBe(["?? a", "?? b"].join("\n"));
   });
 });
 
+describe("during a merge stopped on a conflict", () => {
+  /** A merge of `side` into main that conflicts on f and brings g cleanly,
+   *  with a change of the user's own to h besides. */
+  function conflictedMerge(): string {
+    const r = repo();
+    fs.writeFileSync(path.join(r, "h"), "h");
+    git(["add", "h"], r);
+    git(["commit", "-qm", "h"], r);
+    git(["checkout", "-q", "-b", "side"], r);
+    fs.writeFileSync(path.join(r, "f"), "side");
+    fs.writeFileSync(path.join(r, "g"), "from side");
+    git(["add", "."], r);
+    git(["commit", "-qm", "side"], r);
+    git(["checkout", "-q", "main"], r);
+    fs.writeFileSync(path.join(r, "f"), "main");
+    git(["commit", "-qam", "main"], r);
+    expect(cp.spawnSync("git", ["merge", "side"], { cwd: r }).status).not.toBe(0);
+    fs.writeFileSync(path.join(r, "h"), "the user's own change");
+    return r;
+  }
+  const mergeHead = (r: string) => fs.existsSync(path.join(r, ".git", "MERGE_HEAD"));
+  const unmerged = (r: string) => out(r, "ls-files", "-u").trim();
+
+  it("Stage All and Unstage All, conflicted file named too, leave the merge and its conflict as they were", async () => {
+    const r = conflictedMerge();
+    const conflictBefore = unmerged(r);
+    expect(conflictBefore).not.toBe("");
+
+    // Everything the panel would name, the conflicted file included: it must
+    // not reach `add`, which would mark it resolved.
+    await stageFiles(simpleGit(r), ["h", "f"]);
+    expect(mergeHead(r)).toBe(true);
+    expect(unmerged(r)).toBe(conflictBefore);
+    expect(short(r)).toBe(["UU f", "A  g", "M  h"].join("\n"));
+
+    // Nor `reset`, which with no path would drop MERGE_HEAD — the merge itself.
+    await unstageFiles(simpleGit(r), ["g", "h", "f"]);
+    expect(mergeHead(r)).toBe(true);
+    expect(unmerged(r)).toBe(conflictBefore);
+    expect(short(r)).toBe(["UU f", " M h", "?? g"].join("\n"));
+  });
+});
+
 describe("commitChanges", () => {
+  it("is refused by a failing pre-commit hook, with what the hook said, and makes no commit", async () => {
+    const r = repo();
+    const head = out(r, "rev-parse", "HEAD");
+    const hooks = path.join(r, ".git", "hooks");
+    fs.mkdirSync(hooks, { recursive: true });
+    fs.writeFileSync(
+      path.join(hooks, "pre-commit"),
+      "#!/bin/sh\necho 'lint says no: f is not formatted' >&2\nexit 1\n",
+      { mode: 0o755 }
+    );
+    fs.writeFileSync(path.join(r, "f"), "unformatted");
+    git(["add", "f"], r);
+
+    await expect(commitChanges(simpleGit(r), { message: "Hooked" })).rejects.toThrow(
+      /lint says no: f is not formatted/
+    );
+    expect(out(r, "rev-parse", "HEAD")).toBe(head);
+    // Still staged, for the next try.
+    expect(short(r)).toBe("M  f");
+  });
+
   it("commits what is staged, and only that, with the message as written", async () => {
     const r = repo();
     fs.writeFileSync(path.join(r, "f"), "committed");
@@ -149,7 +231,7 @@ describe("commitChanges", () => {
     git(["config", "user.name", "T"], r);
     git(["config", "commit.gpgsign", "false"], r);
     fs.writeFileSync(path.join(r, "a"), "a");
-    await stageFiles(simpleGit(r), null);
+    await stageFiles(simpleGit(r), ["a"]);
 
     await commitChanges(simpleGit(r), { message: "First" });
 

@@ -214,4 +214,6 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **status 用 `git --no-optional-locks status --porcelain=v2 -z` 讀。** 一般的 `git status` 可能順手刷新並寫回 index,寫的期間握著 `index.lock`,使用者接著按的 stage 或 commit 就會被拒(#451 是圖形自己那一份 `git status` 的同一個競爭);寫回 index 也會叫醒檔案監看,讓面板與圖形再讀一次。
 - **簽章規則同 cherry-pick、revert、merge、rebase:`signCommits` 為 true 時加 `-S`,否則不加任何旗標,交給 git 的 `commit.gpgsign`。** 沒有金鑰管理 UI,也沒有 pinentry 整合(#291 的「不做」)。
 - **「有沒有 commit」看 HEAD,不看 git 的結束碼。** 沒有東西可以 commit 時,git 只在 stdout 說一句、stderr 什麼都沒有,而 simple-git 對這種執行一律 resolve。所以 `commitChanges` 比較 commit 前後的 HEAD,沒變就拿 git 說的那句 reject。
-- **衝突檔(unmerged)單獨列成一組,沒有任何按鈕。** 整檔 stage 一個衝突檔就是把它標成已解決,那是 #410 的範圍;本票只讓它們不從清單裡消失。amend 與 sign-off(#407)會在同一個 commit 區加控制項,`commitChanges` 的輸入是物件,加欄位不必改呼叫端。
+- **衝突檔(unmerged)單獨列成一組,沒有任何按鈕,而且永遠到不了 `add` 或 `reset`。** 整檔 stage 一個衝突檔就是把它標成已解決,那是 #410 的範圍;本票只讓它們不從清單裡消失。所以 stage / unstage 一律點名檔案,沒有「全部」:不帶路徑的 `add -A` 會把衝突檔標成已解決,不帶路徑的 `reset` 會刪掉 `MERGE_HEAD`,整個 merge 就默默消失了。面板的 Stage All / Unstage All 送的是那一組列出的每個檔案(submodule 除外),core 在執行前再讀一次 unmerged 路徑、把它們剔掉,兩道防線各自成立。路徑經 `--pathspec-from-file` 加 `--pathspec-file-nul`(git 2.25+)交給 git,寫在暫存檔裡,不放命令列:Windows 的命令列只有約 32k 字元,而 Stage All 可能點名上千個檔案。
+- **submodule 只顯示、不 stage。** porcelain v2 的 `sub` 欄位標出它,面板上那一列沒有按鈕,也不在 Stage All 裡:只有內部變更的 submodule 沒有東西可 stage,而 submodule 管理在 #291 的「不做」清單上。
+- amend 與 sign-off(#407)會在同一個 commit 區加控制項,`commitChanges` 的輸入是物件,加欄位不必改呼叫端。

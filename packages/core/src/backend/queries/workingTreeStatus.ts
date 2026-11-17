@@ -42,11 +42,18 @@ export function parseWorkingTreeStatus(out: string): WorkingTreeStatus {
       const ordinary = record.startsWith("1 ");
       const { fields, rest: path } = fieldsThenRest(record, ordinary ? 8 : 9);
       const [x, y] = fields[1];
+      // `N...` for a file, `S<c><m><u>` for a submodule.
+      const submodule = fields[2]?.startsWith("S") === true ? { submodule: true as const } : {};
       const oldPath = ordinary ? undefined : records[++i];
       if (x !== ".") {
-        status.staged.push({ path, ...(oldPath !== undefined && { oldPath }), change: CHANGES[x] });
+        status.staged.push({
+          path,
+          ...(oldPath !== undefined && { oldPath }),
+          change: CHANGES[x],
+          ...submodule
+        });
       }
-      if (y !== ".") status.unstaged.push({ path, change: CHANGES[y] });
+      if (y !== ".") status.unstaged.push({ path, change: CHANGES[y], ...submodule });
     } else if (record.startsWith("u ")) {
       // `u XY sub m1 m2 m3 mW h1 h2 h3 path`
       status.conflicted.push({ path: fieldsThenRest(record, 10).rest, change: "conflicted" });

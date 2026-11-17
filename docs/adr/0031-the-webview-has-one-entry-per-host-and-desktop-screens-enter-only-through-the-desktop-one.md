@@ -109,5 +109,7 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **預設關著,開關記在頁面的 `localStorage`(`ging.workingTree.open`)。** 這只是每位使用者的便利:讀寫失敗就當成關著。打開它的入口是圖形自己的 Open Source Control View(uncommitted changes 那一列的選單),也就是 `openScmView` hook(ADR-0027 的同日補記);宿主送 `workingTreeShow`,面板打開並讀一次 status。`GraphInstance.showWorkingTree()` 送的是同一則訊息,留給應用程式選單(#396)接。
 - **協定:頁面送 `workingTreeLoad`、`workingTreeStage`、`workingTreeUnstage`、`workingTreeCommit`;宿主對每一個都回一則 `workingTreeStatus`,帶著做完之後讀到的 status、失敗的原因,以及面板的字串。** 型別在 [protocol.ts](../../packages/webview/src/desktop/workingTree/protocol.ts),`WORKING_TREE_COMMANDS_STAY_APART` 檢查它們不與 `RequestMessage` / `ResponseMessage` 撞名。字串跟著每個回答來,理由同「補記(#390)」的按鈕文字:面板因此不依賴 `webviewL10n`,VS Code 的 bundle 也不帶這些字串。
 - **面板畫的永遠是宿主回答的 status,不是它自己以為的結果。** 一個請求在外面時,所有按鈕停用;圖形被告知 `refresh`(檔案監看看到變更,或任何一次改動 repo 之後)時面板重讀一次,剛好有請求在外面就等它回來再讀。
-- **面板的鍵盤事件停在面板。** 圖形的 `documentKeydown` 會把方向鍵、Enter、Space 拿去移動列;面板在自己身上 `stopPropagation`,所以焦點在面板裡時圖形的快捷鍵不作用。Ctrl+Enter(macOS 也接受 Cmd+Enter)在訊息框裡 commit。
+- **面板的鍵盤事件停在面板。** 圖形的 `documentKeydown` 會把方向鍵、Enter、Space 拿去移動列;面板在自己身上 `stopPropagation`,所以焦點在面板裡時圖形的快捷鍵不作用。訊息框裡按 Ctrl+Enter(macOS 是 ⌘Enter,placeholder 由宿主依平台寫明)commit。
+- **鍵盤到得了每個按鈕,重繪後也留在原處。** 每一列的按鈕平常淡出(`opacity: 0`),滑鼠移上或焦點在那一列時才顯示;不用 `visibility: hidden`,那會讓按鈕連 Tab 都到不了。請求在外時按鈕標 `aria-disabled`,不用 `disabled`:後者會把焦點從剛按下的按鈕上拿走。面板每次收到回答都整個重繪,重繪前記下焦點在哪個按鈕、哪個檔案,重繪後放回同一個;那個檔案已經離開這一組(例如剛被 stage),就放到接替它位置的那一列,再不然是那一組的「全部」按鈕。
+- **一組最多畫 500 列,其餘只寫「還有 N 個檔案」。** 沒被 ignore 的建置輸出可能有上千個未追蹤檔;Stage All 仍點名全部,不只畫出來的那些。
 - **點檔案列還沒有作用。** `startWorkingTreePanel({ showDiff })` 是留給 diff viewer(#404)的接縫:給了 `showDiff(file, area)`,檔案列才可以點、可以聚焦;#406 的 hunk stage 也從那裡進來。

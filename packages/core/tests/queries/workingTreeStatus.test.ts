@@ -136,4 +136,18 @@ describe("parseWorkingTreeStatus", () => {
       conflicted: []
     });
   });
+
+  it("marks a submodule, changed inside or moved to another commit", () => {
+    const out = [
+      "# branch.head main",
+      "1 .M S.M. 160000 160000 160000 aaa aaa vendor/lib",
+      "1 M. SC.. 160000 160000 160000 aaa bbb vendor/other",
+      ""
+    ].join("\0");
+
+    expect(parseWorkingTreeStatus(out)).toMatchObject({
+      staged: [{ path: "vendor/other", change: "modified", submodule: true }],
+      unstaged: [{ path: "vendor/lib", change: "modified", submodule: true }]
+    });
+  });
 });
