@@ -185,3 +185,13 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **「顯示設定」不是 port,是命令服務的 `revealSetting` hook。** 理由同 remote 命令的 `refreshGraph`:它是宿主交給這個服務的一個動作，不是 dispatch 要的能力，也避免和同時在改 `Opener` 的 #391 撞在同一個 interface。VS Code 是 `workbench.action.openSettings`;桌面版是設定視窗的 `reveal(key)`:沒開著就以 `?setting=` 開一個新視窗，開在那個設定那一列;已經開著就不重新載入(會丟掉其他列裡打了還沒送出的內容，例如還不是合法 JSON 的文字),而是把那個設定現在的值以 `settingUpdated` 送過去，再送 `revealSetting` 讓頁面捲到那一列並標示出來。
 - **桌面版寫入後沒有推送給各 graph instance。** `pullRequests.providers` 每次建立 pull request 時才讀，`pushSettingChange` 對它本來就什麼都不做。設定視窗若已開著而使用者沒有按「顯示設定」,它顯示的仍是舊值，這是設定頁本身的問題(它只聽自己寫入的回覆),見 #446。
 - **`MessageHandlerDeps.configurePullRequestProvider` 仍是 hook,但桌面版不再是 stub。** 它在桌面版直接呼叫這個命令服務，問在發起 Create Pull Request 的那個 instance 的頁面上。上面「為什麼未來的讀者會困惑」第二條說它跳回的是 VS Code 自己的 QuickPick 命令，現在兩個宿主跑的是同一份流程;它仍是 hook,是因為 VS Code 那邊照舊經由已註冊的命令執行，命令面板的入口與錯誤框的按鈕走同一條路。
+
+## 補記(2026-11-17,#394)
+
+**core 多了 init:動作在 [init.ts](../../packages/core/src/backend/actions/init.ts),命令服務在 [repoInitCommand.ts](../../packages/core/src/extension/repoInitCommand.ts)。port 沒有長：選資料夾不是 port。**
+
+- **命令服務只收一個已經選好的資料夾。** 「問使用者要一個資料夾」今天只有桌面版要(VS Code 有自己的「初始化存放庫」),照「先有呼叫端」不開在 `Prompts` 上;桌面版用自己的 `NativeDialogs`(ADR-0032)問，再把路徑交給 core。`apps/desktop` 不得直接跑 core 的 git 動作(上面的 lint 規則),所以 init 經過命令服務，失敗由它用 `Prompts.showError` 說，和其他命令服務一致。
+- **init 用不綁 repo 的 client(`gitClientFor(null)`),資料夾寫在命令列上(`git init -- <folder>`、`git -C <folder>`)。** client 的 `baseDir` 必須已經存在，而 git 自己會建出還不存在的資料夾。資料夾若已經是某個 working tree 的頂端，就不重新初始化(會補上 template 的 hooks),直接回答它;在另一個 repo 裡面的資料夾照 `git init` 的語意得到自己的 repo。
+- **最近使用清單就是 `RepoSource` 的 known set,不另立集合。** GLOSSARY 的 Known repository 在桌面版的定義就是最近使用清單，所以 [recentRepos.ts](../../apps/desktop/src/recentRepos.ts) 只多存「開啟的順序」(workspace 層的 `desktopRecentRepos`),列出時以 known set 為準：不在 set 裡的順序項目略過,set 裡沒有順序的放最後、依路徑排。順序只在開成 Tab 時更新(命令列、開啟資料夾、初始化、清單)，還原 Tab 不算「開啟」。
+- **清單裡的資料夾不在了，照列，標成找不到。** 判準是 `resolveCurrentRepo`(資料夾在不在),不是 `isGitRepository`:和 Current repository 一樣，分不出刪除與沒掛載，所以不自動刪。移除是使用者的事(清單上的「移除」,走 `dropRepo`);開在 Tab 裡的 repo 不移除，因為 Tab 的圖形是從 known set 拿到自己的 repo(上面 #393 的補記)。
+- **子存放庫(#393 的 R5 留下的問題)由開啟資料夾處理，不由圖形切換。** 選到 submodule 或巢狀 repo 的資料夾時,`repoToOpen` 以 git 的 `--show-toplevel` 解析到它自己，開在自己的 Tab。CDV 檔案樹點子存放庫(#155)在桌面版仍然不切換：要讓它改成「開在新 Tab」,得讓圖形知道別的 repo,而那正是 R5 拿掉的。

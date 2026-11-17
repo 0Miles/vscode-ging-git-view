@@ -72,3 +72,10 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **兩個 Tab 同時需要認證的 fetch,用兩個只回 401 的本機 server。** 兩個 port 不同，askpass 的提示(`GING: http://127.0.0.1:<port>`)因此分得出是誰的;server 記下每次請求帶來的帳密，證明每個 Tab 頁面上的回答回到的是自己那個 Tab 的 git。fetch 從選單的 `ging.fetchRemote` 觸發，同時驗證「選單命令送到目前聚焦的 Tab」。認證失敗的錯誤框經 `NativeDialogs` 由測試代答。
 - **git 在等提示時關掉 Tab、或結束 app,git 要拿到「取消」並自己結束。** 兩條 E2E 各驗一次：提示還開著時關掉那個 Tab,以及開著兩個 Tab、其中一個在等提示時結束 app;都要 app 照常結束、server 上 git 的連線歸零、log 沒有 `ERROR:`。後者守的是處置順序：視窗關掉之後才處置 Tab,任何一個 Tab 的處置失敗都不能讓後面的 Tab 留著沒處置。
 - **測試收尾時 `server.closeAllConnections()` 是繞道，不是預期行為。** 關掉 Tab 或結束 app 時，正在跑的 git 不會被終止([#450](https://github.com/0Miles/vscode-ging-git-view/issues/450)):git 卡在提示時拿到「取消」會自己結束，但測試若在 git 還連著 server 時失敗，那個 git 會一直留著,server 關不掉、Windows 上暫存目錄也刪不掉。#450 修好之後拿掉這個繞道。
+
+## 補記(2026-11-17,#394)
+
+**資料夾對話框經過同一個 seam:`NativeDialogs` 多了 `showOpenDialog`,E2E 用 `electronApp.evaluate` 換掉 `dialog.showOpenDialog`,直接回答一個路徑。** main process 的 `dialogsFor(owner)` 在呼叫時才去拿 `dialog.showOpenDialog`,所以換掉之後，開啟資料夾與初始化存放庫(Welcome page 的按鈕與選單的 `ging.openFolder` 都一樣)問到的就是測試的版本;換上的版本同時記下被問的選項，測試因此也驗按鈕文字。`Prompts` 只拿它用得到的 `showMessageBox` 與 `showSaveDialog`,它的測試不必替一個用不到的對話框寫假的。
+
+- **最近使用清單的 E2E 要先關掉所有 Tab 再重啟。** Tab 會在重啟時還原(#393),而 Welcome page 只在沒有 Tab 時看得到;所以「清單在重啟後還在」的做法是開兩個 repo、把 Tab 都關掉、結束 app、刪掉其中一個資料夾、再啟動。清單讀的是頁面上的列，資料夾不在的那一列讀它的「Not found」標記，不讀內部狀態。
+- **流程本身(選了資料夾之後做什麼)用 vitest 測。** [repoOpening.ts](../../apps/desktop/src/repoOpening.ts) 把對話框、資料夾檢查、core 的 init 與開 Tab 都當成注入的函式，[repoOpening.test.ts](../../apps/desktop/tests/repoOpening.test.ts) 逐一驗取消、不是存放庫時提議初始化、清單上的資料夾已經不是存放庫時不改開它外層的存放庫;E2E 只走一次整條路徑。
