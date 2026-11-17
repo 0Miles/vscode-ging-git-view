@@ -86,9 +86,52 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **git 在等提示時關掉 Tab、或結束 app,git 要拿到「取消」並自己結束。** 兩條 E2E 各驗一次：提示還開著時關掉那個 Tab,以及開著兩個 Tab、其中一個在等提示時結束 app;都要 app 照常結束、server 上 git 的連線歸零、log 沒有 `ERROR:`。後者守的是處置順序：視窗關掉之後才處置 Tab,任何一個 Tab 的處置失敗都不能讓後面的 Tab 留著沒處置。
 - **測試收尾時 `server.closeAllConnections()` 是繞道，不是預期行為。** 關掉 Tab 或結束 app 時，正在跑的 git 不會被終止([#450](https://github.com/0Miles/vscode-ging-git-view/issues/450)):git 卡在提示時拿到「取消」會自己結束，但測試若在 git 還連著 server 時失敗，那個 git 會一直留著,server 關不掉、Windows 上暫存目錄也刪不掉。#450 修好之後拿掉這個繞道。
 
+## 補記(2026-11-17,#392)
+
+**askpass 與 interactive rebase 的 E2E 各一條([askpass.spec.ts](../../apps/desktop/e2e/askpass.spec.ts)、[interactiveRebase.spec.ts](../../apps/desktop/e2e/interactiveRebase.spec.ts)),都從圖形自己的按鈕與對話框觸發,斷言只讀頁面、git 與 log。** 兩個 helper 跑不起來時(把 `out/` 裡的 `askpass.sh` 換成 `echo ""`、`sequenceEditor.sh` 換成 `exit 0`)兩條都會紅。
+
+**它們今天還不是 RunAsNode fuse 的偵測器。** 跑的是 `node_modules` 裡未打包、fuse 全開的 Electron,沒有任何建置會把 `RunAsNode` 關掉,所以它們抓得到的是「helper 跑不起來」(檔案沒複製、沒有執行權限、`ELECTRON_RUN_AS_NODE` 沒帶到),抓不到「fuse 被關了」。要等階段 E 把 `executablePath` 換成打包後的 app,它們才會在 fuse 被關掉時變紅;這正是上面「安裝包的 smoke 至少要跑 askpass 與 interactive rebase」的那兩條。
+
+- **401 server 是 [unauthorizedRemote.ts](../../apps/desktop/e2e/unauthorizedRemote.ts)**:Node `http`,綁 127.0.0.1、port 由系統挑,每個請求一律回 401 加 `WWW-Authenticate: Basic`,有沒有帶帳密都一樣,並照到達的順序記下來。`info/refs` 以外的請求(例如 `HEAD /`)也回 401、也記,測試只讀它關心的那幾筆。git 2.40.1 實測:不帶帳密的 `info/refs` 一次,帶帳密的重試一次,然後放棄。重試幾次是 git 的事,沒辦法證明每個版本都一樣(CI 的 ubuntu 上的 git 比開發機新),所以斷言是「至少一次帶帳密的重試,而且每一次都是頁面上輸入的那組」。
+- **頁面上看到的是 `askpass.sh` 切開後的 git 提示。** `askpass.sh` 用沒加引號的 `$*` 把 `Username for 'http://127.0.0.1:…': ` 拆成三個參數,`askpassMain` 取第一個字當 `placeholder`(`Username`、`Password`),取引號裡的 URL 組成標題 `GING: <url>`。所以「先問 Username、再問 Password」是讀 overlay 的 placeholder 與標題,第二題的 URL 帶著第一題填的帳號。這是產品現有的行為(沿用 VS Code 的 askpass),本票不改;同一個拆字讓含空白的提示直接失敗,另開 [#445](https://github.com/0Miles/vscode-ging-git-view/issues/445),修正時這條 E2E 的斷言要跟著改。
+- **錯誤框是圖形自己的 `#dialog`,不是原生對話框。** 從圖形的 Fetch 按鈕觸發,askpass 的 overlay 正好疊在進度框上(ADR-0031 的 #390 補記),失敗時進度框換成 `Unable to fetch` 的錯誤框。斷言只看標題與有沒有 `.errorReason`,不比對 git 的 stderr 全文。
+- **`wasApplied` 不掛測試用的全域來讀,讀它的後果。** rebase 對話框把中間那個 commit 取消勾選,只有 GING 自己寫的 todo 能表達;helper 沒跑的話,git 用自己的 todo 留下每個 commit,`rebaseInteractive` 會因 `wasApplied` 為 false 而失敗。所以「中間那個 commit 不見了、前後兩個照順序留著、沒有錯誤框、log 沒有 `ERROR:`」就是 `wasApplied` 為 true。
+- **fixture 的隔離補上 `XDG_CONFIG_HOME` 與 `GIT_CONFIG_GLOBAL`,兩者管的對象不同。** git 的全域設定有兩處:`$HOME/.gitconfig` 與 `$XDG_CONFIG_HOME/git/config`。`isolatedGitEnv` 原本只把 `HOME` / `USERPROFILE` 指到暫存目錄;開發機上設了 `XDG_CONFIG_HOME` 時,git 仍會讀那裡的 `git/config`,裡面若有 credential helper(例如 GCM),它會在 askpass 之前回答,401 就不會走到 askpass(實測可重現)。
+  - **app 的 git**:core 的 `gitSpawn.ts` 會把 `GIT_CONFIG_GLOBAL` 等設定覆寫變數從子行程的環境裡拿掉(`STRIPPED_GIT_ENV`),所以 app 的 git 拿到的隔離只有它留下的那些:`GIT_CONFIG_NOSYSTEM=1`、`HOME` / `USERPROFILE`(空的 `.gitconfig`),以及現在指到同一個暫存目錄底下 `.config` 的 `XDG_CONFIG_HOME`(那裡沒有 `git/config`)。
+  - **fixture 自己的 git**:另外把 `GIT_CONFIG_GLOBAL` 明確指到那個暫存的空 `.gitconfig`(Windows 上開不了 `/dev/null`,所以用空檔)。app 的 git 看不到這個變數,它只是讓 fixture 這一側不必依賴上面兩處路徑的推導。
+- **helper script 在建置時就設成可執行。** `askpass.sh` 等在 repo 裡是 644,git 在 Windows 以外會直接 exec `GIT_ASKPASS`,所以要有執行權限。`AskpassManager` 與 `SequenceEditorManager` 建構時會 chmod,但不等它完成;`apps/desktop/esbuild.js` 複製到 `out/` 時直接 `chmod 755`,CI 的 ubuntu 不必靠那個時間差。
+- **rebase 的 fixture repo 自己設 `user.name` / `user.email`(repo 層級)。** fixture 的 git 用 `GIT_AUTHOR_*` / `GIT_COMMITTER_*` 環境變數提交,app 的 git 拿不到它們,而隔離後的設定裡沒有任何身分,rebase 重放 commit 時會停在 `unable to auto-detect email address`。
+
+## 補記(2026-11-17,#396)
+
+**應用程式選單長成 desktop 上 core 命令服務的完整入口(不做 command palette)。** [appMenu.ts](../../apps/desktop/src/appMenu.ts) 的 template 仍是純資料:(macOS 才有的)app 選單、File(#394 的三項、設定…、Close / Quit)、Edit、Repository、View、Window、Help。Repository 底下是 Fetch、Fetch 特定 remote、Manage Remotes、Show/Hide Remote Branches、Manage Pull Request Providers、View Reflog、Show Statistics、Set Git User Details、Open in Terminal;Help 底下是 Version Information。
+
+- **四條規則的落點。** 一、每個 GING 自己的項目(含 app / File / Repository / View / Help 這幾個子選單)都有穩定的 `id`,列在 `MENU_IDS`;Electron 的 role 項目與分隔線沒有。二、命令不收 click 傳進來的 window(`MenuItem.click()` 什麼都不傳),而是在被按下的那一刻自己找目標:main process 的 `menuCommands`。三、E2E 用 `getMenuItemById(id).click()` 觸發，旁邊另外讀 `enabled`([appMenu.spec.ts](../../apps/desktop/e2e/appMenu.spec.ts))。四、每個 `id` 的 label key、accelerator、在哪幾種焦點下 enabled,由 [appMenu.test.ts](../../apps/desktop/tests/appMenu.test.ts) 以一張表逐項驗。
+- **「目前聚焦的分頁」不經過 `BrowserWindow.getFocusedWindow()`。** 票面的規則(聚焦的視窗 → 最後聚焦的 → Welcome page)寫在 #393 之前，那時假設一個視窗一個圖形。#393 之後 app 只有一個帶分頁的主視窗，設定與統計視窗都不是圖形視窗，所以不論鍵盤在哪個視窗，目標都是主視窗聚焦的 Tab;沒有 Tab 時是 Welcome page。這等於票面規則在單一主視窗下的結果，少了一層會指向設定視窗的查詢。之後若有第二個主視窗，再把「最後聚焦的主視窗」加回這裡。
+- **焦點分三種(`MenuFocus`):`graph`、`notice`、`welcome`。** 由聚焦的 Tab 決定(`menuFocus`):有圖形、顯示說明頁(重啟時路徑已不在的 Tab)、或沒有 Tab。enabled 規則:Repository 的圖形項目只在 `graph`;會問問題的 app 層命令(Set Git User Details、Manage Pull Request Providers)在 `graph` 與 `welcome`,`notice` 時關掉 —— 說明頁背後沒有實例，也沒有 host prompt 的 listener,而 Welcome page 被那個 Tab 的 view 蓋住，問在那裡使用者看不到;設定…、Version Information 與 #394 的項目一律可按。Version Information 只用系統對話框，所以 `notice` 時用 Welcome page 那一份命令照樣能回答。
+- **沒有 Tab 時，命令問在 Welcome page。** main process 用 Welcome page 的 `Prompts` 建一份 [appCommands.ts](../../apps/desktop/src/appCommands.ts)(current repository 是 `null`,git client 不帶任何實例的 askpass route);有 Tab 時用該 Tab 實例裡同一個工廠建的那一份。Set Git User Details 在沒有存放庫時只剩「全域」可選，這是 core 原本的行為(ADR-0027)。
+- **Show Statistics 開在自己的視窗,Open in Terminal 交給聚焦 Tab 實例自己的 `Opener.openTerminal`(#391)。** 統計頁見 ADR-0031 的同日補記。終端機的名稱與圖形工具列的 Terminal 鈕相同(`GING: <資料夾名>`),也同樣只開在該 Tab 的存放庫裡。E2E 照 #391 的做法替換 `child_process.spawn` 裡 detached 的那一次，讀它被要求在哪個資料夾開終端機，不真的開。
+- **accelerator 只有兩個:** 設定…的 `CmdOrCtrl+,`(#397),開啟資料夾…的 `CmdOrCtrl+O`。其餘命令沒有,表上明寫「沒有」,誤加一個會讓測試紅。
+- **選單不得拿走圖形自己的快捷鍵。** 選單的 accelerator 比頁面先拿到按鍵，所以圖形四個快捷鍵的預設值(`shortcuts.*`:`CTRL/CMD` 加 F、R、H、S;圖形讀 Ctrl 也讀 Cmd,不看 Shift)一個都不能出現在選單上。Electron 的 role 會帶自己的 accelerator,而它們不在 template 的資料裡，所以 appMenu.test.ts 把用到的 role 的預設 accelerator 照 Electron 45 的 `roles.ts` 寫成一張表，三個平台各驗一次;帶 Alt 的組合不算(Alt 在 macOS 會讓頁面讀到另一個字元，在 Windows 是 AltGr)。因此:
+  - **View 選單照 `viewMenu` role 的內容寫出來，拿掉 Reload 與 Force Reload**(`CmdOrCtrl+R` 是圖形的 refresh)。重新載入頁面也不是使用者要的「重新整理」;要重新整理按圖形的鈕或 `CmdOrCtrl+R`。
+  - **macOS 的 app 選單照 `appMenu` role 寫出來,Hide 換成 GING 自己的項目(`ging.hide`,呼叫 `app.hide()`),沒有 accelerator。** role 的 Hide 帶 Cmd+H,那是 scrollToHead 的預設。讓圖形贏，是因為它是使用者可以改的設定、而且在 VS Code 那邊行為一樣;Hide Others(Cmd+Alt+H)留著。
+  - **macOS 的 View 選單不放 Toggle Full Screen**:它的 Control+Command+F 會被圖形當成 Find(圖形讀 Ctrl 也讀 Cmd)。macOS 自己會在選單裡放 Enter Full Screen,視窗的綠色按鈕也照常可用。其他平台的 F11 不衝突，留著。
+  - 使用者把某個圖形快捷鍵**改成**選單已經占用的鍵(設定的選項有 A–Z),選單贏。這只發生在使用者自選的鍵上，不改設定的 schema:它是兩個宿主共用的，在 VS Code 那邊這些鍵並沒有被占用。
+- **macOS 慣例:** 設定…放在 app 選單(其他平台照舊在 File),Help 選單帶 `role: "help"`,macOS 才把它當成 Help 選單(有搜尋欄)。
+- **label 裡的 `&`。** Windows 與 Linux 的原生選單把 `&` 當成 mnemonic 的標記而不顯示，所以 template 在 macOS 以外把 label 裡的 `&` 寫成 `&&`(「Set Git User Name & Email...」、Open Recent 的路徑);macOS 照原樣。
+
+**給 #394 的契約(開啟資料夾、最近使用清單、init)。** id、label 與位置已在 template 裡，#394 只要在 main process 交出 handler:
+
+- `AppMenuCommands.openFolder?()` → `ging.openFolder`,「開啟資料夾...」,`CmdOrCtrl+O`。O 不是任何圖形快捷鍵的預設值，但設定允許使用者把快捷鍵改成 `CTRL/CMD + O`;那時選單贏，理由同上一段的最後一條。
+- `AppMenuCommands.openRecent?(repo)` 加上 `AppMenuState.recentRepos`(最近的在前)→ 子選單 `ging.openRecent`,每一項的 id 是 `openRecentId(repo)`(`ging.openRecent:<路徑>`),label 是路徑;清單是空的時子選單在但不能按。
+- `AppMenuCommands.initRepository?()` → `ging.initRepository`,「初始化存放庫...」。
+- 三個 handler 都是選填:沒給就不出現在選單裡，給了才出現在 File 的最上面，和下面那一組(設定…,macOS 是 Close Window)之間隔一條分隔線。它們一律 enabled;需要別的規則時改 template 與表，不在 main process 改已建好的選單。handler 同樣不收 window,要問就問在 Welcome page 或聚焦的 Tab(`menuCommands` 的 `asking` 是現成的做法)。最近使用清單改變時，main process 要重建選單(`syncMenu`)。
+
 ## 補記(2026-11-17,#394)
 
-**資料夾對話框經過同一個 seam:`NativeDialogs` 多了 `showOpenDialog`,E2E 用 `electronApp.evaluate` 換掉 `dialog.showOpenDialog`,直接回答一個路徑。** main process 的 `dialogsFor(owner)` 在呼叫時才去拿 `dialog.showOpenDialog`,所以換掉之後，開啟資料夾與初始化存放庫(Welcome page 的按鈕與選單的 `ging.openFolder` 都一樣)問到的就是測試的版本;換上的版本同時記下被問的選項，測試因此也驗按鈕文字。`Prompts` 只拿它用得到的 `showMessageBox` 與 `showSaveDialog`,它的測試不必替一個用不到的對話框寫假的。
+**資料夾對話框經過同一個 seam:`NativeDialogs` 多了 `showOpenDialog`,E2E 用 `electronApp.evaluate` 換掉 `dialog.showOpenDialog`,直接回答一個路徑。** main process 的 `dialogsFor(owner)` 在呼叫時才去拿 `dialog.showOpenDialog`,所以換掉之後，開啟資料夾與初始化存放庫(Welcome page 的按鈕與選單的 `ging.openFolder`、`ging.initRepository` 都一樣)問到的就是測試的版本;換上的版本同時記下被問的選項，測試因此也驗按鈕文字。`Prompts` 只拿它用得到的 `showMessageBox` 與 `showSaveDialog`,它的測試不必替一個用不到的對話框寫假的。
 
 - **最近使用清單的 E2E 要先關掉所有 Tab 再重啟。** Tab 會在重啟時還原(#393),而 Welcome page 只在沒有 Tab 時看得到;所以「清單在重啟後還在」的做法是開兩個 repo、把 Tab 都關掉、結束 app、刪掉其中一個資料夾、再啟動。清單讀的是頁面上的列，資料夾不在的那一列讀它的「Not found」標記，不讀內部狀態。
 - **流程本身(選了資料夾之後做什麼)用 vitest 測。** [repoOpening.ts](../../apps/desktop/src/repoOpening.ts) 把對話框、資料夾檢查、core 的 init 與開 Tab 都當成注入的函式，[repoOpening.test.ts](../../apps/desktop/tests/repoOpening.test.ts) 逐一驗取消、不是存放庫時提議初始化、清單上的資料夾已經不是存放庫時不改開它外層的存放庫;E2E 只走一次整條路徑。
+
+- **選單的三項照 #396 的契約接上。** main process 的 `menuCommands` 交出 `openFolder`、`openRecent`、`initRepository`,`recentRepos` 是 Welcome page 同一份清單的路徑(最多 20 個);開成 Tab 與 known set 改變之後重建選單。資料夾問在系統對話框，所以三項不論有沒有 Tab 都不需要頁面。[welcome.spec.ts](../../apps/desktop/e2e/welcome.spec.ts) 用 `getMenuItemById` 觸發：有 Tab 時的開啟資料夾與初始化，以及 Open Recent 的順序與點下去聚焦既有的 Tab。

@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import type { HostLogger, L10n, Opener, Prompts } from "@ging/core/host/ports";
+import { windowsVariable } from "@ging/desktop/terminal";
 import { webUrl } from "@ging/shared/webUrl";
 
 /**
@@ -175,7 +176,10 @@ export function opensDirectly(
   const ext = path.extname(name).toLowerCase();
   if (!OPENED_DIRECTLY.has(ext)) return false;
   if (platform === "win32") {
-    return !(env.PATHEXT ?? DEFAULT_PATHEXT).toLowerCase().split(";").includes(ext);
+    return !(windowsVariable(env, "PATHEXT") ?? DEFAULT_PATHEXT)
+      .toLowerCase()
+      .split(";")
+      .includes(ext);
   }
   return (mode & EXECUTE_BITS) === 0;
 }

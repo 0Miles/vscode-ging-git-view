@@ -53,9 +53,10 @@ import {
 } from "@ging/webview/desktop/window/protocol";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 
-import { appMenuTemplate } from "./appMenu";
+import { type AppCommands, createAppCommands } from "./appCommands";
+import { type AppMenuCommands, appMenuTemplate, menuFocus } from "./appMenu";
 import { CHANNELS } from "./channels";
-import { createGraphInstance, type GraphInstance } from "./graphInstance";
+import { createGraphInstance, type GraphInstance, type InstanceCommands } from "./graphInstance";
 import {
   type LaunchCommandLine,
   type LaunchRequest,
@@ -76,6 +77,7 @@ import {
 } from "./settings/settingsPage";
 import { createSettingsWindow, type SettingsWindow } from "./settingsWindow";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
+import { createStatisticsWindow, type StatisticsWindow } from "./statisticsWindow";
 import { createTabWindow, layoutTabViews, type TabPageLike, type TabWindow } from "./tabWindow";
 import { launchTerminal, terminalLaunches } from "./terminal";
 import { type Theme, themeFor } from "./theme";
@@ -93,6 +95,8 @@ const HOST = "app";
 const PAGE_URL = `${SCHEME}://${HOST}/`;
 /** The settings page's path (#397), in a window of its own. */
 const SETTINGS_PATH = "/settings";
+/** The Statistics page's path (#396), in a window of its own. */
+const STATISTICS_PATH = "/statistics";
 /** A Tab's page's path, the Tab's id in `TAB_ID_PARAM` (#393). */
 const TAB_PATH = "/tab";
 const TAB_ID_PARAM = "id";
@@ -158,17 +162,18 @@ const systemOs: OsShell = {
     )
 };
 
-/** Serve the app: `pageFor` builds the page a URL of it asks for, or answers
- *  null for a URL that is no page. */
-function serveApp(pageFor: (url: URL) => PageContent | null): void {
+/** Serve the app: `pageFor` builds the page a URL of it asks for — a page of
+ *  the desktop entry, or a whole document of its own — or answers null for a
+ *  URL that is no page. */
+function serveApp(pageFor: (url: URL) => PageContent | { document: string } | null): void {
   protocol.handle(SCHEME, (request) => {
     const url = new URL(request.url);
     if (url.host !== HOST) return new Response(null, { status: 404 });
     const content = pageFor(url);
     if (content !== null) {
-      return new Response(buildDesktopPage(currentTheme(), content), {
-        headers: { "content-type": "text/html; charset=utf-8" }
-      });
+      const html =
+        "document" in content ? content.document : buildDesktopPage(currentTheme(), content);
+      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
     }
     const file = url.pathname.slice(1);
     if (!SERVED_FILES.has(file)) return new Response(null, { status: 404 });
@@ -249,6 +254,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   let shared: SharedServices | null = null;
   let win: BrowserWindow | null = null;
   let settingsWindow: SettingsWindow | null = null;
+  let statisticsWindow: StatisticsWindow | null = null;
   /** The window's Tabs (tabWindow.ts), once the window is there. */
   let tabWindow: TabWindow<WebContentsView, TabPage> | null = null;
   /** Why the Welcome page shows no repository: a launch named a path that is
@@ -259,6 +265,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   /** Asked on the Welcome page, when there is no Tab to ask in: #394's and
    *  #396's commands ask here. */
   let welcomePrompts: DesktopPrompts | null = null;
+  /** The menu's commands that need no graph, as the Welcome page runs them. */
+  let welcomeCommands: AppCommands | null = null;
   /** The Tab whose view last had the keyboard handed to it. */
   let keyboardTab: number | null = null;
   /** The recently opened list, in the order it was opened in (#394). */
@@ -277,22 +285,74 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   /** The window, while it is there to draw in. */
   const liveWindow = () => (win !== null && !win.isDestroyed() ? win : null);
 
+  /** The application menu's commands. Each looks up where it runs when it is
+   *  clicked, not when the menu was built, and never from the window a click
+   *  hands it — `MenuItem.click()` hands none (#396). The app has one window
+   *  with Tabs (#393), so whichever window has the keyboard — a settings or
+   *  statistics window included — the target is that window's focused Tab, or
+   *  with no Tab its Welcome page. The template enables only what has a
+   *  target; one that is gone by the click does nothing. */
+  const menuCommands: AppMenuCommands = (() => {
+    /** `run` on the focused Tab's instance, if there is one. */
+    const onGraph =
+      (run: (commands: InstanceCommands) => unknown): (() => void) =>
+      () => {
+        const commands = focusedInstance()?.commands;
+        if (commands) void run(commands);
+      };
+    /** `run` where it can ask: the focused Tab's instance, or — with no Tab —
+     *  the Welcome page. A Tab with a notice has neither. */
+    const asking =
+      (run: (commands: AppCommands) => unknown): (() => void) =>
+      () => {
+        const focused = focusedTab();
+        const commands =
+          focused === null ? welcomeCommands : focused.content.page.instance?.commands;
+        if (commands) void run(commands);
+      };
+    return {
+      openSettings: () => settingsWindow?.open(),
+      fetch: onGraph((c) => c.fetch()),
+      fetchRemote: onGraph((c) => c.fetchRemote()),
+      manageRemotes: onGraph((c) => c.manageRemotes()),
+      toggleRemoteVisibility: onGraph((c) => c.toggleRemoteVisibility()),
+      viewReflog: onGraph((c) => c.viewReflog()),
+      showStatistics: () => {
+        const tab = focusedTab();
+        const commands = tab?.content.page.instance?.commands;
+        if (!tab || !commands) return;
+        void commands.statistics().then((figures) => {
+          if (figures !== undefined) statisticsWindow?.show(figures, tab.repo);
+        });
+      },
+      openTerminal: onGraph((c) => c.openTerminal()),
+      setGitUserDetails: asking((c) => c.setGitUserDetails()),
+      managePullRequestProviders: asking((c) => c.managePullRequestProviders()),
+      // In a system dialog, so it needs no page: the Welcome page's will do
+      // behind a notice too.
+      hideApp: () => app.hide(),
+      versionInfo: () => {
+        const commands = focusedInstance()?.commands ?? welcomeCommands;
+        void commands?.versionInfo();
+      },
+      // #394's: the folder is asked in the system's own dialog, so these need
+      // no page, Tab or no Tab.
+      openFolder: () => void repoOpening?.openFolder(),
+      openRecent: (repo) => void repoOpening?.openRecent(repo).finally(checkRecentWhileShown),
+      initRepository: () => void repoOpening?.initRepo()
+    };
+  })();
+
   /** The application menu, built anew for what the window shows now: which
    *  entries are enabled is the template's to say (appMenu.ts). Not before the
    *  shared services, whose language it speaks. */
   const syncMenu = () => {
     if (shared === null) return;
-    const template = appMenuTemplate(
-      shared.l10n,
-      {
-        // The focused Tab's, looked up when clicked: a click handed no window
-        // still finds it (#396).
-        fetchRemote: () => void focusedInstance()?.fetchRemote(),
-        openSettings: () => settingsWindow?.open()
-      },
-      process.platform,
-      { hasGraph: focusedInstance() !== null }
-    );
+    const template = appMenuTemplate(shared.l10n, menuCommands, process.platform, {
+      focus: menuFocus(focusedTab()?.content.page ?? null),
+      // Open Recent's entries: the Welcome page's list, as it stands.
+      recentRepos: recent?.list().map((entry) => entry.path) ?? []
+    });
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   };
 
@@ -303,8 +363,9 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     return {
       recent: recent.list(),
       strings: {
-        openFolder: l10n.t("desktop.welcome.openFolder"),
-        initRepo: l10n.t("desktop.welcome.initRepository"),
+        // The menu's words: the same entries (#396).
+        openFolder: l10n.t("desktop.menu.openFolder"),
+        initRepo: l10n.t("desktop.menu.initRepository"),
         recent: l10n.t("desktop.welcome.recent"),
         noRecent: l10n.t("desktop.welcome.noRecent"),
         missing: l10n.t("desktop.welcome.missing"),
@@ -424,6 +485,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     welcomeNotice = null;
     tabWindow.openRepo(known);
     recent?.opened(known);
+    // Open Recent's order changed after the Tabs' did, which rebuilt the menu.
+    syncMenu();
   };
 
   /** Take `repo` off the recent list — unless a Tab has it open: the Tab's
@@ -540,7 +603,12 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       helperDir: __dirname,
       logger,
       clipboard: createDesktopClipboard(clipboard),
-      os: systemOs
+      os: systemOs,
+      hostVersions: [
+        { name: "GING", version: app.getVersion() },
+        { name: "Electron", version: process.versions.electron },
+        { name: "Chromium", version: process.versions.chrome }
+      ]
     });
     shared = host;
     /** Where every link out of a page of the app goes: the browser, when it is
@@ -569,6 +637,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       // Only ever a key the app has: the one Show Setting names.
       valueOf: (key) => host.settings.get(key)
     });
+    statisticsWindow = createStatisticsWindow({
+      url: `${PAGE_URL}${STATISTICS_PATH.slice(1)}`,
+      lang: app.getLocale(),
+      createWindow,
+      l10n: host.l10n,
+      opener: linksOut
+    });
     // Its Settings… entry (CmdOrCtrl+,) opens the window above.
     syncMenu();
     const settingsPage = (): PageContent => ({
@@ -587,6 +662,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     serveApp((url) => {
       if (url.pathname === "/") return { window: true };
       if (url.pathname === SETTINGS_PATH) return settingsPage();
+      if (url.pathname === STATISTICS_PATH) {
+        const document = statisticsWindow?.document(currentTheme()) ?? null;
+        return document === null ? null : { document };
+      }
       if (url.pathname === TAB_PATH) {
         const id = Number(url.searchParams.get(TAB_ID_PARAM));
         return (
@@ -604,6 +683,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     // recent list is the known set (#394).
     host.repoSource.onDidChangeRepos(() => {
       postWindowState();
+      syncMenu();
       checkRecentWhileShown();
     });
 
@@ -623,6 +703,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
           }
         }
       }
+    });
+    welcomeCommands = createAppCommands(host, {
+      prompts: welcomePrompts,
+      // No repository: Set Git User Details offers every repository alone.
+      currentRepo: () => null,
+      gitClientFor: createRepoGitClients({ gitPath: host.gitPath }).gitClientFor,
+      revealSetting: (key) => settingsWindow?.reveal(key)
     });
 
     /** A graph on `repo` in `view`, its Current repository kept in `state`. */

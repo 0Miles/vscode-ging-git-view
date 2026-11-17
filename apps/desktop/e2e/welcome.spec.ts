@@ -18,6 +18,18 @@ const APP_DIR = path.resolve(__dirname, "..");
 /** In Node, the `electron` package is the path to its binary. */
 const ELECTRON = require("electron") as unknown as string;
 const OPEN_FOLDER = "ging.openFolder";
+const OPEN_RECENT = "ging.openRecent";
+const INIT_REPOSITORY = "ging.initRepository";
+
+/** The menu entry `id`, clicked as the menu Electron built would click it,
+ *  and whether it was enabled (a direct click does not check). */
+function clickMenu(electronApp: ElectronApplication, id: string): Promise<boolean | null> {
+  return electronApp.evaluate(({ Menu }, wanted) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(wanted);
+    item?.click();
+    return item ? item.enabled : null;
+  }, id);
+}
 
 let scratch: string;
 let env: NodeJS.ProcessEnv;
@@ -154,21 +166,34 @@ test("Open Folder opens the folder's repository in a Tab, from the Welcome page 
     { properties: ["openDirectory", "createDirectory"], buttonLabel: "Open" }
   ]);
 
-  // With a Tab covering the Welcome page, the menu's entry is the way.
+  // With a Tab covering the Welcome page, the menu's entry is the way (#396).
   await answerFolderDialog(electronApp, second.path);
-  expect(
-    await electronApp.evaluate(({ Menu }, id) => {
-      const item = Menu.getApplicationMenu()?.getMenuItemById(id);
-      item?.click();
-      return item?.enabled;
-    }, OPEN_FOLDER)
-  ).toBe(true);
+  expect(await clickMenu(electronApp, OPEN_FOLDER)).toBe(true);
   const secondPage = await focusedTabPage(electronApp, 2);
   await expect(secondPage.locator("#commitTable tr.commit")).toHaveCount(second.commits.length);
   expect((await stripTabs(window)).map(({ title, focused }) => ({ title, focused }))).toEqual([
     { title: path.basename(first.path), focused: false },
     { title: path.basename(second.path), focused: true }
   ]);
+
+  // Open Recent lists both, the last opened first; its entry for the first
+  // brings that one's Tab forward.
+  const [firstPath, secondPath] = [spelled(first.path), spelled(second.path)];
+  await expect
+    .poll(() =>
+      electronApp.evaluate(
+        ({ Menu }, id) =>
+          Menu.getApplicationMenu()
+            ?.getMenuItemById(id)
+            ?.submenu?.items.map((item) => item.id),
+        OPEN_RECENT
+      )
+    )
+    .toEqual([`${OPEN_RECENT}:${secondPath}`, `${OPEN_RECENT}:${firstPath}`]);
+  expect(await clickMenu(electronApp, `${OPEN_RECENT}:${firstPath}`)).toBe(true);
+  await expect
+    .poll(async () => (await stripTabs(window)).map(({ focused }) => focused))
+    .toEqual([true, false]);
 
   const logged = await closeAndReadLog();
   expect(logged).toContain(`open folder: opening ${spelled(first.path)}`);
@@ -264,8 +289,17 @@ test("Initialize Repository makes a repository in the folder chosen and opens it
   // A repository with no commit yet: nothing to list, nothing gone wrong.
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(0);
 
+  // With that Tab open, from the menu's entry (#396): a folder not there yet.
+  const another = path.join(scratch, "another-project");
+  await answerFolderDialog(electronApp, another);
+  expect(await clickMenu(electronApp, INIT_REPOSITORY)).toBe(true);
+  await expect
+    .poll(async () => (await stripTabs(window)).map(({ title }) => title))
+    .toEqual(["new-project", "another-project"]);
+
   const logged = await closeAndReadLog();
   expect(logged).toContain(`init: made a repository in ${spelled(folder)}`);
+  expect(logged).toContain(`init: made a repository in ${spelled(another)}`);
   expect(logged).not.toContain("ERROR:");
 });
 
