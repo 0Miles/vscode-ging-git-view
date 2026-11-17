@@ -204,3 +204,14 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **「顯示設定」不是 port,是命令服務的 `revealSetting` hook。** 理由同 remote 命令的 `refreshGraph`:它是宿主交給這個服務的一個動作，不是 dispatch 要的能力，也避免和同時在改 `Opener` 的 #391 撞在同一個 interface。VS Code 是 `workbench.action.openSettings`;桌面版是設定視窗的 `reveal(key)`:沒開著就以 `?setting=` 開一個新視窗，開在那個設定那一列;已經開著就不重新載入(會丟掉其他列裡打了還沒送出的內容，例如還不是合法 JSON 的文字),而是把那個設定現在的值以 `settingUpdated` 送過去，再送 `revealSetting` 讓頁面捲到那一列並標示出來。
 - **桌面版寫入後沒有推送給各 graph instance。** `pullRequests.providers` 每次建立 pull request 時才讀，`pushSettingChange` 對它本來就什麼都不做。設定視窗若已開著而使用者沒有按「顯示設定」,它顯示的仍是舊值，這是設定頁本身的問題(它只聽自己寫入的回覆),見 #446。
 - **`MessageHandlerDeps.configurePullRequestProvider` 仍是 hook,但桌面版不再是 stub。** 它在桌面版直接呼叫這個命令服務，問在發起 Create Pull Request 的那個 instance 的頁面上。上面「為什麼未來的讀者會困惑」第二條說它跳回的是 VS Code 自己的 QuickPick 命令，現在兩個宿主跑的是同一份流程;它仍是 hook,是因為 VS Code 那邊照舊經由已註冊的命令執行，命令面板的入口與錯誤框的按鈕走同一條路。
+
+## 補記(2026-11-17,#403)
+
+**`openScmView` 在桌面版不再是 stub:它打開圖形旁邊的 working tree 面板(ADR-0031 的同日補記)。** 上面 #391 那張 hook 表的 `openScmView` 一列由本票取代。它仍是 hook,不是 port:它跳回的是宿主自己的畫面,VS Code 是原始檔控制檢視,桌面版是同一頁裡的面板。
+
+- **working tree 的 git 邏輯在 core 的 [workingTreeService.ts](../../packages/core/src/extension/workingTreeService.ts),不是 port,也不進 dispatch。** 它是一個命令服務(status、整檔 stage / unstage、commit),依賴的只有 git client、`signCommits()` 與 `RunRepoMutation`,用法跟 fetch 服務一樣。面板的訊息不是 `RequestMessage`(ADR-0031),所以桌面版的 graph instance 在交給 dispatch 之前就把它們攔下,交給這個服務([workingTree.ts](../../apps/desktop/src/workingTree.ts) 做訊息與服務之間的轉換)。`.oxlintrc.json` 的規則因此不必為桌面版開任何白名單:app 只 import 命令服務,不碰 `backend/actions` 或 `queries`。
+- **每個改動都經過 `runRepoMutation`:watcher 在改動期間靜音,做完之後圖形重新整理。** commit 之後新的 commit 出現在圖形上,靠的就是這一次重新整理。graph instance 原本只為 fetch 服務建一個 `runRepoMutation`,現在兩個服務共用同一個。
+- **status 用 `git --no-optional-locks status --porcelain=v2 -z` 讀。** 一般的 `git status` 可能順手刷新並寫回 index,寫的期間握著 `index.lock`,使用者接著按的 stage 或 commit 就會被拒(#451 是圖形自己那一份 `git status` 的同一個競爭);寫回 index 也會叫醒檔案監看,讓面板與圖形再讀一次。
+- **簽章規則同 cherry-pick、revert、merge、rebase:`signCommits` 為 true 時加 `-S`,否則不加任何旗標,交給 git 的 `commit.gpgsign`。** 沒有金鑰管理 UI,也沒有 pinentry 整合(#291 的「不做」)。
+- **「有沒有 commit」看 HEAD,不看 git 的結束碼。** 沒有東西可以 commit 時,git 只在 stdout 說一句、stderr 什麼都沒有,而 simple-git 對這種執行一律 resolve。所以 `commitChanges` 比較 commit 前後的 HEAD,沒變就拿 git 說的那句 reject。
+- **衝突檔(unmerged)單獨列成一組,沒有任何按鈕。** 整檔 stage 一個衝突檔就是把它標成已解決,那是 #410 的範圍;本票只讓它們不從清單裡消失。amend 與 sign-off(#407)會在同一個 commit 區加控制項,`commitChanges` 的輸入是物件,加欄位不必改呼叫端。
