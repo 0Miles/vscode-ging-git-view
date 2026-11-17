@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveActionTargets } from "@ging/core/extension/branchActionTargets";
-import { buildGroupedBranchRoots } from "@ging/core/extension/branchTree";
+import { resolveActionTargets } from "@ging/shared/backend/utils/branchActionTargets";
+import { buildGroupedBranchRoots } from "@ging/shared/backend/utils/branchTree";
 
 describe("resolveActionTargets", () => {
   it("returns the selected leaves in tree order, ignoring folder and group nodes", () => {

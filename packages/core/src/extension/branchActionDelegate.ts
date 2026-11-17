@@ -21,7 +21,7 @@ import type {
   DelegatedMessage
 } from "@ging/shared/types";
 
-import type { BranchActionTarget, BranchActionTargets } from "./branchActionTargets";
+import type { BranchActionTarget, BranchActionTargets } from "@ging/shared/backend/utils/branchActionTargets";
 
 export type BranchActionDelegateDeps = {
   /** The branch a single-selection command argument points at, or null when it

@@ -1,7 +1,9 @@
 /**
  * Pure (vscode-free) derivation of a batch action's targets from the Branches
  * side-view selection. Kept free of any `vscode` import so it can be unit-tested
- * in the fast backend test project, like its neighbours in this directory.
+ * in the fast backend test project. In `@ging/shared` beside `branchTree`, for
+ * the same reason: the desktop host resolves a batch's targets in the webview,
+ * where its side view is drawn (#399).
  */
 
 import { batchSkipReason } from "@ging/shared/backend/utils/refActionCatalogue";

@@ -7,7 +7,7 @@ import {
 import type {
   BranchActionTarget,
   BranchActionTargets
-} from "@ging/core/extension/branchActionTargets";
+} from "@ging/shared/backend/utils/branchActionTargets";
 import type { DelegatedMessage } from "@ging/shared/types";
 
 const REPO = "/repo";
