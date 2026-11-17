@@ -119,10 +119,12 @@ describe("the reads the graph makes in the background", () => {
 
     expect(result).toEqual({ operation: "merge", conflictedFiles: ["f"] });
     expect(locks).toEqual([]);
-    // The control: the same diff, without NO_INDEX_REFRESH, takes it.
-    const control = await locksTakenBy(async () =>
-      git(["diff", "--name-only", "--diff-filter=U"], repo)
-    );
+    // The control: a status read the plain way takes it, in this same state,
+    // so the watch does see a lock taken here. The same diff without
+    // NO_INDEX_REFRESH takes it too on git 2.40.1 (Windows), and this test
+    // turned red there with NO_INDEX_REFRESH emptied; git 2.56.1 (CI's ubuntu)
+    // took none, so the diff cannot be the control everywhere.
+    const control = await locksTakenBy(() => simpleGit(repo).status());
     expect(control.locks).toEqual(["index.lock"]);
   });
 
