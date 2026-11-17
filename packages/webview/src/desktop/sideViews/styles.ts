@@ -8,7 +8,12 @@
  * which measures the window's scroll — keeps the document's scroll and loses
  * only the column's width. The two things of the graph's that span the window
  * (the docked Commit Details View and `#scrollShadow`) give up the same width
- * on their left; their right edges are the working tree's (#403). */
+ * on their left; their right edges are the working tree's (#403). The scroll
+ * shadow is the one place the two columns meet: the working tree sizes it by
+ * `width`, which would carry it past the panel once its left edge moves, so
+ * with both columns out it is pinned by its two edges instead. */
+
+import { WORKING_TREE_WIDTH } from "@ging/webview/desktop/workingTree/workingTreePanel";
 
 /** The column's width, in CSS pixels. */
 export const SIDE_VIEW_WIDTH = 260;
@@ -18,6 +23,7 @@ export const SIDE_VIEW_STYLES = `
 body.gingSideViews { padding-left: var(--ging-side-view-width); }
 body.gingSideViews #commitDetails.docked { left: var(--ging-side-view-width); }
 body.gingSideViews #scrollShadow.active { left: var(--ging-side-view-width); right: 0; width: auto; }
+body.gingSideViews.workingTreeOpen #scrollShadow.active { right: ${WORKING_TREE_WIDTH}px; width: auto; }
 #sideViews {
   position: fixed; top: 0; bottom: 0; left: 0; width: var(--ging-side-view-width); box-sizing: border-box;
   display: flex; flex-direction: column; overflow: hidden; z-index: 10;

@@ -759,7 +759,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         // (ADR-0031).
         deliver: (message) => {
           if (isHostPromptReply(message)) prompts.receive(message);
-          else if (isSideViewRequest(message)) instance.sideView(message);
+          else if (isSideViewRequest(message)) void instance.sideView(message);
           else deliver(message);
         },
         asking: false,

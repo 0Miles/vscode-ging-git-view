@@ -16,19 +16,26 @@ import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
+import { createWorkingTreeService } from "@ging/core/extension/workingTreeService";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
-import { createDesktopOpener, notSupportedYet } from "@ging/desktop/ports/opener";
+import { createDesktopOpener } from "@ging/desktop/ports/opener";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
-import type { GitGraphViewState, GitRepoSet } from "@ging/shared/types";
+import type { GitGraphViewState, GitRepoSet, ResponseMessage } from "@ging/shared/types";
 import type {
   SideViewRequest,
   SideViewStateMessage
 } from "@ging/webview/desktop/sideViews/protocol";
+import {
+  isWorkingTreeRequest,
+  type WorkingTreeMessage,
+  type WorkingTreeRequest
+} from "@ging/webview/desktop/workingTree/protocol";
 
 import { type AppCommands, createAppCommands } from "./appCommands";
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
 import { createSideViews } from "./sideViews";
+import { answerWorkingTree, workingTreeStrings } from "./workingTree";
 
 type GraphInstanceOptions = {
   /** The repository it opens on, already checked (`repoToOpen`). */
@@ -60,7 +67,10 @@ export type GraphInstance = {
   /** What the application menu runs on it (#390, #396). */
   commands: InstanceCommands;
   /** What its page's side views asked (#399). */
-  sideView(message: SideViewRequest): void;
+  sideView(message: SideViewRequest): Promise<void>;
+  /** Open its page's working tree panel (#403), as the graph's Open Source
+   *  Control View does: for the application menu to offer. */
+  showWorkingTree(): void;
   dispose(): void;
 };
 
@@ -97,10 +107,13 @@ export function createGraphInstance(
   // And should the page still ask for another — it was shown none, but a
   // page is not to be taken at its word — the dispatch never hears it: the
   // Tab would end up on a repository another Tab may have open.
+  // The working tree panel's requests are not the graph's: answered here, by
+  // core's working tree service, and never handed to the dispatch (ADR-0031).
   const channel: WebviewChannel = {
     postMessage: (message) => page.postMessage(message),
     onDidReceiveMessage: (listener) =>
       page.onDidReceiveMessage((message) => {
+        if (isWorkingTreeRequest(message)) return answerPanel(message);
         if (message.command === "selectRepo" && message.repo !== repo) {
           if (message.repo) {
             logger.log(`tabs: the Tab on ${repo} stays on it, not ${message.repo}`);
@@ -136,6 +149,9 @@ export function createGraphInstance(
     sideViews.refresh();
   });
   avatarManager.registerBridge(bridge.post);
+  /** Its changes made outside the bridge: muted, then refreshed, as the
+   *  bridge's own are. */
+  const runRepoMutation = createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh });
 
   // What core's command services need of it: they change its repository
   // muted and refreshed around each change, as the bridge's own changes are.
@@ -145,11 +161,27 @@ export function createGraphInstance(
     gitClientFor: gitClients.gitClientFor,
     currentRepo: () => current,
     repoSource: shared.repoSource,
-    runRepoMutation: createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh })
+    runRepoMutation
   };
   // Its own auto-fetch timer, on its own current repository.
   const fetchService = createFetchService({ ...kitDeps, config });
   fetchService.restartAutoFetch();
+
+  // The working tree panel's (#403): its stage, unstage and commit refresh
+  // the graph after them, so a commit shows up there.
+  const workingTree = createWorkingTreeService({
+    git: () => gitClient.getInstance(),
+    repo: () => current,
+    signCommits: () => config.signCommits(),
+    runRepoMutation
+  });
+  /** What the panel and the host say to each other is no `ResponseMessage`:
+   *  posted past the type, as the host prompts are (ADR-0031). */
+  const postToPanel = (message: WorkingTreeMessage) =>
+    void page.postMessage(message as unknown as ResponseMessage);
+  const panelStrings = workingTreeStrings(l10n, process.platform);
+  const answerPanel = async (request: WorkingTreeRequest) =>
+    postToPanel(await answerWorkingTree(workingTree, panelStrings, request));
 
   // A Tab is one repository, and a repository is open in at most one Tab
   // (GLOSSARY.md; `branchFilterStore` counts on it). So the graph is shown
@@ -275,9 +307,9 @@ export function createGraphInstance(
       showAllBranches: async (requested) => sideViews.showAll(requested),
       // Core's own Manage Pull Request Providers (#398), asked in this page.
       configurePullRequestProvider: (host) => void appCommands.managePullRequestProviders(host),
-      // A stub, said to the user rather than failed, until the working
-      // tree's view (#403).
-      openScmView: () => notSupportedYet(notifier, "the source control view (#403)")
+      // The host's own source control view is the working tree panel beside
+      // the graph, in the same page (#403).
+      openScmView: () => postToPanel({ command: "workingTreeShow" })
     }
   );
 
@@ -311,6 +343,7 @@ export function createGraphInstance(
       }
     },
     sideView: (message) => sideViews.receive(message),
+    showWorkingTree: () => postToPanel({ command: "workingTreeShow" }),
     dispose: () => {
       sideViews.dispose();
       dispatch.dispose();

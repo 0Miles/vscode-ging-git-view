@@ -2,8 +2,9 @@
  * (`apps/desktop`, #386). Desktop-only screens and the listener for the
  * desktop host's own messages come in through here and nowhere else
  * (ADR-0031). Today: the graph view with its Branches and Remotes side views
- * (#399), the marker, the host prompt overlay (#390), the settings page (#397)
- * and the window's own page — the tab strip and the Welcome page (#393). */
+ * (#399), the marker, the host prompt overlay (#390), the settings page
+ * (#397), the window's own page — the tab strip and the Welcome page (#393) —
+ * and the working tree panel (#403). */
 
 import type { RequestMessage } from "@ging/shared/types";
 import { startGitGraphView } from "@ging/webview/gitGraphView";
@@ -15,6 +16,7 @@ import type { SettingsPageState } from "./settings/protocol";
 import { startSettingsPage } from "./settings/settingsPage";
 import { startSideViews } from "./sideViews/sideViews";
 import { startWindowPage } from "./window/windowPage";
+import { startWorkingTreePanel } from "./workingTree/workingTreePanel";
 
 /** Which entry the page loaded, for the desktop host's E2E to read (#386).
  *  The extension's bundle must never contain it
@@ -72,6 +74,8 @@ switch (document.documentElement.dataset.gingPage) {
       // A graph page is one with a host instance behind it, and the instance
       // is what asks (#390). The settings page has none, so asks nothing.
       listenForHostPrompts();
+      // Beside the graph, on its repository (#403).
+      startWorkingTreePanel();
     }
     break;
   case "settings": {

@@ -168,6 +168,27 @@ test("the docked Commit Details View and the scroll shadow give up the column's 
     { left: width, right: 1200 },
     { left: width, right: 1200 }
   ]);
+
+  // With the working tree panel out on the right too (#403), each keeps to
+  // the space between the two columns.
+  const between = await page.evaluate(() => {
+    const { document } = globalThis;
+    document.body.classList.add("workingTreeOpen");
+    return ["commitDetails", "scrollShadow"].map((id) => {
+      const { left, right } = document.getElementById(id)!.getBoundingClientRect();
+      return { left, right };
+    });
+  });
+  const panel = await page.evaluate(
+    () =>
+      globalThis.document.body.getBoundingClientRect().width -
+      parseFloat(globalThis.getComputedStyle(globalThis.document.body).paddingRight)
+  );
+  expect(panel).toBeLessThan(1200);
+  expect(between).toEqual([
+    { left: width, right: panel },
+    { left: width, right: panel }
+  ]);
 });
 
 test("a click on a branch asks the host for the filter it makes", async ({ page }) => {

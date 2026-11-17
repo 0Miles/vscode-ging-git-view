@@ -76,8 +76,9 @@ export type SideViewsDeps = {
 };
 
 export type SideViews = {
-  /** What the page's side views asked. */
-  receive(message: SideViewRequest): void;
+  /** What the page's side views asked. Settles once what it started has:
+   *  the reads it asked for sent to the page, the command it ran finished. */
+  receive(message: SideViewRequest): Promise<void>;
   /** Read both views again, as after anything that may move a ref. */
   refresh(): void;
   /** The repo state was written, by the views' toggles or by the graph's
@@ -241,9 +242,8 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     send();
   };
 
-  const refresh = (hard = false) => {
-    void readBranches(hard);
-    void readRemotes();
+  const refresh = async (hard = false) => {
+    await Promise.all([readBranches(hard), readRemotes()]);
   };
 
   // A filter written anywhere — this view, the graph's filter chip, a locate —
@@ -271,15 +271,15 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     copyUrl: (target) => deps.clipboard.writeText(target.fetchUrl)
   };
 
-  const receive = (message: SideViewRequest) => {
+  const receive = async (message: SideViewRequest): Promise<void> => {
     switch (message.command) {
       case "sideViewReady":
         listening = true;
         send();
-        refresh();
+        await refresh();
         break;
       case "sideViewRefresh":
-        refresh(true);
+        await refresh(true);
         break;
       case "sideViewToggle": {
         const state = deps.repoSource.getRepos()[repo];
@@ -299,14 +299,14 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
         void deps.prompts.showInformation(batchNoTargetsMessage(l10n, message.skipped));
         break;
       case "sideViewAddRemote":
-        void deps.remoteCommands.add(repo);
+        await deps.remoteCommands.add(repo);
         break;
       case "sideViewManagePullRequestProviders":
         deps.managePullRequestProviders();
         break;
       case "sideViewRemote": {
         const target = listed(message.name);
-        if (target !== null) void remoteActions[message.action](target);
+        if (target !== null) await remoteActions[message.action](target);
         break;
       }
     }
@@ -314,7 +314,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
 
   return {
     receive,
-    refresh: () => refresh(),
+    refresh: () => void refresh(),
     repoStateWritten: (before, after) => {
       if (sideViewStateChanged(before, after)) void readBranches();
     },
