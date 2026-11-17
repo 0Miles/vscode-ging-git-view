@@ -166,6 +166,9 @@ export function createDiffPanel(
     viewer?.setLayout(value);
   }
 
+  /** Done with the viewer shown. The keyboard is taken out of it first, by
+   *  the callers: an editor losing the keyboard reacts to it, and should
+   *  still be there to. */
   function disposeViewer() {
     viewer?.dispose();
     viewer = null;
@@ -174,14 +177,17 @@ export function createDiffPanel(
   function closePanel() {
     if (parts === null || parts.panel.hidden) return;
     generation++;
-    disposeViewer();
     escapeDown = false;
-    parts.panel.hidden = true;
-    parts.editorArea.replaceChildren();
     const back = returnFocus;
     returnFocus = null;
-    // Back where it was, if that is still in the page; the page otherwise.
+    // Back where it was, if that is still in the page; out of the panel
+    // otherwise. Before the viewer is done with: see `disposeViewer`.
     if (back instanceof HTMLElement && back.isConnected) back.focus();
+    if (parts.panel.contains(document.activeElement))
+      (document.activeElement as HTMLElement).blur();
+    parts.panel.hidden = true;
+    disposeViewer();
+    parts.editorArea.replaceChildren();
   }
 
   return {
@@ -189,11 +195,14 @@ export function createDiffPanel(
       parts ??= build();
       const p = parts;
       const mine = ++generation;
-      disposeViewer();
       if (p.panel.hidden) {
         returnFocus = document.activeElement;
         p.panel.hidden = false;
       }
+      // The keyboard out of the last diff's viewer before it is done with,
+      // and on the panel until the new one has it.
+      p.panel.focus();
+      disposeViewer();
       p.title.textContent = message.title;
       p.title.title = message.title;
       p.layoutButtons[0].textContent = message.strings.sideBySide;
@@ -207,7 +216,6 @@ export function createDiffPanel(
       container.style.position = "absolute";
       container.style.inset = "0";
       p.editorArea.replaceChildren(container);
-      p.panel.focus();
 
       const asked = { layout, theme: themeOf(document) };
       let made: DiffViewer;

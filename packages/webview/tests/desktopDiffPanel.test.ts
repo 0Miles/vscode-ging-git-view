@@ -206,6 +206,28 @@ describe("the diff viewer", () => {
     expect(document.activeElement!.id).toBe("cdvFile");
   });
 
+  it("takes the keyboard out of an editor before it is done with it", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    document.getElementById("cdvFile")!.focus();
+    await diffs.show(message());
+    const focusAtDispose: boolean[] = [];
+    const watch = (viewer: FakeViewer) => {
+      const dispose = viewer.dispose;
+      viewer.dispose = () => {
+        focusAtDispose.push(viewer.container.contains(document.activeElement));
+        dispose();
+      };
+    };
+
+    watch(made[0]);
+    await diffs.show(message());
+    watch(made[1]);
+    diffs.close();
+
+    expect(focusAtDispose).toEqual([false, false]);
+  });
+
   it("closes when Escape is let go, and the graph hears neither key", async () => {
     const { editors, made } = fakeEditors();
     const diffs = createDiffPanel(editors, { storage: memoryStorage() });

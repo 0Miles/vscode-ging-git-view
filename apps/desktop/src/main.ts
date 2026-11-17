@@ -94,14 +94,13 @@ const SETTINGS_PATH = "/settings";
 const TAB_PATH = "/tab";
 const TAB_ID_PARAM = "id";
 /** The files in out/, next to this bundle, that `ging://app/<file>` serves:
- *  the page's assets, the editor's that a page loads for its diff viewer
- *  (#404), and the scripts' source maps. Nothing else is served. */
+ *  the page's assets and its script's source map, and the editor's that a
+ *  page loads for its diff viewer (#404; built without source maps). Nothing
+ *  else is served. */
 const SERVED_FILES = new Set<string>([
   ...Object.values(PAGE_ASSETS),
   `${PAGE_ASSETS.script}.map`,
-  ...Object.values(EDITOR_ASSETS),
-  `${EDITOR_ASSETS.script}.map`,
-  `${EDITOR_ASSETS.worker}.map`
+  ...Object.values(EDITOR_ASSETS)
 ]);
 
 /** Every page's: the preload, and nothing of Node's in the page. */

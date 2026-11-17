@@ -111,8 +111,13 @@ const editors: EditorFactory = {
       // The layout is the user's to choose (the viewer's bar): a narrow
       // window does not switch it behind the choice's back.
       useInlineViewWhenSpaceIsLimited: false,
-      // Nothing to revert into: both sides are read-only.
+      // Nothing to revert into: both sides are read-only. Nor any hunk
+      // actions for the gutter's menu to offer (#406 brings its own). And
+      // the menu fails when gone: its actions are re-read on a timer, which
+      // can come after the editor is disposed and throw
+      // "AbstractContextKeyService has been disposed" into the page.
       renderMarginRevertIcon: false,
+      renderGutterMenu: false,
       automaticLayout: true,
       scrollBeyondLastLine: false,
       minimap: { enabled: false }

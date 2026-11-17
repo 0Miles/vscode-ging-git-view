@@ -57,10 +57,15 @@ const common = (production) => ({
  * beside that, under its own name. Exported for
  * apps/vscode/tests/backend/webviewEntries.test.ts, which checks Monaco
  * reaches this bundle and not the extension's.
+ *
+ * Minified, without a source map, in every build: it is nearly all Monaco's
+ * own code, which nobody here debugs, and unminified it is more than twice
+ * the size — seconds more for a page's first diff on a slow machine, the E2E
+ * on a loaded CI runner among them. Its worker likewise.
  */
-function editorsBuild(production) {
+function editorsBuild() {
   return {
-    ...common(production),
+    ...common(true),
     entryPoints: { monaco: path.join(__dirname, "src", "web", "monacoEditors.ts") },
     format: "iife",
     target: "es2022",
@@ -102,10 +107,11 @@ async function main() {
       target: "es6",
       outfile: "out/web.js"
     }),
-    esbuild.build(editorsBuild(production)),
-    // Monaco's editor worker, which computes the diffs: a worker of its own.
+    esbuild.build(editorsBuild()),
+    // Monaco's editor worker, which computes the diffs: a worker of its own,
+    // minified always, as the editors' bundle is.
     esbuild.build({
-      ...common(production),
+      ...common(true),
       entryPoints: { "editor.worker": "monaco-editor/editor/editor.worker" },
       format: "iife",
       target: "es2022",

@@ -33,14 +33,14 @@ let editors: Bundle;
 // The desktop app's build script (apps/desktop/esbuild.js), which builds
 // nothing when required.
 const desktopBuild = require(join(__dirname, "..", "..", "..", "desktop", "esbuild.js")) as {
-  editorsBuild: (production: boolean) => BuildOptions;
+  editorsBuild: () => BuildOptions;
 };
 /** The editors bundle's script, not its stylesheet or font. */
 const isScript = (file: string) => file.endsWith("monaco.js");
 
 beforeAll(async () => {
   const built: BuildResult<{ write: false; metafile: true }> = await build({
-    ...desktopBuild.editorsBuild(true),
+    ...desktopBuild.editorsBuild(),
     write: false,
     metafile: true,
     logLevel: "silent"

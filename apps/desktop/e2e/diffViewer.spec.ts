@@ -59,7 +59,8 @@ function pageErrors(page: Page): string[] {
   page.on("console", (m) => {
     if (m.type() === "error") errors.push(m.text());
   });
-  page.on("pageerror", (e) => errors.push(e.message));
+  // With its stack: Monaco's own failures say little by their message alone.
+  page.on("pageerror", (e) => errors.push(e.stack ?? e.message));
   return errors;
 }
 
