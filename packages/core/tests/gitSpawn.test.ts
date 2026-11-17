@@ -64,6 +64,22 @@ describe("spawnGit (real git)", () => {
     expect(result.stdout.toString().trim()).toBe("ce013625030ba8dba906f756967f9e9ca394464a");
   });
 
+  it("hands stderr to onStderr as it comes, and keeps all of it in the result", async () => {
+    const heard: string[] = [];
+    const result = await spawnGit({
+      gitPath: "git",
+      cwd: repo,
+      // An unknown revision: git says so on stderr, in its own words.
+      args: ["rev-parse", "--verify", "no-such-revision"],
+      onStderr: (text) => heard.push(text)
+    });
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).not.toBe("");
+    expect(heard.join("")).toBe(result.stderr);
+  });
+
   it("logs the command it spawns, with the colour-off config the git client uses", async () => {
     const logged: { command: string; args: string[] }[] = [];
     await spawnGit({
