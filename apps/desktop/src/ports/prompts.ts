@@ -36,6 +36,10 @@ type DesktopPromptsDeps = {
   l10n: L10n;
   logger: Pick<HostLogger, "log">;
   page: PromptPage;
+  /** Told when a question starts waiting for an answer with none waiting
+   *  before (`true`), and when the last one waiting is answered or dropped
+   *  (`false`): the tab strip marks a Tab that is asking (#393). */
+  onAsking?: (asking: boolean) => void;
 };
 
 /** The instance's `Prompts`, and what the main process tells it of its page. */
@@ -62,7 +66,8 @@ export function createDesktopPrompts({
   dialogs,
   l10n,
   logger,
-  page
+  page,
+  onAsking = () => {}
 }: DesktopPromptsDeps): DesktopPrompts {
   /** Asked and not yet answered, by id, in the order they were asked. */
   const pending = new Map<
@@ -88,8 +93,22 @@ export function createDesktopPrompts({
         labels: { ok: l10n.t("desktop.prompt.ok"), cancel: l10n.t("dialog.cancel") }
       };
       pending.set(message.id, { message, settle });
+      if (pending.size === 1) onAsking(true);
       if (listening) page.post(message);
     });
+
+  /** The text `prompt` is answered with, once `validate` takes it. The page
+   *  cannot run `validate`, so a text it refuses is asked again, starting
+   *  from that text and saying why; the prompt never answers with it. */
+  const askInput = async (
+    prompt: Extract<HostPrompt, { kind: "input" }>,
+    validate: ((text: string) => string | undefined) | undefined
+  ): Promise<string | undefined> => {
+    const answer = await ask(prompt);
+    if (typeof answer !== "string") return undefined;
+    const error = validate?.(answer);
+    return error === undefined ? answer : askInput({ ...prompt, value: answer, error }, validate);
+  };
 
   /** A notice of `type` offering `labels`, plus a way out; resolves to the
    *  index of the label clicked, or `undefined` for the way out. With no
@@ -146,7 +165,13 @@ export function createDesktopPrompts({
     pick: async (items, { placeholder, matchOnDescription = false } = {}) => {
       const answer = await ask({
         kind: "pick",
-        items: items.map(({ label, description, warning }) => ({ label, description, warning })),
+        items: items.map(({ label, description, detail, separatorAbove, warning }) => ({
+          label,
+          description,
+          detail,
+          separatorAbove,
+          warning
+        })),
         placeholder,
         matchOnDescription
       });
@@ -155,9 +180,11 @@ export function createDesktopPrompts({
     pickMany: async (items, { placeholder, matchOnDescription = false } = {}) => {
       const answer = await ask({
         kind: "pickMany",
-        items: items.map(({ label, description, picked, warning }) => ({
+        items: items.map(({ label, description, detail, separatorAbove, picked, warning }) => ({
           label,
           description,
+          detail,
+          separatorAbove,
           picked,
           warning
         })),
@@ -168,10 +195,8 @@ export function createDesktopPrompts({
       // In the order of the rows, each once, whatever order the page listed them in.
       return items.filter((_, index) => answer.includes(index)).map((item) => item.value);
     },
-    input: async ({ prompt, placeholder, password = false, value }) => {
-      const answer = await ask({ kind: "input", prompt, placeholder, password, value });
-      return typeof answer === "string" ? answer : undefined;
-    },
+    input: ({ prompt, placeholder, password = false, value, validate }) =>
+      askInput({ kind: "input", prompt, placeholder, password, value }, validate),
 
     receive: (reply) => {
       if (reply.command === "hostPromptReady") {
@@ -186,6 +211,7 @@ export function createDesktopPrompts({
         return;
       }
       pending.delete(reply.id);
+      if (pending.size === 0) onAsking(false);
       asked.settle(reply.answer);
     },
     pageLoading: () => {
@@ -194,8 +220,10 @@ export function createDesktopPrompts({
     dispose: () => {
       disposed = true;
       listening = false;
+      const asking = pending.size > 0;
       for (const { settle } of pending.values()) settle(null);
       pending.clear();
+      if (asking) onAsking(false);
     }
   };
 }

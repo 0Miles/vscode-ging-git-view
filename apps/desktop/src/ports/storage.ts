@@ -2,8 +2,8 @@
  * file in the user data folder, told apart by a prefix on each key. The
  * desktop app has one workspace, itself, so the workspace tier is as long-lived
  * as the global one; they stay two tiers because core decides what goes where
- * (ExtensionState), and #393's tabs may yet give the workspace tier a narrower
- * meaning. */
+ * (ExtensionState, and TabStates, which keeps the list of Tabs in the
+ * workspace tier, #393). */
 
 import * as path from "node:path";
 

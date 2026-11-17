@@ -15,8 +15,10 @@ export type Notice = { title: string; detail: string };
 
 /** What a page shows: a graph, or in its place a notice saying why there is
  *  none — `null` when nothing was asked for, which is a page left empty — or
- *  the app's settings (#397). */
+ *  the app's settings (#397), or the window's own page: the tab strip over
+ *  the Welcome page, both drawn from what the host sends it (#393). */
 export type PageContent =
+  | { window: true }
   | {
       graph: {
         viewState: GitGraphViewState;
@@ -68,11 +70,16 @@ export function buildDesktopPage(theme: Theme, content: PageContent): string {
   const graph = "graph" in content ? content.graph : null;
   const notice = "notice" in content ? content.notice : null;
   const settings = "settings" in content ? content.settings : null;
+  const windowPage = "window" in content;
 
   let scriptSrc = "'self'";
   let colourRules = "";
   let body: string;
-  if (settings !== null) {
+  if (windowPage) {
+    body = `<body class="${bodyClass}">
+<div id="tabStrip" hidden></div>
+<main id="welcome"></main>`;
+  } else if (settings !== null) {
     scriptSrc = `'self' 'nonce-${settings.nonce}'`;
     body = `<body class="${bodyClass}">
 <main id="settings"></main>
@@ -94,7 +101,13 @@ ${buildWebviewMarkup(graph.l10n)}
   }
 
   // The kind stated, not left for the bundle to infer from what is missing.
-  const kind = settings !== null ? "settings" : graph !== null ? "graph" : "notice";
+  const kind = windowPage
+    ? "window"
+    : settings !== null
+      ? "settings"
+      : graph !== null
+        ? "graph"
+        : "notice";
   return `<!DOCTYPE html>
 <html lang="en" data-ging-page="${kind}" style="${escapeHtml(style)}">
 <head>

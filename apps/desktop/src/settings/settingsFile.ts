@@ -18,6 +18,10 @@ export type Settings = {
    *  afresh, so a change made in between reaches it. Throws for a key that is
    *  not a setting: that is a typo in the app, not in the user's file. */
   get(key: string): unknown;
+  /** Whether the user's file holds an entry for `key`, allowed or not: what
+   *  `get` answers is then the user's, not only the default. Read as `get`
+   *  reads. */
+  has(key: string): boolean;
   /** Write `value` for `key` into the file, every other entry left as it was,
    *  through a temporary file renamed over it. Rejects, writing nothing, with
    *  a `SettingRefused` for a key that is not a setting or a value its schema
@@ -223,6 +227,7 @@ export function openSettings(
       const value = allowed(setting, values[key], patterns);
       return value === NOT_ALLOWED ? setting.default : value;
     },
+    has: (key) => Object.hasOwn(read(), key),
     update(key, value) {
       const setting = byKey.get(key);
       if (setting === undefined) return Promise.reject(new SettingRefused(key, "unknownKey"));

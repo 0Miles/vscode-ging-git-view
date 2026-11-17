@@ -64,6 +64,15 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **「設定改了立即生效」用一個本機的 bare remote 觀察。** [fixtureRepo.ts](../../apps/desktop/e2e/fixtureRepo.ts) 的 `addAheadRemote` 把 fixture repo 複製成 bare、設為 `origin`,再直接在 bare 裡做一個 commit,讓它比 fixture 的 `refs/remotes/origin/main` 多一個。從設定頁打開 auto-fetch、間隔設成最小的一分鐘之後,不重開 app,在一分多鐘內看到那個 ref 變成新的 commit。這條測試因此至少要一分鐘,`test.setTimeout` 是照設定的下限給的,不是為了讓它變綠而放寬。
 - **主題保留的斷言讀 `nativeTheme.themeSource`,不只讀頁面的顏色。** 系統本來就是淺色時,「重啟後是淺色」不能證明選擇被保存;`themeSource` 是 `light` 而不是 `system`,才能。
 
+## 補記(2026-11-17,#393)
+
+**每個 Tab 是一個 `WebContentsView`,Playwright 把它們連同視窗自己的頁面都當成 app 的一個 page,出現的順序不固定，所以 `firstWindow()` 不再等於「圖形」。** E2E 依 URL 分辨([tabPages.ts](../../apps/desktop/e2e/tabPages.ts)):`ging://app/` 是視窗自己的頁面(分頁列與 Welcome page),`ging://app/tab?id=N` 是 Tab N 的頁面;聚焦的是哪一個 Tab,讀分頁列上 `.tab.focused` 的 `data-tab-id`。URL 與分頁列都是產品本來就有的東西，照「只讀產品本來就有的東西」不另開出口。既有的 E2E(graph、prompts、settings、window)都改用這組 helper。
+
+- **「其他 Tab 不在畫面上」讀 `BrowserWindow.contentView.children`,不讀 `document.visibilityState`。** main process 把沒聚焦的 Tab 的 view 從視窗拿下來(不只是隱藏),不在任何視窗裡的 view 不會被繪製;但實測在 Playwright 驅動下，被拿下來的 view 的 page 仍回答 `visible`,這個值在 E2E 裡看不出差別,所以 E2E 讀的是哪些 view 在視窗裡、擺在哪裡。
+- **兩個 Tab 同時需要認證的 fetch,用兩個只回 401 的本機 server。** 兩個 port 不同，askpass 的提示(`GING: http://127.0.0.1:<port>`)因此分得出是誰的;server 記下每次請求帶來的帳密，證明每個 Tab 頁面上的回答回到的是自己那個 Tab 的 git。fetch 從選單的 `ging.fetchRemote` 觸發，同時驗證「選單命令送到目前聚焦的 Tab」。認證失敗的錯誤框經 `NativeDialogs` 由測試代答。
+- **git 在等提示時關掉 Tab、或結束 app,git 要拿到「取消」並自己結束。** 兩條 E2E 各驗一次：提示還開著時關掉那個 Tab,以及開著兩個 Tab、其中一個在等提示時結束 app;都要 app 照常結束、server 上 git 的連線歸零、log 沒有 `ERROR:`。後者守的是處置順序：視窗關掉之後才處置 Tab,任何一個 Tab 的處置失敗都不能讓後面的 Tab 留著沒處置。
+- **測試收尾時 `server.closeAllConnections()` 是繞道，不是預期行為。** 關掉 Tab 或結束 app 時，正在跑的 git 不會被終止([#450](https://github.com/0Miles/vscode-ging-git-view/issues/450)):git 卡在提示時拿到「取消」會自己結束，但測試若在 git 還連著 server 時失敗，那個 git 會一直留著,server 關不掉、Windows 上暫存目錄也刪不掉。#450 修好之後拿掉這個繞道。
+
 ## 補記(2026-11-17,#392)
 
 **askpass 與 interactive rebase 的 E2E 各一條([askpass.spec.ts](../../apps/desktop/e2e/askpass.spec.ts)、[interactiveRebase.spec.ts](../../apps/desktop/e2e/interactiveRebase.spec.ts)),都從圖形自己的按鈕與對話框觸發,斷言只讀頁面、git 與 log。** 兩個 helper 跑不起來時(把 `out/` 裡的 `askpass.sh` 換成 `echo ""`、`sequenceEditor.sh` 換成 `exit 0`)兩條都會紅。

@@ -6,6 +6,7 @@ import path from "node:path";
 import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { focusedTabPage } from "./tabPages";
 import { startUnauthorizedRemote, type UnauthorizedRemote } from "./unauthorizedRemote";
 
 // askpass through Electron, end to end (#392): git, spawned by the main
@@ -73,7 +74,8 @@ test("a 401 asks the page for a username, then a masked password, and git tries 
   execFileSync("git", ["remote", "add", "origin", remote.url], { cwd: repo.path, env });
   const host = new URL(remote.url).host;
 
-  const page = await (await launch("--repo", repo.path)).firstWindow();
+  // The graph is in the Tab the repository opened in (#393), not the window's page.
+  const page = await focusedTabPage(await launch("--repo", repo.path));
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
 
   // The graph's own Fetch, as a user clicks it: its progress dialog is up

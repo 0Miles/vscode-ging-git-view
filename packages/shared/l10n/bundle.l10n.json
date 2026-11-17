@@ -424,6 +424,7 @@
   "type.link": "Link",
   "error.subfolderHint": "If your repository is in a subfolder of the workspace, increase the \"ging-git-view.maxDepthOfRepoSearch\" setting so it can be discovered.",
   "desktop.cannotOpenRepo": "Cannot open {0}: it is not a Git repository.",
+  "desktop.tab.close": "Close Tab",
   "desktop.settings.title": "Settings",
   "desktop.settings.theme": "Theme",
   "desktop.settings.themeDescription": "The colors of GING's windows: dark, light, or whichever your system uses.",

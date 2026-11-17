@@ -10,6 +10,7 @@ import type { ResponseMessage } from "@ging/shared/types";
 import {
   fakePorts,
   fakeWebview,
+  git,
   makeRepo,
   makeTempDir,
   rmrf,
@@ -53,6 +54,8 @@ function setUp() {
     clipboard: { writeText: async () => {} }
   });
   const instances: { dispose(): void }[] = [];
+  /** The settings each instance asked the app to show. */
+  const revealed: string[] = [];
   onTestFinished(() => {
     instances.forEach((instance) => instance.dispose());
     shared.dispose();
@@ -62,16 +65,20 @@ function setUp() {
   /** An instance on `repo`, as the main process opens one. */
   const open = (repo: string) => {
     const page = fakeWebview();
+    const { ports, answers } = fakePorts();
     shared.repoSource.addRepo(repo);
+    const state = shared.tabStates.newTab(repo);
     const instance = createGraphInstance(shared, {
       repo,
       channel: page.webview,
-      prompts: fakePorts().ports.prompts
+      prompts: ports.prompts,
+      extensionState: state,
+      revealSetting: (key) => revealed.push(key)
     });
     instances.push(instance);
-    return { instance, ...page };
+    return { instance, answers, state, ...page };
   };
-  return { shared, repos, open, logged };
+  return { shared, repos, open, logged, revealed };
 }
 
 const sentOf = (posted: ResponseMessage[], command: ResponseMessage["command"]) =>
@@ -86,7 +93,21 @@ describe("a graph instance", () => {
     const viewState = first.instance.pageViewState();
 
     expect(viewState.lastActiveRepo).toBe(repos[0]);
-    expect(Object.keys(viewState.repos)).toEqual(expect.arrayContaining(repos));
+    expect(Object.keys(viewState.repos)).toEqual([repos[0]]);
+  });
+
+  it("boots on no other repository once its own has left the known set", () => {
+    const { shared, repos, open } = setUp();
+    const page = open(repos[0]);
+    open(repos[1]);
+
+    // Gone from the set, as `checkReposExist` drops a folder that is no
+    // repository any more: the Tab's graph must not move to the other one,
+    // which another Tab has open (#393).
+    shared.repoSource.dropRepo(repos[0]);
+
+    expect(sentOf(page.posted, "loadRepos").at(-1)).toMatchObject({ lastActiveRepo: null });
+    expect(page.instance.pageViewState().lastActiveRepo).toBeNull();
   });
 
   it("answers the graph's requests from its repository", async () => {
@@ -112,12 +133,30 @@ describe("a graph instance", () => {
     const another = toRepoPath(makeRepo());
     onTestFinished(() => rmrf(another));
     shared.repoSource.addRepo(another);
+    shared.repoSource.updateRepoState(repos[0], { customName: "Renamed" });
 
-    expect(sentOf(live.posted, "loadRepos").at(-1)).toMatchObject({
-      lastActiveRepo: repos[0],
-      repos: expect.objectContaining({ [another]: expect.anything() })
+    // Its own repository alone, as it is now: another Tab's is none of its.
+    const told = sentOf(live.posted, "loadRepos").at(-1);
+    expect(told).toMatchObject({ lastActiveRepo: repos[0] });
+    expect(told).toHaveProperty("repos", {
+      [repos[0]]: expect.objectContaining({ customName: "Renamed" })
     });
     expect(gone.posted.length).toBe(before);
+  });
+
+  it("stays on its own repository when its page asks for another", async () => {
+    const { repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    open(repos[1]);
+    expect(Object.keys(page.instance.pageViewState().repos)).toEqual([repos[0]]);
+
+    await page.receive({ command: "selectRepo", repo: repos[0] });
+    await page.receive({ command: "selectRepo", repo: repos[1] });
+
+    // Never handed to the dispatch, which would have written it to the Tab's
+    // state: a known repository passes `setLastActiveRepo`'s rule.
+    expect(page.state.getLastActiveRepo()).toBe(repos[0]);
+    expect(logged).toContain(`tabs: the Tab on ${repos[0]} stays on it, not ${repos[1]}`);
   });
 
   it("tells its page of a Repository Setting default the host wrote", async () => {
@@ -133,6 +172,29 @@ describe("a graph instance", () => {
         changed: ["showStashes"]
       })
     ]);
+  });
+
+  it("configures the provider of a host Create Pull Request knows none for, in its own prompts, into the app's settings", async () => {
+    const { shared, repos, open, revealed, logged } = setUp();
+    const page = open(repos[0]);
+    git(["remote", "add", "origin", "https://git.example.com/owner/repo.git"], repos[0]);
+    const configure = shared.l10n.t("pullRequest.configureProvider");
+    page.answers.showError = configure;
+    page.answers.replies = ["Gitea / Forgejo", shared.l10n.t("pullRequest.providers.showSetting")];
+
+    await page.receive({ command: "selectRepo", repo: repos[0] });
+    await page.receive({
+      command: "createPullRequest",
+      repo: repos[0],
+      branchName: "main",
+      remote: "origin"
+    });
+
+    await expect.poll(() => revealed).toEqual(["ging-git-view.pullRequests.providers"]);
+    expect(shared.config.pullRequestProviders()).toEqual([
+      { host: "git.example.com", type: "gitea" }
+    ]);
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
   });
 
   it("shares the avatar cache, but stops receiving avatars once disposed", async () => {

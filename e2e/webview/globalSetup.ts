@@ -1,4 +1,4 @@
-import { buildHarness, buildSettingsHarness, ENTRIES } from "./harness";
+import { buildHarness, buildSettingsHarness, buildWindowHarness, ENTRIES } from "./harness";
 
 /**
  * Every spec's pages, built once before any spec runs: the specs only load
@@ -8,4 +8,5 @@ import { buildHarness, buildSettingsHarness, ENTRIES } from "./harness";
 export default function globalSetup(): void {
   for (const entry of ENTRIES) buildHarness(entry);
   buildSettingsHarness();
+  buildWindowHarness();
 }

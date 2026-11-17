@@ -1,20 +1,22 @@
 /* One webview instance of the desktop host: a graph on one repository, with a
  * dispatch, ports and git client of its own over the services every instance
- * shares (sharedServices.ts). The main process opens one today; #393's tabs open
- * one each (#388). */
+ * shares (sharedServices.ts). Each Tab opens one (#388, #393). */
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
-import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
-import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
+import {
+  type MessageHandlerDeps,
+  registerMessageHandlers
+} from "@ging/core/extension/messageHandler";
+import { createPullRequestProviderCommands } from "@ging/core/extension/pullRequestProviderCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
-import type { GitGraphViewState } from "@ging/shared/types";
+import type { GitGraphViewState, GitRepoSet } from "@ging/shared/types";
 
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
@@ -24,8 +26,13 @@ type GraphInstanceOptions = {
   repo: string;
   /** Its page. */
   channel: WebviewChannel;
-  /** Asks in its own window: a prompt git raises comes back here. */
+  /** Asks in its own page: a prompt git raises comes back here. */
   prompts: Prompts;
+  /** Its Tab's: where its Current repository persists (`TabStates`). */
+  extensionState: MessageHandlerDeps["extensionState"];
+  /** Show setting `key` in the app's settings, as they are now (#397): where
+   *  Manage Pull Request Providers' "show the setting" goes. */
+  revealSetting: (key: string) => void;
 };
 
 export type GraphInstance = {
@@ -46,11 +53,28 @@ export type GraphInstance = {
 
 export function createGraphInstance(
   shared: SharedServices,
-  { repo, channel, prompts }: GraphInstanceOptions
+  { repo, channel: page, prompts, extensionState, revealSetting }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
-  /** This instance's current repository; the graph moves it with `selectRepo`. */
-  let current = repo;
+  /** This instance's current repository, its Tab's, for as long as it lives. */
+  const current = repo;
+
+  // And should the page still ask for another — it was shown none, but a
+  // page is not to be taken at its word — the dispatch never hears it: the
+  // Tab would end up on a repository another Tab may have open.
+  const channel: WebviewChannel = {
+    postMessage: (message) => page.postMessage(message),
+    onDidReceiveMessage: (listener) =>
+      page.onDidReceiveMessage((message) => {
+        if (message.command === "selectRepo" && message.repo !== repo) {
+          if (message.repo) {
+            logger.log(`tabs: the Tab on ${repo} stays on it, not ${message.repo}`);
+          }
+          return;
+        }
+        return listener(message);
+      })
+  };
 
   // Its own askpass route, and its own rebase todo: two instances rebasing at
   // once must not run each other's todo, nor read each other's `wasApplied`.
@@ -83,14 +107,34 @@ export function createGraphInstance(
   });
   fetchService.restartAutoFetch();
 
-  // The known repositories are shared; which one the graph boots on is this
-  // instance's.
+  // A Tab is one repository, and a repository is open in at most one Tab
+  // (GLOSSARY.md; `branchFilterStore` counts on it). So the graph is shown
+  // its own repository alone out of the known set — no other to boot on when
+  // its own leaves the set, as `pickBootRepo` would fall back to; none in a
+  // repo dropdown; no sub-repository to switch to (#155) — and the known set
+  // itself stays the app's.
+  const own = (repos: GitRepoSet): GitRepoSet =>
+    Object.hasOwn(repos, repo) ? { [repo]: repos[repo] } : {};
   const repoSource: RepoSource = {
     ...shared.repoSource,
-    getBootRepo: () => pickBootRepo(current, Object.keys(shared.repoSource.getRepos()))
+    getRepos: () => own(shared.repoSource.getRepos()),
+    getBootRepo: () => (Object.hasOwn(shared.repoSource.getRepos(), repo) ? repo : null)
   };
   const reposChanged = shared.repoSource.onDidChangeRepos((repos) => {
-    void bridge.post({ command: "loadRepos", repos, lastActiveRepo: repoSource.getBootRepo() });
+    void bridge.post({
+      command: "loadRepos",
+      repos: own(repos),
+      lastActiveRepo: repoSource.getBootRepo()
+    });
+  });
+
+  // Asked in this instance's page, as the failed Create Pull Request that
+  // offers it was. The settings are the app's: no workspace holds any.
+  const pullRequestProviders = createPullRequestProviderCommands({
+    prompts,
+    l10n,
+    config,
+    revealSetting
   });
 
   /** What #391 brings; until then said in the log, since nothing else will. */
@@ -109,21 +153,20 @@ export function createGraphInstance(
     },
     {
       gitClient,
-      extensionState: shared.extensionState,
+      extensionState,
       avatarManager,
       branchFilterStore: shared.branchFilterStore,
       branchFacts,
       branchCleanup: shared.branchCleanup,
       sequenceEditor,
       fetchService,
-      onSelectRepo: (selected) => {
-        current = selected;
-      },
+      // Only ever its own repository: see the channel above.
+      onSelectRepo: () => {},
       // The side-view's branch actions are delegated to the graph in VS Code;
       // here the side-view is in the same page (#399), so nothing is held.
       onDelegatedRan: () => {},
       showAllBranches: async () => notYet("Show All"),
-      configurePullRequestProvider: () => notYet("Configuring a pull request provider"),
+      configurePullRequestProvider: (host) => void pullRequestProviders.manage(host),
       openScmView: () => notYet("The source control view")
     }
   );

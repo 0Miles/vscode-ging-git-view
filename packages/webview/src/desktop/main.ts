@@ -2,7 +2,8 @@
  * (`apps/desktop`, #386). Desktop-only screens and the listener for the
  * desktop host's own messages come in through here and nowhere else
  * (ADR-0031). Today: the graph view, the marker, the host prompt overlay
- * (#390) and the settings page (#397). */
+ * (#390), the settings page (#397) and the window's own page — the tab strip
+ * and the Welcome page (#393). */
 
 import type { RequestMessage } from "@ging/shared/types";
 import { startGitGraphView } from "@ging/webview/gitGraphView";
@@ -12,6 +13,7 @@ import { type HostPromptReply, isHostPromptMessage } from "./hostPrompt";
 import { createHostPromptOverlay } from "./hostPromptOverlay";
 import type { SettingsPageState } from "./settings/protocol";
 import { startSettingsPage } from "./settings/settingsPage";
+import { startWindowPage } from "./window/windowPage";
 
 /** Which entry the page loaded, for the desktop host's E2E to read (#386).
  *  The extension's bundle must never contain it
@@ -57,7 +59,8 @@ function reportMissing(what: string): void {
 }
 
 // The desktop host states which kind of page it served (#388): a graph, the
-// settings (#397), or a notice in place of a graph, which has nothing to start.
+// settings (#397), the window's own page (#393), or a notice in place of a
+// graph, which has nothing to start.
 switch (document.documentElement.dataset.gingPage) {
   case "graph":
     if (typeof viewState === "undefined") {
@@ -74,6 +77,19 @@ switch (document.documentElement.dataset.gingPage) {
     const root = document.getElementById("settings");
     if (state === undefined || root === null) reportMissing("settings page without its settings");
     else startSettingsPage(state, root);
+    break;
+  }
+  case "window": {
+    const strip = document.getElementById("tabStrip");
+    const welcome = document.getElementById("welcome");
+    if (strip === null || welcome === null) {
+      reportMissing("window page without its tab strip or Welcome page");
+    } else {
+      startWindowPage(strip, welcome);
+      // The Welcome page's prompts: the host asks there when no Tab is open
+      // to ask in (#396). Any open Tab's view covers it, so only then.
+      listenForHostPrompts();
+    }
     break;
   }
 }

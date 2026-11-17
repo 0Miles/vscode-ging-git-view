@@ -424,6 +424,7 @@
   "type.link": "連結",
   "error.subfolderHint": "如果您的存放庫位於工作區的子資料夾中，請調高 “ging-git-view.maxDepthOfRepoSearch” 設定以便發現它。",
   "desktop.cannotOpenRepo": "無法開啟 {0}：它不是 Git 存放庫。",
+  "desktop.tab.close": "關閉分頁",
   "desktop.settings.title": "設定",
   "desktop.settings.theme": "主題",
   "desktop.settings.themeDescription": "GING 視窗的配色：深色、淺色，或跟隨系統。",

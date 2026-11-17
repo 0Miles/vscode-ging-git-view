@@ -5,6 +5,7 @@ import path from "node:path";
 import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
 
 import { datedGit, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { focusedTabPage } from "./tabPages";
 
 // An interactive rebase through Electron, end to end (#392): the rebase dialog
 // with a commit unticked out of the middle sends `rebaseInteractive`, whose todo
@@ -81,7 +82,8 @@ test("a rebase with a commit unticked from the middle runs GING's todo", async (
   const third = repo.commits[0];
   const subjects = () => git("log", "--format=%s", "main").split("\n");
 
-  const page = await (await launch("--repo", repo.path)).firstWindow();
+  // The graph is in the Tab the repository opened in (#393), not the window's page.
+  const page = await focusedTabPage(await launch("--repo", repo.path));
   const rows = page.locator("#commitTable tr.commit");
   await expect(rows).toHaveCount(repo.commits.length + added.length);
 

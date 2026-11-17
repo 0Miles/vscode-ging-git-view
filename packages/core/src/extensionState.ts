@@ -12,16 +12,31 @@ const REPO_STATES = "repoStates";
 const DIALOG_MEMORY = "dialogMemory";
 const PRUNE_TAGS_MIGRATION = "pruneTagsMigrationDone";
 
+/** Where a Current repository's path string is kept: by default the
+ *  workspace tier's `lastActiveRepo`, as the VS Code host has always kept it;
+ *  on the desktop host, a Tab's place in the list of Tabs (`TabStates`). Only
+ *  the string: what it resolves to, and which strings may be written, stay
+ *  `ExtensionState`'s rules whichever slot holds it. */
+export type CurrentRepoSlot = {
+  get(): string | null;
+  set(value: string | null): void;
+};
+
 export class ExtensionState {
   private globalState: StateStore;
   private workspaceState: StateStore;
   private globalStoragePath: string;
   private avatarStorageAvailable: boolean = false;
   private currentRepo: string | null = null;
+  private currentRepoSlot: CurrentRepoSlot;
 
-  constructor(storage: HostStorage) {
+  constructor(storage: HostStorage, currentRepoSlot?: CurrentRepoSlot) {
     this.globalState = storage.global;
     this.workspaceState = storage.workspace;
+    this.currentRepoSlot = currentRepoSlot ?? {
+      get: () => this.workspaceState.get<string | null>(LAST_ACTIVE_REPO, null),
+      set: (value) => void this.workspaceState.update(LAST_ACTIVE_REPO, value)
+    };
     this.resolveCurrentRepo();
 
     this.globalStoragePath = getPathFromStr(storage.globalStoragePath);
@@ -50,9 +65,10 @@ export class ExtensionState {
      not the answer, and why a stale one is kept rather than deleted. */
 
   /** The stored path as written, resolved or not. Only for reporting which
-   *  path was dropped: nothing may select a repo from this. */
+   *  path was dropped — on the desktop host, also for naming the Tab that
+   *  cannot show it: nothing may select a repo from this. */
   public getPersistedRepoPath() {
-    return this.workspaceState.get<string | null>(LAST_ACTIVE_REPO, null);
+    return this.currentRepoSlot.get();
   }
   public getLastActiveRepo() {
     return this.currentRepo;
@@ -91,7 +107,7 @@ export class ExtensionState {
     const accepted =
       repo === null || this.isKnownRepo(repo) || isUsableRepoPath(repo) ? repo : null;
     this.currentRepo = accepted;
-    this.workspaceState.update(LAST_ACTIVE_REPO, accepted);
+    this.currentRepoSlot.set(accepted);
   }
   private isKnownRepo(repo: string) {
     return Object.prototype.hasOwnProperty.call(this.getRepos(), repo);
