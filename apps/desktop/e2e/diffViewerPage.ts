@@ -30,6 +30,6 @@ export async function keepTraceIfFailed(app: ElectronApplication, info: TestInfo
   const failed = info.status !== info.expectedStatus;
   await app
     .context()
-    .tracing.stop(failed ? { path: info.outputPath("trace.zip") } : {})
+    .tracing.stop(failed ? { path: info.outputPath("app-trace.zip") } : {})
     .catch(() => {});
 }
