@@ -60,8 +60,9 @@ export type WorkingTreeCommitRequest = {
   message: string;
   amend?: true;
   signOff?: true;
-  /** The user was told HEAD is pushed, and said to amend it all the same. */
-  rewritePushed?: true;
+  /** The commit the user was told is pushed, and said to amend all the
+   *  same: HEAD must still be it, or the host asks again. */
+  rewritePushed?: string;
 };
 
 /** Page → host. */
@@ -131,9 +132,8 @@ export function isWorkingTreeRequest(data: unknown): data is WorkingTreeRequest 
     case "workingTreeCommit":
       return (
         typeof data.message === "string" &&
-        [data.amend, data.signOff, data.rewritePushed].every(
-          (flag) => flag === undefined || flag === true
-        )
+        [data.amend, data.signOff].every((flag) => flag === undefined || flag === true) &&
+        (data.rewritePushed === undefined || typeof data.rewritePushed === "string")
       );
     default:
       return false;

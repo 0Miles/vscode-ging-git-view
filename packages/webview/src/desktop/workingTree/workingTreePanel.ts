@@ -424,9 +424,12 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     send(lastCommit);
   };
 
-  /** An amend refused for HEAD being on `remoteBranches`: ask, and ask the
-   *  host again as it was, now to rewrite them, once the user says so. */
-  const askToRewrite = (remoteBranches: string[], s: WorkingTreeStrings) => {
+  /** An amend refused for HEAD, commit `head`, being on `remoteBranches`:
+   *  ask, and ask the host again as it was, now to rewrite that commit, once
+   *  the user says so. The question may wait behind another dialog; should
+   *  HEAD have moved by the answer, the host refuses again and this asks
+   *  about the new one. */
+  const askToRewrite = (head: string, remoteBranches: string[], s: WorkingTreeStrings) => {
     const refusedCommit = lastCommit;
     // Nowhere to ask: said instead (`answered`), and left undone.
     if (refusedCommit === null || options.confirm === undefined) return;
@@ -434,7 +437,7 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
       pushedWarning(remoteBranches, s, (name) => `<b>${escapeHtml(name)}</b>`, escapeHtml),
       s.amendPushedConfirm,
       () => {
-        lastCommit = { ...refusedCommit, rewritePushed: true };
+        lastCommit = { ...refusedCommit, rewritePushed: head };
         send(lastCommit);
       }
     );
@@ -531,7 +534,8 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     const s = answer.strings;
     strings = s;
     status = answer.status ?? status;
-    amendBasis = answer.amend;
+    // Unreadable this time: what was last read stands, as for the status.
+    amendBasis = answer.amend ?? amendBasis;
     error = answer.error;
     busy = false;
     const refused = answer.refused;
@@ -543,16 +547,28 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     }
     // HEAD can no longer be amended (an operation began, say): unticked, as
     // the user would have to.
-    if (amend && amendBasis?.possible !== true) setAmend(false);
-    const pushedTo = refused?.kind === "pushed" ? refused.remoteBranches : null;
+    if (amend && amendBasis?.possible === false) setAmend(false);
+    // HEAD moved while the box still held its old message untouched: the new
+    // HEAD's, as ticking Amend now would give.
+    if (
+      amend &&
+      amendBasis?.possible === true &&
+      prefilled !== null &&
+      message === prefilled &&
+      amendBasis.message !== prefilled
+    ) {
+      message = amendBasis.message;
+      prefilled = message;
+    }
+    const pushed = refused?.kind === "pushed" ? refused : null;
     // Said in the panel, unless it is a question to ask, and there is a way to.
-    if (refused !== undefined && (pushedTo === null || options.confirm === undefined)) {
+    if (refused !== undefined && (pushed === null || options.confirm === undefined)) {
       error = refusalText(refused, s);
     }
     render();
     // Asked after the redraw, so the dialog takes the keyboard from where it
     // was and gives it back there.
-    if (pushedTo !== null) askToRewrite(pushedTo, s);
+    if (pushed !== null) askToRewrite(pushed.head, pushed.remoteBranches, s);
     if (stale) {
       stale = false;
       load();

@@ -81,13 +81,17 @@ describe("the working tree service", () => {
       status: expect.objectContaining({ staged: [] }),
       amend: { possible: true, message: "init" },
       error: null,
-      refused: { kind: "pushed", remoteBranches: ["origin/main"] }
+      refused: { kind: "pushed", head: before, remoteBranches: ["origin/main"] }
     });
     expect(rev(repo, "HEAD")).toBe(before);
     // Declined, so no change was made of it: nothing muted, nothing refreshed.
     expect(calls).toEqual([]);
 
-    const made = await service.commit({ message: "Reworded", amend: true, rewritePushed: true });
+    const made = await service.commit({
+      message: "Reworded",
+      amend: true,
+      rewritePushed: before
+    });
     expect(made.error).toBeNull();
     expect(made.refused).toBeUndefined();
     expect(made.amend).toEqual({ possible: true, message: "Reworded" });

@@ -55,6 +55,11 @@ const STRINGS: WorkingTreeStrings = {
   identityUnknown: "Git does not know who you are."
 };
 
+/** An amend refused for HEAD, commit `head`, being on origin/main. */
+const pushedAs = (head: string) => ({
+  refused: { kind: "pushed" as const, head, remoteBranches: ["origin/main"] }
+});
+
 /** HEAD as an amend would start from it. */
 const HEAD_MESSAGE = "Last commit\n\nIts body.";
 const AMENDABLE: AmendBasis = { possible: true, message: HEAD_MESSAGE };
@@ -458,6 +463,7 @@ describe("the working tree panel's amend and sign-off", () => {
     const refused = {
       refused: {
         kind: "pushed" as const,
+        head: "c0ffee",
         remoteBranches: ["origin/main", "up<stream>/main", "fork/a", "fork/b"]
       }
     };
@@ -484,9 +490,57 @@ describe("the working tree panel's amend and sign-off", () => {
         command: "workingTreeCommit",
         message: HEAD_MESSAGE,
         amend: true,
-        rewritePushed: true
+        rewritePushed: "c0ffee"
       }
     ]);
+  });
+
+  it("asks again about the new HEAD when HEAD moved before the yes reached the host", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad"));
+    tick("amend");
+    commitButton().click();
+    hear(answer("workingTreeCommit", STATUS, null, pushedAs("aaa111")));
+    mock.asked[0].confirmed();
+    expect(mock.sentMessages.at(-1)).toEqual(
+      expect.objectContaining({ amend: true, rewritePushed: "aaa111" })
+    );
+
+    // The host found HEAD elsewhere by then: refused again, for that commit.
+    hear(answer("workingTreeCommit", STATUS, null, pushedAs("bbb222")));
+
+    expect(mock.asked).toHaveLength(2);
+    mock.asked[1].confirmed();
+    expect(mock.sentMessages.at(-1)).toEqual({
+      command: "workingTreeCommit",
+      message: HEAD_MESSAGE,
+      amend: true,
+      rewritePushed: "bbb222"
+    });
+  });
+
+  it("follows HEAD with a message left as Amend put it, and keeps Amend through a read that failed", async () => {
+    await load(true);
+    hear(answer("workingTreeLoad"));
+    tick("amend");
+    expect(box().value).toBe(HEAD_MESSAGE);
+
+    // Committed elsewhere: the untouched box takes the new HEAD's message.
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad", STATUS, null, { amend: { possible: true, message: "Newer" } }));
+    expect(box().value).toBe("Newer");
+
+    // The basis could not be read this time: Amend stays as it was.
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad", STATUS, "could not read", { amend: null }));
+    expect(tickBox("amend").checked).toBe(true);
+    expect(box().value).toBe("Newer");
+
+    // Once edited, the box is the user's: HEAD moving again leaves it.
+    type("Newer, edited");
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad", STATUS, null, { amend: { possible: true, message: "Newest" } }));
+    expect(box().value).toBe("Newer, edited");
   });
 
   it("leaves a pushed HEAD alone, its message kept, when the question is not answered yes", async () => {
@@ -498,7 +552,7 @@ describe("the working tree panel's amend and sign-off", () => {
 
     hear(
       answer("workingTreeCommit", STATUS, null, {
-        refused: { kind: "pushed", remoteBranches: ["origin/main"] }
+        refused: { kind: "pushed", head: "c0ffee", remoteBranches: ["origin/main"] }
       })
     );
 
@@ -517,7 +571,7 @@ describe("the working tree panel's amend and sign-off", () => {
 
     hear(
       answer("workingTreeCommit", STATUS, null, {
-        refused: { kind: "pushed", remoteBranches: ["origin/main"] }
+        refused: { kind: "pushed", head: "c0ffee", remoteBranches: ["origin/main"] }
       })
     );
 

@@ -81,7 +81,7 @@ export async function answerWorkingTree(
           message: request.message,
           amend: request.amend === true,
           signOff: request.signOff === true,
-          rewritePushed: request.rewritePushed === true
+          rewritePushed: request.rewritePushed
         });
     }
   })();

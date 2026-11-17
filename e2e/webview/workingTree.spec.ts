@@ -147,7 +147,9 @@ test("a pushed commit's amend is asked in the graph's own dialog, the panel out 
   await commit.click();
   await hostSays(
     page,
-    answer("workingTreeCommit", { refused: { kind: "pushed", remoteBranches: ["origin/main"] } })
+    answer("workingTreeCommit", {
+      refused: { kind: "pushed", head: "c0ffee", remoteBranches: ["origin/main"] }
+    })
   );
 
   // The graph's dialog, over the page: the panel is behind it, out of reach.
@@ -170,7 +172,9 @@ test("a pushed commit's amend is asked in the graph's own dialog, the panel out 
   await commit.click();
   await hostSays(
     page,
-    answer("workingTreeCommit", { refused: { kind: "pushed", remoteBranches: ["origin/main"] } })
+    answer("workingTreeCommit", {
+      refused: { kind: "pushed", head: "c0ffee", remoteBranches: ["origin/main"] }
+    })
   );
   await dialog.locator("#dialogAction").click();
   await expect(dialog).toHaveCount(0);
@@ -178,7 +182,7 @@ test("a pushed commit's amend is asked in the graph's own dialog, the panel out 
     command: "workingTreeCommit",
     message: HEAD_MESSAGE,
     amend: true,
-    rewritePushed: true
+    rewritePushed: "c0ffee"
   });
 });
 

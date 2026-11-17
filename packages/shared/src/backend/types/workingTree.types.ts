@@ -52,9 +52,10 @@ export type AmendBasis =
 /** Why a commit was not made, when it is something to say in GING's own words
  *  rather than git's (#407). */
 export type CommitRefusal =
-  /** HEAD is on these remote-tracking branches (short names): amending it
-   *  rewrites history others may have. Made only once the user says so. */
-  | { kind: "pushed"; remoteBranches: string[] }
+  /** HEAD, commit `head`, is on these remote-tracking branches (short
+   *  names): amending it rewrites history others may have. Made only once the
+   *  user says so for that very commit. */
+  | { kind: "pushed"; head: string; remoteBranches: string[] }
   | { kind: "cannotAmend"; reason: AmendRefusal }
   /** git knows no committer: `user.name` / `user.email` are not set. */
   | { kind: "identityUnknown" };

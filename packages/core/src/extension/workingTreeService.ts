@@ -47,8 +47,8 @@ export type WorkingTreeService = {
   /** Unstage these files whole; never an unmerged one. */
   unstage(paths: WholeFiles): Promise<WorkingTreeAnswer>;
   /** Commit what is staged, or amend HEAD (#407). An amend of a pushed HEAD
-   *  is answered `refused: pushed`, and made only once asked again with
-   *  `rewritePushed`. */
+   *  is answered `refused: pushed` with that HEAD's commit, and made only
+   *  once asked again with `rewritePushed` naming it. */
   commit(input: CommitInput): Promise<WorkingTreeAnswer>;
 };
 
@@ -112,7 +112,8 @@ export function createWorkingTreeService(deps: WorkingTreeServiceDeps): WorkingT
     unstage: (paths) => mutate((git) => unstageFiles(git, paths)),
     commit: (input) =>
       mutate(
-        (git) => commitChanges(git, input, deps.signCommits()),
+        // Checked just before, outside the mutation: not asked twice.
+        (git) => commitChanges(git, input, deps.signCommits(), "checked"),
         (git) => refuseCommit(git, input)
       )
   };

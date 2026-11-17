@@ -202,26 +202,49 @@ describe("commitChanges with amend", () => {
 
       expect(
         await refusal(commitChanges(simpleGit(r), { message: "Rewritten", amend: true }))
-      ).toEqual({ kind: "pushed", remoteBranches: ["origin/main"] });
+      ).toEqual({ kind: "pushed", head: before, remoteBranches: ["origin/main"] });
 
       expect(head(r)).toBe(before);
       expect(short(r)).toBe("A  g");
     });
 
-    it("is made once told to rewrite it", async () => {
+    it("is made once told to rewrite that very commit", async () => {
       const r = pushed();
       const remote = out(r, "rev-parse", "origin/main").trim();
 
       await commitChanges(simpleGit(r), {
         message: "Rewritten",
         amend: true,
-        rewritePushed: true
+        rewritePushed: remote
       });
 
       expect(message(r)).toBe("Rewritten");
       expect(head(r)).not.toBe(remote);
       // The remote-tracking branch is left where it was: only a push moves it.
       expect(out(r, "rev-parse", "origin/main").trim()).toBe(remote);
+    });
+
+    it("is refused again, naming the new HEAD, when HEAD moved after the user said yes", async () => {
+      const r = pushed();
+      const confirmed = head(r);
+      // Pushed again, one commit on: HEAD is pushed, but not the commit the
+      // user was asked about.
+      fs.writeFileSync(path.join(r, "f"), "third");
+      git(["commit", "-qam", "Third"], r);
+      git(["push", "-q", "origin", "main"], r);
+      const moved = head(r);
+
+      expect(
+        await refusal(
+          commitChanges(simpleGit(r), {
+            message: "Rewritten",
+            amend: true,
+            rewritePushed: confirmed
+          })
+        )
+      ).toEqual({ kind: "pushed", head: moved, remoteBranches: ["origin/main"] });
+      expect(head(r)).toBe(moved);
+      expect(message(r)).toBe("Third");
     });
 
     it("is not asked about when HEAD has moved past what was pushed", async () => {
@@ -280,7 +303,10 @@ describe("commitChanges with sign-off", () => {
 describe("commitChanges without a known committer", () => {
   /** git with nobody's identity: no global or system config to find one in,
    *  none in the repository, and no guessing one from the machine. */
-  function nobody(): { r: string; client: ReturnType<typeof simpleGit> } {
+  function nobody(identity: NodeJS.ProcessEnv = {}): {
+    r: string;
+    client: ReturnType<typeof simpleGit>;
+  } {
     const r = makeTempDir("ngg-test-");
     const home = makeTempDir("ngg-test-home-");
     cleanUp.push(r, home);
@@ -297,11 +323,32 @@ describe("commitChanges without a known committer", () => {
         HOME: home,
         USERPROFILE: home,
         XDG_CONFIG_HOME: path.join(home, ".config"),
-        GIT_CONFIG_NOSYSTEM: "1"
+        GIT_CONFIG_NOSYSTEM: "1",
+        ...identity
       })
     );
     return { r, client };
   }
+
+  it("is made, signed off, by an identity given in the environment alone", async () => {
+    // No config anywhere, auto-detection off: git's environment variables
+    // are a source of identity too, and the check must not refuse them.
+    const { r, client } = nobody({
+      GIT_COMMITTER_NAME: "Env Committer",
+      GIT_COMMITTER_EMAIL: "committer@example.com",
+      GIT_AUTHOR_NAME: "Env Author",
+      GIT_AUTHOR_EMAIL: "author@example.com"
+    });
+
+    await commitChanges(client, { message: "From the environment", signOff: true });
+
+    expect(out(r, "log", "-1", "--format=%an <%ae>|%cn <%ce>").trim()).toBe(
+      "Env Author <author@example.com>|Env Committer <committer@example.com>"
+    );
+    expect(message(r)).toBe(
+      "From the environment\n\nSigned-off-by: Env Committer <committer@example.com>"
+    );
+  });
 
   it("is refused before git runs, for a commit or a sign-off, and makes none", async () => {
     const { r, client } = nobody();

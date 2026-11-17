@@ -83,9 +83,11 @@ export type CommitInput = {
   amend?: boolean;
   /** Add a `Signed-off-by` trailer (`--signoff`). */
   signOff?: boolean;
-  /** Amend HEAD even when it is on a remote-tracking branch: the user was
-   *  told it rewrites pushed history, and said to go on. */
-  rewritePushed?: boolean;
+  /** Amend HEAD even when it is on a remote-tracking branch, as long as it is
+   *  still this commit: the one the user was told about, rewriting pushed
+   *  history, and said to go on with. A HEAD that has moved since is asked
+   *  about anew. */
+  rewritePushed?: string;
 };
 
 /** A commit GING declined to make, for a reason it says in its own words
@@ -112,15 +114,17 @@ export class CommitRefusedError extends Error {
  * Refused, by GING before git runs (`CommitRefusedError`), when git knows no
  * committer; for an amend, with no commit to amend or an operation in progress
  * (`amendBasis`), and with HEAD already on a remote-tracking branch unless
- * `rewritePushed`. Refused by git when there is nothing to commit or the
- * message is empty.
+ * `rewritePushed` names it. Refused by git when there is nothing to commit or
+ * the message is empty. `refused` says the caller has just run `refuseCommit`
+ * on the same input itself, so it is not run twice.
  */
 export async function commitChanges(
   git: SimpleGit,
   input: CommitInput,
-  signCommits: boolean = false
+  signCommits: boolean = false,
+  refused: "checked" | "unchecked" = "unchecked"
 ): Promise<void> {
-  await refuseCommit(git, input);
+  if (refused === "unchecked") await refuseCommit(git, input);
   const args = ["commit"];
   if (input.amend === true) args.push("--amend");
   if (input.signOff === true) args.push("--signoff");
@@ -133,7 +137,9 @@ export async function commitChanges(
   // simple-git resolves such a run whatever git's exit code. So whether a
   // commit was made is read off HEAD, not off the run. An amend that changes
   // nothing within the second it was made makes the very same commit, which
-  // HEAD's reflog still records.
+  // HEAD's reflog still records. With no reflog (`core.logAllRefUpdates`
+  // false), such an amend is reported as "git made no commit": nothing then
+  // tells it apart from a run that made none.
   const made =
     (await headCommit(git)) !== before ||
     (input.amend === true && (await headLogLength(git)) > loggedBefore);
@@ -143,29 +149,30 @@ export async function commitChanges(
 /**
  * Throw the `CommitRefusedError` that `commitChanges` would decline `input`
  * with, if any, changing nothing: for a caller to hear a refusal without
- * making a change of it (a muted watcher, a refresh). `commitChanges` asks
- * again itself.
+ * making a change of it (a muted watcher, a refresh), and then hand
+ * `commitChanges` "checked" so it does not ask again.
  */
 export async function refuseCommit(git: SimpleGit, input: CommitInput): Promise<void> {
-  if (input.amend === true) await refuseUnamendable(git, input.rewritePushed === true);
+  if (input.amend === true) await refuseUnamendable(git, input.rewritePushed);
   await refuseUnknownCommitter(git);
 }
 
-/** Throw unless HEAD can be amended, and is not pushed or may be rewritten. */
-async function refuseUnamendable(git: SimpleGit, rewritePushed: boolean): Promise<void> {
-  const basis = await amendBasis(git);
+/** Throw unless HEAD can be amended, and is either not pushed or the very
+ *  commit `rewritePushed` names. */
+async function refuseUnamendable(git: SimpleGit, rewritePushed: string | undefined): Promise<void> {
+  const [basis, head] = await Promise.all([amendBasis(git), headCommit(git)]);
   if (!basis.possible) {
     throw new CommitRefusedError(
       { kind: "cannotAmend", reason: basis.reason },
       `cannot amend: ${basis.reason}`
     );
   }
-  if (rewritePushed) return;
+  if (rewritePushed === head) return;
   const remoteBranches = await remoteBranchesContainingHead(git);
   if (remoteBranches.length > 0) {
     throw new CommitRefusedError(
-      { kind: "pushed", remoteBranches },
-      `HEAD is on ${remoteBranches.join(", ")}`
+      { kind: "pushed", head, remoteBranches },
+      `HEAD ${head} is on ${remoteBranches.join(", ")}`
     );
   }
 }
