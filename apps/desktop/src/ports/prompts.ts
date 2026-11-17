@@ -5,7 +5,7 @@
  * (ADR-0031). The notices and where to save a file are the system's own
  * dialogs. */
 
-import type { MessageBoxOptions, SaveDialogOptions } from "electron";
+import type { MessageBoxOptions, OpenDialogOptions, SaveDialogOptions } from "electron";
 
 import type { HostLogger, L10n, Prompts } from "@ging/core/host/ports";
 import type {
@@ -20,10 +20,13 @@ import type {
  * window that asks. A seam rather than `dialog` itself: no test can click a
  * native dialog (ADR-0032), so the vitest suite answers through a fake, and
  * the main process hands over functions that look `dialog` up when called.
+ * `showOpenDialog` is not the prompts': the folder Open Folder and Initialize
+ * Repository ask for (#394) goes through the same seam.
  */
 export type NativeDialogs = {
   showMessageBox(options: MessageBoxOptions): Promise<{ response: number }>;
   showSaveDialog(options: SaveDialogOptions): Promise<{ canceled: boolean; filePath?: string }>;
+  showOpenDialog(options: OpenDialogOptions): Promise<{ canceled: boolean; filePaths: string[] }>;
 };
 
 /** The page of the instance that asks: where its prompts are shown. */
@@ -32,7 +35,7 @@ export type PromptPage = {
 };
 
 type DesktopPromptsDeps = {
-  dialogs: NativeDialogs;
+  dialogs: Pick<NativeDialogs, "showMessageBox" | "showSaveDialog">;
   l10n: L10n;
   logger: Pick<HostLogger, "log">;
   page: PromptPage;

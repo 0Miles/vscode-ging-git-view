@@ -217,3 +217,18 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **衝突檔(unmerged)單獨列成一組,沒有任何按鈕,而且永遠到不了 `add` 或 `reset`。** 整檔 stage 一個衝突檔就是把它標成已解決,那是 #410 的範圍;本票只讓它們不從清單裡消失。所以 stage / unstage 一律點名檔案,沒有「全部」:不帶路徑的 `add -A` 會把衝突檔標成已解決,不帶路徑的 `reset` 會刪掉 `MERGE_HEAD`,整個 merge 就默默消失了。面板的 Stage All / Unstage All 送的是那一組列出的每個檔案(submodule 除外),core 在執行前再讀一次 unmerged 路徑、把它們剔掉,兩道防線各自成立。路徑經 `--pathspec-from-file` 加 `--pathspec-file-nul`(git 2.25+)交給 git,寫在暫存檔裡,不放命令列:Windows 的命令列只有約 32k 字元,而 Stage All 可能點名上千個檔案。
 - **submodule 只顯示、不 stage。** porcelain v2 的 `sub` 欄位標出它,面板上那一列沒有按鈕,也不在 Stage All 裡:只有內部變更的 submodule 沒有東西可 stage,而 submodule 管理在 #291 的「不做」清單上。
 - amend 與 sign-off(#407)會在同一個 commit 區加控制項,`commitChanges` 的輸入是物件,加欄位不必改呼叫端。
+
+## 補記(2026-11-17,#394)
+
+**core 多了 init:動作在 [init.ts](../../packages/core/src/backend/actions/init.ts),命令服務在 [repoInitCommand.ts](../../packages/core/src/extension/repoInitCommand.ts)。port 沒有長：選資料夾不是 port。**
+
+- **命令服務只收一個已經選好的資料夾。** 「問使用者要一個資料夾」今天只有桌面版要(VS Code 有自己的「初始化存放庫」),照「先有呼叫端」不開在 `Prompts` 上;桌面版用自己的 `NativeDialogs`(ADR-0032)問，再把路徑交給 core。`apps/desktop` 不得直接跑 core 的 git 動作(上面的 lint 規則),所以 init 經過命令服務，失敗由它用 `Prompts.showError` 說，和其他命令服務一致。
+- **init 用不綁 repo 的 client(`gitClientFor(null)`),資料夾寫在命令列上(`git init -- <folder>`、`git -C <folder>`)。** client 的 `baseDir` 必須已經存在，而 git 自己會建出還不存在的資料夾。資料夾若已經是某個 working tree 的頂端，就不重新初始化(會補上 template 的 hooks),直接回答它;在另一個 repo 裡面的資料夾照 `git init` 的語意得到自己的 repo。
+- **最近使用清單就是 `RepoSource` 的 known set,不另立集合。** GLOSSARY 的 Known repository 在桌面版的定義就是最近使用清單，所以 [recentRepos.ts](../../apps/desktop/src/recentRepos.ts) 只多存「開啟的順序」(workspace 層的 `desktopRecentRepos`),列出時以 known set 為準：不在 set 裡的順序項目略過,set 裡沒有順序的放最後、依路徑排。順序只在開成 Tab 時更新(命令列、開啟資料夾、初始化、清單)，還原 Tab 不算「開啟」。
+- **清單裡的資料夾不在了，照列，標成找不到。** 判準是 `resolveCurrentRepo` 那一組(資料夾在不在,`isUsableRepoPath` 的非同步版 `isUsableRepoPathAsync`),不是 `isGitRepository`:和 Current repository 一樣，分不出刪除與沒掛載，所以不自動刪。移除是使用者的事(清單上的「移除」,走 `dropRepo`);開在 Tab 裡的 repo 不移除，因為 Tab 的圖形是從 known set 拿到自己的 repo(上面 #393 的補記)。
+  - **看磁碟不在 main process 的執行緒上同步做。** 一個不回應的網路分享,`fs.statSync` 會讓整個視窗凍住好幾秒。所以清單記著上一次看到的結果,`list()` 只讀它;`check()` 只在 Welcome page 顯示時(視窗頁面說它準備好、最後一個 Tab 關掉、known set 改變、從清單開啟之後)用非同步的 stat 再看一次，結果不同才通知重畫。同一個資料夾一次只看一個，卡住的那個不擋其他的。
+  - **每個 Tab 的 `checkReposExist` 只看自己的 repo。** 原本 instance 的 `RepoSource` 沿用 app 共用的那一個，一個 Tab 的圖形載入失敗，就會對整個 known set 跑 `isGitRepository`、把當下連不到的全部刪掉，和上一條相反。現在它只在自己的 repo 已經不是 repo 時把自己移出 known set,其他項目不動;自己那一個該不該留著，是 #454 的事。
+  - **被 `dropRepo` 移出 known set 的,順序紀錄也跟著清掉**(不論是誰移的)。**清單最多列 20 個**(`RECENT_REPOS_SHOWN`):app 初始大小的視窗裡 Welcome page 不必捲動就放得下的數量，也是每次要看的資料夾數的上限。超過的仍是 known repository —— 它的自訂名稱與圖形的狀態留著，再開一次就回到第一個 —— 只是不列出;不自動移除，那會刪掉使用者沒要刪的東西。
+- **選到 bare repo 或 `.git` 資料夾時，不初始化。** `git rev-parse --show-prefix` 在兩者裡都回答空字串、exit 0,單看它會被當成 working tree 的頂端;所以先問 `--is-inside-work-tree`(core 的 `gitFolderPlace`)。init 在這種資料夾回答 `NoWorkTreeFolderError`,命令服務用 app 自己的字串(`init.noWorkTree`)說明;開啟資料夾選到它時不提議初始化，而是說它沒有 working tree 可以顯示。`repoToOpen` 因此多回答「為什麼打不開」(`missing` / `notRepository` / `noWorkTree`),清單上資料夾不在的項目說「找不到」,不說「不是 Git 存放庫」。
+- **清單上的 repo 以 known set 的拼法比對。** git 今天給的拼法可能和 known set 裡的不同(symlink、8.3 短檔名、磁碟代號大小寫，見 #413),所以「它是不是清單上的那一個」經過 `TabWindow.resolve`(`resolveToKnownRepo`),和開成 Tab 時走同一條路。
+- **子存放庫(#393 的 R5 留下的問題)由開啟資料夾處理，不由圖形切換。** 選到 submodule 或巢狀 repo 的資料夾時,`repoToOpen` 以 git 的 `--show-toplevel` 解析到它自己，開在自己的 Tab。CDV 檔案樹點子存放庫(#155)在桌面版仍然不切換：要讓它改成「開在新 Tab」,得讓圖形知道別的 repo,而那正是 R5 拿掉的。

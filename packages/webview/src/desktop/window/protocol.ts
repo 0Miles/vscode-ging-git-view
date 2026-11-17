@@ -26,11 +26,38 @@ export type TabStripEntry = {
 /** Why the Welcome page shows no repository: a heading and a line under it. */
 export type WelcomeNotice = { title: string; detail: string };
 
+/** One repository of the recently opened list (#394): the desktop host's
+ *  known repositories (GLOSSARY.md), most recently opened first. */
+export type RecentRepoEntry = {
+  /** As the app knows it: what the page hands back to open or forget it. */
+  path: string;
+  /** Its custom name, or its folder's. */
+  name: string;
+  /** Its folder is not there (`resolveCurrentRepo`): deleted, or a disk not
+   *  mounted now. Listed all the same, since nothing tells the two apart. */
+  missing: boolean;
+};
+
+/** What the Welcome page offers (#394): its entries, and the recent list. */
+export type WelcomeContent = {
+  recent: RecentRepoEntry[];
+  strings: {
+    openFolder: string;
+    initRepo: string;
+    recent: string;
+    noRecent: string;
+    missing: string;
+    forget: string;
+  };
+};
+
 /** Host → page: the Tabs and what the Welcome page says, whole each time. */
 export type WindowStateMessage = {
   command: "windowState";
   tabs: TabStripEntry[];
   notice: WelcomeNotice | null;
+  /** `null` while a Tab is open: its view covers the Welcome page. */
+  welcome: WelcomeContent | null;
   strings: { closeTab: string };
 };
 
@@ -40,7 +67,13 @@ export type WindowRequest =
    *  state back rather than send it into nothing. */
   | { command: "windowReady" }
   | { command: "focusTab"; id: number }
-  | { command: "closeTab"; id: number };
+  | { command: "closeTab"; id: number }
+  /** The Welcome page's entries (#394): the host asks for the folder. */
+  | { command: "openFolder" }
+  | { command: "initRepo" }
+  /** A repository of the recent list, by its `path`. */
+  | { command: "openRecent"; path: string }
+  | { command: "forgetRecent"; path: string };
 
 /** True when `A` and `B` share no command name. */
 type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
@@ -72,8 +105,18 @@ export function isWindowStateMessage(data: unknown): data is WindowStateMessage 
 /** Whether `data`, posted by the window's page, is one of its requests. */
 export function isWindowRequest(data: unknown): data is WindowRequest {
   if (!isRecord(data)) return false;
-  if (data.command === "windowReady") return true;
-  return (
-    (data.command === "focusTab" || data.command === "closeTab") && typeof data.id === "number"
-  );
+  switch (data.command) {
+    case "windowReady":
+    case "openFolder":
+    case "initRepo":
+      return true;
+    case "focusTab":
+    case "closeTab":
+      return typeof data.id === "number";
+    case "openRecent":
+    case "forgetRecent":
+      return typeof data.path === "string";
+    default:
+      return false;
+  }
 }

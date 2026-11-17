@@ -14,7 +14,7 @@ import type { HostPromptAnswer, HostPromptMessage } from "@ging/webview/desktop/
 function fakeDialogs(answers: { button?: number; savedTo?: string } = {}) {
   const shown: MessageBoxOptions[] = [];
   const saves: SaveDialogOptions[] = [];
-  const dialogs: NativeDialogs = {
+  const dialogs: Pick<NativeDialogs, "showMessageBox" | "showSaveDialog"> = {
     showMessageBox: async (options) => {
       shown.push(options);
       return { response: answers.button ?? 0 };

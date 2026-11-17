@@ -27,6 +27,7 @@ import {
 
 import { getNonce } from "@ging/core/backend/utils/nonce";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
+import { createRepoInitCommand } from "@ging/core/extension/repoInitCommand";
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
 import type { ExtensionState } from "@ging/core/extensionState";
 import type { HostLogger } from "@ging/core/host/ports";
@@ -47,6 +48,7 @@ import {
 import {
   isWindowRequest,
   TAB_STRIP_HEIGHT,
+  type WelcomeContent,
   type WindowStateMessage
 } from "@ging/webview/desktop/window/protocol";
 import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
@@ -64,6 +66,8 @@ import {
 } from "./launchArgs";
 import { buildDesktopPage, type Notice, PAGE_ASSETS, type PageContent } from "./page";
 import { keepPageInPlace } from "./pageGuard";
+import { createRecentRepos, type RecentRepos } from "./recentRepos";
+import { createRepoOpening, type RepoOpening } from "./repoOpening";
 import { type RepoToOpen, repoToOpen } from "./repoToOpen";
 import { DESKTOP_SETTINGS_SCHEMA } from "./settings/schema";
 import {
@@ -139,7 +143,8 @@ function logLaunch(request: LaunchRequest, logger: HostLogger): void {
 function dialogsFor(owner: BrowserWindow): NativeDialogs {
   return {
     showMessageBox: (options) => dialog.showMessageBox(owner, options),
-    showSaveDialog: (options) => dialog.showSaveDialog(owner, options)
+    showSaveDialog: (options) => dialog.showSaveDialog(owner, options),
+    showOpenDialog: (options) => dialog.showOpenDialog(owner, options)
   };
 }
 
@@ -264,6 +269,11 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   let welcomeCommands: AppCommands | null = null;
   /** The Tab whose view last had the keyboard handed to it. */
   let keyboardTab: number | null = null;
+  /** The recently opened list, in the order it was opened in (#394). */
+  let recent: RecentRepos | null = null;
+  /** Open Folder, Initialize Repository and the recent list's entries (#394),
+   *  once the window is there to ask in. */
+  let repoOpening: RepoOpening | null = null;
 
   const tabList = () => tabWindow?.tabs.list() ?? [];
   const focusedTab = () => tabWindow?.tabs.focused() ?? null;
@@ -324,7 +334,12 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       versionInfo: () => {
         const commands = focusedInstance()?.commands ?? welcomeCommands;
         void commands?.versionInfo();
-      }
+      },
+      // #394's: the folder is asked in the system's own dialog, so these need
+      // no page, Tab or no Tab.
+      openFolder: () => void repoOpening?.openFolder(),
+      openRecent: (repo) => void repoOpening?.openRecent(repo).finally(checkRecentWhileShown),
+      initRepository: () => void repoOpening?.initRepo()
     };
   })();
 
@@ -334,9 +349,29 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   const syncMenu = () => {
     if (shared === null) return;
     const template = appMenuTemplate(shared.l10n, menuCommands, process.platform, {
-      focus: menuFocus(focusedTab()?.content.page ?? null)
+      focus: menuFocus(focusedTab()?.content.page ?? null),
+      // Open Recent's entries: the Welcome page's list, as it stands.
+      recentRepos: recent?.list().map((entry) => entry.path) ?? []
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  };
+
+  /** What the Welcome page offers (#394): its entries and the recent list. */
+  const welcomeContent = (): WelcomeContent | null => {
+    if (shared === null || recent === null) return null;
+    const { l10n } = shared;
+    return {
+      recent: recent.list(),
+      strings: {
+        // The menu's words: the same entries (#396).
+        openFolder: l10n.t("desktop.menu.openFolder"),
+        initRepo: l10n.t("desktop.menu.initRepository"),
+        recent: l10n.t("desktop.welcome.recent"),
+        noRecent: l10n.t("desktop.welcome.noRecent"),
+        missing: l10n.t("desktop.welcome.missing"),
+        forget: l10n.t("desktop.welcome.forget")
+      }
+    };
   };
 
   /** Tell the window's page the Tabs and what the Welcome page says, once it
@@ -348,6 +383,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     if (shared === null) return;
     const repos = shared.repoSource.getRepos();
     const focused = focusedTab();
+    const welcomeShown = tabList().length === 0;
     const message: WindowStateMessage = {
       command: "windowState",
       tabs: tabList().map((tab) => ({
@@ -357,7 +393,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         focused: tab === focused,
         asking: tab !== focused && tab.content.page.asking
       })),
-      notice: tabList().length === 0 ? welcomeNotice : null,
+      notice: welcomeShown ? welcomeNotice : null,
+      // Only while it shows. What it says of each folder is what was last
+      // found (`RecentRepos.check`), never looked at here.
+      welcome: welcomeShown ? welcomeContent() : null,
       strings: { closeTab: shared.l10n.t("desktop.tab.close") }
     };
     owner.webContents.send(CHANNELS.hostMessage, message);
@@ -392,6 +431,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     layoutTabs();
     postWindowState();
     syncMenu();
+    checkRecentWhileShown();
+  };
+
+  /** Look at the recent list's folders again, while the Welcome page shows
+   *  it: what is found comes back through `postWindowState`. */
+  const checkRecentWhileShown = () => {
+    if (tabList().length === 0) recent?.check();
   };
 
   /** What `request` names, checked: a repository, a path that is none, or
@@ -425,10 +471,33 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       }
       return;
     }
-    const repo = tabWindow.resolve(target.repo);
-    logger.log(`launch: opening ${repo}`);
+    logger.log(`launch: opening ${tabWindow.resolve(target.repo)}`);
+    openInTab(target.repo);
+  };
+
+  /** Open `repo`, a repository as git spells it, in a Tab of its own — or
+   *  focus the Tab it is open in — and put it first in the recent list. Named
+   *  on a command line or chosen in the app alike (GLOSSARY.md's Known
+   *  repository). */
+  const openInTab = (repo: string) => {
+    if (tabWindow === null) return;
+    const known = tabWindow.resolve(repo);
     welcomeNotice = null;
-    tabWindow.openRepo(repo);
+    tabWindow.openRepo(known);
+    recent?.opened(known);
+    // Open Recent's order changed after the Tabs' did, which rebuilt the menu.
+    syncMenu();
+  };
+
+  /** Take `repo` off the recent list — unless a Tab has it open: the Tab's
+   *  graph is shown its repository from the known set (graphInstance.ts). */
+  const forgetRecent = (repo: string) => {
+    if (tabWindow !== null && tabWindow.tabs.find(repo) !== null) {
+      logger.log(`recent: ${repo} is open in a Tab, kept on the list`);
+      return;
+    }
+    logger.log(`recent: forgetting ${repo}`);
+    recent?.forget(repo);
   };
 
   /** What the window's own page posted: the strip's requests, and the replies
@@ -446,12 +515,26 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       case "windowReady":
         windowListening = true;
         postWindowState();
+        checkRecentWhileShown();
         break;
       case "focusTab":
         tabWindow?.tabs.focus(message.id);
         break;
       case "closeTab":
         tabWindow?.tabs.close(message.id);
+        break;
+      case "openFolder":
+        void repoOpening?.openFolder();
+        break;
+      case "initRepo":
+        void repoOpening?.initRepo();
+        break;
+      case "openRecent":
+        // Whether it opened or not, the list looks at its folders again.
+        void repoOpening?.openRecent(message.path).finally(checkRecentWhileShown);
+        break;
+      case "forgetRecent":
+        forgetRecent(message.path);
         break;
     }
   };
@@ -464,6 +547,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     win = null;
     tabWindow?.tabs.disposeAll();
     welcomePrompts?.dispose();
+    recent?.dispose();
   };
 
   const launch = parseLaunchArgs(thisLaunch, runtime);
@@ -595,8 +679,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     followSystemTheme((theme) => {
       for (const tab of tabList()) tab.content.view.setBackgroundColor(theme.background);
     });
-    // A Tab's title is its repository's custom name, when it has one.
-    host.repoSource.onDidChangeRepos(postWindowState);
+    // A Tab's title is its repository's custom name, when it has one; and the
+    // recent list is the known set (#394).
+    host.repoSource.onDidChangeRepos(() => {
+      postWindowState();
+      syncMenu();
+      checkRecentWhileShown();
+    });
 
     const owner = createWindow();
     // The window's own page — the Tab strip, the Welcome page — stays put as
@@ -719,6 +808,29 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         if (!view.webContents.isDestroyed()) view.webContents.close();
       },
       onChange: tabsChanged
+    });
+
+    recent = createRecentRepos({
+      store: host.storage.workspace,
+      repoSource: host.repoSource,
+      // A folder found otherwise than the list said: the Welcome page says so.
+      onChange: postWindowState
+    });
+    // Asked in the window it opens in; a failed `git init` is said in a box
+    // over it (`Prompts.showError` is a system dialog either way).
+    const repoInit = createRepoInitCommand({
+      prompts: welcomePrompts,
+      l10n: host.l10n,
+      gitClientFor: createRepoGitClients({ gitPath: desktopGitPath }).gitClientFor
+    });
+    repoOpening = createRepoOpening({
+      dialogs: dialogsFor(owner),
+      l10n: host.l10n,
+      logger,
+      check: (folder) => repoToOpen(folder, desktopGitPath()),
+      initRepo: (folder) => repoInit.initRepo(folder),
+      openRepo: openInTab,
+      resolve: (repo) => tabWindow?.resolve(repo) ?? repo
     });
 
     // The window's page starting to load, the first time or again (a reload):

@@ -104,8 +104,11 @@ test("an invalid --repo shows why, and hands the webview nothing", async () => {
   // No Tab opened: the Welcome page says why.
   const page = await windowPage(await launch("--repo", missing));
 
-  await expect(page.locator("h2")).toHaveText("Unable to load GING");
-  await expect(page.locator("p")).toHaveText(`Cannot open ${missing}: it is not a Git repository.`);
+  // The notice heads the page, over what it offers (#394).
+  await expect(page.locator(".welcomeBody > h2")).toHaveText("Unable to load GING");
+  await expect(page.locator(".welcomeBody > p")).toHaveText(
+    `Cannot open ${missing}: it is not a Git repository.`
+  );
   await expect(page.locator("#commitTable")).toHaveCount(0);
   // The desktop entry did load, and started nothing that could fail.
   await expect(page.locator("html")).toHaveAttribute("data-ging-entry", "ging-desktop-entry");
@@ -119,7 +122,9 @@ test("a folder that is not a repository shows why too", async () => {
   mkdirSync(folder);
   const page = await windowPage(await launch("--repo", folder));
 
-  await expect(page.locator("p")).toHaveText(`Cannot open ${folder}: it is not a Git repository.`);
+  await expect(page.locator(".welcomeBody > p")).toHaveText(
+    `Cannot open ${folder}: it is not a Git repository.`
+  );
   await expect(page.locator("#commitTable")).toHaveCount(0);
   expect(await closeAndReadLog()).not.toMatch(WEBVIEW_FAILURE);
 });
