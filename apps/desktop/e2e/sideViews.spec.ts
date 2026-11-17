@@ -194,6 +194,10 @@ test("the Stash view lists every stash as git does, follows one pushed outside t
   await expect(stashRows).toHaveCount(2);
   await expect(stashRows.nth(0)).toContainText("On main: later");
   await expect(stashRows.nth(1)).toContainText("stash@{1}");
+  // The graph's own watcher catches up too, and its reload closes any menu
+  // open in the page (`hideReloadOwnedOverlays`): a menu raised before that
+  // would be closed under the click.
+  await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length + 2);
 
   // Expanded, a stash lists the files it changed, read in the main process.
   await stashRows.nth(0).click();
