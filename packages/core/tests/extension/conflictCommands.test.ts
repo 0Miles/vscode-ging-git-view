@@ -94,7 +94,7 @@ describe("mergeTool", () => {
     ]);
   });
 
-  it("warns when the tool closes with the file still in conflict", async () => {
+  it("warns when the tool exits with the file still in conflict", async () => {
     const { repo, conflicts, calls, unmerged } = setUp("a.txt");
     tool(repo, "giving-up", "false");
     git(["config", "merge.guitool", "giving-up"], repo);

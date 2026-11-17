@@ -128,7 +128,7 @@
   "mergeTool.busy": "merge tool 还开着 {0}。请先关掉它。",
   "mergeTool.notConflicted": "{0} 没有要解决的冲突。",
   "mergeTool.cannotName": "无法把 {0} 交给 git mergetool：git 会把文件名里的 *、?、[ 或 \\ 当成模式。请在编辑器里解决，再标记为已解决。",
-  "mergeTool.unresolved": "{0} 仍有冲突：{1} 关闭时没有解决它。",
+  "mergeTool.unresolved": "{1} 已退出，但 {0} 仍有冲突。如果工具还开着，请在那里保存，再标记为已解决。在终端里运行的工具在这里跑不起来：请用“merge.guitool”配置一个有窗口的工具。",
   "mergeTool.failed": "无法运行 merge tool：{0}",
   "error.unableToContinueOperation": "无法继续",
   "error.unableToAbortOperation": "无法中止",

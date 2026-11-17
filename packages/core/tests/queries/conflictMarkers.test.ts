@@ -3,7 +3,10 @@ import * as path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { filesWithConflictMarkers } from "@ging/core/backend/queries/conflictMarkers";
+import {
+  filesWithConflictMarkers,
+  MARKER_SCAN_BYTES
+} from "@ging/core/backend/queries/conflictMarkers";
 
 import { makeTempDir, rmrf } from "@ging/core/tests/helpers";
 
@@ -53,6 +56,18 @@ describe("filesWithConflictMarkers", () => {
     expect(await filesWithConflictMarkers(dir, ["README.rst", "quoted.md", "longer.txt"])).toEqual(
       []
     );
+  });
+
+  it("takes a binary file for none, and reads no further than its limit", async () => {
+    const dir = folder({
+      "image.png": "\x89PNG\0\0\n<<<<<<< HEAD\n",
+      "huge.txt": "x".repeat(MARKER_SCAN_BYTES) + "\n<<<<<<< HEAD\n",
+      "early.txt": "<<<<<<< HEAD\n" + "x".repeat(MARKER_SCAN_BYTES)
+    });
+
+    expect(await filesWithConflictMarkers(dir, ["image.png", "huge.txt", "early.txt"])).toEqual([
+      "early.txt"
+    ]);
   });
 
   it("finds none in a file that is gone, and reads none outside the repository", async () => {

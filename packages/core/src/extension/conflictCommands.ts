@@ -40,8 +40,9 @@ export type ConflictCommandsDeps = {
 export type ConflictCommands = {
   /**
    * Hand the conflicted `file`, repository-relative, to the merge tool the
-   * user configured, and say what came of it once the tool has closed: that
-   * it is still in conflict, or nothing when it is resolved — the graph and
+   * user configured, and say what came of it once `git mergetool` has
+   * returned: that the file is still in conflict, and what to do if the
+   * tool is in fact still open, or nothing when it is resolved — the graph and
    * the panel, refreshed, show that. Says why when it runs nothing: the file
    * is in no conflict, no tool is configured, or one is still open.
    */
@@ -93,6 +94,10 @@ export function createConflictCommands(deps: ConflictCommandsDeps): ConflictComm
       logger.log(
         `mergeTool: ${tool} on ${file} exited ${outcome.exitCode}; ${resolved ? "resolved" : "still in conflict"}`
       );
+      // Said as "exited", not "closed": a GUI tool that forks returns at once,
+      // and a terminal tool (vimdiff as `merge.tool`) fails with no terminal
+      // to run in. Either way git has put the file back from its backup, so
+      // what the tool saves afterwards is the user's to mark resolved.
       if (!resolved) void prompts.showWarning(l10n.t("mergeTool.unresolved", file, tool));
     } catch (e: unknown) {
       void prompts.showError(l10n.t("mergeTool.failed", formatGitError(e)));

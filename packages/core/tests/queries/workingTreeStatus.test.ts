@@ -91,6 +91,25 @@ describe("workingTreeStatus", () => {
     expect(status.operation).toBe("merge");
   });
 
+  it("names the merge of a linked worktree there, and not in the main one", async () => {
+    repo = makeRepo();
+    git(["branch", "side"], repo);
+    git(["branch", "other"], repo);
+    const linked = path.join(repo, "linked");
+    git(["worktree", "add", "-q", linked, "other"], repo);
+    fs.writeFileSync(path.join(linked, "f"), "other");
+    git(["commit", "-qam", "other"], linked);
+    git(["checkout", "-q", "side"], repo);
+    write("f", "side");
+    git(["commit", "-qam", "side"], repo);
+    git(["checkout", "-q", "main"], repo);
+    // Its MERGE_HEAD is in .git/worktrees/linked, not in .git.
+    expect(cp.spawnSync("git", ["merge", "side"], { cwd: linked }).status).not.toBe(0);
+
+    expect((await workingTreeStatus(simpleGit(linked))).operation).toBe("merge");
+    expect((await workingTreeStatus(simpleGit(repo))).operation).toBeUndefined();
+  });
+
   it("says no branch with HEAD detached", async () => {
     repo = makeRepo();
     git(["checkout", "-q", "--detach"], repo);

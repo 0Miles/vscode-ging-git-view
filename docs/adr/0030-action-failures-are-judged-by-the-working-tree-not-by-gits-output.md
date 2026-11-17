@@ -35,4 +35,4 @@ status: accepted
 
 **第二個呼叫端:桌面版的 merge tool([conflictCommands.ts](../../packages/core/src/extension/conflictCommands.ts))。工具關掉之後,那個檔案還在不在 unmerged 路徑裡,就是「解決了沒有」。**
 
-`git mergetool` 的結束碼與輸出都不可靠:工具的結束碼由 `mergetool.<名稱>.trustExitCode` 決定信不信,不信的時候 git 看檔案有沒有被改過,再問一句「Was the merge successful [y/n]?」;桌面版把 stdin 關掉,這句讀到 EOF 就當成「否」。結束碼為 0 也不保證那個檔案已經 stage,為非 0 也不代表什麼都沒動。所以照這份 ADR:事後讀 `unmergedFiles`,檔案不在裡面就是解決了(git 在工具成功時自己 `git add`),還在就說工具關了但沒有解決。執行前同樣讀一次:檔案本來就不在衝突中時不執行,說它沒有衝突要解決。
+`git mergetool` 的結束碼與輸出都不可靠:工具的結束碼由 `mergetool.<名稱>.trustExitCode` 決定信不信,不信的時候 git 看檔案有沒有被改過,再問一句「Was the merge successful [y/n]?」;桌面版把 stdin 關掉,這句讀到 EOF 就當成「否」。結束碼為 0 也不保證那個檔案已經 stage,為非 0 也不代表什麼都沒動。所以照這份 ADR:事後讀 `unmergedFiles`,檔案不在裡面就是解決了(git 在工具成功時自己 `git add`),還在就說工具已結束但檔案仍有衝突(不說「關了」,理由見 ADR-0027 的同日補記)。執行前同樣讀一次:檔案本來就不在衝突中時不執行,說它沒有衝突要解決。
