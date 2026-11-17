@@ -263,6 +263,18 @@ type Step = {
   check?: (answer: ResponseMessage | undefined, outside: Seen[]) => void | Promise<void>;
 };
 
+/**
+ * How long the walk waits for a step's answer. Chosen for the costliest step,
+ * not Playwright's 5s default, which the walk once used by omission (#472).
+ * `branchCleanupScan` runs about 20 git commands one after another (the
+ * cleanup facts twice, a `merge-tree` per branch), and a git spawn costs
+ * 100–250ms on Windows. Measured there: 1.9–5.0s for that step, with every core
+ * busy or the machine shared with other test runs, and past 5s in 1 of 10 walks;
+ * `branchRedundancy` 0.9–2.9s. About four times the worst of them. CI runs
+ * the walk on ubuntu only, where it has stayed under the default.
+ */
+const ANSWER_BUDGET_MS = 20_000;
+
 function step<C extends Command>(
   command: C,
   request: () => Omit<Request<C>, "command">,
@@ -914,7 +926,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
             got = (await answersSoFar(page)).find((msg, at) => at >= answersBefore && answer(msg));
             return got !== undefined;
           },
-          { message: `an answer to ${command}` }
+          { message: `an answer to ${command}`, timeout: ANSWER_BUDGET_MS }
         )
         .toBe(true);
     }

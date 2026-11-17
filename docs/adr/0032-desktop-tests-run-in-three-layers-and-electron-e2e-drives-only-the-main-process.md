@@ -146,7 +146,7 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **選單項 `ging.cloneRepository`,照 #396 補記的契約新增**(那份契約沒有替 clone 保留 id):`AppMenuCommands.cloneRepository?()`,「Clone Repository...」,沒有 accelerator,位置在 Open Recent 與 Initialize Repository 之間。**只在焦點是 `welcome`、而且沒有 clone 正在問或在跑時 enabled**:進度與帳密都畫在 Welcome page,有 Tab 時被蓋住(票面「clone 發生在還沒有分頁的時候」)。規則在 template([appMenu.ts](../../apps/desktop/src/appMenu.ts) 的 `AppMenuState.cloning`),由 appMenu.test.ts 的表驗;E2E 讀 `enabled` 而不只是 `click()`。clone 正在問或在跑時,會開 Tab 的其他入口也關掉:選單的 Open Folder、Open Recent、Initialize Repository 不能按(同一張表驗),Welcome page 被面板蓋住(`inert`),第二次啟動經 single-instance 轉來的路徑排隊,等 clone 結束才開 —— 否則新開的 Tab 會蓋住面板與帳密提示,git 就卡在一個沒人看得到的提示上。有 Tab 時也能 clone,另開 [#461](https://github.com/0Miles/vscode-ging-git-view/issues/461)。
 - **流程本身用 vitest 測**([repoCloning.test.ts](../../apps/desktop/tests/repoCloning.test.ts)):URL 與資料夾的取消、目的地的組法、askpass route 的生命週期、進度的節流、取消、一次一個、視窗關掉時中止且不開 Tab。
 
-## 補記(2026-11-18,#451、#466)
+## 補記(2026-11-18,#451、#466、#472)
 
 **拿掉 #391、#403 為了避開 `index.lock` 而加的等待:walk 的 `settle`(改動 repo 的動作之後等圖形的重新載入)與 [workingTree.spec.ts](../../apps/desktop/e2e/workingTree.spec.ts) 在 commit 前等圖形的重新載入。** 根因修在產品:GING 自己的讀取不再拿 `index.lock`,所以動作與背景重新載入重疊也不會被拒。
 
@@ -154,4 +154,5 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **對 working tree 的 `git diff`(`unmergedFiles`、`getNewPathOfRenamedFile`)另帶 `-c diff.autoRefreshIndex=false`(`NO_INDEX_REFRESH`)。** 實測 git 2.40.1:這種 diff 在 `GIT_OPTIONAL_LOCKS=0` 下仍會刷新並寫回 index。這個設定不放進全域的 `GIT_CONFIG_OVERRIDES`:它會讓不帶 filter 的 diff 也列出只有時間戳改變的檔案,而 `-c` 會傳到寫入命令執行的 hook 裡。
 - **vitest 不用「讀寫同時跑、沒有失敗」的壓力測試。** 實測沒有修正時,兩個讀取迴圈加 40 次寫入,只有約 1 次被拒,綠燈證明不了什麼。[indexLock.test.ts](../../packages/core/tests/queries/indexLock.test.ts) 改成監看 `.git` 資料夾,斷言讀取期間沒有出現任何 `.lock` 檔:讀取結束後寫一個哨兵檔,等聽到它,之前的事件就都到了(監看事件依發生順序送達)。對照組(不經 GING 的 client 的 `git status`、不帶 `NO_INDEX_REFRESH` 的 diff)確實拿了鎖。
 - **改動失敗的原因不再被之後的 refresh 抹掉(#466)。** 面板只在使用者送出下一個改動時清掉改動的錯誤;讀取的回答不覆蓋它,讀取本身失敗才顯示讀取的錯誤,下一次讀取成功時清掉。jsdom 測試照實際順序:先 `refresh`、再失敗的回答、再 refresh 引起的讀取。
+- **walk 等每一步回答的期限改成明定的 `ANSWER_BUDGET_MS`(20 秒),不再沿用 Playwright 預設的 5 秒(#472)。** #472 在 Windows 上看到的兩種逾時是兩件事:一是寫入動作(`mergeBranch`)的回答帶著錯誤,符合撞上背景重新載入的 `index.lock`(推論:當時的 log 已不在),由上面的修正處理;二是讀取步驟(`branchCleanupScan`、`branchRedundancy`)的回答超過 5 秒才到。後者不是卡住:`branchCleanupScan` 依序跑約 20 個 git 命令,Windows 上每個 spawn 100–250ms,實測 1.9–5.0 秒(CPU 全滿或與其他測試同時跑),10 次 walk 有 1 次超過 5 秒;`branchRedundancy` 0.9–2.9 秒。期限取最壞值的約四倍,與 #425 依 spawn 數訂期限的做法相同。CI 只在 ubuntu 跑 walk,一直在預設之內,所以沒抓到。
 - **E2E 改動 repo 之前的 fixture 寫入(stash、改檔)仍在 app 啟動前做**,只是不再需要理由:它們是 fixture 的一部分。
