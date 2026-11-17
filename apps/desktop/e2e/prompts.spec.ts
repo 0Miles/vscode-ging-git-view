@@ -115,7 +115,8 @@ test("a pick of core's fetchRemote is asked in the page, and fetches the remote 
 test("the menu's graph entries are not offered on a page with no graph", async () => {
   const electronApp = await launch("--repo", path.join(scratch, "not-a-repo"));
   const page = await windowPage(electronApp);
-  await expect(page.locator("p")).toContainText("not a Git repository");
+  // The notice, over what the Welcome page offers (#394).
+  await expect(page.locator(".welcomeBody > p")).toContainText("not a Git repository");
 
   expect(await menuEntry(electronApp, FETCH_REMOTE)).toMatchObject({ enabled: false });
 });

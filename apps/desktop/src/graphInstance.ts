@@ -3,13 +3,14 @@
  * shares (sharedServices.ts). Each Tab opens one (#388, #393). */
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { isGitRepository } from "@ging/core/backend/utils/git";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
 import {
   type MessageHandlerDeps,
   registerMessageHandlers
 } from "@ging/core/extension/messageHandler";
-import { createPullRequestProviderCommands } from "@ging/core/extension/pullRequestProviderCommands";
+import { createReflogCommand } from "@ging/core/extension/reflogCommand";
 import { createRemoteCommands } from "@ging/core/extension/remoteCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
@@ -24,6 +25,7 @@ import type {
   SideViewStateMessage
 } from "@ging/webview/desktop/sideViews/protocol";
 
+import { type AppCommands, createAppCommands } from "./appCommands";
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
 import { createSideViews } from "./sideViews";
@@ -55,12 +57,26 @@ export type GraphInstance = {
   /** The host wrote setting `key` (`HostConfig.update`): react as VS Code
    *  does to a configuration change (settingsPush.ts). */
   settingChanged(key: string): void;
-  /** Core's `fetchRemote` command on its current repository: asks which
-   *  remote when there are several (the application menu, #390). */
-  fetchRemote(): Promise<void>;
+  /** What the application menu runs on it (#390, #396). */
+  commands: InstanceCommands;
   /** What its page's side views asked (#399). */
   sideView(message: SideViewRequest): void;
   dispose(): void;
+};
+
+/** Core's command services on an instance's current repository, asking in its
+ *  page: the application menu's graph entries, and the app's own as asked
+ *  from there. */
+export type InstanceCommands = AppCommands & {
+  fetch(): Promise<void>;
+  /** Asks which remote when there are several. */
+  fetchRemote(): Promise<void>;
+  manageRemotes(): Promise<void>;
+  toggleRemoteVisibility(): Promise<void>;
+  viewReflog(): Promise<void>;
+  /** The system's terminal in the repository, named after its folder as the
+   *  graph's own Terminal button names it. */
+  openTerminal(): void;
 };
 
 export function createGraphInstance(
@@ -121,18 +137,18 @@ export function createGraphInstance(
   });
   avatarManager.registerBridge(bridge.post);
 
-  // Its own auto-fetch timer, on its own current repository, muted and
-  // refreshed around each fetch as the bridge's own changes are.
-  const runRepoMutation = createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh });
-  const fetchService = createFetchService({
-    config,
+  // What core's command services need of it: they change its repository
+  // muted and refreshed around each change, as the bridge's own changes are.
+  const kitDeps = {
     prompts,
     l10n,
     gitClientFor: gitClients.gitClientFor,
     currentRepo: () => current,
     repoSource: shared.repoSource,
-    runRepoMutation
-  });
+    runRepoMutation: createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh })
+  };
+  // Its own auto-fetch timer, on its own current repository.
+  const fetchService = createFetchService({ ...kitDeps, config });
   fetchService.restartAutoFetch();
 
   // A Tab is one repository, and a repository is open in at most one Tab
@@ -143,6 +159,7 @@ export function createGraphInstance(
   // itself stays the app's.
   const own = (repos: GitRepoSet): GitRepoSet =>
     Object.hasOwn(repos, repo) ? { [repo]: repos[repo] } : {};
+  const known = () => Object.hasOwn(shared.repoSource.getRepos(), repo);
   // Its side views draw themselves from three fields of its repository's
   // state, and more than one thing writes them: their own toggles, and the
   // graph's Repository Settings drawer (#183) through `saveRepoState`.
@@ -157,7 +174,17 @@ export function createGraphInstance(
   const repoSource: RepoSource = {
     ...shared.repoSource,
     getRepos: () => own(shared.repoSource.getRepos()),
-    getBootRepo: () => (Object.hasOwn(shared.repoSource.getRepos(), repo) ? repo : null),
+    getBootRepo: () => (known() ? repo : null),
+    // Its own repository alone, as with the rest (#394): the app's check would
+    // drop every known repository git cannot reach now — the recent list's
+    // folders on a disk not mounted at the moment among them — when only this
+    // Tab's graph failed to load. Whether its own should go is #454's.
+    checkReposExist: async () => {
+      if (!known() || (await isGitRepository(repo, shared.gitPath()))) return false;
+      logger.log(`tabs: ${repo} is no Git repository any more, dropped from the known set`);
+      shared.repoSource.dropRepo(repo);
+      return true;
+    },
     setRepoState: (target, state) =>
       written(target, () => shared.repoSource.setRepoState(target, state)),
     updateRepoState: (target, patch) =>
@@ -181,25 +208,21 @@ export function createGraphInstance(
     platform: process.platform,
     env: process.env
   });
-  // Asked in this instance's page, as the failed Create Pull Request that
-  // offers it was. The settings are the app's: no workspace holds any.
-  const pullRequestProviders = createPullRequestProviderCommands({
+  // Asked in this instance's page — Manage Pull Request Providers too, as the
+  // failed Create Pull Request that offers it was.
+  const appCommands = createAppCommands(shared, {
     prompts,
-    l10n,
-    config,
+    currentRepo: () => current,
+    gitClientFor: gitClients.gitClientFor,
     revealSetting
   });
-  // The Remotes view's commands (#399): core's, asked in this page, as VS
-  // Code's are asked in its own prompts.
   const remoteCommands = createRemoteCommands({
-    prompts,
-    l10n,
-    gitClientFor: gitClients.gitClientFor,
-    currentRepo: () => current,
-    repoSource,
-    refreshGraph: () => void bridge.post({ command: "refresh" }),
-    runRepoMutation
+    ...kitDeps,
+    refreshGraph: () => void bridge.post({ command: "refresh" })
   });
+  const reflog = createReflogCommand({ ...kitDeps, clipboard: shared.clipboard });
+  // The Remotes view's commands are those (#399), asked in this page as the
+  // menu's are.
   const sideViews = createSideViews({
     repo,
     post: postSideView,
@@ -212,7 +235,7 @@ export function createGraphInstance(
     clipboard: shared.clipboard,
     remoteCommands,
     fetchRemote: (target, remote) => fetchService.fetchOneCommand(target, remote),
-    managePullRequestProviders: () => void pullRequestProviders.manage(),
+    managePullRequestProviders: () => void appCommands.managePullRequestProviders(),
     setShowRemoteBranches: (value) => void bridge.post({ command: "setShowRemoteBranches", value }),
     logger,
     nowMs: () => Date.now()
@@ -251,7 +274,7 @@ export function createGraphInstance(
       // a filter hides (#310), clear the filter through it as in VS Code.
       showAllBranches: async (requested) => sideViews.showAll(requested),
       // Core's own Manage Pull Request Providers (#398), asked in this page.
-      configurePullRequestProvider: (host) => void pullRequestProviders.manage(host),
+      configurePullRequestProvider: (host) => void appCommands.managePullRequestProviders(host),
       // A stub, said to the user rather than failed, until the working
       // tree's view (#403).
       openScmView: () => notSupportedYet(notifier, "the source control view (#403)")
@@ -275,7 +298,18 @@ export function createGraphInstance(
       // too: the thresholds, "always show", the menus' visibility.
       sideViews.refresh();
     },
-    fetchRemote: () => fetchService.fetchRemoteCommand(),
+    commands: {
+      ...appCommands,
+      fetch: () => fetchService.fetchCommand(),
+      fetchRemote: () => fetchService.fetchRemoteCommand(),
+      manageRemotes: () => remoteCommands.manageRemotes(),
+      toggleRemoteVisibility: () => remoteCommands.toggleRemoteVisibility(),
+      viewReflog: () => reflog.viewReflog(),
+      openTerminal: () => {
+        const name = current.split("/").findLast((s) => s !== "") ?? current;
+        opener.openTerminal(current, `GING: ${name}`);
+      }
+    },
     sideView: (message) => sideViews.receive(message),
     dispose: () => {
       sideViews.dispose();

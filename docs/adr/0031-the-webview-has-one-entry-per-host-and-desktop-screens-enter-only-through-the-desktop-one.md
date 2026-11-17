@@ -101,6 +101,25 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **「這個 Tab 在等回答」的標記只畫在後面的 Tab 上。** 前景 Tab 的 prompt 就在畫面上，不需要再提醒;背景 Tab 的 prompt 畫在看不見的頁面裡，分頁列是使用者唯一看得到它的地方。標記不會把那個 Tab 拉到前面：搶走使用者正在用的 Tab 比晚一點回答更糟。
 - **Tab 的頁面不會被導覽走。** Tab 的 view 若被導覽到 `?id=M`,會畫出 Tab M 的圖形，訊息卻仍送到自己的實例。所以每個 Tab 的 webContents 擋掉 `will-navigate`、`window.open` 一律不開新視窗(網址交給 `Opener.openExternalUrl`),寫在 [pageGuard.ts](../../apps/desktop/src/pageGuard.ts) 的 `keepPageInPlace`,與設定視窗(「補記(#397)」)的規則相同;main process 自己的 `loadURL` 與重新載入不受影響。
 
+## 補記(2026-11-17,#396)
+
+**Show Statistics 的統計頁不是桌面入口的一種頁面，而是兩個宿主共用的一份完整 HTML 文件**([statisticsMarkup.ts](../../packages/webview/src/statisticsMarkup.ts)),桌面版從 `ging://app/statistics` 提供，開在自己的視窗裡([statisticsWindow.ts](../../apps/desktop/src/statisticsWindow.ts))。
+
+- **為什麼不做成 `data-ging-page` 的第四種。** 統計頁沒有腳本、沒有互動，VS Code 也是把同一份 HTML 直接塞進一個 `enableScripts: false` 的 webview panel。做成入口的一種頁面，就得讓 bundle 為一頁只有 CSS 的東西啟動、再把畫面搬進 `desktop/`;直接共用文件，兩個宿主畫的是同一份東西，VS Code 的輸出不變(只是產生它的函式從 `apps/vscode` 搬到 `packages/webview`,字串改由呼叫端傳入的 `t` 取得)。
+- **它在 `packages/webview`,不在 `desktop/` 底下,** 因為 VS Code 也用它;它只是產生字串的函式，不 import 任何會碰頁面的東西。圖形的資料型別由 core 的 `Statistics` 依形狀對上(`StatisticsFigures`),`packages/webview` 照 ADR-0026 不依賴 core。
+- **主題。** VS Code 自己注入 `--vscode-*`;桌面版在提供頁面時把當下主題的變數寫在 `<html>` 的 `style` 上(與其他頁面相同),之後的主題切換照舊由 preload 套上。它用到的 `--vscode-charts-blue` 因此加進了 `theme.ts`(值取自 VS Code 色彩登錄的 `editorInfo.foreground`),`apps/desktop/tests/theme.test.ts` 掃 `packages/webview` 時會守住它。
+- **頁面不會被導覽走、也不開新視窗**(`keepPageInPlace`,同 #393 的 Tab)。`serveApp` 因此多了一種回答:除了組成入口頁面的 `PageContent`,也可以是整份文件(`{ document }`);沒有統計資料時 `ging://app/statistics` 是 404。
+
+## 補記(2026-11-17,#394)
+
+**Welcome page 有了內容：開啟資料夾、初始化存放庫兩個入口，以及最近使用清單。仍是視窗自己的頁面畫，協定照「補記(#393)」的形狀長出來。**
+
+- **`windowState` 多一欄 `welcome`**(入口的文字與最近使用清單,[desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts) 的 `WelcomeContent`)。有 Tab 時是 `null`:Tab 的 view 蓋住 Welcome page,而清單的每一列都要看一次磁碟(`missing`),沒人看的時候不算。
+- **頁面多四種請求:`openFolder`、`initRepo`、`openRecent`、`forgetRecent`**,後兩者帶清單上那一列的 `path`。和點分頁一樣只是「請求」:選資料夾、檢查、開成 Tab 都是宿主的事，頁面等新的 `windowState`。`WINDOW_COMMANDS_STAY_APART` 照舊檢查它們不與 `RequestMessage` 撞名。
+- **啟動參數指錯路徑的說明(`notice`)畫在入口與清單之上**,同一個 `.welcomeBody` 裡：說明之後，使用者馬上能從同一頁改開別的資料夾。
+- **clone 的入口不在這裡。** 票面把它列為 Welcome page 的入口之一，但 clone 本身是 #395;沒有功能的按鈕不先放，由 #395 連同它的流程一起加進 `welcomeHtml`。
+- 樣式仍由 `windowPage.ts` 插進同一個 `<style>`,只用 `theme.ts` 已提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。版面由 [windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗：每一列一行、過長的路徑截斷而不把「移除」鈕擠出去、找不到的資料夾標出來。
+
 ## 補記(2026-11-17,#399)
 
 **側檢視區已經填上:`<aside id="sideViews">`,由桌面入口在圖形頁啟動圖形之後建立,插在 `<body>` 的第一個位置。**它照上面骨架的約定:視窗左緣、與視窗等高、`position: fixed`,寬度是 `--ging-side-view-width`(260px,[styles.ts](../../packages/webview/src/desktop/sideViews/styles.ts) 的 `SIDE_VIEW_WIDTH`);`body.gingSideViews` 擁有 `padding-left`。「後果」最後一條要 #399 做的那一半也做了:docked Commit Details View 與 `#scrollShadow.active` 的左緣讓出欄寬,右緣不動,留給 #403。

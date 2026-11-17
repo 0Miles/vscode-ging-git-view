@@ -5,7 +5,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 
 import { repoToOpen } from "@ging/desktop/repoToOpen";
 
-import { makeRepo, makeTempDir, rmrf, toRepoPath } from "@ging/core/tests/helpers";
+import { git, makeRepo, makeTempDir, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 // What a launch's `--repo <path>` (or positional path) opens (#388): the
 // repository, held to the same test the Current repository is held to
@@ -33,18 +33,28 @@ describe("the repository a launch opens", () => {
   it("is nothing for a path that does not exist", async () => {
     const parent = temp(() => makeTempDir("ging-open-"));
     const missing = path.join(parent, "missing");
-    expect(await repoToOpen(missing, "git")).toEqual({ unusable: missing });
+    expect(await repoToOpen(missing, "git")).toEqual({ unusable: missing, why: "missing" });
   });
 
   it("is nothing for a file", async () => {
     const parent = temp(() => makeTempDir("ging-open-"));
     const file = path.join(parent, "file.txt");
     fs.writeFileSync(file, "x");
-    expect(await repoToOpen(file, "git")).toEqual({ unusable: file });
+    expect(await repoToOpen(file, "git")).toEqual({ unusable: file, why: "missing" });
   });
 
   it("is nothing for a folder git does not take for a working tree", async () => {
     const folder = temp(() => makeTempDir("ging-open-"));
-    expect(await repoToOpen(folder, "git")).toEqual({ unusable: folder });
+    expect(await repoToOpen(folder, "git")).toEqual({ unusable: folder, why: "notRepository" });
+  });
+
+  it("is nothing for a bare repository or a .git folder, which have no working tree (#394)", async () => {
+    const parent = temp(() => makeTempDir("ging-open-"));
+    const bare = path.join(parent, "bare.git");
+    git(["init", "--bare", "--template=", bare], parent);
+    const gitDir = path.join(temp(makeRepo), ".git");
+
+    expect(await repoToOpen(bare, "git")).toEqual({ unusable: bare, why: "noWorkTree" });
+    expect(await repoToOpen(gitDir, "git")).toEqual({ unusable: gitDir, why: "noWorkTree" });
   });
 });
