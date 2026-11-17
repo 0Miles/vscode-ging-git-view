@@ -1,0 +1,12 @@
+{
+  // The page's bundle entry (src/web/page.ts) starts the webview's desktop
+  // entry, and with it the graph, whose globals (`viewState`, `l10n`, the GG
+  // types...) are ambient declarations of the webview's. Checked on its own,
+  // so the main process's code never sees them.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": []
+  },
+  "include": ["src/web/page.ts", "../../packages/webview/src/**/*.d.ts"],
+  "exclude": []
+}

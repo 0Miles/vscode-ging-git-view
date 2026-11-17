@@ -1,8 +1,10 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type * as GG from "@ging/shared/types";
+import type { DiffViewerOptions, EditorFactory } from "@ging/webview/desktop/editors";
 
 import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
+import { startDesktop } from "./startDesktop";
 
 // The desktop entry (#384) is the bundle only the desktop host ships. What it
 // owes the desktop host today is two things: the same graph view the VS Code
@@ -15,6 +17,15 @@ import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from ".
 // scenario would leave the previous instance listening on `window`.
 
 const viewState = makeViewState();
+
+/** What the diff viewer asked the editors to draw. */
+const diffsAsked: DiffViewerOptions[] = [];
+const editors: EditorFactory = {
+  createDiffViewer: async (_container, options) => {
+    diffsAsked.push(options);
+    return { setLayout: () => {}, setTheme: () => {}, focus: () => {}, dispose: () => {} };
+  }
+};
 
 const branchesResponse: GG.ResponseMessage = {
   command: "loadBranches",
@@ -54,7 +65,7 @@ describe("the desktop entry", () => {
     setupHtml(viewState);
     // As the desktop host serves a graph page (#388).
     document.documentElement.dataset.gingPage = "graph";
-    await import("@ging/webview/desktop/main");
+    await startDesktop(editors);
   });
 
   it("marks the page as loaded from the desktop entry", () => {
@@ -86,6 +97,26 @@ describe("the desktop entry", () => {
 
     receive({ command: "hostPrompt" } as unknown as GG.ResponseMessage);
 
+    expect(mock.sentOf("reportError")).toEqual([]);
+  });
+
+  it("shows a diff the host sends in the diff viewer, with the editors it was handed (#404)", async () => {
+    mock.clearMessages();
+
+    receive({
+      command: "showDiff",
+      title: "file.txt (aaa111^ ↔ aaa111)",
+      original: { path: "file.txt", content: "before\n" },
+      modified: { path: "file.txt", content: "after\n" },
+      revealLine: null,
+      notShown: null,
+      strings: { sideBySide: "Side by Side", inline: "Inline", close: "Close", cannotShow: "-" }
+    } as unknown as GG.ResponseMessage);
+    await vi.waitFor(() => expect(diffsAsked).toHaveLength(1));
+
+    expect(diffsAsked[0]).toMatchObject({ original: { content: "before\n" } });
+    expect(document.getElementById("diffViewer")!.hidden).toBe(false);
+    // The graph's listener heard it too, and let it be.
     expect(mock.sentOf("reportError")).toEqual([]);
   });
 });

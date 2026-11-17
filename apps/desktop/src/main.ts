@@ -32,6 +32,7 @@ import { createRepoInitCommand } from "@ging/core/extension/repoInitCommand";
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
 import type { ExtensionState } from "@ging/core/extensionState";
 import type { HostLogger } from "@ging/core/host/ports";
+import { EDITOR_ASSETS } from "@ging/desktop/editorAssets";
 import { createDesktopClipboard } from "@ging/desktop/ports/clipboard";
 import { createDesktopLogger } from "@ging/desktop/ports/logger";
 import { type OsShell, openWebUrl } from "@ging/desktop/ports/opener";
@@ -41,6 +42,7 @@ import {
   type NativeDialogs
 } from "@ging/desktop/ports/prompts";
 import type { RequestMessage } from "@ging/shared/types";
+import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
 import {
   type HostPromptMessage,
   type HostPromptReply,
@@ -108,8 +110,14 @@ const STATISTICS_PATH = "/statistics";
 const TAB_PATH = "/tab";
 const TAB_ID_PARAM = "id";
 /** The files in out/, next to this bundle, that `ging://app/<file>` serves:
- *  the page's assets and the script's source map. Nothing else is served. */
-const SERVED_FILES = new Set<string>([...Object.values(PAGE_ASSETS), `${PAGE_ASSETS.script}.map`]);
+ *  the page's assets and its script's source map, and the editor's that a
+ *  page loads for its diff viewer (#404; built without source maps). Nothing
+ *  else is served. */
+const SERVED_FILES = new Set<string>([
+  ...Object.values(PAGE_ASSETS),
+  `${PAGE_ASSETS.script}.map`,
+  ...Object.values(EDITOR_ASSETS)
+]);
 
 /** Every page's: the preload, and nothing of Node's in the page. */
 const WEB_PREFERENCES = {
@@ -215,8 +223,9 @@ function followSystemTheme(repaint: (theme: Theme) => void): void {
 }
 
 /** The page in `contents`, as a webview instance talks to it; `deliver` hands
- *  it what the page posted, and `prompt` shows it one of the instance's
- *  prompts, on the same channel as the graph's messages (ADR-0031). */
+ *  it what the page posted, `prompt` shows it one of the instance's prompts
+ *  and `diff` one of its diffs (#404), on the same channel as the graph's
+ *  messages (ADR-0031). */
 function channelTo(contents: WebContents, logger: HostLogger) {
   let listener: ((message: RequestMessage) => void | Promise<void>) | null = null;
   const send = (message: unknown): boolean => {
@@ -236,6 +245,7 @@ function channelTo(contents: WebContents, logger: HostLogger) {
   const sideView = (message: SideViewStateMessage) => {
     send(message);
   };
+  const diff = (message: ShowDiffMessage) => send(message);
   const deliver = (message: RequestMessage) => {
     // A handler that throws has no one else to tell: the dispatch answers what
     // it catches, and this is what it did not.
@@ -243,7 +253,7 @@ function channelTo(contents: WebContents, logger: HostLogger) {
       logger.logError(`webview: handling "${message.command}" failed: ${String(e)}`)
     );
   };
-  return { channel, deliver, prompt, sideView };
+  return { channel, deliver, prompt, diff, sideView };
 }
 
 const thisLaunch: LaunchCommandLine = { argv: process.argv, workingDirectory: process.cwd() };
@@ -789,7 +799,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
 
     /** A graph on `repo` in `view`, its Current repository kept in `state`. */
     const graphPage = (view: WebContentsView, repo: string, state: ExtensionState): TabPage => {
-      const { channel, deliver, prompt, sideView } = channelTo(view.webContents, logger);
+      const { channel, deliver, prompt, diff, sideView } = channelTo(view.webContents, logger);
       // Asked in this Tab's page: a prompt git raises for it comes back here
       // through its askpass route, whichever Tab is in front (#393).
       const prompts = createDesktopPrompts({
@@ -808,7 +818,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         prompts,
         postSideView: sideView,
         extensionState: state,
-        revealSetting: (key) => settingsWindow?.reveal(key)
+        revealSetting: (key) => settingsWindow?.reveal(key),
+        postDiff: diff
       });
       const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
       const page: TabPage = {

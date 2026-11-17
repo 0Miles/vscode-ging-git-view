@@ -16,6 +16,7 @@ import { _electron, type ElectronApplication, expect, type Page, test } from "@p
 
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
+import { diffShown, FIRST_DIFF_BUDGET, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 import { focusedTabPage, windowPage } from "./tabPages";
 
@@ -145,6 +146,7 @@ test.beforeEach(() => {
 });
 
 test.afterEach(async () => {
+  if (app !== null) await keepTraceIfFailed(app, test.info());
   await app?.close();
   app = null;
   for (const dir of [scratch, ...cleanUp]) rmSync(dir, { recursive: true, force: true });
@@ -261,6 +263,10 @@ type Step = {
   /** What else it must have done, read once it finished; for a command that
    *  answers nothing, how to tell it finished at all. */
   check?: (answer: ResponseMessage | undefined, outside: Seen[]) => void | Promise<void>;
+  /** How long its answer and its check may take, past the usual
+   *  (`ANSWER_BUDGET_MS` for the answer, 10s for the check): only for what a
+   *  page does slowly the first time (`FIRST_DIFF_BUDGET`). */
+  budget?: number;
 };
 
 /**
@@ -320,39 +326,8 @@ function actionsOn(repo: string) {
   };
 }
 
-test("a file clicked in the Commit Details View says the diff is not here yet, and nothing failed", async () => {
-  const fixture = makeFixtureRepo(env);
-  cleanUp.push(fixture.path);
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [
-      "--lang=en-US",
-      APP_DIR,
-      `--user-data-dir=${path.join(scratch, "userData")}`,
-      "--repo",
-      fixture.path
-    ],
-    env: env as Record<string, string>
-  });
-  const electronApp = app;
-  const page = await focusedTabPage(electronApp);
-  await standIn(electronApp, scratch);
-
-  // As a user gets there: the newest commit's details, then its one file.
-  await page.locator("#commitTable tr.commit").first().click();
-  const changed = page.locator(".gitFile", { hasText: "file.txt" });
-  await changed.click();
-
-  await expect
-    .poll(() => seenOutside(electronApp))
-    .toEqual([{ kind: "box", type: "info", message: NOT_SUPPORTED, buttons: [] }]);
-  await expect(page.locator("#dialog.active")).toHaveCount(0);
-  await electronApp.close();
-  app = null;
-  expect(readFileSync(path.join(scratch, "userData", "logs", "main.log"), "utf8")).not.toContain(
-    "ERROR:"
-  );
-});
+// A file clicked in the Commit Details View opens its diff: diffViewer.spec.ts
+// (#404), which replaced the stub's test here (#391).
 
 test("the graph's page leaves the app only through the opener", async () => {
   const fixture = makeFixtureRepo(env);
@@ -369,6 +344,7 @@ test("the graph's page leaves the app only through the opener", async () => {
     env: env as Record<string, string>
   });
   const electronApp = app;
+  await startTrace(electronApp);
   const page = await focusedTabPage(electronApp);
   const rows = page.locator("#commitTable tr.commit");
   await expect(rows).toHaveCount(fixture.commits.length);
@@ -500,6 +476,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     env: env as Record<string, string>
   });
   const electronApp = app;
+  await startTrace(electronApp);
   const page = await focusedTabPage(electronApp);
   await expect(page.locator("#commitTable tr.commit").first()).toBeVisible();
   await standIn(electronApp, saveDir);
@@ -545,6 +522,19 @@ test("every message the dispatch handles finishes, and the webview reports no fa
   const stub = async (_answer: ResponseMessage | undefined, outside: Seen[]) => {
     expect(outside).toEqual([notice]);
     await noErrorDialog();
+  };
+  /** A diff, shown in the viewer over the graph: nothing outside the app, no
+   *  error box; then closed. */
+  const diffOpened = async (outside: Seen[], title: RegExp) => {
+    expect(outside).toEqual([]);
+    await noErrorDialog();
+    // Its editor made: the first diff loads the editor's code first.
+    await diffShown(page);
+    const viewer = page.locator("#diffViewer");
+    await expect(viewer.locator(".diffViewerTitle")).toHaveText(title);
+    await expect(viewer.locator(".monaco-diff-editor")).toBeVisible();
+    await viewer.locator(".diffViewerClose").click();
+    await expect(viewer).toBeHidden();
   };
   const success = (command: ResponseMessage["command"]) =>
     answered(command, (msg) => "success" in msg);
@@ -666,12 +656,17 @@ test("every message the dispatch handles finishes, and the webview reports no fa
         await stub(answer, outside);
       }
     }),
+    // The diffs, in the diff viewer over the graph (#404): nothing outside
+    // the app, and no error box. Closed again, so it covers no later step.
+    // The first on the page loads the editor's code, which blocks the page
+    // and the walk's reads of it: hence its budget.
     step("viewDiffWithWorking", () => ({ repo, commitHash: c3, filePath: "file.txt" }), {
       answer: success("viewDiffWithWorking"),
       check: async (answer, outside) => {
         succeeded(answer);
-        await stub(answer, outside);
-      }
+        await diffOpened(outside, /^file\.txt \(.+ ↔ Working Tree\)$/);
+      },
+      budget: FIRST_DIFF_BUDGET
     }),
     step(
       "viewDiff",
@@ -686,7 +681,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
         answer: success("viewDiff"),
         check: async (answer, outside) => {
           succeeded(answer);
-          await stub(answer, outside);
+          await diffOpened(outside, /^file\.txt \(.+\^ ↔ .+\)$/);
         }
       }
     ),
@@ -922,7 +917,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
 
   const sent = new Set<Command>();
   /** Send one message of the walk, and wait until it has finished. */
-  const run = async ({ command, request, answer, check }: Step) => {
+  const run = async ({ command, request, answer, check, budget }: Step) => {
     const asked = request();
     const answersBefore = (await answersSoFar(page)).length;
     const outsideBefore = (await seenOutside(electronApp)).length;
@@ -941,7 +936,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
             got = (await answersSoFar(page)).find((msg, at) => at >= answersBefore && answer(msg));
             return got !== undefined;
           },
-          { message: `an answer to ${command}`, timeout: ANSWER_BUDGET_MS }
+          { message: `an answer to ${command}`, timeout: budget ?? ANSWER_BUDGET_MS }
         )
         .toBe(true);
     }
@@ -950,7 +945,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
       // does: retried until it holds.
       await expect(async () =>
         check(got, (await seenOutside(electronApp)).slice(outsideBefore))
-      ).toPass({ timeout: 10_000 });
+      ).toPass({ timeout: budget ?? 10_000 });
     }
   };
   // One after another: each changes what the next one acts on.

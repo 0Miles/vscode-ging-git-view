@@ -5,7 +5,7 @@
   "license": "MIT",
   "main": "./out/main.js",
   "scripts": {
-    "typecheck": "tsc -p . --noEmit",
+    "typecheck": "tsc -p . --noEmit && tsc -p tsconfig.web.json --noEmit",
     "clean": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\"",
     "compile": "pnpm run clean && node esbuild.js",
     "start": "electron .",

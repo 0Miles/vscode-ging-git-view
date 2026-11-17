@@ -4,12 +4,19 @@
  * (ADR-0031). Today: the graph view with its Branches and Remotes side views
  * (#399), the marker, the host prompt overlay (#390), the settings page
  * (#397), the window's own page — the tab strip and the Welcome page (#393) —
- * and the working tree panel (#403). */
+ * the working tree panel (#403) and the diff viewer (#404).
+ *
+ * Importing it only marks the page; `startDesktopEntry` starts what the page
+ * shows. The app calls it, handing in what the webview may not import itself:
+ * the editors, which are Monaco's (`apps/desktop/src/web/page.ts`). */
 
 import type { RequestMessage } from "@ging/shared/types";
 import { askInGraphDialog, startGitGraphView } from "@ging/webview/gitGraphView";
 import { sendMessage, vscode } from "@ging/webview/utils/vscode";
 
+import { createDiffPanel } from "./diff/diffPanel";
+import { isShowDiffMessage } from "./diff/protocol";
+import type { EditorFactory } from "./editors";
 import { type HostPromptReply, isHostPromptMessage } from "./hostPrompt";
 import { createHostPromptOverlay } from "./hostPromptOverlay";
 import type { SettingsPageState } from "./settings/protocol";
@@ -45,6 +52,17 @@ function listenForHostPrompts() {
   replyToHost({ command: "hostPromptReady" });
 }
 
+/** Show the diffs the host sends (#404) in the diff viewer. Like the prompts'
+ *  listener, this one drops everything else; the graph's drops these. A diff
+ *  that cannot be shown is said in the viewer, and, uncaught, reaches the
+ *  graph's error reporter (ADR-0016). */
+function listenForDiffs(editors: EditorFactory) {
+  const panel = createDiffPanel(editors);
+  window.addEventListener("message", (event: MessageEvent) => {
+    if (isShowDiffMessage(event.data)) void panel.show(event.data);
+  });
+}
+
 document.documentElement.dataset.gingEntry = DESKTOP_ENTRY_MARKER;
 
 /** A page its host served without what it boots from is the host's mistake.
@@ -61,42 +79,54 @@ function reportMissing(what: string): void {
   });
 }
 
-// The desktop host states which kind of page it served (#388): a graph, the
-// settings (#397), the window's own page (#393), or a notice in place of a
-// graph, which has nothing to start.
-switch (document.documentElement.dataset.gingPage) {
-  case "graph":
-    if (typeof viewState === "undefined") {
-      reportMissing("graph page without a viewState");
-    } else {
-      // The side views sit beside the graph, in this page (#399).
-      startSideViews(startGitGraphView());
-      // A graph page is one with a host instance behind it, and the instance
-      // is what asks (#390). The settings page has none, so asks nothing.
-      listenForHostPrompts();
-      // Beside the graph, on its repository (#403), asking in the graph's own
-      // dialog before it rewrites pushed history (#407).
-      startWorkingTreePanel({ confirm: askInGraphDialog });
+/** What the app hands the desktop entry: what the webview may not import. */
+export type DesktopEntryDeps = {
+  /** The editors the diff viewer draws with (editors.ts). */
+  editors: EditorFactory;
+};
+
+/**
+ * Start what the page shows. The desktop host states which kind of page it
+ * served (#388): a graph, the settings (#397), the window's own page (#393),
+ * or a notice in place of a graph, which has nothing to start. Once per page.
+ */
+export function startDesktopEntry({ editors }: DesktopEntryDeps): void {
+  switch (document.documentElement.dataset.gingPage) {
+    case "graph":
+      if (typeof viewState === "undefined") {
+        reportMissing("graph page without a viewState");
+      } else {
+        // The side views sit beside the graph, in this page (#399).
+        startSideViews(startGitGraphView());
+        // A graph page is one with a host instance behind it, and the instance
+        // is what asks (#390). The settings page has none, so asks nothing.
+        listenForHostPrompts();
+        // Beside the graph, on its repository (#403), asking in the graph's own
+        // dialog before it rewrites pushed history (#407).
+        startWorkingTreePanel({ confirm: askInGraphDialog });
+        // And what it opens a diff in (#404): over the graph it is of.
+        listenForDiffs(editors);
+      }
+      break;
+    case "settings": {
+      const state = (globalThis as { settingsPage?: SettingsPageState }).settingsPage;
+      const root = document.getElementById("settings");
+      if (state === undefined || root === null) reportMissing("settings page without its settings");
+      else startSettingsPage(state, root);
+      break;
     }
-    break;
-  case "settings": {
-    const state = (globalThis as { settingsPage?: SettingsPageState }).settingsPage;
-    const root = document.getElementById("settings");
-    if (state === undefined || root === null) reportMissing("settings page without its settings");
-    else startSettingsPage(state, root);
-    break;
-  }
-  case "window": {
-    const strip = document.getElementById("tabStrip");
-    const welcome = document.getElementById("welcome");
-    if (strip === null || welcome === null) {
-      reportMissing("window page without its tab strip or Welcome page");
-    } else {
-      startWindowPage(strip, welcome);
-      // The Welcome page's prompts: the host asks there when no Tab is open
-      // to ask in (#396). Any open Tab's view covers it, so only then.
-      listenForHostPrompts();
+    case "window": {
+      const strip = document.getElementById("tabStrip");
+      const welcome = document.getElementById("welcome");
+      if (strip === null || welcome === null) {
+        reportMissing("window page without its tab strip or Welcome page");
+      } else {
+        startWindowPage(strip, welcome);
+        // The Welcome page's prompts: the host asks there when no Tab is open
+        // to ask in (#396). Any open Tab's view covers it, so only then.
+        listenForHostPrompts();
+      }
+      break;
     }
-    break;
   }
 }

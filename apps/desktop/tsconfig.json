@@ -11,5 +11,7 @@
       "@ging/desktop/*": ["./src/*"]
     }
   },
-  "include": ["src", "tests", "e2e", "playwright.config.ts"]
+  "include": ["src", "tests", "e2e", "playwright.config.ts"],
+  // The page's bundle entry is tsconfig.web.json's.
+  "exclude": ["src/web/page.ts"]
 }

@@ -146,7 +146,18 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **選單項 `ging.cloneRepository`,照 #396 補記的契約新增**(那份契約沒有替 clone 保留 id):`AppMenuCommands.cloneRepository?()`,「Clone Repository...」,沒有 accelerator,位置在 Open Recent 與 Initialize Repository 之間。**只在焦點是 `welcome`、而且沒有 clone 正在問或在跑時 enabled**:進度與帳密都畫在 Welcome page,有 Tab 時被蓋住(票面「clone 發生在還沒有分頁的時候」)。規則在 template([appMenu.ts](../../apps/desktop/src/appMenu.ts) 的 `AppMenuState.cloning`),由 appMenu.test.ts 的表驗;E2E 讀 `enabled` 而不只是 `click()`。clone 正在問或在跑時,會開 Tab 的其他入口也關掉:選單的 Open Folder、Open Recent、Initialize Repository 不能按(同一張表驗),Welcome page 被面板蓋住(`inert`),第二次啟動經 single-instance 轉來的路徑排隊,等 clone 結束才開 —— 否則新開的 Tab 會蓋住面板與帳密提示,git 就卡在一個沒人看得到的提示上。有 Tab 時也能 clone,另開 [#461](https://github.com/0Miles/vscode-ging-git-view/issues/461)。
 - **流程本身用 vitest 測**([repoCloning.test.ts](../../apps/desktop/tests/repoCloning.test.ts)):URL 與資料夾的取消、目的地的組法、askpass route 的生命週期、進度的節流、取消、一次一個、視窗關掉時中止且不開 Tab。
 
-## 補記(2026-11-18,#451、#466、#472)
+## 補記(2026-11-17,#404)
+
+**diff viewer 的 Electron E2E([diffViewer.spec.ts](../../apps/desktop/e2e/diffViewer.spec.ts))驗的是只有真的 app 才證明得了的事:Monaco 的 bundle、worker 與字型都從 `ging://app/` 載入,在頁面的 CSP 之下,沒有任何東西來自別處;兩側的文字由 main process 依 `defaultFileEncoding` 讀好。** 面板本身的行為(切換、Escape、焦點、記住的版面)在 jsdom 用假的 editors 驗([desktopDiffPanel.test.ts](../../packages/webview/tests/desktopDiffPanel.test.ts)),不必每次開 Electron。
+
+- **讀的是產品本來就有的東西:Monaco 自己的 DOM 與瀏覽器的 API。** 左右兩邊顯示的文字讀 `.editor.original` / `.editor.modified` 底下 `.lines-content > .view-lines`(只取該側自己的行;inline 時另一側被刪掉的行畫在 view zone 裡,也叫 `.view-lines`);diff 有沒有算出來看 `.line-insert`;inline 與 side-by-side 看 diff editor 根元素的 `side-by-side` class,以及被刪掉的行是否出現在右側的 view zone。
+- **worker 真的是 worker:`page.workers()` 必須正好是 `ging://app/editor.worker.js`。** Monaco 建不起 worker 時會退回在頁面裡算 diff,只在 console 留一個警告,畫面一樣正確,所以只看畫面證明不了 worker 載得進來。字型用 `document.fonts.load("16px codicon")` 之後讀 `FontFace.status`;拿掉 CSP 的 `font-src 'self'`,這一步就以 network error 失敗(已實測)。拿掉 `worker-src 'self'` 則不會紅:沒寫時它退回 `script-src 'self'`,見 ADR-0031 的同日補記。
+- **頁面的 console 不得有任何 error。** CSP 擋下的載入會以 console error 出現,所以這一條同時守住「沒有東西從別處載入」。
+- **頁面的第一個 diff 有自己的時間預算 `FIRST_DIFF_BUDGET`(30 秒,[diffViewerPage.ts](../../apps/desktop/e2e/diffViewerPage.ts)),之後的 diff 沒有。** 第一個 diff 要先載入約 3.4 MB 的 `monaco.js`,parse 時整個頁面卡住,測試對頁面的每一次讀取(包括 walk 讀宿主回答的 `page.evaluate`)都跟著等。重現過:在壓縮前的 commit(a01f92b,`monaco.js` 7.7 MB)把 renderer 的 CPU 降速 6 倍跑 walk,`viewDiffWithWorking` 的回答等不到 5 秒的預設時間就失敗;壓縮後(1ea0781)在同樣的降速下照樣失敗,所以壓縮只是讓它少見,不是修好;4 倍降速兩者都過;改成下面的等法之後,6 倍降速也過。所以等待改成讀產品本身的狀態 —— 面板在 editor 做好之前標 `aria-busy`(ADR-0031 的同日補記),`diffShown` 等它消失 —— 並給這一次明說的預算;walk 的 `Step.budget` 只用在它的第一個 diff。這是頁面在慢機器上第一次 diff 真的要花的時間,不是放寬等待去蓋過一個 bug。
+- **E2E 的結果放在 `apps/desktop/e2e-results/`,不在 `out/` 底下,失敗的測試留下 trace。** `compile` 會先清空 `out/`,原本的 `out/e2e-results` 跟著消失,失敗的那一輪就什麼都查不到(#404 的第一次紅燈就是這樣)。這些測試自己啟動 app,Playwright 的 `use.trace` 只管它自己 fixture 開的頁面,所以 `diffViewer.spec.ts` 與 `actions.spec.ts` 啟動後用 `context().tracing` 錄,失敗時存成 `app-trace.zip`(`keepTraceIfFailed`;`trace.zip` 是 Playwright 自己的 test trace,只有測試端的步驟與時間);config 的 `trace: "retain-on-failure"` 留給之後用 fixture 的測試。
+- **#391 那條「點 CDV 的檔案只看到尚未支援」的測試移到這裡,改成打開 diff。** walk(`actions.spec.ts`)的 `viewDiff` 與 `viewDiffWithWorking` 改為斷言 diff viewer 出現、app 外面什麼都沒發生、沒有錯誤框,然後把它關掉,不讓它蓋住之後的步驟。
+
+## 補記(2026-11-18,#451、#466、#472、#473)
 
 **拿掉 #391、#403 為了避開 `index.lock` 而加的等待:walk 的 `settle`(改動 repo 的動作之後等圖形的重新載入)與 [workingTree.spec.ts](../../apps/desktop/e2e/workingTree.spec.ts) 在 commit 前等圖形的重新載入。** 根因修在產品:GING 自己的讀取不再拿 `index.lock`,所以動作與背景重新載入重疊也不會被拒。
 
@@ -155,4 +166,5 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **vitest 不用「讀寫同時跑、沒有失敗」的壓力測試。** 實測沒有修正時,兩個讀取迴圈加 40 次寫入,只有約 1 次被拒,綠燈證明不了什麼。[indexLock.test.ts](../../packages/core/tests/queries/indexLock.test.ts) 改成監看 `.git` 資料夾,斷言讀取期間沒有出現任何 `.lock` 檔:讀取結束後寫一個哨兵檔,等聽到它,之前的事件就都到了(監看事件依發生順序送達)。對照組是不經 GING 的 client 的 `git status`,在同一個狀態下確實拿了鎖。不帶 `NO_INDEX_REFRESH` 的 diff 在 git 2.40.1(Windows)會拿鎖、拿掉它測試會紅;CI 的 git 2.56.1(ubuntu)在測試的狀態下沒拿,所以 diff 不能當各平台的對照組。
 - **改動失敗的原因不再被之後的 refresh 抹掉(#466)。** 面板只在使用者送出下一個改動時清掉改動的錯誤;讀取的回答不覆蓋它,讀取本身失敗才顯示讀取的錯誤,下一次讀取成功時清掉。jsdom 測試照實際順序:先 `refresh`、再失敗的回答、再 refresh 引起的讀取。
 - **walk 等每一步回答的期限改成明定的 `ANSWER_BUDGET_MS`(20 秒),不再沿用 Playwright 預設的 5 秒(#472)。** #472 在 Windows 上看到的兩種逾時是兩件事:一是寫入動作(`mergeBranch`)的回答帶著錯誤,符合撞上背景重新載入的 `index.lock`(推論:當時的 log 已不在),由上面的修正處理;二是讀取步驟(`branchCleanupScan`、`branchRedundancy`)的回答超過 5 秒才到。後者不是卡住:`branchCleanupScan` 依序跑約 20 個 git 命令,Windows 上每個 spawn 100–250ms,實測 1.9–5.0 秒(CPU 全滿或與其他測試同時跑),10 次 walk 有 1 次超過 5 秒;`branchRedundancy` 0.9–2.9 秒。期限取最壞值的約四倍,與 #425 依 spawn 數訂期限的做法相同。CI 只在 ubuntu 跑 walk,一直在預設之內,所以沒抓到。
+- **#473 是同一件事。** 它看到的 `an answer to branchCleanupScan`(前一步 `branchCleanupOpen` 也花了 3.6 秒)就是上一條的 (二);另一種 `the graph's reload after checkoutCommit` 是 `settle` 的等待,已整個拿掉。#404 的 `Step.budget` 留著,給比 `ANSWER_BUDGET_MS` 更慢的步驟(第一個 diff 的 `FIRST_DIFF_BUDGET`);沒有 `budget` 的步驟,回答等 `ANSWER_BUDGET_MS`。
 - **E2E 改動 repo 之前的 fixture 寫入(stash、改檔)仍在 app 啟動前做**,只是不再需要理由:它們是 fixture 的一部分。
