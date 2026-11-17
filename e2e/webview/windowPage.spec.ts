@@ -26,8 +26,12 @@ function tab(id: number, title: string, focused = false) {
   return { id, title, tooltip: `/repos/${title}`, focused, asking: false };
 }
 
-function windowState(tabs: ReturnType<typeof tab>[], notice: unknown = null) {
-  return { command: "windowState", tabs, notice, strings: { closeTab: "Close Tab" } };
+function windowState(
+  tabs: ReturnType<typeof tab>[],
+  notice: unknown = null,
+  welcome: unknown = null
+) {
+  return { command: "windowState", tabs, notice, welcome, strings: { closeTab: "Close Tab" } };
 }
 
 let errors: string[];
@@ -102,6 +106,68 @@ test("a Tab clicked, or its close button, is asked of the host", async ({ page }
     { command: "hostPromptReady" },
     { command: "focusTab", id: 2 },
     { command: "closeTab", id: 1 }
+  ]);
+});
+
+const WELCOME = {
+  recent: [
+    { path: "/repos/beta", name: "beta", missing: false },
+    {
+      path: `/a/folder/${"very-deep/".repeat(20)}alpha`,
+      name: "alpha",
+      missing: true
+    }
+  ],
+  strings: {
+    openFolder: "Open Folder...",
+    initRepo: "Initialize Repository...",
+    recent: "Recent",
+    noRecent: "Repositories you open are listed here.",
+    missing: "Not found",
+    forget: "Remove from Recent"
+  }
+};
+
+test("the Welcome page offers its entries and the recent list, and asks the host for each", async ({
+  page
+}) => {
+  await hostSays(page, windowState([], null, WELCOME));
+  const welcome = page.locator("#welcome");
+  await expect(welcome.getByRole("button", { name: "Open Folder..." })).toBeVisible();
+  await expect(welcome.getByRole("button", { name: "Initialize Repository..." })).toBeVisible();
+
+  // Each row on one line, inside the window: a long path is cut short rather
+  // than pushing its remove button out, and a folder that is gone says so.
+  const rows = await welcome.locator(".recentRepo").evaluateAll((els) =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect();
+      const forget = el.querySelector(".recentForget")!.getBoundingClientRect();
+      const pathEl = el.querySelector(".recentPath")!;
+      return {
+        oneLine: r.height < 40,
+        forgetInside: forget.left >= r.left && forget.right <= r.right,
+        clipped: pathEl.scrollWidth > pathEl.clientWidth,
+        missing: el.querySelector(".recentMissing")?.textContent ?? null,
+        inWindow: r.right <= el.ownerDocument.documentElement.clientWidth
+      };
+    })
+  );
+  expect(rows).toEqual([
+    { oneLine: true, forgetInside: true, clipped: false, missing: null, inWindow: true },
+    { oneLine: true, forgetInside: true, clipped: true, missing: "Not found", inWindow: true }
+  ]);
+  await expect(welcome.locator(".recentMissing")).toBeVisible();
+
+  await welcome.getByRole("button", { name: "Open Folder..." }).click();
+  await welcome.getByRole("button", { name: "Initialize Repository..." }).click();
+  await welcome.locator(".recentOpen", { hasText: "beta" }).click();
+  await welcome.locator(".recentRepo", { hasText: "alpha" }).locator(".recentForget").click();
+
+  expect((await posted(page)).slice(2)).toEqual([
+    { command: "openFolder" },
+    { command: "initRepo" },
+    { command: "openRecent", path: "/repos/beta" },
+    { command: "forgetRecent", path: WELCOME.recent[1].path }
   ]);
 });
 

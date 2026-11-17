@@ -2,8 +2,9 @@
  * it, the Welcome page (GLOSSARY.md). Each Tab's page is a view of its own the
  * host lays over the Welcome page, below the strip, so this page shows through
  * only where no Tab covers it: the strip always, the Welcome page when there is
- * no Tab. What the Welcome page offers is #394's; today it says, at most, why
- * a launch opened nothing. */
+ * no Tab. The Welcome page (#394) says why a launch opened nothing, if it did
+ * not, and offers Open Folder, Initialize Repository and the recently opened
+ * list; each is only asked of the host, which does the rest. */
 
 import { escapeHtml } from "@ging/webview/utils/html";
 import { svgIcons } from "@ging/webview/utils/icons";
@@ -11,8 +12,10 @@ import { vscode } from "@ging/webview/utils/vscode";
 
 import {
   isWindowStateMessage,
+  type RecentRepoEntry,
   TAB_STRIP_HEIGHT,
   type TabStripEntry,
+  type WelcomeContent,
   type WindowRequest,
   type WindowStateMessage
 } from "./protocol";
@@ -48,7 +51,42 @@ body.windowPage { margin: 0; padding: 0; overflow: hidden; }
 .tabClose:hover { background: var(--vscode-toolbar-hoverBackground); }
 #tabStrip { z-index: 1; }
 #welcome { position: fixed; inset: 0; overflow: auto; padding: 0 20px; }
-#welcome h2, #welcome p { text-align: center; }
+.welcomeBody { max-width: 640px; margin: 48px auto; }
+.welcomeBody > h2, .welcomeBody > p { text-align: center; }
+.welcomeBody > p { margin-bottom: 24px; }
+.welcomeActions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.welcomeAction {
+  display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 2px; cursor: pointer;
+  border: 1px solid var(--vscode-button-border); font: inherit;
+  background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground);
+}
+.welcomeAction:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.welcomeAction:focus-visible, .recentOpen:focus-visible, .recentForget:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px;
+}
+.welcomeAction svg { fill: currentColor; width: 16px; height: 16px; }
+.recent h3 { margin: 32px 0 8px; font-size: 1em; font-weight: 600; }
+.recentList { list-style: none; margin: 0; padding: 0; }
+.recentRepo { display: flex; align-items: center; border-radius: 2px; }
+.recentRepo:hover { background: var(--vscode-list-hoverBackground); }
+.recentOpen {
+  display: flex; align-items: baseline; gap: 8px; flex: 1 1 auto; min-width: 0; padding: 4px 6px;
+  border: 0; background: transparent; color: var(--vscode-textLink-foreground); font: inherit; text-align: left; cursor: pointer;
+}
+.recentName { flex: 0 0 auto; }
+.recentPath {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--vscode-descriptionForeground);
+}
+.recentRepo.missing .recentName { color: var(--vscode-descriptionForeground); text-decoration: line-through; }
+.recentMissing { flex: 0 0 auto; color: var(--vscode-errorForeground); }
+.recentForget {
+  display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; margin-right: 4px;
+  border: 0; border-radius: 4px; background: transparent; color: var(--vscode-descriptionForeground); cursor: pointer; flex: 0 0 auto;
+}
+.recentForget svg { fill: currentColor; width: 12px; height: 12px; }
+.recentForget:hover { background: var(--vscode-toolbar-hoverBackground); }
+.recentEmpty { color: var(--vscode-descriptionForeground); }
 `;
 
 const post = (message: WindowRequest) =>
@@ -62,14 +100,48 @@ function tabHtml(tab: TabStripEntry, closeTab: string): string {
   }<span class="tabTitle">${escapeHtml(tab.title)}</span><button class="tabClose" type="button" tabindex="-1" title="${escapeHtml(closeTab)}" aria-label="${escapeHtml(closeTab)}">${svgIcons.close}</button></div>`;
 }
 
-/** Draw `state`: the strip, hidden when there is no Tab, and the Welcome page. */
+function recentHtml(repo: RecentRepoEntry, strings: WelcomeContent["strings"]): string {
+  const path = escapeHtml(repo.path);
+  return `<li class="recentRepo${repo.missing ? " missing" : ""}"><button class="recentOpen" type="button" data-path="${path}" title="${path}"><span class="recentName">${escapeHtml(repo.name)}</span><span class="recentPath">${path}</span>${
+    repo.missing ? `<span class="recentMissing">${escapeHtml(strings.missing)}</span>` : ""
+  }</button><button class="recentForget" type="button" data-path="${path}" title="${escapeHtml(strings.forget)}" aria-label="${escapeHtml(strings.forget)}">${svgIcons.close}</button></li>`;
+}
+
+/** The Welcome page's entries and its recent list. */
+function welcomeHtml({ recent, strings }: WelcomeContent): string {
+  const action = (command: string, icon: string, label: string) =>
+    `<button class="welcomeAction" type="button" data-welcome="${command}">${icon}<span>${escapeHtml(label)}</span></button>`;
+  return `<div class="welcomeActions">${action("openFolder", svgIcons.openFolder, strings.openFolder)}${action("initRepo", svgIcons.branch, strings.initRepo)}</div><section class="recent"><h3>${escapeHtml(strings.recent)}</h3>${
+    recent.length === 0
+      ? `<p class="recentEmpty">${escapeHtml(strings.noRecent)}</p>`
+      : `<ul class="recentList">${recent.map((repo) => recentHtml(repo, strings)).join("")}</ul>`
+  }</section>`;
+}
+
+/** Draw `state`: the strip, hidden when there is no Tab, and the Welcome page:
+ *  why a launch opened nothing, if it did not, over what it offers. */
 function render(strip: HTMLElement, welcome: HTMLElement, state: WindowStateMessage): void {
   strip.hidden = state.tabs.length === 0;
   strip.innerHTML = state.tabs.map((tab) => tabHtml(tab, state.strings.closeTab)).join("");
-  welcome.innerHTML =
+  const notice =
     state.notice === null
       ? ""
       : `<h2>${escapeHtml(state.notice.title)}</h2><p>${escapeHtml(state.notice.detail)}</p>`;
+  const offers = state.welcome ? welcomeHtml(state.welcome) : "";
+  welcome.innerHTML =
+    notice === "" && offers === "" ? "" : `<div class="welcomeBody">${notice}${offers}</div>`;
+}
+
+/** What a click in the Welcome page asks of the host, if anything. */
+function welcomeRequest(target: EventTarget | null): WindowRequest | null {
+  if (!(target instanceof Element)) return null;
+  const action = target.closest<HTMLElement>("[data-welcome]")?.dataset.welcome;
+  if (action === "openFolder" || action === "initRepo") return { command: action };
+  const forget = target.closest<HTMLElement>(".recentForget")?.dataset.path;
+  if (forget !== undefined) return { command: "forgetRecent", path: forget };
+  const open = target.closest<HTMLElement>(".recentOpen")?.dataset.path;
+  if (open !== undefined) return { command: "openRecent", path: open };
+  return null;
 }
 
 /** The Tab whose strip entry `target` is in, by id. */
@@ -106,6 +178,11 @@ export function startWindowPage(strip: HTMLElement, welcome: HTMLElement): void 
     if (id === null || (event.key !== "Enter" && event.key !== " ")) return;
     event.preventDefault();
     post({ command: "focusTab", id });
+  });
+  // The Welcome page's buttons, as the strip's Tabs are: asked, not done.
+  welcome.addEventListener("click", (event) => {
+    const request = welcomeRequest(event.target);
+    if (request !== null) post(request);
   });
   window.addEventListener("message", (event: MessageEvent) => {
     if (isWindowStateMessage(event.data)) render(strip, welcome, event.data);

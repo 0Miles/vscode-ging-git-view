@@ -1,3 +1,4 @@
+import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -68,7 +69,8 @@ function setUp() {
       openTerminal: async (cwd, title) => {
         opened.push(["openTerminal", cwd, title]);
       }
-    }
+    },
+    hostVersions: [{ name: "GING", version: "1.2.3" }]
   });
   const instances: { dispose(): void }[] = [];
   /** The settings each instance asked the app to show. */
@@ -105,6 +107,13 @@ function setUp() {
   return { shared, repos, open, logged, opened, revealed };
 }
 
+/** A known repository's path whose folder is not there. */
+function goneFolder(): string {
+  const parent = makeTempDir("ging-desktop-gone-");
+  onTestFinished(() => rmrf(parent));
+  return toRepoPath(path.join(parent, "repo"));
+}
+
 const sentOf = (posted: ResponseMessage[], command: ResponseMessage["command"]) =>
   posted.filter((msg) => msg.command === command);
 
@@ -132,6 +141,43 @@ describe("a graph instance", () => {
 
     expect(sentOf(page.posted, "loadRepos").at(-1)).toMatchObject({ lastActiveRepo: null });
     expect(page.instance.pageViewState().lastActiveRepo).toBeNull();
+  });
+
+  it("checks only its own repository when its graph asks which still exist", async () => {
+    const { shared, repos, open } = setUp();
+    const page = open(repos[0]);
+    // On the recent list, its folder not there now: a disk not mounted, say.
+    const unmounted = goneFolder();
+    shared.repoSource.addRepo(unmounted);
+    const before = sentOf(page.posted, "loadRepos").length;
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    expect(Object.keys(shared.repoSource.getRepos())).toEqual(
+      expect.arrayContaining([repos[0], unmounted])
+    );
+    // Its own is there: answered with it, as an unchecked loadRepos is.
+    expect(sentOf(page.posted, "loadRepos").slice(before)).toEqual([
+      expect.objectContaining({ lastActiveRepo: repos[0] })
+    ]);
+  });
+
+  it("drops its own repository once it is none, and no other known one", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    open(repos[1]);
+    const unmounted = goneFolder();
+    shared.repoSource.addRepo(unmounted);
+    fs.rmSync(path.join(repos[0], ".git"), { recursive: true, force: true });
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    expect(Object.keys(shared.repoSource.getRepos()).toSorted()).toEqual(
+      [repos[1], unmounted].toSorted()
+    );
+    expect(logged).toContain(
+      `tabs: ${repos[0]} is no Git repository any more, dropped from the known set`
+    );
   });
 
   it("answers the graph's requests from its repository", async () => {
@@ -345,6 +391,63 @@ describe("a graph instance", () => {
       { host: "git.example.com", type: "gitea" }
     ]);
     expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("runs the menu's remote commands on its own repository, asking in its own prompts", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    const other = open(repos[1]);
+    for (const repo of repos) git(["remote", "add", "origin", "https://example.com/r.git"], repo);
+    page.answers.replies = ["origin", shared.l10n.t("remotes.rename"), "upstream"];
+
+    await page.instance.commands.manageRemotes();
+
+    const remotes = (repo: string) =>
+      cp.execFileSync("git", ["remote"], { cwd: repo }).toString().trim();
+    expect(remotes(repos[0])).toBe("upstream");
+    expect(remotes(repos[1])).toBe("origin");
+    expect(other.asked).toEqual([]);
+    // A change to its repository redraws its graph.
+    expect(sentOf(page.posted, "refresh").length).toBeGreaterThan(0);
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("answers the figures of its own repository for Show Statistics", async () => {
+    const { repos, open } = setUp();
+    git(["commit", "--allow-empty", "-m", "second"], repos[1]);
+    const page = open(repos[0]);
+    open(repos[1]);
+
+    expect(await page.instance.commands.statistics()).toMatchObject({ total: 1 });
+  });
+
+  it("opens the system terminal in its repository, named after its folder", async () => {
+    const { repos, open, opened } = setUp();
+    const page = open(repos[0]);
+
+    page.instance.commands.openTerminal();
+
+    // Once its folder is found in the repository, as the graph's own button.
+    await expect
+      .poll(() => opened)
+      .toEqual([
+        ["openTerminal", fs.realpathSync.native(repos[0]), `GING: ${path.basename(repos[0])}`]
+      ]);
+  });
+
+  it("lists the app's versions and git's in Version Information, offering to copy them", async () => {
+    const { repos, open } = setUp();
+    const page = open(repos[0]);
+
+    await page.instance.commands.versionInfo();
+
+    expect(page.asked).toEqual([
+      [
+        "showInformation",
+        expect.stringMatching(/^GING: 1\.2\.3\nOS: .+\ngit version /),
+        { modal: true, actions: ["Copy"] }
+      ]
+    ]);
   });
 
   it("shares the avatar cache, but stops receiving avatars once disposed", async () => {

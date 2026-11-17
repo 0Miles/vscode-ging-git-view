@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { WindowStateMessage } from "@ging/webview/desktop/window/protocol";
+import type { WelcomeContent, WindowStateMessage } from "@ging/webview/desktop/window/protocol";
 
 import { createVscodeMock } from "./setup";
 import { startDesktop } from "./startDesktop";
@@ -26,7 +26,23 @@ const STATE: WindowStateMessage = {
     { id: 7, title: "<beta>", tooltip: "/repos/beta", focused: true, asking: false }
   ],
   notice: null,
+  welcome: null,
   strings: { closeTab: "Close Tab" }
+};
+
+const WELCOME: WelcomeContent = {
+  recent: [
+    { path: "/repos/beta", name: "<beta>", missing: false },
+    { path: "/gone/alpha", name: "alpha", missing: true }
+  ],
+  strings: {
+    openFolder: "Open Folder...",
+    initRepo: "Initialize Repository...",
+    recent: "Recent",
+    noRecent: "Repositories you open are listed here.",
+    missing: "Not found",
+    forget: "Remove from Recent"
+  }
 };
 
 function hear(data: unknown) {
@@ -91,6 +107,63 @@ describe("the desktop entry on the window's page", () => {
     const welcome = document.getElementById("welcome")!;
     expect(welcome.querySelector("h2")!.textContent).toBe("Unable to load GING");
     expect(welcome.querySelector("p")!.textContent).toBe("Cannot open <x>.");
+  });
+
+  it("offers Open Folder, Initialize Repository and the recent list, a folder that is gone marked", async () => {
+    await load();
+    hear({ ...STATE, tabs: [], welcome: WELCOME });
+
+    const welcome = document.getElementById("welcome")!;
+    expect(
+      Array.from(welcome.querySelectorAll(".welcomeAction")).map((b) => b.textContent)
+    ).toEqual(["Open Folder...", "Initialize Repository..."]);
+    expect(welcome.querySelector("h3")!.textContent).toBe("Recent");
+    const rows = Array.from(welcome.querySelectorAll<HTMLElement>(".recentRepo"));
+    expect(
+      rows.map((row) => ({
+        name: row.querySelector(".recentName")!.textContent,
+        path: row.querySelector(".recentPath")!.textContent,
+        missing: row.querySelector(".recentMissing")?.textContent ?? null,
+        marked: row.classList.contains("missing")
+      }))
+    ).toEqual([
+      { name: "<beta>", path: "/repos/beta", missing: null, marked: false },
+      { name: "alpha", path: "/gone/alpha", missing: "Not found", marked: true }
+    ]);
+    expect(rows[0].querySelector(".recentForget")!.getAttribute("aria-label")).toBe(
+      "Remove from Recent"
+    );
+  });
+
+  it("says the recent list is empty when it is", async () => {
+    await load();
+    hear({ ...STATE, tabs: [], welcome: { ...WELCOME, recent: [] } });
+
+    const welcome = document.getElementById("welcome")!;
+    expect(welcome.querySelector(".recentList")).toBeNull();
+    expect(welcome.querySelector(".recentEmpty")!.textContent).toBe(
+      "Repositories you open are listed here."
+    );
+  });
+
+  it("asks the host to open a folder, initialize one, open or forget a recent repository", async () => {
+    const mock = await load();
+    hear({ ...STATE, tabs: [], welcome: WELCOME });
+    mock.sentMessages.length = 0;
+    const welcome = document.getElementById("welcome")!;
+
+    welcome.querySelector<HTMLElement>('[data-welcome="openFolder"] span')!.click();
+    welcome.querySelector<HTMLElement>('[data-welcome="initRepo"]')!.click();
+    welcome.querySelectorAll<HTMLElement>(".recentName")[1].click();
+    welcome.querySelectorAll<HTMLElement>(".recentForget")[0].click();
+    welcome.querySelector<HTMLElement>("h3")!.click();
+
+    expect(mock.sentMessages).toEqual([
+      { command: "openFolder" },
+      { command: "initRepo" },
+      { command: "openRecent", path: "/gone/alpha" },
+      { command: "forgetRecent", path: "/repos/beta" }
+    ]);
   });
 
   it("ignores messages that are not the window's state", async () => {
