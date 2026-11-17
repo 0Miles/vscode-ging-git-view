@@ -65,7 +65,12 @@ async function main() {
   ]);
   fs.copyFileSync(webviewCss, path.join("out", "main.css"));
   for (const script of helperScripts) {
-    fs.copyFileSync(script, path.join("out", path.basename(script)));
+    const copied = path.join("out", path.basename(script));
+    fs.copyFileSync(script, copied);
+    // git execs GIT_ASKPASS itself, so off Windows it must be executable. The
+    // sources are checked in 644; the managers also chmod at runtime, but
+    // without waiting, so the build does not leave it to that.
+    fs.chmodSync(copied, 0o755);
   }
 }
 
