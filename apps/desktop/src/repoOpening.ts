@@ -8,7 +8,7 @@
 import type { HostLogger, L10n } from "@ging/core/host/ports";
 import type { NativeDialogs } from "@ging/desktop/ports/prompts";
 
-import type { RepoToOpen } from "./repoToOpen";
+import type { RepoToOpen, Unusable } from "./repoToOpen";
 
 /** What Initialize Repository answers: the repository, and whether it made it. */
 type Initialized = { repo: string; created: boolean };
@@ -25,6 +25,10 @@ export type RepoOpeningDeps = {
   /** Open `repo`, a repository as git spells it, in a Tab of its own, or
    *  focus the Tab it is open in; it goes first in the recent list. */
   openRepo(repo: string): void;
+  /** `repo` as an open Tab or the known set spells it, if it is one of
+   *  theirs under another spelling; otherwise as given (`TabWindow.resolve`,
+   *  the spelling `openRepo` opens it under). */
+  resolve(repo: string): string;
 };
 
 export type RepoOpening = {
@@ -67,9 +71,17 @@ export function createRepoOpening(deps: RepoOpeningDeps): RepoOpening {
     deps.openRepo(made.repo);
   };
 
+  /** Say why `path` opens nothing, in a box over the window. */
+  const cannotOpen = (path: string, why: Unusable) =>
+    dialogs.showMessageBox({
+      type: "error",
+      message: l10n.t("error.unableToLoadGitGraph"),
+      detail: l10n.t(CANNOT_OPEN[why], path)
+    });
+
   return {
     openFolder: async () => {
-      const folder = await pickFolder(l10n.t("desktop.openFolder.button"));
+      const folder = await pickFolder(l10n.t("desktop.folderDialog.open"));
       if (folder === null) return;
       const target = await deps.check(folder);
       if ("repo" in target) {
@@ -77,7 +89,13 @@ export function createRepoOpening(deps: RepoOpeningDeps): RepoOpening {
         deps.openRepo(target.repo);
         return;
       }
-      logger.log(`open folder: ${folder} is not a Git repository`);
+      logger.log(`open folder: cannot open ${folder} (${target.why})`);
+      // Only a folder in no repository is one to make a repository in: a
+      // bare one, or a .git folder, has no working tree to give it.
+      if (target.why !== "notRepository") {
+        await cannotOpen(folder, target.why);
+        return;
+      }
       const { response } = await dialogs.showMessageBox({
         type: "warning",
         message: l10n.t("desktop.cannotOpenRepo", folder),
@@ -89,26 +107,35 @@ export function createRepoOpening(deps: RepoOpeningDeps): RepoOpening {
     },
 
     initRepo: async () => {
-      const folder = await pickFolder(l10n.t("desktop.initRepo.button"));
+      const folder = await pickFolder(l10n.t("desktop.folderDialog.initialize"));
       if (folder !== null) await init(folder);
     },
 
     openRecent: async (repo) => {
       const target = await deps.check(repo);
-      // The repository itself, not one around its folder: a folder whose own
-      // repository has gone may now be inside another, which is not the one
-      // the list names.
-      if ("repo" in target && target.repo === repo) {
-        logger.log(`recent: opening ${repo}`);
-        deps.openRepo(repo);
+      if ("repo" in target) {
+        // The repository itself, however git spells it today (a symlink, a
+        // short name, a drive letter's case: `resolve`), not one around its
+        // folder: a folder whose own repository has gone may now be inside
+        // another, which is not the one the list names.
+        if (deps.resolve(target.repo) === repo) {
+          logger.log(`recent: opening ${repo}`);
+          deps.openRepo(repo);
+          return;
+        }
+        logger.log(`recent: cannot open ${repo}, it is inside ${target.repo} now`);
+        await cannotOpen(repo, "notRepository");
         return;
       }
-      logger.log(`recent: cannot open ${repo}, not a Git repository`);
-      await dialogs.showMessageBox({
-        type: "error",
-        message: l10n.t("error.unableToLoadGitGraph"),
-        detail: l10n.t("desktop.cannotOpenRepo", repo)
-      });
+      logger.log(`recent: cannot open ${repo} (${target.why})`);
+      await cannotOpen(repo, target.why);
     }
   };
 }
+
+/** What each `Unusable` says, of the path. */
+const CANNOT_OPEN: Record<Unusable, string> = {
+  missing: "desktop.folderNotFound",
+  notRepository: "desktop.cannotOpenRepo",
+  noWorkTree: "desktop.noWorkTree"
+};

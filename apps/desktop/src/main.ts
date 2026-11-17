@@ -285,8 +285,6 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     const template = appMenuTemplate(
       shared.l10n,
       {
-        openFolder: () => void repoOpening?.openFolder(),
-        initRepo: () => void repoOpening?.initRepo(),
         // The focused Tab's, looked up when clicked: a click handed no window
         // still finds it (#396).
         fetchRemote: () => void focusedInstance()?.fetchRemote(),
@@ -305,8 +303,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     return {
       recent: recent.list(),
       strings: {
-        openFolder: l10n.t("desktop.openFolder"),
-        initRepo: l10n.t("desktop.initRepo"),
+        openFolder: l10n.t("desktop.welcome.openFolder"),
+        initRepo: l10n.t("desktop.welcome.initRepository"),
         recent: l10n.t("desktop.welcome.recent"),
         noRecent: l10n.t("desktop.welcome.noRecent"),
         missing: l10n.t("desktop.welcome.missing"),
@@ -335,7 +333,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         asking: tab !== focused && tab.content.page.asking
       })),
       notice: welcomeShown ? welcomeNotice : null,
-      // Only while it shows: each entry of the list costs a look at the disk.
+      // Only while it shows. What it says of each folder is what was last
+      // found (`RecentRepos.check`), never looked at here.
       welcome: welcomeShown ? welcomeContent() : null,
       strings: { closeTab: shared.l10n.t("desktop.tab.close") }
     };
@@ -371,6 +370,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     layoutTabs();
     postWindowState();
     syncMenu();
+    checkRecentWhileShown();
+  };
+
+  /** Look at the recent list's folders again, while the Welcome page shows
+   *  it: what is found comes back through `postWindowState`. */
+  const checkRecentWhileShown = () => {
+    if (tabList().length === 0) recent?.check();
   };
 
   /** What `request` names, checked: a repository, a path that is none, or
@@ -446,6 +452,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       case "windowReady":
         windowListening = true;
         postWindowState();
+        checkRecentWhileShown();
         break;
       case "focusTab":
         tabWindow?.tabs.focus(message.id);
@@ -460,9 +467,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         void repoOpening?.initRepo();
         break;
       case "openRecent":
-        // Whether it opened or not, its folder was looked at again: the list
-        // says what was found.
-        void repoOpening?.openRecent(message.path).finally(postWindowState);
+        // Whether it opened or not, the list looks at its folders again.
+        void repoOpening?.openRecent(message.path).finally(checkRecentWhileShown);
         break;
       case "forgetRecent":
         forgetRecent(message.path);
@@ -478,6 +484,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     win = null;
     tabWindow?.tabs.disposeAll();
     welcomePrompts?.dispose();
+    recent?.dispose();
   };
 
   const launch = parseLaunchArgs(thisLaunch, runtime);
@@ -593,8 +600,12 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     followSystemTheme((theme) => {
       for (const tab of tabList()) tab.content.view.setBackgroundColor(theme.background);
     });
-    // A Tab's title is its repository's custom name, when it has one.
-    host.repoSource.onDidChangeRepos(postWindowState);
+    // A Tab's title is its repository's custom name, when it has one; and the
+    // recent list is the known set (#394).
+    host.repoSource.onDidChangeRepos(() => {
+      postWindowState();
+      checkRecentWhileShown();
+    });
 
     const owner = createWindow();
     // The window's own page — the Tab strip, the Welcome page — stays put as
@@ -712,7 +723,12 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       onChange: tabsChanged
     });
 
-    recent = createRecentRepos({ store: host.storage.workspace, repoSource: host.repoSource });
+    recent = createRecentRepos({
+      store: host.storage.workspace,
+      repoSource: host.repoSource,
+      // A folder found otherwise than the list said: the Welcome page says so.
+      onChange: postWindowState
+    });
     // Asked in the window it opens in; a failed `git init` is said in a box
     // over it (`Prompts.showError` is a system dialog either way).
     const repoInit = createRepoInitCommand({
@@ -726,7 +742,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       logger,
       check: (folder) => repoToOpen(folder, desktopGitPath()),
       initRepo: (folder) => repoInit.initRepo(folder),
-      openRepo: openInTab
+      openRepo: openInTab,
+      resolve: (repo) => tabWindow?.resolve(repo) ?? repo
     });
 
     // The window's page starting to load, the first time or again (a reload):

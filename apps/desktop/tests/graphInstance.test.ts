@@ -97,6 +97,13 @@ function setUp() {
   return { shared, repos, open, logged, opened, revealed };
 }
 
+/** A known repository's path whose folder is not there. */
+function goneFolder(): string {
+  const parent = makeTempDir("ging-desktop-gone-");
+  onTestFinished(() => rmrf(parent));
+  return toRepoPath(path.join(parent, "repo"));
+}
+
 const sentOf = (posted: ResponseMessage[], command: ResponseMessage["command"]) =>
   posted.filter((msg) => msg.command === command);
 
@@ -124,6 +131,43 @@ describe("a graph instance", () => {
 
     expect(sentOf(page.posted, "loadRepos").at(-1)).toMatchObject({ lastActiveRepo: null });
     expect(page.instance.pageViewState().lastActiveRepo).toBeNull();
+  });
+
+  it("checks only its own repository when its graph asks which still exist", async () => {
+    const { shared, repos, open } = setUp();
+    const page = open(repos[0]);
+    // On the recent list, its folder not there now: a disk not mounted, say.
+    const unmounted = goneFolder();
+    shared.repoSource.addRepo(unmounted);
+    const before = sentOf(page.posted, "loadRepos").length;
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    expect(Object.keys(shared.repoSource.getRepos())).toEqual(
+      expect.arrayContaining([repos[0], unmounted])
+    );
+    // Its own is there: answered with it, as an unchecked loadRepos is.
+    expect(sentOf(page.posted, "loadRepos").slice(before)).toEqual([
+      expect.objectContaining({ lastActiveRepo: repos[0] })
+    ]);
+  });
+
+  it("drops its own repository once it is none, and no other known one", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    open(repos[1]);
+    const unmounted = goneFolder();
+    shared.repoSource.addRepo(unmounted);
+    fs.rmSync(path.join(repos[0], ".git"), { recursive: true, force: true });
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    expect(Object.keys(shared.repoSource.getRepos()).toSorted()).toEqual(
+      [repos[1], unmounted].toSorted()
+    );
+    expect(logged).toContain(
+      `tabs: ${repos[0]} is no Git repository any more, dropped from the known set`
+    );
   });
 
   it("answers the graph's requests from its repository", async () => {

@@ -6,7 +6,7 @@ import { ExtensionState } from "@ging/core/extensionState";
 import type { StateStore } from "@ging/core/host/ports";
 import { createDesktopRepoSource } from "@ging/desktop/ports/repoSource";
 import { openDesktopStorage } from "@ging/desktop/ports/storage";
-import { createRecentRepos } from "@ging/desktop/recentRepos";
+import { createRecentRepos, RECENT_REPOS_SHOWN } from "@ging/desktop/recentRepos";
 
 import { makeTempDir, rmrf } from "@ging/core/tests/helpers";
 
@@ -28,7 +28,7 @@ function setUp() {
   /** Every write this test made, so the next session reads them back. */
   const writes: PromiseLike<void>[] = [];
   const settled = () => Promise.all(writes);
-  const session = () => {
+  const session = (options: Pick<Parameters<typeof createRecentRepos>[0], "isUsable"> = {}) => {
     const opened = openDesktopStorage(userData);
     const tracked = (store: StateStore): StateStore => ({
       get: (key, fallback) => store.get(key, fallback),
@@ -46,13 +46,30 @@ function setUp() {
     const repoSource = createDesktopRepoSource(new ExtensionState(storage), {
       gitPath: () => "git"
     });
-    const recent = createRecentRepos({ store: storage.workspace, repoSource });
+    /** Told each time a look at the folders found one otherwise. */
+    let changed: () => void = Function.prototype as () => void;
+    const recent = createRecentRepos({
+      store: storage.workspace,
+      repoSource,
+      ...options,
+      onChange: () => changed()
+    });
+    onTestFinished(() => recent.dispose());
     /** Open `repo` as the main process does: known first, then first. */
     const open = (repo: string) => {
       repoSource.addRepo(repo);
       recent.opened(repo);
     };
-    return { repoSource, recent, open };
+    /** Look at the folders, and wait until a look finds one otherwise. */
+    const checked = () => {
+      const told = new Promise<void>((resolve) => {
+        changed = resolve;
+      });
+      recent.check();
+      return told;
+    };
+    const order = () => storage.workspace.get<unknown>("desktopRecentRepos", null);
+    return { repoSource, recent, open, checked, order };
   };
   return { folder, session, settled };
 }
@@ -94,10 +111,40 @@ describe("the recently opened list", () => {
     fs.rmSync(gone, { recursive: true });
     await settled();
 
-    expect(session().recent.list()).toEqual([
+    const next = session();
+    await next.checked();
+    expect(next.recent.list()).toEqual([
       { path: kept, name: "kept", missing: false },
       { path: gone, name: "gone", missing: true }
     ]);
+  });
+
+  it("says what the last look at the disk found, never looking while it lists", async () => {
+    const { folder, session } = setUp();
+    const [a, b] = [folder("a"), folder("b")];
+    const asked: string[] = [];
+    const answers = new Map<string, (usable: boolean) => void>();
+    const { recent, open } = session({
+      isUsable: (dir) => {
+        asked.push(dir);
+        return new Promise((resolve) => answers.set(dir, resolve));
+      }
+    });
+    open(a);
+    open(b);
+
+    recent.list();
+    expect(asked).toEqual([]);
+
+    recent.check();
+    // A folder that does not answer — a network share gone away — is looked
+    // at once, however often the list is checked again, and holds up no other.
+    recent.check();
+    expect(asked.toSorted()).toEqual([a, b].toSorted());
+    answers.get(a)!(false);
+    await expect.poll(() => recent.list().map(({ missing }) => missing)).toEqual([false, true]);
+    recent.check();
+    expect(asked.filter((dir) => dir === b)).toHaveLength(1);
   });
 
   it("lists a known repository never opened since the order began last, in path order", () => {
@@ -128,6 +175,34 @@ describe("the recently opened list", () => {
     // Opened again later, it comes back first.
     next.open(a);
     expect(paths(next.recent.list())).toEqual([a, b]);
+  });
+
+  it("forgets the order of a repository the known set dropped, whatever dropped it", () => {
+    const { folder, session } = setUp();
+    const [a, b] = [folder("a"), folder("b")];
+    const { repoSource, open, order } = session();
+    open(a);
+    open(b);
+
+    // As a Tab's graph drops its own repository once it is none (#454).
+    repoSource.dropRepo(a);
+
+    expect(order()).toEqual([b]);
+  });
+
+  it(`shows the ${RECENT_REPOS_SHOWN} opened last, and keeps the rest known`, () => {
+    const { folder, session } = setUp();
+    const all = Array.from({ length: RECENT_REPOS_SHOWN + 5 }, (_, i) => folder(`r${i}`));
+    const { repoSource, recent, open, order } = session();
+    all.forEach(open);
+
+    const newestFirst = all.toReversed();
+    expect(paths(recent.list())).toEqual(newestFirst.slice(0, RECENT_REPOS_SHOWN));
+    expect(order()).toEqual(newestFirst.slice(0, RECENT_REPOS_SHOWN));
+    expect(Object.keys(repoSource.getRepos())).toHaveLength(all.length);
+    // Opened again, one past the cap comes back first.
+    open(all[0]);
+    expect(paths(recent.list())[0]).toBe(all[0]);
   });
 
   it("reads an order it does not recognise as none", () => {

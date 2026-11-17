@@ -27,6 +27,17 @@ export function isUsableRepoPath(repoPath: string): boolean {
   }
 }
 
+/** `isUsableRepoPath`'s test without holding the caller's thread: for a host
+ *  that checks many paths where a stuck one (a network share that does not
+ *  answer) must not freeze what it draws, such as the desktop host's recent
+ *  list (#394). */
+export function isUsableRepoPathAsync(repoPath: string): Promise<boolean> {
+  return fs.promises.stat(repoPath).then(
+    (stat) => stat.isDirectory(),
+    () => false
+  );
+}
+
 /**
  * The Current repository a persisted path still names, or null when it names
  * nothing usable any more.

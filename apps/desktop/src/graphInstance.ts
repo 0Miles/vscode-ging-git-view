@@ -3,6 +3,7 @@
  * shares (sharedServices.ts). Each Tab opens one (#388, #393). */
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { isGitRepository } from "@ging/core/backend/utils/git";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
 import {
@@ -116,10 +117,21 @@ export function createGraphInstance(
   // itself stays the app's.
   const own = (repos: GitRepoSet): GitRepoSet =>
     Object.hasOwn(repos, repo) ? { [repo]: repos[repo] } : {};
+  const known = () => Object.hasOwn(shared.repoSource.getRepos(), repo);
   const repoSource: RepoSource = {
     ...shared.repoSource,
     getRepos: () => own(shared.repoSource.getRepos()),
-    getBootRepo: () => (Object.hasOwn(shared.repoSource.getRepos(), repo) ? repo : null)
+    getBootRepo: () => (known() ? repo : null),
+    // Its own repository alone, as with the rest (#394): the app's check would
+    // drop every known repository git cannot reach now — the recent list's
+    // folders on a disk not mounted at the moment among them — when only this
+    // Tab's graph failed to load. Whether its own should go is #454's.
+    checkReposExist: async () => {
+      if (!known() || (await isGitRepository(repo, shared.gitPath()))) return false;
+      logger.log(`tabs: ${repo} is no Git repository any more, dropped from the known set`);
+      shared.repoSource.dropRepo(repo);
+      return true;
+    }
   };
   const reposChanged = shared.repoSource.onDidChangeRepos((repos) => {
     void bridge.post({

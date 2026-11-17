@@ -7,7 +7,11 @@
 
 import type { SimpleGit } from "simple-git";
 
-import { type InitializedRepo, initRepository } from "@ging/core/backend/actions/init";
+import {
+  type InitializedRepo,
+  initRepository,
+  NoWorkTreeFolderError
+} from "@ging/core/backend/actions/init";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import type { L10n, Prompts } from "@ging/core/host/ports";
 
@@ -28,7 +32,12 @@ export function createRepoInitCommand({ prompts, l10n, gitClientFor }: RepoInitC
       try {
         return await initRepository(gitClientFor(null), folder);
       } catch (e: unknown) {
-        void prompts.showError(l10n.t("init.unableTo") + ": " + formatGitError(e));
+        // git's own words for this one would be about a command it never ran.
+        const why =
+          e instanceof NoWorkTreeFolderError
+            ? l10n.t("init.noWorkTree", folder)
+            : formatGitError(e);
+        void prompts.showError(l10n.t("init.unableTo") + ": " + why);
         return undefined;
       }
     }

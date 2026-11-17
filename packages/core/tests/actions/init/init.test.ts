@@ -5,7 +5,8 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { initRepository } from "@ging/core/backend/actions/init";
+import { initRepository, NoWorkTreeFolderError } from "@ging/core/backend/actions/init";
+import { gitFolderPlace } from "@ging/core/backend/utils/git";
 import { createRepoInitCommand } from "@ging/core/extension/repoInitCommand";
 
 import { fakePorts, makeRepo, makeTempDir, rmrf, toRepoPath } from "@ging/core/tests/helpers";
@@ -76,6 +77,66 @@ describe("initRepository", () => {
 
     expect(result).toEqual({ repo: toRepoPath(inner), created: true });
     expect(git(["rev-parse", "--show-toplevel"], inner)).toBe(toRepoPath(inner));
+  });
+});
+
+describe("a folder with no working tree", () => {
+  /** A bare repository, a working tree's `.git` folder, and a folder in it. */
+  const noWorkTreeFolders = () => {
+    const bare = path.join(tempDir(), "bare.git");
+    git(["init", "--bare", "--template=", bare], tempDir());
+    const repo = makeRepo();
+    dirs.push(repo);
+    return { bare, gitDir: path.join(repo, ".git"), inGitDir: path.join(repo, ".git", "refs") };
+  };
+
+  it("is told apart from a working tree's top, a folder in one, and none", async () => {
+    const { bare, gitDir, inGitDir } = noWorkTreeFolders();
+    const top = makeRepo();
+    dirs.push(top);
+    const inside = path.join(top, "sub");
+    fs.mkdirSync(inside);
+    const places = await Promise.all(
+      [bare, gitDir, inGitDir, top, inside, tempDir(), path.join(tempDir(), "nowhere")].map(
+        (folder) => gitFolderPlace(unbound(), folder)
+      )
+    );
+
+    expect(places).toEqual([
+      "noWorkTree",
+      "noWorkTree",
+      "noWorkTree",
+      "workTreeTop",
+      "inWorkTree",
+      "none",
+      "none"
+    ]);
+  });
+
+  it("gets no repository: neither re-initialized nor one nested in its database", async () => {
+    const { bare, gitDir, inGitDir } = noWorkTreeFolders();
+    const before = fs.readdirSync(inGitDir).toSorted();
+
+    const failures = await Promise.all(
+      [bare, gitDir, inGitDir].map((folder) => initRepository(unbound(), folder).catch((e) => e))
+    );
+
+    expect(failures.map((e) => e instanceof NoWorkTreeFolderError)).toEqual([true, true, true]);
+    expect(fs.readdirSync(inGitDir).toSorted()).toEqual(before);
+    expect(fs.existsSync(path.join(inGitDir, ".git"))).toBe(false);
+  });
+
+  it("is said in the app's words by the command service, not git's", async () => {
+    const { bare } = noWorkTreeFolders();
+    const { ports, calls } = fakePorts();
+    const command = createRepoInitCommand({
+      prompts: ports.prompts,
+      l10n: ports.l10n,
+      gitClientFor: () => unbound()
+    });
+
+    expect(await command.initRepo(bare)).toBeUndefined();
+    expect(calls).toEqual([["showError", `init.unableTo: init.noWorkTree|${bare}`]]);
   });
 });
 

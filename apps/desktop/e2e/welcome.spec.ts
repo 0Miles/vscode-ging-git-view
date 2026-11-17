@@ -215,7 +215,7 @@ test("the recent list keeps what was opened across a restart, the last first, an
     .toEqual([
       expect.objectContaining({
         type: "error",
-        detail: `Cannot open ${gonePath}: it is not a Git repository.`
+        detail: `Cannot open ${gonePath}: the folder is not there. Its disk may not be connected.`
       })
     ]);
   await expect(window.locator("#tabStrip")).toBeHidden();
@@ -232,7 +232,7 @@ test("the recent list keeps what was opened across a restart, the last first, an
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(kept.commits.length);
   await closeAllTabs(window);
   const logged = await closeAndReadLog();
-  expect(logged).toContain(`recent: cannot open ${gonePath}, not a Git repository`);
+  expect(logged).toContain(`recent: cannot open ${gonePath} (missing)`);
   expect(logged).toContain(`recent: forgetting ${gonePath}`);
   expect(logged).not.toContain("ERROR:");
 
@@ -290,7 +290,7 @@ test("Open Folder on a folder that is no repository offers to initialize it", as
     })
   ]);
   const logged = await closeAndReadLog();
-  expect(logged).toContain(`open folder: ${folder} is not a Git repository`);
+  expect(logged).toContain(`open folder: cannot open ${folder} (notRepository)`);
   expect(logged).toContain(`init: made a repository in ${spelled(folder)}`);
   expect(logged).not.toContain("ERROR:");
 });
