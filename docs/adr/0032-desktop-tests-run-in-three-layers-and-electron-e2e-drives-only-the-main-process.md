@@ -85,3 +85,12 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **兩個 Tab 同時需要認證的 fetch,用兩個只回 401 的本機 server。** 兩個 port 不同，askpass 的提示(`GING: http://127.0.0.1:<port>`)因此分得出是誰的;server 記下每次請求帶來的帳密，證明每個 Tab 頁面上的回答回到的是自己那個 Tab 的 git。fetch 從選單的 `ging.fetchRemote` 觸發，同時驗證「選單命令送到目前聚焦的 Tab」。認證失敗的錯誤框經 `NativeDialogs` 由測試代答。
 - **git 在等提示時關掉 Tab、或結束 app,git 要拿到「取消」並自己結束。** 兩條 E2E 各驗一次：提示還開著時關掉那個 Tab,以及開著兩個 Tab、其中一個在等提示時結束 app;都要 app 照常結束、server 上 git 的連線歸零、log 沒有 `ERROR:`。後者守的是處置順序：視窗關掉之後才處置 Tab,任何一個 Tab 的處置失敗都不能讓後面的 Tab 留著沒處置。
 - **測試收尾時 `server.closeAllConnections()` 是繞道，不是預期行為。** 關掉 Tab 或結束 app 時，正在跑的 git 不會被終止([#450](https://github.com/0Miles/vscode-ging-git-view/issues/450)):git 卡在提示時拿到「取消」會自己結束，但測試若在 git 還連著 server 時失敗，那個 git 會一直留著,server 關不掉、Windows 上暫存目錄也刪不掉。#450 修好之後拿掉這個繞道。
+
+## 補記(2026-11-17,#404)
+
+**diff viewer 的 Electron E2E([diffViewer.spec.ts](../../apps/desktop/e2e/diffViewer.spec.ts))驗的是只有真的 app 才證明得了的事:Monaco 的 bundle、worker 與字型都從 `ging://app/` 載入,在頁面的 CSP 之下,沒有任何東西來自別處;兩側的文字由 main process 依 `defaultFileEncoding` 讀好。** 面板本身的行為(切換、Escape、焦點、記住的版面)在 jsdom 用假的 editors 驗([desktopDiffPanel.test.ts](../../packages/webview/tests/desktopDiffPanel.test.ts)),不必每次開 Electron。
+
+- **讀的是產品本來就有的東西:Monaco 自己的 DOM 與瀏覽器的 API。** 左右兩邊顯示的文字讀 `.editor.original` / `.editor.modified` 底下 `.lines-content > .view-lines`(只取該側自己的行;inline 時另一側被刪掉的行畫在 view zone 裡,也叫 `.view-lines`);diff 有沒有算出來看 `.line-insert`;inline 與 side-by-side 看 diff editor 根元素的 `side-by-side` class,以及被刪掉的行是否出現在右側的 view zone。
+- **worker 真的是 worker:`page.workers()` 必須正好是 `ging://app/editor.worker.js`。** Monaco 建不起 worker 時會退回在頁面裡算 diff,只在 console 留一個警告,畫面一樣正確,所以只看畫面證明不了 worker 載得進來。字型用 `document.fonts.load("16px codicon")` 之後讀 `FontFace.status`;拿掉 CSP 的 `font-src 'self'`,這一步就以 network error 失敗(已實測)。拿掉 `worker-src 'self'` 則不會紅:沒寫時它退回 `script-src 'self'`,見 ADR-0031 的同日補記。
+- **頁面的 console 不得有任何 error。** CSP 擋下的載入會以 console error 出現,所以這一條同時守住「沒有東西從別處載入」。
+- **#391 那條「點 CDV 的檔案只看到尚未支援」的測試移到這裡,改成打開 diff。** walk(`actions.spec.ts`)的 `viewDiff` 與 `viewDiffWithWorking` 改為斷言 diff viewer 出現、app 外面什麼都沒發生、沒有錯誤框,然後把它關掉,不讓它蓋住之後的步驟。

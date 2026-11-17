@@ -204,3 +204,13 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **「顯示設定」不是 port,是命令服務的 `revealSetting` hook。** 理由同 remote 命令的 `refreshGraph`:它是宿主交給這個服務的一個動作，不是 dispatch 要的能力，也避免和同時在改 `Opener` 的 #391 撞在同一個 interface。VS Code 是 `workbench.action.openSettings`;桌面版是設定視窗的 `reveal(key)`:沒開著就以 `?setting=` 開一個新視窗，開在那個設定那一列;已經開著就不重新載入(會丟掉其他列裡打了還沒送出的內容，例如還不是合法 JSON 的文字),而是把那個設定現在的值以 `settingUpdated` 送過去，再送 `revealSetting` 讓頁面捲到那一列並標示出來。
 - **桌面版寫入後沒有推送給各 graph instance。** `pullRequests.providers` 每次建立 pull request 時才讀，`pushSettingChange` 對它本來就什麼都不做。設定視窗若已開著而使用者沒有按「顯示設定」,它顯示的仍是舊值，這是設定頁本身的問題(它只聽自己寫入的回覆),見 #446。
 - **`MessageHandlerDeps.configurePullRequestProvider` 仍是 hook,但桌面版不再是 stub。** 它在桌面版直接呼叫這個命令服務，問在發起 Create Pull Request 的那個 instance 的頁面上。上面「為什麼未來的讀者會困惑」第二條說它跳回的是 VS Code 自己的 QuickPick 命令，現在兩個宿主跑的是同一份流程;它仍是 hook,是因為 VS Code 那邊照舊經由已註冊的命令執行，命令面板的入口與錯誤框的按鈕走同一條路。
+
+## 補記(2026-11-17,#404)
+
+**桌面版 `Opener` 的 `openCommitDiff` 與 `diffWithWorking` 不再是 stub:兩者都開在該實例的 Tab 頁面裡、蓋在圖形上的 diff viewer(畫面與 Monaco 的注入見 ADR-0031 的同日補記)。** #391 補記的四個 stub 剩下 `openFileAtRevision`(#405)與 `openMergeEditor`(#410)。port 本身沒有改,VS Code 的實作也沒有改。
+
+- **兩邊的文字由 main process 讀,依 `defaultFileEncoding` 解碼,讀的地方在 core 的 [fileContents.ts](../../packages/core/src/extension/fileContents.ts)(`readFileAtRevision`、`readWorkingFile`),不是在 `apps/desktop` 那條 lint override 加白名單。** #386 補記把這個選擇留給第一個要讀某版本檔案的桌面呼叫端。選 core:白名單是 VS Code 的 `DiffDocProvider` 為了「依 workspace folder scope 解析 `fileEncoding`」才有的豁免,桌面版沒有這個理由;而「讀 working tree 的檔案並照設定解碼」也是 core 該有一份的事,#405、#406、#408 都會再用到。解碼抽成 `decodeFileBytes`,`getCommitFileContent` 照舊用它,VS Code 的行為不變。
+- **working tree 那一側也照 `defaultFileEncoding` 解碼。** VS Code 的 `diffWithWorking` 右邊是真正的檔案,由 VS Code 用它自己的 `files.encoding` 讀;桌面版沒有那個設定,而這個設定的說明寫的正是「diff 檢視裡顯示的檔案內容」,兩側用同一個編碼,diff 才不會因為兩邊解法不同而整行標成改變。working tree 裡已經沒有那個檔案時讀成空的,跟 revision 那一側沒有那個檔案時一樣:diff 顯示的就是整個被刪掉。
+- **`fileEncoding()` 是 `DesktopConfig` 的方法,不是 `HostConfig` 的。** dispatch 不讀它;讀它的是桌面版自己的 diff viewer(與 `gitLabToken` 同一類)。VS Code 的對應是 `Config.fileEncoding(scope)`,依 folder 解析,桌面版只有一層設定檔。
+- **`openCommitDiff` 照舊用 core 的 `commitDiffView` 決定兩側與標題**,所以 stash 的 untracked 檔(`^3`)、rename 前的舊路徑、`fromHash`、新增與刪除的標題都與 VS Code 相同;讀不到或頁面已經不在時回答 `false`,圖形照它原本的方式說「無法檢視 diff」。**`diffWithWorking` 只讀該 Tab 的 repository 底下的檔案**,與 `openFile` 同一個 `repoRoot`;這裡只做字面上的比對(不跟連結),因為這條路只是在 app 自己的頁面裡顯示文字,不會執行任何東西。
+- **給之後的呼叫端的接縫:`GraphInstance.showDiff`([diffViewer.ts](../../apps/desktop/src/diffViewer.ts) 的 `ShowDiff`)。** 它收標題與左右兩個 `DiffSource` —— 某個 revision 的檔案(`DiffSide`,`commit` 可以是 `:0`,也就是 index),或 working tree 的檔案 —— 讀好、解好碼,送到該 Tab 的頁面。`Opener` 的兩個 diff 都走它;#403 的 working tree 檢視(index ↔ working tree、HEAD ↔ index)與 #408 的檔案歷史也從這裡開 diff,不必再經過 `Opener`,除非那個呼叫端在 dispatch 裡。
