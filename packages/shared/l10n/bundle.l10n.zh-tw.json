@@ -457,6 +457,8 @@
   "desktop.menu.setGitUserDetails": "設定 Git 使用者名稱與電子郵件...",
   "desktop.menu.openTerminal": "在終端機中開啟",
   "desktop.menu.help": "說明",
+  "desktop.menu.view": "檢視",
+  "desktop.menu.hide": "隱藏 GING",
   "desktop.menu.versionInfo": "版本資訊",
   "ui.find": "尋找",
   "ui.openTerminal": "終端機",

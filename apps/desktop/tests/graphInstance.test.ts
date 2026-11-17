@@ -55,7 +55,6 @@ function setUp() {
       reveal: () => {}
     },
     clipboard: { writeText: async () => {} },
-
     os: {
       openPath: async (file) => {
         opened.push(["openPath", file]);

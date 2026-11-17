@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -184,6 +184,15 @@ test("Show Statistics opens a window of its own on the focused Tab's figures", a
 
 test("Open in Terminal starts the system's terminal in the focused Tab's repository", async () => {
   const repo = fixtureRepo();
+  // On Linux the app looks its terminal up on the PATH's absolute folders, and
+  // a CI machine may have none: one put first there, as actions.spec.ts does.
+  // It is never run — the spawn is stood in for, below.
+  if (process.platform === "linux") {
+    const bin = path.join(scratch, "bin");
+    mkdirSync(bin);
+    writeFileSync(path.join(bin, "x-terminal-emulator"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    env.PATH = `${bin}:${env.PATH ?? ""}`;
+  }
   const electronApp = await launch("--repo", repo.path);
   await focusedTabPage(electronApp);
   // The terminal is the one detached process the app starts: taken in its
@@ -243,6 +252,36 @@ test("with no Tab, the graph's entries are not offered, and Set Git User Details
   const globalConfig = readFileSync(path.join(scratch, "home", ".gitconfig"), "utf8");
   expect(globalConfig).toContain("name = Carol");
   expect(globalConfig).toContain("email = carol@example.com");
+  expect(await closeAndReadLog()).not.toMatch(/ERROR:/);
+});
+
+test("with a Tab whose folder has gone in front, nothing that asks is offered, and Version Information still answers", async () => {
+  const repo = fixtureRepo();
+  let electronApp = await launch("--repo", repo.path);
+  await focusedTabPage(electronApp);
+  await closeAndReadLog();
+  rmSync(repo.path, { recursive: true, force: true });
+
+  // Brought back saying why it shows no graph: no instance to run a command,
+  // no listener to ask on, and the Welcome page under it out of sight.
+  electronApp = await launch();
+  const page = await focusedTabPage(electronApp);
+  await expect(page.locator("p")).toContainText("not a Git repository");
+  const askedBoxes = await answerMessageBoxes(electronApp);
+
+  const offered = await Promise.all(
+    [...GRAPH_ENTRIES, "ging.setGitUserDetails", "ging.managePullRequestProviders"].map((id) =>
+      enabled(electronApp, id)
+    )
+  );
+  expect(offered.every((value) => value === false)).toBe(true);
+  // A system dialog needs no page.
+  expect(await clickMenu(electronApp, "ging.versionInfo")).toBe(true);
+  await expect
+    .poll(async () => (await askedBoxes()).map((box) => box.message))
+    .toEqual([
+      expect.stringMatching(/^GING: .+\nElectron: .+\nChromium: .+\nOS: .+\ngit version /)
+    ]);
   expect(await closeAndReadLog()).not.toMatch(/ERROR:/);
 });
 

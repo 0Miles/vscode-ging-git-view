@@ -197,7 +197,6 @@ export function createGraphInstance(
       // The side-view's branch actions are delegated to the graph in VS Code;
       // here the side-view is in the same page (#399), so nothing is held.
       onDelegatedRan: () => {},
-
       // Show All is the side-view's (#399). Until it is here, the graph's
       // filter chip clears nothing, and the dispatch says so to the graph
       // (`branchFilterCleared` after a Show All that moved nothing).

@@ -457,6 +457,8 @@
   "desktop.menu.setGitUserDetails": "设置 Git 用户名称与电子邮件...",
   "desktop.menu.openTerminal": "在终端中打开",
   "desktop.menu.help": "帮助",
+  "desktop.menu.view": "视图",
+  "desktop.menu.hide": "隐藏 GING",
   "desktop.menu.versionInfo": "版本信息",
   "ui.find": "查找",
   "ui.openTerminal": "终端",

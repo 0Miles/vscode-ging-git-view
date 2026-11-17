@@ -25,12 +25,15 @@ export type StatisticsWindow = {
 
 export function createStatisticsWindow({
   url,
+  lang,
   createWindow,
   l10n,
   opener
 }: {
   /** The page's address. */
   url: string;
+  /** The language `l10n` speaks, for `<html lang>`. */
+  lang: string;
   /** A window as the app makes them: themed, with the preload. */
   createWindow: () => BrowserWindow;
   l10n: L10n;
@@ -66,7 +69,10 @@ export function createStatisticsWindow({
       const style = Object.entries(theme.variables)
         .map(([name, value]) => `${name}: ${value};`)
         .join(" ");
-      return renderStatisticsHtml(shown, (key, ...args) => l10n.t(key, ...args), style);
+      return renderStatisticsHtml(shown, (key, ...args) => l10n.t(key, ...args), {
+        lang,
+        htmlStyle: style
+      });
     }
   };
 }

@@ -457,6 +457,8 @@
   "desktop.menu.setGitUserDetails": "Set Git User Name & Email...",
   "desktop.menu.openTerminal": "Open in Terminal",
   "desktop.menu.help": "Help",
+  "desktop.menu.view": "View",
+  "desktop.menu.hide": "Hide GING",
   "desktop.menu.versionInfo": "Version Information",
   "ui.find": "Find",
   "ui.openTerminal": "Terminal",

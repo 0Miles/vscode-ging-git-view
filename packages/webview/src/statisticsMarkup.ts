@@ -27,12 +27,20 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => ESCAPES[c]);
 }
 
-/** `body` in the page, with `htmlStyle` on `<html>`: a host that does not
- *  inject the `--vscode-*` variables itself writes them there. */
-function wrap(body: string, htmlStyle: string): string {
+/** How the page is written out, by the host that shows it. */
+export type StatisticsPageOptions = {
+  /** The language of its words, as `<html lang>` says it. */
+  lang?: string;
+  /** Written on `<html>`: a host that does not inject the `--vscode-*`
+   *  variables itself writes them here. */
+  htmlStyle?: string;
+};
+
+/** `body` in the page. */
+function wrap(body: string, { lang = "en", htmlStyle = "" }: StatisticsPageOptions): string {
   const style = htmlStyle === "" ? "" : ` style="${escapeHtml(htmlStyle)}"`;
   return `<!DOCTYPE html>
-<html lang="en"${style}>
+<html lang="${escapeHtml(lang)}"${style}>
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
@@ -57,15 +65,14 @@ function wrap(body: string, htmlStyle: string): string {
 </html>`;
 }
 
-/** The page for `stats`, its words from `t` (the `stats.*` strings); the
- *  desktop host passes its theme's variables as `htmlStyle`. */
+/** The page for `stats`, its words from `t` (the `stats.*` strings). */
 export function renderStatisticsHtml(
   stats: StatisticsFigures,
   t: (key: string, ...args: string[]) => string,
-  htmlStyle = ""
+  options: StatisticsPageOptions = {}
 ): string {
   if (stats.total === 0) {
-    return wrap(`<p class="note">${escapeHtml(t("stats.empty"))}</p>`, htmlStyle);
+    return wrap(`<p class="note">${escapeHtml(t("stats.empty"))}</p>`, options);
   }
   const weekdays = t("stats.weekdays").split(",");
 
@@ -105,6 +112,6 @@ export function renderStatisticsHtml(
     <h2>${escapeHtml(t("stats.activity"))}</h2>
     ${heat}
     ${note}`,
-    htmlStyle
+    options
   );
 }

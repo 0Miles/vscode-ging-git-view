@@ -320,6 +320,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       managePullRequestProviders: asking((c) => c.managePullRequestProviders()),
       // In a system dialog, so it needs no page: the Welcome page's will do
       // behind a notice too.
+      hideApp: () => app.hide(),
       versionInfo: () => {
         const commands = focusedInstance()?.commands ?? welcomeCommands;
         void commands?.versionInfo();
@@ -554,6 +555,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     });
     statisticsWindow = createStatisticsWindow({
       url: `${PAGE_URL}${STATISTICS_PATH.slice(1)}`,
+      lang: app.getLocale(),
       createWindow,
       l10n: host.l10n,
       opener: linksOut

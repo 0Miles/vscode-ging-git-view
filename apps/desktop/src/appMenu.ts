@@ -14,6 +14,9 @@ import type { L10n } from "@ging/core/host/ports";
  *  (`Menu.getApplicationMenu().getMenuItemById`). Every entry of GING's own
  *  has one; Electron's role menus and the separators have none. */
 export const MENU_IDS = {
+  /** macOS only: the app menu, Settings… and Hide in it. */
+  appMenu: "ging.appMenu",
+  hide: "ging.hide",
   fileMenu: "ging.fileMenu",
   /** #394's three: offered once their handlers are (`AppMenuCommands`). */
   openFolder: "ging.openFolder",
@@ -30,6 +33,7 @@ export const MENU_IDS = {
   showStatistics: "ging.showStatistics",
   setGitUserDetails: "ging.setGitUserDetails",
   openTerminal: "ging.openTerminal",
+  viewMenu: "ging.viewMenu",
   helpMenu: "ging.helpMenu",
   versionInfo: "ging.versionInfo"
 } as const;
@@ -63,6 +67,8 @@ export type AppMenuCommands = {
   managePullRequestProviders(): void;
   /** Answered in a system dialog, so on any page or none. */
   versionInfo(): void;
+  /** macOS: hide the app (Electron's `hide` role, without its Cmd+H). */
+  hideApp(): void;
   // #394's: each entry is in the menu once its handler is given here.
   openFolder?(): void;
   /** Open `repo`, one of `AppMenuState.recentRepos`. */
@@ -90,17 +96,29 @@ export function menuFocus(focused: { graph: boolean } | null): MenuFocus {
   return focused.graph ? "graph" : "notice";
 }
 
+/** The graph's own keyboard shortcuts, as each defaults (`shortcuts.*`):
+ *  `CmdOrCtrl` with one of these letters, Shift or not. No accelerator of the
+ *  menu's may take one — an accelerator is the menu's before the page sees
+ *  the key — and appMenu.test.ts holds the menu to it. */
+export const GRAPH_SHORTCUT_KEYS = ["F", "R", "H", "S"] as const;
+
 /**
- * The menu for `platform` in `state`: Electron's own Edit, View and Window
- * menus — the ones a window without a menu of its own would have had — and
- * GING's beside them. Which entry is enabled is said here, never changed on a
- * built menu:
+ * The menu for `platform` in `state`: GING's menus, and beside them Electron's
+ * Edit and Window menus — the ones a window without a menu of its own would
+ * have had. The macOS app menu and the View menu are Electron's roles spelled
+ * out, each without what took a graph shortcut: Hide's Cmd+H (scrollToHead's
+ * Cmd+H), Reload and Force Reload (refresh's CmdOrCtrl+R), and on macOS
+ * Toggle Full Screen's Control+Command+F (Find's). Which entry is
+ * enabled is said here, never changed on a built menu:
  *
  * - The Repository menu's graph entries only while a graph is in front: they
  *   run on its repository.
  * - Set Git User Details and Manage Pull Request Providers ask, and need a
  *   page that listens: a graph's or the Welcome page's, not a notice's.
  * - Settings…, Version Information and #394's entries always.
+ *
+ * Settings… is in the app menu on macOS, as the platform has it, and in the
+ * File menu elsewhere.
  */
 export function appMenuTemplate(
   l10n: L10n,
@@ -111,6 +129,9 @@ export function appMenuTemplate(
   const mac = platform === "darwin";
   const hasGraph = focus === "graph";
   const canAsk = focus !== "notice";
+  /** `text` as a label: outside macOS, `&` marks the next letter as the
+   *  entry's mnemonic and is not shown, so a `&` meant as one is doubled. */
+  const label = (text: string) => (mac ? text : text.replaceAll("&", "&&"));
   const item = (
     id: string,
     labelKey: string,
@@ -118,12 +139,16 @@ export function appMenuTemplate(
     extra: MenuItemConstructorOptions = {}
   ): MenuItemConstructorOptions => ({
     id,
-    label: l10n.t(labelKey),
+    label: label(l10n.t(labelKey)),
     click: () => click(),
     ...extra
   });
   const onGraph = (id: string, labelKey: string, click: () => void) =>
     item(id, labelKey, click, { enabled: hasGraph });
+  const separator = { type: "separator" } as const;
+  const settings = item(MENU_IDS.settings, "desktop.menu.settings", commands.openSettings, {
+    accelerator: "CmdOrCtrl+,"
+  });
 
   const { openFolder, openRecent, initRepository } = commands;
   const opening: MenuItemConstructorOptions[] = [
@@ -138,11 +163,11 @@ export function appMenuTemplate(
       ? [
           {
             id: MENU_IDS.openRecent,
-            label: l10n.t("desktop.menu.openRecent"),
+            label: label(l10n.t("desktop.menu.openRecent")),
             enabled: recentRepos.length > 0,
             submenu: recentRepos.map((repo) => ({
               id: openRecentId(repo),
-              label: repo,
+              label: label(repo),
               click: () => openRecent(repo)
             }))
           }
@@ -152,32 +177,53 @@ export function appMenuTemplate(
       ? [item(MENU_IDS.initRepository, "desktop.menu.initRepository", initRepository)]
       : [])
   ];
+  // A separator between each group there is.
+  const fileGroups: MenuItemConstructorOptions[][] = [
+    opening,
+    mac ? [] : [settings],
+    // Electron's `fileMenu` role: Close Window on macOS, Quit elsewhere.
+    [{ role: mac ? ("close" as const) : ("quit" as const) }]
+  ].filter((group) => group.length > 0);
 
   return [
-    ...(mac ? [{ role: "appMenu" } as const] : []),
-    // Electron's `fileMenu` role, spelled out to carry GING's entries (#397):
-    // Close Window on macOS, Quit elsewhere, as the role has it.
+    // Electron's `appMenu` role, with Settings… and a Hide that leaves Cmd+H
+    // to the graph.
+    ...(mac
+      ? [
+          {
+            id: MENU_IDS.appMenu,
+            label: "GING",
+            submenu: [
+              { role: "about" },
+              separator,
+              settings,
+              separator,
+              { role: "services" },
+              separator,
+              item(MENU_IDS.hide, "desktop.menu.hide", commands.hideApp),
+              { role: "hideOthers" },
+              { role: "unhide" },
+              separator,
+              { role: "quit" }
+            ]
+          } satisfies MenuItemConstructorOptions
+        ]
+      : []),
     {
       id: MENU_IDS.fileMenu,
-      label: l10n.t("desktop.menu.file"),
-      submenu: [
-        ...opening,
-        ...(opening.length > 0 ? [{ type: "separator" } as const] : []),
-        item(MENU_IDS.settings, "desktop.menu.settings", commands.openSettings, {
-          accelerator: "CmdOrCtrl+,"
-        }),
-        { type: "separator" },
-        { role: mac ? "close" : "quit" }
-      ]
+      label: label(l10n.t("desktop.menu.file")),
+      submenu: fileGroups.flatMap((group, i) =>
+        i === 0 ? group : [separator as MenuItemConstructorOptions].concat(group)
+      )
     },
     { role: "editMenu" },
     {
       id: MENU_IDS.repositoryMenu,
-      label: l10n.t("desktop.menu.repository"),
+      label: label(l10n.t("desktop.menu.repository")),
       submenu: [
         onGraph(MENU_IDS.fetch, "desktop.menu.fetch", commands.fetch),
         onGraph(MENU_IDS.fetchRemote, "desktop.menu.fetchRemote", commands.fetchRemote),
-        { type: "separator" },
+        separator,
         onGraph(MENU_IDS.manageRemotes, "desktop.menu.manageRemotes", commands.manageRemotes),
         onGraph(
           MENU_IDS.toggleRemoteVisibility,
@@ -190,10 +236,10 @@ export function appMenuTemplate(
           commands.managePullRequestProviders,
           { enabled: canAsk }
         ),
-        { type: "separator" },
+        separator,
         onGraph(MENU_IDS.viewReflog, "desktop.menu.viewReflog", commands.viewReflog),
         onGraph(MENU_IDS.showStatistics, "desktop.menu.showStatistics", commands.showStatistics),
-        { type: "separator" },
+        separator,
         item(
           MENU_IDS.setGitUserDetails,
           "desktop.menu.setGitUserDetails",
@@ -203,11 +249,29 @@ export function appMenuTemplate(
         onGraph(MENU_IDS.openTerminal, "desktop.menu.openTerminal", commands.openTerminal)
       ]
     },
-    { role: "viewMenu" },
+    // Electron's `viewMenu` role without Reload and Force Reload: the graph's
+    // own refresh is CmdOrCtrl+R, and reloading a page is not refreshing it.
+    {
+      id: MENU_IDS.viewMenu,
+      label: label(l10n.t("desktop.menu.view")),
+      submenu: [
+        { role: "toggleDevTools" },
+        separator,
+        { role: "resetZoom" },
+        { role: "zoomIn" },
+        { role: "zoomOut" },
+        // Not on macOS, whose Control+Command+F is the graph's Find too (the
+        // graph reads Control as well as Command): macOS puts its own Enter
+        // Full Screen in the menus.
+        ...(mac ? [] : [separator, { role: "togglefullscreen" } as const])
+      ]
+    },
     { role: "windowMenu" },
     {
       id: MENU_IDS.helpMenu,
-      label: l10n.t("desktop.menu.help"),
+      label: label(l10n.t("desktop.menu.help")),
+      // The Help menu macOS knows as one, with its search field.
+      ...(mac && { role: "help" as const }),
       submenu: [item(MENU_IDS.versionInfo, "desktop.menu.versionInfo", commands.versionInfo)]
     }
   ];
