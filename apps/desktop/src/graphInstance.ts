@@ -14,13 +14,20 @@ import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
+import { createWorkingTreeService } from "@ging/core/extension/workingTreeService";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
-import { createDesktopOpener, notSupportedYet } from "@ging/desktop/ports/opener";
+import { createDesktopOpener } from "@ging/desktop/ports/opener";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
-import type { GitGraphViewState, GitRepoSet } from "@ging/shared/types";
+import type { GitGraphViewState, GitRepoSet, ResponseMessage } from "@ging/shared/types";
+import {
+  isWorkingTreeRequest,
+  type WorkingTreeMessage,
+  type WorkingTreeRequest
+} from "@ging/webview/desktop/workingTree/protocol";
 
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
+import { answerWorkingTree } from "./workingTree";
 
 type GraphInstanceOptions = {
   /** The repository it opens on, already checked (`repoToOpen`). */
@@ -49,6 +56,9 @@ export type GraphInstance = {
   /** Core's `fetchRemote` command on its current repository: asks which
    *  remote when there are several (the application menu, #390). */
   fetchRemote(): Promise<void>;
+  /** Open its page's working tree panel (#403), as the graph's Open Source
+   *  Control View does: for the application menu (#396) to offer. */
+  showWorkingTree(): void;
   dispose(): void;
 };
 
@@ -63,10 +73,13 @@ export function createGraphInstance(
   // And should the page still ask for another — it was shown none, but a
   // page is not to be taken at its word — the dispatch never hears it: the
   // Tab would end up on a repository another Tab may have open.
+  // The working tree panel's requests are not the graph's: answered here, by
+  // core's working tree service, and never handed to the dispatch (ADR-0031).
   const channel: WebviewChannel = {
     postMessage: (message) => page.postMessage(message),
     onDidReceiveMessage: (listener) =>
       page.onDidReceiveMessage((message) => {
+        if (isWorkingTreeRequest(message)) return answerPanel(message);
         if (message.command === "selectRepo" && message.repo !== repo) {
           if (message.repo) {
             logger.log(`tabs: the Tab on ${repo} stays on it, not ${message.repo}`);
@@ -94,6 +107,9 @@ export function createGraphInstance(
   const watcher = createDesktopWatcher(refresh, { onError: logger.logError });
   const bridge = webviewBridgeFactory(channel, watcher, () => branchFacts.invalidate());
   avatarManager.registerBridge(bridge.post);
+  /** Its changes made outside the bridge: muted, then refreshed, as the
+   *  bridge's own are. */
+  const runRepoMutation = createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh });
 
   // Its own auto-fetch timer, on its own current repository, muted and
   // refreshed around each fetch as the bridge's own changes are.
@@ -104,8 +120,23 @@ export function createGraphInstance(
     gitClientFor: gitClients.gitClientFor,
     currentRepo: () => current,
     repoSource: shared.repoSource,
-    runRepoMutation: createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh })
+    runRepoMutation
   });
+
+  // The working tree panel's (#403): its stage, unstage and commit refresh
+  // the graph after them, so a commit shows up there.
+  const workingTree = createWorkingTreeService({
+    git: () => gitClient.getInstance(),
+    repo: () => current,
+    signCommits: () => config.signCommits(),
+    runRepoMutation
+  });
+  /** What the panel and the host say to each other is no `ResponseMessage`:
+   *  posted past the type, as the host prompts are (ADR-0031). */
+  const postToPanel = (message: WorkingTreeMessage) =>
+    void page.postMessage(message as unknown as ResponseMessage);
+  const answerPanel = async (request: WorkingTreeRequest) =>
+    postToPanel(await answerWorkingTree(workingTree, l10n, request));
   fetchService.restartAutoFetch();
 
   // A Tab is one repository, and a repository is open in at most one Tab
@@ -181,9 +212,9 @@ export function createGraphInstance(
       showAllBranches: async () => {},
       // Core's own Manage Pull Request Providers (#398), asked in this page.
       configurePullRequestProvider: (host) => void pullRequestProviders.manage(host),
-      // A stub, said to the user rather than failed, until the working
-      // tree's view (#403).
-      openScmView: () => notSupportedYet(notifier, "the source control view (#403)")
+      // The host's own source control view is the working tree panel beside
+      // the graph, in the same page (#403).
+      openScmView: () => postToPanel({ command: "workingTreeShow" })
     }
   );
 
@@ -198,6 +229,7 @@ export function createGraphInstance(
         config
       ),
     fetchRemote: () => fetchService.fetchRemoteCommand(),
+    showWorkingTree: () => postToPanel({ command: "workingTreeShow" }),
     dispose: () => {
       dispatch.dispose();
       reposChanged.dispose();

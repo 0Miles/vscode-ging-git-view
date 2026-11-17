@@ -686,7 +686,17 @@ test("every message the dispatch handles finishes, and the webview reports no fa
       }
     ),
     step("openMergeEditor", () => ({ repo, filePath: "file.txt" }), { check: stub }),
-    step("openScmView", () => ({}), { check: stub }),
+    // No longer a stub (#403): the working tree panel beside the graph opens,
+    // and reads the working tree; nothing is said, nothing opens outside.
+    step("openScmView", () => ({}), {
+      answer: (msg) => (msg.command as string) === "workingTreeStatus",
+      check: async (answer, outside) => {
+        expect(answer).toMatchObject({ request: "workingTreeLoad", error: null });
+        expect(outside).toEqual([]);
+        await expect(page.locator("#workingTree")).toBeVisible();
+        await noErrorDialog();
+      }
+    }),
     step("createPullRequest", () => ({ repo, branchName: "side", remote: "hub" }), {
       check: (_answer, outside) =>
         expect(outside).toEqual([
