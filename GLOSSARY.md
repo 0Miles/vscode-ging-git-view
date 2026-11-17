@@ -106,7 +106,7 @@ _Avoid_: PR host, git host, remote provider, PR 服務
 
 ### 側檢視的選取
 
-本節整節為 VS Code host 專屬(TreeView 側檢視)。
+本節整節為 VS Code host 專屬(TreeView 側檢視)。**桌面 host**:側檢視畫在 Tab 的頁面裡(#399),頁面畫得出任何選取,所以反白恆等於 branch filter —— 沒有下面說的不對稱,也沒有 **Direct write**;點選只是請宿主寫一個新的 filter。**Action target** 與 **Batch action** 的規則兩個宿主相同(ADR-0033)。
 
 側檢視的選取只有一個集合,卻同時餵給兩件事:圖形要顯示什麼,以及右鍵動作要作用在誰身上。以下三個詞把「使用者選了什麼」「動作實際作用在什麼」「哪些動作能這樣作用」釘開。
 

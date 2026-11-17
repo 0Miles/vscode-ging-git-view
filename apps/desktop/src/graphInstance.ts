@@ -27,6 +27,10 @@ import type {
   RequestMessage,
   ResponseMessage
 } from "@ging/shared/types";
+import type {
+  SideViewRequest,
+  SideViewStateMessage
+} from "@ging/webview/desktop/sideViews/protocol";
 import {
   isWorkingTreeRequest,
   type WorkingTreeMessage,
@@ -36,6 +40,7 @@ import {
 import { type AppCommands, createAppCommands } from "./appCommands";
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
+import { createSideViews } from "./sideViews";
 import { answerWorkingTree, workingTreeStrings } from "./workingTree";
 
 type GraphInstanceOptions = {
@@ -45,6 +50,9 @@ type GraphInstanceOptions = {
   channel: WebviewChannel;
   /** Asks in its own page: a prompt git raises comes back here. */
   prompts: Prompts;
+  /** Into its page, beside the graph's messages: its side views' state
+   *  (#399), which is not the graph's protocol (ADR-0031). */
+  postSideView: (message: SideViewStateMessage) => void;
   /** Its Tab's: where its Current repository persists (`TabStates`). */
   extensionState: MessageHandlerDeps["extensionState"];
   /** Show setting `key` in the app's settings, as they are now (#397): where
@@ -64,6 +72,8 @@ export type GraphInstance = {
   settingChanged(key: string): void;
   /** What the application menu runs on it (#390, #396). */
   commands: InstanceCommands;
+  /** What its page's side views asked (#399). */
+  sideView(message: SideViewRequest): Promise<void>;
   /** Open its page's working tree panel (#403), as the graph's Open Source
    *  Control View does: for the application menu to offer. */
   showWorkingTree(): void;
@@ -87,7 +97,14 @@ export type InstanceCommands = AppCommands & {
 
 export function createGraphInstance(
   shared: SharedServices,
-  { repo, channel: page, prompts, extensionState, revealSetting }: GraphInstanceOptions
+  {
+    repo,
+    channel: page,
+    prompts,
+    postSideView,
+    extensionState,
+    revealSetting
+  }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
   /** This instance's current repository, its Tab's, for as long as it lives. */
@@ -124,13 +141,21 @@ export function createGraphInstance(
   const gitClients = createRepoGitClients({ gitPath: shared.gitPath, gitEnv });
 
   /** What a change to the repository costs: every cached branch read (they
-   *  are shared, see `SharedServices.branchFacts`), and a redraw of this graph. */
+   *  are shared, see `SharedServices.branchFacts`), and a redraw of this graph
+   *  and its side views. */
   const refresh = () => {
     branchFacts.invalidate();
     void bridge.post({ command: "refresh" });
+    sideViews.refresh();
   };
   const watcher = createDesktopWatcher(refresh, { onError: logger.logError });
-  const bridge = webviewBridgeFactory(channel, watcher, () => branchFacts.invalidate());
+  const bridge = webviewBridgeFactory(channel, watcher, () => {
+    // Every branch mutation lands here, the side views' included (they run in
+    // the graph, #399), and nothing else redraws them afterwards: the watcher
+    // is muted across exactly these.
+    branchFacts.invalidate();
+    sideViews.refresh();
+  });
   avatarManager.registerBridge(bridge.post);
   /** Its changes made outside the bridge: muted, then refreshed, as the
    *  bridge's own are. */
@@ -199,6 +224,17 @@ export function createGraphInstance(
   const own = (repos: GitRepoSet): GitRepoSet =>
     Object.hasOwn(repos, repo) ? { [repo]: repos[repo] } : {};
   const known = () => Object.hasOwn(shared.repoSource.getRepos(), repo);
+  // Its side views draw themselves from three fields of its repository's
+  // state, and more than one thing writes them: their own toggles, and the
+  // graph's Repository Settings drawer (#183) through `saveRepoState`.
+  // Listening to the writes themselves keeps them current whichever it was,
+  // as VS Code's `onDidWriteRepoState` does.
+  const written = (target: string, write: () => void) => {
+    const before = shared.repoSource.getRepos()[target];
+    write();
+    const after = shared.repoSource.getRepos()[target];
+    if (target === repo && after !== undefined) sideViews.repoStateWritten(before, after);
+  };
   const repoSource: RepoSource = {
     ...shared.repoSource,
     getRepos: () => own(shared.repoSource.getRepos()),
@@ -212,7 +248,11 @@ export function createGraphInstance(
       logger.log(`tabs: ${repo} is no Git repository any more, dropped from the known set`);
       shared.repoSource.dropRepo(repo);
       return true;
-    }
+    },
+    setRepoState: (target, state) =>
+      written(target, () => shared.repoSource.setRepoState(target, state)),
+    updateRepoState: (target, patch) =>
+      written(target, () => shared.repoSource.updateRepoState(target, patch))
   };
   const reposChanged = shared.repoSource.onDidChangeRepos((repos) => {
     void bridge.post({
@@ -246,6 +286,25 @@ export function createGraphInstance(
     refreshGraph: () => void bridge.post({ command: "refresh" })
   });
   const reflog = createReflogCommand({ ...kitDeps, clipboard: shared.clipboard });
+  // The Remotes view's commands are those (#399), asked in this page as the
+  // menu's are.
+  const sideViews = createSideViews({
+    repo,
+    post: postSideView,
+    branchFacts,
+    filterStore: shared.branchFilterStore,
+    repoSource,
+    config,
+    l10n,
+    prompts,
+    clipboard: shared.clipboard,
+    remoteCommands,
+    fetchRemote: (target, remote) => fetchService.fetchOneCommand(target, remote),
+    managePullRequestProviders: () => void appCommands.managePullRequestProviders(),
+    setShowRemoteBranches: (value) => void bridge.post({ command: "setShowRemoteBranches", value }),
+    logger,
+    nowMs: () => Date.now()
+  });
   const dispatch = registerMessageHandlers(
     bridge,
     {
@@ -268,16 +327,17 @@ export function createGraphInstance(
       sequenceEditor,
       fetchService,
       // The five hooks into the host's other surfaces (#391). VS Code's are
-      // its side-views and commands; the desktop app has none of them yet.
-      // Only ever its own repository: see the channel above.
+      // its side-views and commands.
+      // Only ever its own repository (see the channel above), which its side
+      // views already show: nothing to follow.
       onSelectRepo: () => {},
       // The side-view's branch actions are delegated to the graph in VS Code;
-      // here the side-view is in the same page (#399), so nothing is held.
+      // here the side view is in the same page and calls the graph itself
+      // (#399, ADR-0033), so nothing is held for a reload.
       onDelegatedRan: () => {},
-      // Show All is the side-view's (#399). Until it is here, the graph's
-      // filter chip clears nothing, and the dispatch says so to the graph
-      // (`branchFilterCleared` after a Show All that moved nothing).
-      showAllBranches: async () => {},
+      // The side view's Show All (#399): the graph's filter chip, and a locate
+      // a filter hides (#310), clear the filter through it as in VS Code.
+      showAllBranches: async (requested) => sideViews.showAll(requested),
       // Core's own Manage Pull Request Providers (#398), asked in this page.
       configurePullRequestProvider: (host) => void appCommands.managePullRequestProviders(host),
       // The host's own source control view is the working tree panel beside
@@ -289,13 +349,20 @@ export function createGraphInstance(
   return {
     pageViewState: () =>
       buildGraphViewState({ config, repoSource, extensionState: shared.extensionState }),
-    pageLoading: dispatch.onPanelShown,
-    settingChanged: (key) =>
+    pageLoading: () => {
+      dispatch.onPanelShown();
+      sideViews.pageLoading();
+    },
+    settingChanged: (key) => {
       pushSettingChange(
         key,
         { restartAutoFetch: fetchService.restartAutoFetch, post: (msg) => void bridge.post(msg) },
         config
-      ),
+      );
+      // What the side views list, mark and offer is read off the settings
+      // too: the thresholds, "always show", the menus' visibility.
+      sideViews.refresh();
+    },
     commands: {
       ...appCommands,
       fetch: () => fetchService.fetchCommand(),
@@ -308,8 +375,10 @@ export function createGraphInstance(
         opener.openTerminal(current, `GING: ${name}`);
       }
     },
+    sideView: (message) => sideViews.receive(message),
     showWorkingTree: () => postToPanel({ command: "workingTreeShow" }),
     dispose: () => {
+      sideViews.dispose();
       dispatch.dispose();
       reposChanged.dispose();
       fetchService.dispose();
