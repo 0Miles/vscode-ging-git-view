@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SettingsPageState } from "@ging/webview/desktop/settings/protocol";
 
 import { createVscodeMock } from "./setup";
+import { startDesktop } from "./startDesktop";
 
 // The desktop entry on a settings page (#397): one row per setting the host
 // handed it, each change sent as it is made, and the host's answer shown.
@@ -70,7 +71,7 @@ async function load(state: SettingsPageState | undefined) {
   (globalThis as { settingsPage?: SettingsPageState }).settingsPage = state;
   document.documentElement.dataset.gingPage = "settings";
   document.body.innerHTML = '<main id="settings"></main>';
-  await import("@ging/webview/desktop/main");
+  await startDesktop();
   return mock;
 }
 

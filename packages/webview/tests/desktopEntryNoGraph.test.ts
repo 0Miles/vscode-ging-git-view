@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createVscodeMock } from "./setup";
+import { startDesktop } from "./startDesktop";
 
 // The desktop host says which kind of page it served, on `<html>` as
 // `data-ging-page` (#388): a graph, or a notice in its place — nothing asked
@@ -19,7 +20,7 @@ async function load(kind: "graph" | "notice") {
   delete (globalThis as { viewState?: unknown }).viewState;
   document.documentElement.dataset.gingPage = kind;
   document.body.innerHTML = "<h2>Unable to load GING</h2>";
-  await import("@ging/webview/desktop/main");
+  await startDesktop();
   return mock;
 }
 
