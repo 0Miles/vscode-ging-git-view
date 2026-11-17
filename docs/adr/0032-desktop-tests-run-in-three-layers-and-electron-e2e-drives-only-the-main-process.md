@@ -64,6 +64,19 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **「設定改了立即生效」用一個本機的 bare remote 觀察。** [fixtureRepo.ts](../../apps/desktop/e2e/fixtureRepo.ts) 的 `addAheadRemote` 把 fixture repo 複製成 bare、設為 `origin`,再直接在 bare 裡做一個 commit,讓它比 fixture 的 `refs/remotes/origin/main` 多一個。從設定頁打開 auto-fetch、間隔設成最小的一分鐘之後,不重開 app,在一分多鐘內看到那個 ref 變成新的 commit。這條測試因此至少要一分鐘,`test.setTimeout` 是照設定的下限給的,不是為了讓它變綠而放寬。
 - **主題保留的斷言讀 `nativeTheme.themeSource`,不只讀頁面的顏色。** 系統本來就是淺色時,「重啟後是淺色」不能證明選擇被保存;`themeSource` 是 `light` 而不是 `system`,才能。
 
+## 補記(2026-11-17,#391)
+
+**「巡過所有動作」的 E2E 從頁面送出 dispatch 處理的每一種 message,而不是點遍整個 UI。**[actions.spec.ts](../../apps/desktop/e2e/actions.spec.ts) 在頁面裡呼叫 `acquireVsCodeApi().postMessage`,與 webview 自己送出的路徑相同,一種接一種送出,每一種都等到它的回答(或它在 app 外做的事)才送下一種。驗的是 main process 的整合路徑:dispatch、ports、git 都是真的。
+
+- **「每一種」由型別強制。** `EVERY_COMMAND` 是 `Record<Exclude<RequestMessage["command"], "reportError">, true>`,`RequestMessage` 多一種 command 就編譯失敗;跑完再比對實際送出的集合與它相等。`reportError` 不送:它就是 webview 在回報失敗,而這條測試的結論是沒有失敗。
+- **「不丟例外、`reportError` 為零次」讀 log。** handler 丟出的例外由 main process 記成 `ERROR:`(`channelTo`),webview 的回報也記成 `ERROR: webview …`,所以關掉 app 之後 log 裡沒有任何 `ERROR:`,兩件事都成立。沒有回答的 command 在 app 關掉之前一定已經跑完:頁面的訊息依序到達 dispatch,而那些 handler 不等任何東西。
+- **app 外的副作用一律在 main process 裡替換掉,與替換 `dialog.showMessageBox` 同一個做法。** 產品端呼叫時才去查:`NativeDialogs` 查 `dialog`,桌面版 `OsShell` 查 `shell.openPath` / `showItemInFolder` / `openExternal`,`Clipboard` 查 `clipboard.writeText`,終端機查 `child_process.spawn`。E2E 用 `electronApp.evaluate` 換掉它們並記下被叫了什麼;`child_process` 經由 `process.mainModule.require` 取得,只攔 `detached` 的 spawn(app 只有開終端機時這樣 spawn),git 的照常執行。所以這條測試不開瀏覽器、不開終端機、不碰剪貼簿。
+- **網路一樣只用本機。** `origin` 是本機的 bare repo;另外兩個 remote 只為了拼 pull request 的 URL,設了 `remote.<name>.skipFetchAll`,`fetch --all` 不會去連。`fetchAvatar` 回答的是預先放進 user data 的頭像快取,不會去問頭像服務。
+- **每個 stub 都斷言「通知出現、沒有錯誤框」**:main process 那一側只出現一個 `info` 對話框(`desktop.notSupportedYet`),頁面上的 `#dialog` 沒有打開。另外有一條從 UI 點進去的:在 Commit Details View 點檔案,走的是 webview 自己送出 `viewDiff` 的路徑。
+- **改動 repo 的動作送出後,等圖形自己的重新載入(之後的 `loadCommits` 回答)到了才送下一個;測試自己對 repo 的寫入(stash)全在 app 啟動前做完。** 重新載入會讀 working tree(`git status` 這類命令會短暫拿著 `index.lock`),下一個動作若在那一刻送出,git 會以 `index.lock: File exists` 拒絕。使用者是看到重繪後的圖才會動作,所以這是照使用者的節奏送,不是放寬等待。產品本身的這個競爭(背景重新整理與使用者的動作重疊)記在 #451。batch 動作不等:圖形沒有自己發起的 batch run,不會重新載入。
+- **終端機斷言完整的程式與參數,而程式一律是絕對路徑。** Linux 上 app 只在 `PATH` 的絕對路徑資料夾裡找終端機,CI 的機器不一定裝了任何一個,所以 E2E 在暫存資料夾放一個假的 `x-terminal-emulator`、把那個資料夾排到 `PATH` 最前面;它不會被執行(spawn 已被替換),只讓斷言不依賴機器上裝了什麼。
+- **walk 也送一個系統會執行的檔案(`run.bat`)給 `openFile`,斷言是 `showItemInFolder` 而不是 `openPath`;送一個 `file:` URL 給 `openExternalUrl`,斷言什麼都沒開。** 另一條測試在圖形頁上 `window.open` 與點一個 `<a>`:web 位址交給瀏覽器替身,頁面還是圖形、視窗還是一個。`file:` 的那幾個多半在 Chromium 就被擋下(非 `file:` 的頁面不能開本機檔案),到不了 app 的 guard,所以只斷言結果,不斷言 log。Playwright 會一直等那個被取消的導覽,所以這條測試事後直接用 `page.evaluate` 讀 DOM,不用 locator。
+
 ## 補記(2026-11-17,#393)
 
 **每個 Tab 是一個 `WebContentsView`,Playwright 把它們連同視窗自己的頁面都當成 app 的一個 page,出現的順序不固定，所以 `firstWindow()` 不再等於「圖形」。** E2E 依 URL 分辨([tabPages.ts](../../apps/desktop/e2e/tabPages.ts)):`ging://app/` 是視窗自己的頁面(分頁列與 Welcome page),`ging://app/tab?id=N` 是 Tab N 的頁面;聚焦的是哪一個 Tab,讀分頁列上 `.tab.focused` 的 `data-tab-id`。URL 與分頁列都是產品本來就有的東西，照「只讀產品本來就有的東西」不另開出口。既有的 E2E(graph、prompts、settings、window)都改用這組 helper。
@@ -81,7 +94,7 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **「目前聚焦的分頁」不經過 `BrowserWindow.getFocusedWindow()`。** 票面的規則(聚焦的視窗 → 最後聚焦的 → Welcome page)寫在 #393 之前，那時假設一個視窗一個圖形。#393 之後 app 只有一個帶分頁的主視窗，設定與統計視窗都不是圖形視窗，所以不論鍵盤在哪個視窗，目標都是主視窗聚焦的 Tab;沒有 Tab 時是 Welcome page。這等於票面規則在單一主視窗下的結果，少了一層會指向設定視窗的查詢。之後若有第二個主視窗，再把「最後聚焦的主視窗」加回這裡。
 - **焦點分三種(`MenuFocus`):`graph`、`notice`、`welcome`。** 由聚焦的 Tab 決定(`menuFocus`):有圖形、顯示說明頁(重啟時路徑已不在的 Tab)、或沒有 Tab。enabled 規則:Repository 的圖形項目只在 `graph`;會問問題的 app 層命令(Set Git User Details、Manage Pull Request Providers)在 `graph` 與 `welcome`,`notice` 時關掉 —— 說明頁背後沒有實例，也沒有 host prompt 的 listener,而 Welcome page 被那個 Tab 的 view 蓋住，問在那裡使用者看不到;設定…、Version Information 與 #394 的項目一律可按。Version Information 只用系統對話框，所以 `notice` 時用 Welcome page 那一份命令照樣能回答。
 - **沒有 Tab 時，命令問在 Welcome page。** main process 用 Welcome page 的 `Prompts` 建一份 [appCommands.ts](../../apps/desktop/src/appCommands.ts)(current repository 是 `null`,git client 不帶任何實例的 askpass route);有 Tab 時用該 Tab 實例裡同一個工廠建的那一份。Set Git User Details 在沒有存放庫時只剩「全域」可選，這是 core 原本的行為(ADR-0027)。
-- **Show Statistics 開在自己的視窗,Open in Terminal 交給 `Opener.openTerminal`。** 統計頁見 ADR-0031 的同日補記。終端機的名稱與圖形工具列的 Terminal 鈕相同(`GING: <資料夾名>`);`Opener` 在 #391 之前是只寫 log 的過渡版，所以這一項的 E2E 等 #391,今天由 vitest 驗它把 repo 與名稱交給了 `Opener`。
+- **Show Statistics 開在自己的視窗,Open in Terminal 交給聚焦 Tab 實例自己的 `Opener.openTerminal`(#391)。** 統計頁見 ADR-0031 的同日補記。終端機的名稱與圖形工具列的 Terminal 鈕相同(`GING: <資料夾名>`),也同樣只開在該 Tab 的存放庫裡。E2E 照 #391 的做法替換 `child_process.spawn` 裡 detached 的那一次，讀它被要求在哪個資料夾開終端機，不真的開。
 - **accelerator 只有兩個:** 設定…的 `CmdOrCtrl+,`(#397),開啟資料夾…的 `CmdOrCtrl+O`。其餘命令沒有,表上明寫「沒有」,誤加一個會讓測試紅。
 
 **給 #394 的契約(開啟資料夾、最近使用清單、init)。** id、label 與位置已在 template 裡，#394 只要在 main process 交出 handler:

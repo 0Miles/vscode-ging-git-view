@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -179,6 +179,38 @@ test("Show Statistics opens a window of its own on the focused Tab's figures", a
     )
   ).not.toBe("");
 
+  expect(await closeAndReadLog()).not.toMatch(/ERROR:/);
+});
+
+test("Open in Terminal starts the system's terminal in the focused Tab's repository", async () => {
+  const repo = fixtureRepo();
+  const electronApp = await launch("--repo", repo.path);
+  await focusedTabPage(electronApp);
+  // The terminal is the one detached process the app starts: taken in its
+  // place, as actions.spec.ts does, so no terminal opens (ADR-0032).
+  await electronApp.evaluate(() => {
+    const started: { cwd: string }[] = [];
+    (globalThis as Record<string, unknown>).terminals = started;
+    const node = process.mainModule!.require.bind(process.mainModule);
+    const childProcess = node("node:child_process") as typeof import("node:child_process");
+    const { EventEmitter } = node("node:events") as typeof import("node:events");
+    const spawn = childProcess.spawn;
+    childProcess.spawn = ((command: string, args: string[], options?: { detached?: boolean }) => {
+      if (options?.detached !== true) return spawn(command, args, options ?? {});
+      started.push({ cwd: (options as { cwd: string }).cwd });
+      const child = Object.assign(new EventEmitter(), { unref: () => {} });
+      queueMicrotask(() => child.emit("spawn"));
+      return child;
+    }) as typeof childProcess.spawn;
+  });
+
+  expect(await clickMenu(electronApp, "ging.openTerminal")).toBe(true);
+
+  await expect
+    .poll(() =>
+      electronApp.evaluate(() => (globalThis as Record<string, unknown>).terminals as unknown[])
+    )
+    .toEqual([{ cwd: realpathSync.native(repo.path) }]);
   expect(await closeAndReadLog()).not.toMatch(/ERROR:/);
 });
 

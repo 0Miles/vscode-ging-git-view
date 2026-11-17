@@ -424,6 +424,8 @@
   "type.link": "連結",
   "error.subfolderHint": "如果您的存放庫位於工作區的子資料夾中，請調高 “ging-git-view.maxDepthOfRepoSearch” 設定以便發現它。",
   "desktop.cannotOpenRepo": "無法開啟 {0}：它不是 Git 存放庫。",
+  "desktop.notSupportedYet": "GING 桌面版尚未支援這項功能。",
+  "desktop.cannotOpenTerminal": "無法開啟終端機：{0}",
   "desktop.tab.close": "關閉分頁",
   "desktop.settings.title": "設定",
   "desktop.settings.theme": "主題",
