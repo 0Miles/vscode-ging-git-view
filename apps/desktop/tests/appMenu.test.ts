@@ -38,13 +38,20 @@ function mockCommands(): { [K in keyof AppMenuCommands]-?: Mock<(repo?: string) 
     hideApp: vi.fn(),
     openFolder: vi.fn(),
     openRecent: vi.fn(),
-    initRepository: vi.fn()
+    initRepository: vi.fn(),
+    cloneRepository: vi.fn()
   };
 }
 
-/** The commands as main.ts gives them today: without #394's. */
+/** The commands without the optional ones: #394's and #395's. */
 function withoutOpening(): AppMenuCommands {
-  const { openFolder: _f, openRecent: _r, initRepository: _i, ...today } = mockCommands();
+  const {
+    openFolder: _f,
+    openRecent: _r,
+    initRepository: _i,
+    cloneRepository: _c,
+    ...today
+  } = mockCommands();
   return today;
 }
 
@@ -232,6 +239,13 @@ const ENTRIES: readonly {
     label: "desktop.menu.initRepository",
     command: "initRepository",
     enabledIn: FOCUSES
+  },
+  // #395's: asked and shown on the Welcome page, which a Tab's view covers.
+  {
+    id: MENU_IDS.cloneRepository,
+    label: "desktop.menu.cloneRepository",
+    command: "cloneRepository",
+    enabledIn: ["welcome"]
   }
 ];
 
@@ -259,12 +273,26 @@ describe("the application menu", () => {
     });
   });
 
-  it("offers #394's entries only once their handlers are given", () => {
+  it("offers #394's and #395's entries only once their handlers are given", () => {
     const items = template(withoutOpening());
 
-    for (const id of [MENU_IDS.openFolder, MENU_IDS.openRecent, MENU_IDS.initRepository]) {
+    for (const id of [
+      MENU_IDS.openFolder,
+      MENU_IDS.openRecent,
+      MENU_IDS.cloneRepository,
+      MENU_IDS.initRepository
+    ]) {
       expect(entry(items, id)).toBeUndefined();
     }
+  });
+
+  it("offers no second Clone Repository while one is asked for or running", () => {
+    const enabled = (cloning: boolean) =>
+      entry(template(mockCommands(), { focus: "welcome", cloning }), MENU_IDS.cloneRepository)
+        ?.enabled;
+
+    expect(enabled(false)).toBe(true);
+    expect(enabled(true)).toBe(false);
   });
 
   it("lists Open Recent's repositories, each by an id of its own, and opens the one clicked", () => {
@@ -404,6 +432,7 @@ describe("the application menu", () => {
     expect(shape(file(mockCommands(), "win32"))).toEqual([
       MENU_IDS.openFolder,
       MENU_IDS.openRecent,
+      MENU_IDS.cloneRepository,
       MENU_IDS.initRepository,
       "separator",
       MENU_IDS.settings,
@@ -415,6 +444,7 @@ describe("the application menu", () => {
     expect(shape(file(mockCommands(), "darwin"))).toEqual([
       MENU_IDS.openFolder,
       MENU_IDS.openRecent,
+      MENU_IDS.cloneRepository,
       MENU_IDS.initRepository,
       "separator",
       "close"

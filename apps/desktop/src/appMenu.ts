@@ -21,6 +21,8 @@ export const MENU_IDS = {
   /** #394's three: offered once their handlers are (`AppMenuCommands`). */
   openFolder: "ging.openFolder",
   openRecent: "ging.openRecent",
+  /** #395's: offered once its handler is. */
+  cloneRepository: "ging.cloneRepository",
   initRepository: "ging.initRepository",
   settings: "ging.settings",
   repositoryMenu: "ging.repositoryMenu",
@@ -74,6 +76,8 @@ export type AppMenuCommands = {
   /** Open `repo`, one of `AppMenuState.recentRepos`. */
   openRecent?(repo: string): void;
   initRepository?(): void;
+  /** #395's: in the menu once its handler is given here. */
+  cloneRepository?(): void;
 };
 
 /** What the window shows in front, as far as the menu depends on it: the
@@ -88,6 +92,8 @@ export type AppMenuState = {
   focus: MenuFocus;
   /** Open Recent's entries, most recent first (#394). */
   recentRepos?: readonly string[];
+  /** A clone is being asked for or running (#395): there is one at a time. */
+  cloning?: boolean;
 };
 
 /** `focus` for a focused Tab that shows a graph or not, or for no Tab. */
@@ -116,6 +122,9 @@ export const GRAPH_SHORTCUT_KEYS = ["F", "R", "H", "S"] as const;
  * - Set Git User Details and Manage Pull Request Providers ask, and need a
  *   page that listens: a graph's or the Welcome page's, not a notice's.
  * - Settings…, Version Information and #394's entries always.
+ * - Clone Repository… only on the Welcome page, and while no clone is under
+ *   way: its progress and its credential prompts are drawn there, which a
+ *   Tab's view covers (#395).
  *
  * Settings… is in the app menu on macOS, as the platform has it, and in the
  * File menu elsewhere.
@@ -124,7 +133,7 @@ export function appMenuTemplate(
   l10n: L10n,
   commands: AppMenuCommands,
   platform: NodeJS.Platform,
-  { focus, recentRepos = [] }: AppMenuState
+  { focus, recentRepos = [], cloning = false }: AppMenuState
 ): MenuItemConstructorOptions[] {
   const mac = platform === "darwin";
   const hasGraph = focus === "graph";
@@ -150,7 +159,7 @@ export function appMenuTemplate(
     accelerator: "CmdOrCtrl+,"
   });
 
-  const { openFolder, openRecent, initRepository } = commands;
+  const { openFolder, openRecent, initRepository, cloneRepository } = commands;
   const opening: MenuItemConstructorOptions[] = [
     ...(openFolder
       ? [
@@ -171,6 +180,13 @@ export function appMenuTemplate(
               click: () => openRecent(repo)
             }))
           }
+        ]
+      : []),
+    ...(cloneRepository
+      ? [
+          item(MENU_IDS.cloneRepository, "desktop.menu.cloneRepository", cloneRepository, {
+            enabled: focus === "welcome" && !cloning
+          })
         ]
       : []),
     ...(initRepository
