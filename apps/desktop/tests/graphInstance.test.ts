@@ -7,6 +7,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import type { SideViewStateMessage } from "@ging/webview/desktop/sideViews/protocol";
 import type { WorkingTreeRequest } from "@ging/webview/desktop/workingTree/protocol";
 
 import {
@@ -87,15 +88,18 @@ function setUp() {
     const { ports, answers, calls } = fakePorts();
     shared.repoSource.addRepo(repo);
     const state = shared.tabStates.newTab(repo);
+    /** What its side views were sent (#399). */
+    const sideViews: SideViewStateMessage[] = [];
     const instance = createGraphInstance(shared, {
       repo,
       channel: page.webview,
       prompts: ports.prompts,
+      postSideView: (message) => sideViews.push(message),
       extensionState: state,
       revealSetting: (key) => revealed.push(key)
     });
     instances.push(instance);
-    return { instance, answers, state, asked: calls, ...page };
+    return { instance, answers, state, asked: calls, sideViews, ...page };
   };
   return { shared, repos, open, logged, opened, revealed };
 }
@@ -336,16 +340,65 @@ describe("a graph instance", () => {
     expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
   });
 
-  it("answers the graph's Show All once it has run, which clears nothing yet", async () => {
+  it("filters the graph by its side view's selection, and clears it for the graph's Show All (#399)", async () => {
     const { repos, open } = setUp();
     const page = open(repos[0]);
+    await page.receive({ command: "selectRepo", repo: repos[0] });
 
+    await page.instance.sideView({
+      command: "sideViewSetFilter",
+      repo: repos[0],
+      branches: ["main"],
+      seq: 1
+    });
+    expect(sentOf(page.posted, "setBranchFilter")).toEqual([
+      { command: "setBranchFilter", branches: ["main"] }
+    ]);
+
+    // The graph's filter chip: Show All is the side view's, as in VS Code.
     await page.receive({ command: "clearBranchFilter", repo: repos[0] });
-
+    expect(sentOf(page.posted, "setBranchFilter").at(-1)).toEqual({
+      command: "setBranchFilter",
+      branches: []
+    });
     expect(sentOf(page.posted, "branchFilterCleared")).toEqual([
       { command: "branchFilterCleared" }
     ]);
     expect(page.asked).toEqual([]);
+  });
+
+  it("clears no filter for a Show All that names another repository", async () => {
+    const { repos, open } = setUp();
+    const page = open(repos[0]);
+    await page.receive({ command: "selectRepo", repo: repos[0] });
+    await page.instance.sideView({
+      command: "sideViewSetFilter",
+      repo: repos[0],
+      branches: ["main"],
+      seq: 1
+    });
+
+    await page.receive({ command: "clearBranchFilter", repo: repos[1] });
+
+    expect(sentOf(page.posted, "setBranchFilter")).toHaveLength(1);
+    // Answered all the same: the graph is not left waiting.
+    expect(sentOf(page.posted, "branchFilterCleared")).toHaveLength(1);
+  });
+
+  it("sends its side views the repository's branches once the page listens", async () => {
+    const { repos, open } = setUp();
+    const page = open(repos[0]);
+    expect(page.sideViews).toEqual([]);
+
+    // Settles once both reads have been sent, in either order: the last state
+    // carries both.
+    await page.instance.sideView({ command: "sideViewReady" });
+
+    expect(page.sideViews.at(-1)).toMatchObject({
+      repo: repos[0],
+      branches: { roots: [{ type: "leaf", branch: "main", isHead: true }] },
+      remotes: []
+    });
   });
 
   it("configures the provider of a host Create Pull Request knows none for, in its own prompts, into the app's settings", async () => {

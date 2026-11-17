@@ -55,3 +55,10 @@ status: accepted
 ## 補記(2026-11-12,#385)
 
 **開頭那句「`branchFilterStore.ts` 同理」已經不適用:它不再 import `vscode`。**#385 把它搬進 `packages/core/src/extension/`,`vscode.EventEmitter` 換成它自己的通知,行為由 `packages/core/tests/extension/branchFilterStore.test.ts` 釘住。搬移前先在 `apps/vscode` 用一個照 VS Code emitter 語意寫的樁跑過同一組測試,樁隨搬移刪除。這正是正文那條分界的一例:樁證明的只是「store 照我們以為的 emitter 語意運作」,emitter 本身的語意(同步、退訂、listener 丟例外時的隔離)是照 VS Code 的實作抄的,不是樁驗證出來的。
+
+## 補記(2026-11-17,#399)
+
+**`branchTree` 與 `branchActionTargets` 從 `packages/core` 搬到 `packages/shared/src/backend/utils/`;側檢視 reload 裡的判斷抽成 core 的 [branchSideView.ts](../../packages/core/src/extension/branchSideView.ts)。正文的決定不變,這次是它的直接受益。**
+
+- **搬家的原因是第二個宿主。**桌面版的側檢視畫在 webview 裡(ADR-0033),批次動作的 target 要在頁面上解析,而 webview 依 ADR-0026 不能依賴 core。兩個模組本來就只 import `@ging/shared`,搬過去不用改一行邏輯;測試留在 `packages/core/tests/extension/`,只改了 import 路徑,和 `rebasePlan` 的測試放在 core 是同一個做法。
+- **`branchesView.ts` 的 `reload` 原本有一段判斷**(兩個 hide toggle 取聯集隱藏、cleanup candidate 標記、建樹)—— 正是「轉接層開始長出分支判斷」那條到期條件會看的東西。它現在是 `sideViewBranchRoots`,由 `branchSideView.test.ts` 釘住,兩個宿主各呼叫一次;同一個模組也收了 toggle 的解析(`resolveSideViewToggle`)與批次動作全被扣除時的說明(`batchNoTargetsMessage`),原本寫在 `extension.ts`。桌面版若各寫一份,就是兩份會漂移的判斷。

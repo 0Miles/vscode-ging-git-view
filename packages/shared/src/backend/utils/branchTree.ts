@@ -7,7 +7,10 @@
  * remote name, with the `remotes/` prefix stripped.
  *
  * Kept free of any `vscode` import so it can be unit-tested in the fast backend
- * test project; the TreeItem rendering lives in `branchesView.ts`.
+ * test project. In `@ging/shared` rather than core because both hosts' side
+ * views read it: VS Code renders the nodes as TreeItems (`branchesView.ts`),
+ * the desktop host's webview draws them itself (#399), and the webview cannot
+ * depend on core.
  */
 
 import { displayRef, PRIMARY_BRANCHES, REMOTE_PREFIX } from "@ging/shared/backend/utils/branchRef";

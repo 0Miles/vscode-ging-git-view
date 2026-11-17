@@ -19,10 +19,13 @@
  */
 
 import { REMOTE_PREFIX, splitRemoteRef } from "@ging/shared/backend/utils/branchRef";
+import {
+  type BranchTreeNode,
+  buildGroupedBranchRoots
+} from "@ging/shared/backend/utils/branchTree";
 import type { CleanupCandidate, CleanupCandidateFacts } from "@ging/shared/types";
 
 import { type BranchClassification, defaultBranchAliases, isAlwaysShown } from "./branchExempt";
-import { type BranchTreeNode, buildGroupedBranchRoots } from "./branchTree";
 
 export type CleanupCandidatesInput = {
   branches: readonly string[];

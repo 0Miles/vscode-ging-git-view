@@ -232,3 +232,15 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **選到 bare repo 或 `.git` 資料夾時，不初始化。** `git rev-parse --show-prefix` 在兩者裡都回答空字串、exit 0,單看它會被當成 working tree 的頂端;所以先問 `--is-inside-work-tree`(core 的 `gitFolderPlace`)。init 在這種資料夾回答 `NoWorkTreeFolderError`,命令服務用 app 自己的字串(`init.noWorkTree`)說明;開啟資料夾選到它時不提議初始化，而是說它沒有 working tree 可以顯示。`repoToOpen` 因此多回答「為什麼打不開」(`missing` / `notRepository` / `noWorkTree`),清單上資料夾不在的項目說「找不到」,不說「不是 Git 存放庫」。
 - **清單上的 repo 以 known set 的拼法比對。** git 今天給的拼法可能和 known set 裡的不同(symlink、8.3 短檔名、磁碟代號大小寫，見 #413),所以「它是不是清單上的那一個」經過 `TabWindow.resolve`(`resolveToKnownRepo`),和開成 Tab 時走同一條路。
 - **子存放庫(#393 的 R5 留下的問題)由開啟資料夾處理，不由圖形切換。** 選到 submodule 或巢狀 repo 的資料夾時,`repoToOpen` 以 git 的 `--show-toplevel` 解析到它自己，開在自己的 Tab。CDV 檔案樹點子存放庫(#155)在桌面版仍然不切換：要讓它改成「開在新 Tab」,得讓圖形知道別的 repo,而那正是 R5 拿掉的。
+
+## 補記(2026-11-17,#399)
+
+**桌面版的 `showAllBranches` 不再是 no-op:它是 Tab 側檢視的 Show All,清空該 Tab 自己 repository 的 branch filter(`showAllRepo`,別的 repo 一律不清)。**上面 #391 補記那張表的這一列改為:
+
+| hook              | 處置                                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `showAllBranches` | 側檢視的 Show All(#399):清空自己 repository 的 filter,filter 的變更經 `onDidChangeFilter` 同時送給圖形與側檢視 |
+
+- **`onSelectRepo`、`onDelegatedRan` 維持 no-op,理由變了一半。**`onSelectRepo`:Tab 只顯示自己的 repository,側檢視一開始就在它上面,沒有東西要跟著換。`onDelegatedRan`:側檢視不委派,直接呼叫同一頁的圖形(ADR-0033),沒有為 reload 留著的訊息。#388 表上「`branchActionDelegate`:桌面不使用」那一列因此成立,不是暫時的。
+- **沒有新的 port。**側檢視的 main process 那一半([sideViews.ts](../../apps/desktop/src/sideViews.ts))用的都是既有的:`HostConfig`、`RepoSource.updateRepoState`(toggle)、`Prompts.showInformation`(批次動作全被扣除時的說明)、`Clipboard`(複製 remote URL),以及 core 的 `remoteCommands`、`fetchService`、`pullRequestProviderCommands`、`branchFacts`、`branchFilterStore`。`remoteCommands` 是每個實例一份,問在該實例自己的頁面。
+- **repo state 的寫入由實例的 `RepoSource` 包一層通知側檢視。**VS Code 的 `RepoManager` 有 `onDidWriteRepoState`;桌面版的 `RepoSource` 沒有寫入事件(`setRepoState` 不廣播),所以 `graphInstance.ts` 交給 dispatch 與命令服務的那一份在 `setRepoState`、`updateRepoState` 前後比對三個側檢視欄位(`sideViewStateChanged`),動了才請側檢視重讀。Repository Settings 抽屜改了隱藏 inactive / merged 的設定,側檢視因此跟著變,和 VS Code 一樣。

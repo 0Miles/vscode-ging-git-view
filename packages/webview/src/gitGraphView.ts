@@ -4583,6 +4583,33 @@ class GitGraphView {
   public showBranchCleanup(msg: GG.ResponseShowBranchCleanup) {
     this.queueDelegated(msg);
   }
+  /** The desktop host's side views (#399) are in this same page: they run a
+   *  branch action the way the in-graph menu does, at once, rather than over
+   *  the delegation queue — no panel to open, no load to wait for, no seq to
+   *  dedupe (ADR-0033). For the repository this view shows, and nothing while
+   *  it shows another or none yet. The head guard is the caller's: it is the
+   *  one holding the row. */
+  public runSideViewRefAction(action: GG.RefAction, ref: string, repo: string) {
+    if (repo !== this.currentRepo) return;
+    this.dispatchRefAction({ action, ref, repo });
+  }
+  /** The batch counterpart of {@link runSideViewRefAction}: targets resolved
+   *  and never empty, the skipped ones named for the confirmation. */
+  public runSideViewRefBatchAction(
+    action: GG.DelegatedBatchAction,
+    targets: string[],
+    skipped: GG.BatchSkipped[],
+    repo: string
+  ) {
+    if (repo !== this.currentRepo) return;
+    this.dispatchRefBatchAction({ action, targets, skipped });
+  }
+  /** The cleanup dialog, as the in-graph menu opens it (the host builds the
+   *  payload, and says itself when there is nothing to propose). */
+  public openSideViewCleanup(repo: string) {
+    if (repo !== this.currentRepo) return;
+    requestBranchCleanup(repo);
+  }
   /** Entry point for the blame hover's "locate in the graph" (#310). The host
    *  sends it right after opening the graph on the commit's repository or
    *  switching to it, so it rides the same wait-for-load queue and seq counter
@@ -4909,7 +4936,7 @@ class GitGraphView {
     deleteRemote: (ref) => this.deleteRemoteBranchAction(ref),
     checkRedundancy: (ref, _isRemote, repo) => requestBranchRedundancy(repo, ref)
   };
-  private dispatchRefAction(msg: GG.ResponseRunRefAction) {
+  private dispatchRefAction(msg: Pick<GG.ResponseRunRefAction, "action" | "ref" | "repo">) {
     // Only this side knows the remotes, so this one guard cannot move to the host.
     if (REF_ACTION_CATALOGUE[msg.action].needsRemotes && this.remotes.length === 0) return;
     this.refActionHandlers[msg.action](
@@ -4932,7 +4959,9 @@ class GitGraphView {
    *  written for the batch rather than replaying a single-branch dialog N times:
    *  one confirmation for the whole set, and — for delete — one force round at
    *  the end instead of a prompt per branch (ADR-0009). */
-  private dispatchRefBatchAction(msg: GG.ResponseRunRefBatchAction) {
+  private dispatchRefBatchAction(
+    msg: Pick<GG.ResponseRunRefBatchAction, "action" | "targets" | "skipped">
+  ) {
     // The host reports an empty target set itself, and never sends one.
     if (msg.targets.length === 0) return;
     if (REF_ACTION_CATALOGUE[msg.action].needsRemotes && this.remotes.length === 0) return;
@@ -11049,7 +11078,7 @@ function hideContextMenuListener() {
  * the error reporter is armed before anything that can throw, and the view
  * exists before the first message or key can reach it.
  */
-export function startGitGraphView(): void {
+export function startGitGraphView(): GraphInPage {
   errorReporter.watchGlobals(window);
 
   contextMenu = document.getElementById("contextMenu")!;
@@ -11069,4 +11098,37 @@ export function startGitGraphView(): void {
   // divider or the padding) should keep it open so the user can re-aim, rather
   // than bubbling to the document listener that closes it.
   contextMenu.addEventListener("click", (e) => e.stopPropagation());
+
+  const view = gitGraph;
+  return {
+    runRefAction: (action, ref, repo) => view.runSideViewRefAction(action, ref, repo),
+    runRefBatchAction: (action, targets, skipped, repo) =>
+      view.runSideViewRefBatchAction(action, targets, skipped, repo),
+    openCleanup: (repo) => view.openSideViewCleanup(repo),
+    showContextMenu
+  };
 }
+
+/**
+ * What the rest of a page may do in the graph started on it: the desktop
+ * entry's side views (#399), which sit beside the graph in the same page and so
+ * call it directly instead of having the host delegate to it (ADR-0033). The VS
+ * Code entry ignores it — its side views are in another process.
+ */
+export type GraphInPage = {
+  /** Run a catalogue action on canonical `ref` of `repo`, as the graph's own
+   *  branch menu runs it, dialogs included. */
+  runRefAction(action: GG.RefAction, ref: string, repo: string): void;
+  /** Run a batch action on resolved, non-empty `targets` of `repo`. */
+  runRefBatchAction(
+    action: GG.DelegatedBatchAction,
+    targets: string[],
+    skipped: GG.BatchSkipped[],
+    repo: string
+  ): void;
+  /** Open the cleanup dialog on `repo`. */
+  openCleanup(repo: string): void;
+  /** Raise the graph's context menu — one menu in the page, with its keyboard
+   *  and its dismissal (ADR-0007) — on `source`. */
+  showContextMenu(e: Event, items: ContextMenuElement[], source: HTMLElement): void;
+};
