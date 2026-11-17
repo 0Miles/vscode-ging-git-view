@@ -4,7 +4,13 @@
  * channel with the graph's, and stay out of `RequestMessage` /
  * `ResponseMessage` (ADR-0031). */
 
-import type { WorkingTreeChange, WorkingTreeStatus } from "@ging/shared/backend/types";
+import type {
+  AmendBasis,
+  AmendRefusal,
+  CommitRefusal,
+  WorkingTreeChange,
+  WorkingTreeStatus
+} from "@ging/shared/backend/types";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 /** The panel's words, in the host's language: they come with every status,
@@ -30,6 +36,32 @@ export type WorkingTreeStrings = {
   submodule: string;
   /** Each kind of change, for the letter's tooltip. */
   changes: Record<WorkingTreeChange, string>;
+  /** The amend tick box (#407), and the commit button's label while it is ticked. */
+  amend: string;
+  amendCommit: string;
+  /** The sign-off tick box, and its tooltip. */
+  signOff: string;
+  signOffDetail: string;
+  /** Why HEAD cannot be amended: the tick box's tooltip, and what a refused
+   *  amend says. */
+  cannotAmend: Record<AmendRefusal, string>;
+  /** Asked before amending a pushed HEAD: `{0}` is the remote branches it is on. */
+  amendPushed: string;
+  /** The button that goes on with it. */
+  amendPushedConfirm: string;
+  /** git knows no committer. */
+  identityUnknown: string;
+};
+
+/** A commit, or an amend of HEAD (#407). Each flag is sent only when set, so
+ *  a plain commit is just its message. */
+export type WorkingTreeCommitRequest = {
+  command: "workingTreeCommit";
+  message: string;
+  amend?: true;
+  signOff?: true;
+  /** The user was told HEAD is pushed, and said to amend it all the same. */
+  rewritePushed?: true;
 };
 
 /** Page → host. */
@@ -39,7 +71,7 @@ export type WorkingTreeRequest =
    *  "everything", which would take in the conflicted ones too. */
   | { command: "workingTreeStage"; paths: string[] }
   | { command: "workingTreeUnstage"; paths: string[] }
-  | { command: "workingTreeCommit"; message: string };
+  | WorkingTreeCommitRequest;
 
 /** Host → page. */
 export type WorkingTreeMessage =
@@ -53,7 +85,12 @@ export type WorkingTreeMessage =
       request: WorkingTreeRequest["command"];
       /** `null` when it could not be read. */
       status: WorkingTreeStatus | null;
+      /** What an amend of HEAD would start from; `null` when it could not
+       *  be read. */
+      amend: AmendBasis | null;
       error: string | null;
+      /** A commit the host declined to make, and why (#407). */
+      refused?: CommitRefusal;
       strings: WorkingTreeStrings;
     };
 
@@ -92,7 +129,12 @@ export function isWorkingTreeRequest(data: unknown): data is WorkingTreeRequest 
     case "workingTreeUnstage":
       return isPaths(data.paths);
     case "workingTreeCommit":
-      return typeof data.message === "string";
+      return (
+        typeof data.message === "string" &&
+        [data.amend, data.signOff, data.rewritePushed].every(
+          (flag) => flag === undefined || flag === true
+        )
+      );
     default:
       return false;
   }

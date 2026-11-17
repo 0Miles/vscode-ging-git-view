@@ -8266,6 +8266,28 @@ function raiseAnswerDialog(raise: () => void) {
   if (usersDialogStands()) oweDialog(raise);
   else raise();
 }
+/**
+ * Ask in the graph's own dialog whether to go on, as an answer the host
+ * brought (#407): for a desktop screen that shares the graph's page, the
+ * working tree panel, whose questions are the page's to ask rather than the
+ * host prompts' (ADR-0027). Raised as {@link raiseAnswerDialog} raises one, so
+ * a question of the user's standing at the time is not written over.
+ * `actionName` is plain text; `html` is markup, escaped by the caller.
+ */
+export function askInGraphDialog(html: string, actionName: string, confirmed: () => void): void {
+  raiseAnswerDialog(() =>
+    showDialog(
+      html,
+      escapeHtml(actionName),
+      l10n.dialogCancel,
+      () => {
+        hideDialog();
+        confirmed();
+      },
+      null
+    )
+  );
+}
 /** {@link raiseAnswerDialog} for the commonest answer: the request was refused. */
 function raiseAnswerError(
   message: string,

@@ -42,7 +42,22 @@ export function workingTreeStrings(
       typeChanged: t("change.typeChanged"),
       untracked: t("change.untracked"),
       conflicted: t("change.conflicted")
-    }
+    },
+    amend: t("amend"),
+    amendCommit: t("amendCommit"),
+    signOff: t("signOff"),
+    signOffDetail: t("signOffDetail"),
+    cannotAmend: {
+      unborn: t("cannotAmend.unborn"),
+      merge: t("cannotAmend.merge"),
+      rebase: t("cannotAmend.rebase"),
+      cherrypick: t("cannotAmend.cherrypick"),
+      revert: t("cannotAmend.revert")
+    },
+    // Filled in by the panel, which knows the branches.
+    amendPushed: t("amendPushed", "{0}"),
+    amendPushedConfirm: t("amendPushedConfirm"),
+    identityUnknown: t("identityUnknown")
   };
 }
 
@@ -62,7 +77,12 @@ export async function answerWorkingTree(
       case "workingTreeUnstage":
         return service.unstage(request.paths);
       case "workingTreeCommit":
-        return service.commit(request.message);
+        return service.commit({
+          message: request.message,
+          amend: request.amend === true,
+          signOff: request.signOff === true,
+          rewritePushed: request.rewritePushed === true
+        });
     }
   })();
   return {

@@ -132,3 +132,13 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **啟動參數指錯路徑的說明(`notice`)畫在入口與清單之上**,同一個 `.welcomeBody` 裡：說明之後，使用者馬上能從同一頁改開別的資料夾。
 - **clone 的入口不在這裡。** 票面把它列為 Welcome page 的入口之一，但 clone 本身是 #395;沒有功能的按鈕不先放，由 #395 連同它的流程一起加進 `welcomeHtml`。
 - 樣式仍由 `windowPage.ts` 插進同一個 `<style>`,只用 `theme.ts` 已提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。版面由 [windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗：每一列一行、過長的路徑截斷而不把「移除」鈕擠出去、找不到的資料夾標出來。
+
+## 補記(2026-11-17,#407)
+
+**working tree 面板長出 Amend 與 Sign off 兩個勾選框;amend 已推送的 commit 前要問,問在圖形自己的 `#dialog`,不是 host prompt overlay。** 圖形頁要問使用者的事用 webview 自己的對話框(ADR-0027),面板與圖形同一頁,所以它也是。
+
+- **`gitGraphView.ts` 多一個 export:`askInGraphDialog(html, actionName, confirmed)`。** 它走 `raiseAnswerDialog`:使用者自己的對話框開著時排隊等它關,不寫掉它;其餘情況立刻出現。桌面入口把它交給面板(`startWorkingTreePanel({ confirm })`),面板不 import `gitGraphView.ts`,jsdom 測試注入假的。VS Code 入口不呼叫它,行為不變;這是共用檔案為桌面入口開的接縫,不是讓圖形認得桌面的元素。對話框開著時面板跟 `<body>` 的其他子元素一樣是 `inert`;關掉後焦點回到 commit 鈕(它有固定的 `id`,面板重繪換掉元素也找得回來)。[workingTree.spec.ts](../../e2e/webview/workingTree.spec.ts) 驗這一段。
+- **擋在 core,不只擋在畫面。** core 的 commit 在 amend 而 HEAD 已在任何 remote-tracking branch 上(`for-each-ref --contains=HEAD refs/remotes/`,略過 symref)時拒絕,回答 `refused: { kind: "pushed", remoteBranches }`;面板問完、使用者說要,才帶 `rewritePushed` 重送同一個請求。照 force push 的慣例:沒有設定項,不記住,每次都問。
+- **協定只多選填的欄位。** `workingTreeCommit` 的 `amend`、`signOff`、`rewritePushed` 只在為 true 時帶,#403 的請求形狀不變;`workingTreeStatus` 多 `amend`(HEAD 的訊息,或不能 amend 的原因:unborn、merge、rebase、cherry-pick、revert)與選填的 `refused`。字串照舊跟著回答來。
+- **拒絕不算改動。** 拒絕的理由(不能 amend、已推送、git 不知道 committer 是誰)在 `runRepoMutation` 之外先查(`refuseCommit`),所以被拒的 commit 不靜音 watcher、不重新整理圖形;`commitChanges` 自己再查一次。
+- **勾選框只在頁面存活期間記得。** Sign off 是對某個專案的聲明(DCO),記在 `localStorage` 會變成每個 repo 都簽;要記住得先讓頁面知道自己是哪個 repo。Amend 成功後取消勾選;勾 Amend 時訊息框是空的才填入 HEAD 的訊息,取消勾選時內容仍是那段原文才清空。

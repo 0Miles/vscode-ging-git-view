@@ -6,7 +6,7 @@
  * and the Welcome page (#393) — and the working tree panel (#403). */
 
 import type { RequestMessage } from "@ging/shared/types";
-import { startGitGraphView } from "@ging/webview/gitGraphView";
+import { askInGraphDialog, startGitGraphView } from "@ging/webview/gitGraphView";
 import { sendMessage, vscode } from "@ging/webview/utils/vscode";
 
 import { type HostPromptReply, isHostPromptMessage } from "./hostPrompt";
@@ -71,8 +71,9 @@ switch (document.documentElement.dataset.gingPage) {
       // A graph page is one with a host instance behind it, and the instance
       // is what asks (#390). The settings page has none, so asks nothing.
       listenForHostPrompts();
-      // Beside the graph, on its repository (#403).
-      startWorkingTreePanel();
+      // Beside the graph, on its repository (#403), asking in the graph's own
+      // dialog before it rewrites pushed history (#407).
+      startWorkingTreePanel({ confirm: askInGraphDialog });
     }
     break;
   case "settings": {

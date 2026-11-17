@@ -1,3 +1,5 @@
+import type { GitOperation } from "./git.types";
+
 /** How a file differs, on one side of the index: between HEAD and the index
  *  (staged), or between the index and the working tree (unstaged). `untracked`
  *  is only ever unstaged; `conflicted` is an unmerged path, which is neither. */
@@ -36,3 +38,23 @@ export type WorkingTreeStatus = {
    *  which is #410's to offer. */
   conflicted: WorkingTreeFile[];
 };
+
+/** Why HEAD cannot be amended (#407): there is no commit to amend yet, or an
+ *  operation stopped half-way — amending then would fold its work into the
+ *  commit before it. */
+export type AmendRefusal = "unborn" | GitOperation;
+
+/** What an amend of HEAD would start from: its message, or why there is none. */
+export type AmendBasis =
+  | { possible: true; message: string }
+  | { possible: false; reason: AmendRefusal };
+
+/** Why a commit was not made, when it is something to say in GING's own words
+ *  rather than git's (#407). */
+export type CommitRefusal =
+  /** HEAD is on these remote-tracking branches (short names): amending it
+   *  rewrites history others may have. Made only once the user says so. */
+  | { kind: "pushed"; remoteBranches: string[] }
+  | { kind: "cannotAmend"; reason: AmendRefusal }
+  /** git knows no committer: `user.name` / `user.email` are not set. */
+  | { kind: "identityUnknown" };
