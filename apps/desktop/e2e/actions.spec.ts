@@ -488,7 +488,11 @@ test("every message the dispatch handles finishes, and the webview reports no fa
   const terminal = (cwd: string) => {
     const name = `GING: ${path.basename(repo)}`;
     if (process.platform === "win32") {
-      const cmd = env.ComSpec!;
+      // The app's ComSpec: the variable however this shell spells it — Git
+      // Bash hands down `COMSPEC` — as the app's own `process.env` reads it.
+      const comSpec = Object.entries(env).find(([key]) => key.toLowerCase() === "comspec")?.[1];
+      expect(comSpec, "ComSpec in the app's environment").toBeDefined();
+      const cmd = comSpec!;
       expect(path.isAbsolute(cmd)).toBe(true);
       return {
         kind: "terminal",

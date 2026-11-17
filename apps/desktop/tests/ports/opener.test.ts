@@ -397,6 +397,7 @@ describe("opensDirectly", () => {
 
   it("opens nothing Windows' PATHEXT makes a program, a listed type included", () => {
     expect(opensDirectly("a.txt", "win32", { PATHEXT: ".EXE;.TXT" }, 0)).toBe(false);
+    expect(opensDirectly("a.txt", "win32", { PathExt: ".EXE;.TXT" }, 0)).toBe(false);
     expect(opensDirectly("a.md", "win32", { PATHEXT: ".EXE;.TXT" }, 0)).toBe(true);
   });
 

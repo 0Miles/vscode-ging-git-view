@@ -4,7 +4,13 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { findOnPath, launchTerminal, type Spawn, terminalLaunches } from "@ging/desktop/terminal";
+import {
+  findOnPath,
+  launchTerminal,
+  type Spawn,
+  terminalLaunches,
+  windowsVariable
+} from "@ging/desktop/terminal";
 
 // Which terminal the desktop Opener starts, and how (#391). Nothing here
 // starts one: `launchTerminal` is driven through a fake `spawn`.
@@ -44,6 +50,20 @@ describe("terminalLaunches", () => {
       expect(launch.command).toBe("D:\\Win\\System32\\cmd.exe");
       expect(launch.args.at(-1)).toBe('"D:\\Win\\System32\\cmd.exe"');
     }
+  });
+
+  it("reads ComSpec and SystemRoot however the environment spells them", () => {
+    // Git Bash hands its children `COMSPEC` and `SYSTEMROOT`.
+    const [launch] = terminalLaunches("win32", { COMSPEC: "E:\\cmd.exe" }, CWD, "t");
+    expect(launch.command).toBe("E:\\cmd.exe");
+    const [fallback] = terminalLaunches("win32", { SYSTEMROOT: "D:\\Win" }, CWD, "t");
+    expect(fallback.command).toBe("D:\\Win\\System32\\cmd.exe");
+  });
+
+  it("falls back to C:\\Windows when neither variable is set", () => {
+    const [launch] = terminalLaunches("win32", {}, CWD, "t");
+    expect(launch.command).toBe("C:\\Windows\\System32\\cmd.exe");
+    expect(launch.args.at(-1)).toBe('"C:\\Windows\\System32\\cmd.exe"');
   });
 
   it("keeps neither a quote nor a percent sign in the title, which cmd would read", () => {
@@ -103,6 +123,15 @@ describe("terminalLaunches", () => {
       (file) => file === "/usr/bin/xterm"
     );
     expect(launches.map((l) => l.command)).toEqual(["/usr/bin/xterm"]);
+  });
+});
+
+describe("windowsVariable", () => {
+  it("finds a variable whatever its case, and not one that is empty", () => {
+    expect(windowsVariable({ COMSPEC: "a" }, "ComSpec")).toBe("a");
+    expect(windowsVariable({ comspec: "b" }, "ComSpec")).toBe("b");
+    expect(windowsVariable({ ComSpec: "" }, "ComSpec")).toBeUndefined();
+    expect(windowsVariable({}, "ComSpec")).toBeUndefined();
   });
 });
 
