@@ -91,6 +91,13 @@ describe("getCommitFileContent", () => {
     expect(content).toBe("");
   });
 
+  it("runs no revision that git would read as an option, and returns an empty string", async () => {
+    const r = newRepo();
+    const written = path.join(r, "written.txt");
+    expect(await getCommitFileContent("git", r, `--output=${written}`, "f", "utf8")).toBe("");
+    expect(fs.existsSync(written)).toBe(false);
+  });
+
   it("returns an empty string for the parent of a root commit, which has none", async () => {
     // The left side of a diff of a root commit's file (see `commitDiffView`).
     const r = newRepo();

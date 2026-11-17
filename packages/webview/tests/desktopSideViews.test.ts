@@ -20,6 +20,7 @@ import {
   rightClick,
   setupHtml
 } from "./setup";
+import { startDesktop } from "./startDesktop";
 
 // The desktop host's Branches and Remotes side views (#399), in the Tab's own
 // page beside its graph. The host's half is played here by posting its state
@@ -141,7 +142,7 @@ describe("the desktop side views", () => {
     mock = createVscodeMock();
     setupHtml(viewState);
     document.documentElement.dataset.gingPage = "graph";
-    await import("@ging/webview/desktop/main");
+    await startDesktop();
     atStart = mock.sentMessages.map((m) => m.command as string);
     receive({
       command: "loadBranches",

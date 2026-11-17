@@ -23,12 +23,17 @@ import type {
 } from "@ging/shared/types";
 
 /** The port, and what the desktop host's own services read besides — the
- *  avatar fetch and the branch facts — as VS Code's `Config` answers them. */
+ *  avatar fetch, the branch facts and the diff viewer — as VS Code's `Config`
+ *  answers them. */
 export type DesktopConfig = HostConfig & {
   /** The GitLab token for avatar look-ups; empty when none is set. */
   gitLabToken(): string;
   /** The inactivity cutoff in days (`<= 0` disables the rule). */
   inactiveBranchThresholdDays(): number;
+  /** What a diff's text is decoded as (any encoding iconv-lite knows, utf8
+   *  for one it does not). The app's, not a folder's: the desktop app has
+   *  one settings file (`RESOURCE_SETTINGS_AS_GLOBAL`). */
+  fileEncoding(): string;
 };
 
 export function createDesktopConfig(settings: Settings): DesktopConfig {
@@ -51,6 +56,7 @@ export function createDesktopConfig(settings: Settings): DesktopConfig {
     inactiveBranchAlwaysShow: () => get("branches.alwaysShow"),
     inactiveBranchThresholdDays: () => get("branches.inactiveAfterDays"),
     gitLabToken: () => get("history.gitLabToken"),
+    fileEncoding: () => get("defaultFileEncoding"),
     fetchAndPrune: () => get("fetch.prune"),
     fetchAndPruneTags: () => get("fetch.pruneTags"),
     autoFetchEnabled: () => get("autoFetch.enabled"),

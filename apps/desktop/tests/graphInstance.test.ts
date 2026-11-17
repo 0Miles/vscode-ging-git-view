@@ -7,6 +7,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
 import type { SideViewStateMessage } from "@ging/webview/desktop/sideViews/protocol";
 import type { WorkingTreeRequest } from "@ging/webview/desktop/workingTree/protocol";
 
@@ -16,6 +17,7 @@ import {
   git,
   makeRepo,
   makeTempDir,
+  rev,
   rmrf,
   toRepoPath
 } from "@ging/core/tests/helpers";
@@ -90,6 +92,8 @@ function setUp() {
     const state = shared.tabStates.newTab(repo);
     /** What its side views were sent (#399). */
     const sideViews: SideViewStateMessage[] = [];
+    /** The diffs it handed its page (#404). */
+    const diffs: ShowDiffMessage[] = [];
     const instance = createGraphInstance(shared, {
       repo,
       channel: page.webview,
@@ -98,10 +102,14 @@ function setUp() {
         if (message.command === "sideViewState") sideViews.push(message);
       },
       extensionState: state,
-      revealSetting: (key) => revealed.push(key)
+      revealSetting: (key) => revealed.push(key),
+      postDiff: (message) => {
+        diffs.push(message);
+        return true;
+      }
     });
     instances.push(instance);
-    return { instance, answers, state, asked: calls, sideViews, ...page };
+    return { instance, answers, state, asked: calls, diffs, sideViews, ...page };
   };
   return { shared, repos, open, logged, opened, revealed };
 }
@@ -272,23 +280,87 @@ describe("a graph instance", () => {
     const file = { repo, commitHash: "HEAD", filePath: "f" };
 
     await asking.receive({ command: "viewFileAtRevision", ...file });
-    await asking.receive({ command: "viewDiffWithWorking", ...file });
+
+    const notice = ["showInformation", "This is not available in the GING desktop app yet."];
+    expect(asking.asked).toEqual([notice]);
+    expect(other.asked).toEqual([]);
+    // Answered as done: the graph adds no "Unable to open" box of its own.
+    expect(sentOf(asking.posted, "viewFileAtRevision")).toEqual([
+      { command: "viewFileAtRevision", success: true }
+    ]);
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("shows a commit's change to a file in its own page's diff viewer, decoded per the setting (#404)", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const asking = open(repos[0]);
+    const other = open(repos[1]);
+    const repo = repos[0];
+    // "café\n" in windows-1252: the é is the one byte 0xE9, which is no utf8.
+    fs.writeFileSync(path.join(repo, "legacy.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
+    git(["add", "legacy.txt"], repo);
+    git(["commit", "-m", "add legacy"], repo);
+    const head = rev(repo, "HEAD");
+    await shared.config.update("ging-git-view.defaultFileEncoding", "win1252");
+
     await asking.receive({
       command: "viewDiff",
       repo,
-      commitHash: "HEAD",
-      oldFilePath: "f",
-      newFilePath: "f",
-      type: "M"
+      commitHash: head,
+      oldFilePath: "legacy.txt",
+      newFilePath: "legacy.txt",
+      type: "A"
     });
 
-    const notice = ["showInformation", "This is not available in the GING desktop app yet."];
-    expect(asking.asked).toEqual([notice, notice, notice]);
-    expect(other.asked).toEqual([]);
-    // Answered as done: the graph adds no "Unable to open" box of its own.
-    for (const command of ["viewFileAtRevision", "viewDiffWithWorking", "viewDiff"] as const) {
-      expect(sentOf(asking.posted, command)).toEqual([{ command, success: true }]);
-    }
+    expect(sentOf(asking.posted, "viewDiff")).toEqual([{ command: "viewDiff", success: true }]);
+    expect(asking.diffs).toEqual([
+      {
+        command: "showDiff",
+        title: `legacy.txt (Added in ${head.slice(0, 8)})`,
+        original: { path: "legacy.txt", content: "" },
+        modified: { path: "legacy.txt", content: "café\n" },
+        revealLine: null,
+        notShown: null,
+        strings: {
+          sideBySide: "Side by Side",
+          inline: "Inline",
+          close: "Close Diff",
+          cannotShow: "The diff viewer could not be loaded."
+        }
+      }
+    ]);
+    expect(other.diffs).toEqual([]);
+    expect(asking.asked).toEqual([]);
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("shows a file at a commit against the working tree's in its page's diff viewer (#404)", async () => {
+    const { repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    const repo = repos[0];
+    fs.writeFileSync(path.join(repo, "notes.txt"), "committed\n");
+    git(["add", "notes.txt"], repo);
+    git(["commit", "-m", "add notes"], repo);
+    fs.writeFileSync(path.join(repo, "notes.txt"), "committed, then edited\n");
+    const head = rev(repo, "HEAD");
+
+    await page.receive({
+      command: "viewDiffWithWorking",
+      repo,
+      commitHash: head,
+      filePath: "notes.txt"
+    });
+
+    expect(sentOf(page.posted, "viewDiffWithWorking")).toEqual([
+      { command: "viewDiffWithWorking", success: true }
+    ]);
+    expect(page.diffs).toEqual([
+      expect.objectContaining({
+        title: `notes.txt (${head.slice(0, 8)} ↔ Working Tree)`,
+        original: { path: "notes.txt", content: "committed\n" },
+        modified: { path: "notes.txt", content: "committed, then edited\n" }
+      })
+    ]);
     expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
   });
 

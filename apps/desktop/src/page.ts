@@ -73,6 +73,10 @@ export function buildDesktopPage(theme: Theme, content: PageContent): string {
   const windowPage = "window" in content;
 
   let scriptSrc = "'self'";
+  /** What a graph page's diff viewer loads besides scripts and styles (#404):
+   *  the editor's worker and font, the app's own files (`EDITOR_ASSETS`).
+   *  No other page has a diff viewer, so none other may. */
+  let editorSrc = "";
   let colourRules = "";
   let body: string;
   if (windowPage) {
@@ -87,6 +91,7 @@ export function buildDesktopPage(theme: Theme, content: PageContent): string {
   } else if (graph !== null) {
     const colours = graphColourStyles(graph.viewState.graphColours);
     scriptSrc = `'self' 'nonce-${graph.nonce}'`;
+    editorSrc = " font-src 'self'; worker-src 'self';";
     colourRules = colours.rules;
     body = `<body class="${bodyClass}" style="${escapeHtml(colours.variables)}">
 ${buildWebviewMarkup(graph.l10n)}
@@ -112,7 +117,7 @@ ${buildWebviewMarkup(graph.l10n)}
 <html lang="en" data-ging-page="${kind}" style="${escapeHtml(style)}">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src ${scriptSrc}; img-src data:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; script-src ${scriptSrc}; img-src data:;${editorSrc}">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" type="text/css" href="${PAGE_ASSETS.stylesheet}">
 <style>body { background-color: var(--vscode-editor-background); color: var(--vscode-editor-foreground); font-family: var(--vscode-font-family); font-weight: var(--vscode-font-weight); font-size: var(--vscode-font-size); }</style>

@@ -7,6 +7,7 @@ import type {
 } from "@ging/webview/desktop/window/protocol";
 
 import { createVscodeMock } from "./setup";
+import { startDesktop } from "./startDesktop";
 
 // The desktop entry on the window's own page (#393): the tab strip, drawn from
 // what the host sends and asking it to focus or close a Tab, and the Welcome
@@ -18,7 +19,7 @@ async function load() {
   const mock = createVscodeMock();
   document.documentElement.dataset.gingPage = "window";
   document.body.innerHTML = '<div id="tabStrip" hidden></div><main id="welcome"></main>';
-  await import("@ging/webview/desktop/main");
+  await startDesktop();
   return mock;
 }
 
@@ -254,7 +255,7 @@ describe("the desktop entry on a window page missing its parts", () => {
     const mock = createVscodeMock();
     document.documentElement.dataset.gingPage = "window";
     document.body.innerHTML = "";
-    await import("@ging/webview/desktop/main");
+    await startDesktop();
 
     expect(mock.sentMessages).toEqual([
       {

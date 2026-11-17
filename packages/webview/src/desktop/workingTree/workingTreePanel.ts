@@ -38,9 +38,10 @@ const OPEN_KEY = "ging.workingTree.open";
 /** Only the desktop bundle carries these, so they live here rather than in
  *  `media/main.css`, which ships in the extension too (ADR-0031). The column
  *  owns `body`'s right padding; the docked Commit Details View, the scroll
- *  shadow and the find widget step back from it. */
+ *  shadow and the find widget step back from it, and the diff viewer by the
+ *  width it is given in `--ging-working-tree-width` (#404, ADR-0031). */
 const STYLES = `
-body.workingTreeOpen { padding-right: ${WORKING_TREE_WIDTH}px; }
+body.workingTreeOpen { padding-right: ${WORKING_TREE_WIDTH}px; --ging-working-tree-width: ${WORKING_TREE_WIDTH}px; }
 body.workingTreeOpen #commitDetails.docked { right: ${WORKING_TREE_WIDTH}px; }
 body.workingTreeOpen #scrollShadow.active { width: calc(100% - ${WORKING_TREE_WIDTH}px); }
 body.workingTreeOpen #findWidget { right: ${WORKING_TREE_WIDTH + 14}px; }
