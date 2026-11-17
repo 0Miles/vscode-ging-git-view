@@ -34,3 +34,13 @@ status: accepted
 - **重新評估的觸發條件**,碰到任何一條就重開這個決定(擱置的問題列在 #361):
   1. **有實際傷害**:真實回報、可以用 GING 實際會跑的指令(不是 alias)重現,而且逃掉的行程擋住了使用者的操作(改名、刪除、checkout、`index.lock`),或在該次查詢的期限(`BLAME_TIMEOUT_MS` / `FIND_TIMEOUT_MS`)之後還在跑。
   2. **範圍擴大**:任何 git 的 kill 路徑多了會寫入、會跑 hook 或會走網路的呼叫端,包括替 simple-git 接上 `AbortSignal`。
+
+## 補記(2026-11-17,#395)
+
+**重新評估條件 2 被觸發了:clone 是第一個會寫入、會走網路的 kill 路徑呼叫端(取消 clone = `AbortSignal` → `killTree`)。評估後維持這篇的決定(盡力而為、立刻 settle),另外補上 POSIX 的一個缺口。**
+
+- **逃掉的行程能碰到的只有目的地。** clone 只寫進它自己的目的地資料夾,取消或失敗之後 core 的 [clone.ts](../../packages/core/src/backend/actions/clone.ts) 會把 clone 建的東西刪掉(原本不存在就整個刪,原本是空資料夾就清空)。刪除用 `fs.rm` 的重試(10 次、遞增間隔),吸收「剛被 kill 的 git 還握著檔案、或又寫了一個」的那一段;Windows 上唯讀的物件檔先改成可寫再試一次。刪不掉時不假裝成功:命令服務用 `Prompts.showWarning` 說哪個資料夾還留著。
+- **POSIX 的缺口實測存在:`child.kill()` 只送給 git 本身,而 git 不會收掉它為 HTTP remote 開的 `git-remote-http`**(git 的 `transport-helper.c` 沒有替 helper 設 `clean_on_exit`),helper 會帶著連線一直卡在 server 上。上面「Elsewhere … unmeasured」那句因此改寫。修法是 `spawnGit` 多一個選填的 `ownProcessGroup`:Windows 以外用 `detached` 讓 git 自成一個 process group,kill 時 `process.kill(-pid, "SIGTERM")` 整組送出。只有 clone 用它;其他呼叫端都是唯讀、不走網路,維持原狀。#450 讓 fetch / push 接上 `AbortSignal` 時,也要用它。
+- **量測。** core 的 vitest(`packages/core/tests/actions/clone/clone.test.ts`「kills git, its remote helper with it, and removes the folder it made」)與 Electron E2E(`apps/desktop/e2e/clone.spec.ts`「Cancel stops git…」)都對一個永遠不回應的本機 HTTP server clone,取消後斷言目的地不見、server 上的連線歸零。Windows 上 `taskkill /T` 收得掉整棵(git wrapper、git、`git-remote-https`);ubuntu 上靠 process group。
+- **三個缺口仍在。** clone 等 askpass 時,樹裡有 MSYS 的 `sh`(`askpass.sh`)與它啟動的 helper,缺口 2、3 照樣適用;但 askpass 的提示是 modal,蓋住了 clone 面板的取消鈕,從 UI 取消不到正在問帳密的 clone,只有 app 結束會走到那條路(那時 Welcome page 的 `Prompts` 先把提示答成取消,git 自己結束)。
+- **不重開 Job Object 方案。** 最壞的情況是一個逃掉的行程在目的地被刪的同時又寫了一點東西,而刪除的重試會在它結束後收拾;沒有寫到目的地以外的路。

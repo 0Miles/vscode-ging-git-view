@@ -119,3 +119,13 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **啟動參數指錯路徑的說明(`notice`)畫在入口與清單之上**,同一個 `.welcomeBody` 裡：說明之後，使用者馬上能從同一頁改開別的資料夾。
 - **clone 的入口不在這裡。** 票面把它列為 Welcome page 的入口之一，但 clone 本身是 #395;沒有功能的按鈕不先放，由 #395 連同它的流程一起加進 `welcomeHtml`。
 - 樣式仍由 `windowPage.ts` 插進同一個 `<style>`,只用 `theme.ts` 已提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。版面由 [windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗：每一列一行、過長的路徑截斷而不把「移除」鈕擠出去、找不到的資料夾標出來。
+
+## 補記(2026-11-17,#395)
+
+**Welcome page 多了「Clone Repository...」入口(#394 留給本票的那一個),以及 clone 進行中時蓋在 Welcome page 上的進度面板。協定照「補記(#393)」的形狀長出來。**
+
+- **`windowState` 多一欄 `clone`**([desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts) 的 `ClonePanel`):標題(不含帳密的 URL)、目的地、git 自己的進度行(還沒開口前與取消中是宿主的字)、百分比(不知道時 `null`,畫成來回跑的條)、是否取消中、取消鈕的字。沒有 clone 時是 `null`。和 `welcome` 不同,有 Tab 時也照送:clone 期間若有 Tab 開了,面板仍在 Welcome page 上,關掉 Tab 就看得到。
+- **頁面多兩種請求:`cloneRepo`、`cancelClone`。** 一樣只是請求;`WINDOW_COMMANDS_STAY_APART` 照舊檢查撞名。
+- **面板只建一次,之後就地改字,不重畫。** 其他部分每次 `windowState` 都整個重畫(`innerHTML`),但 clone 的進度一秒會來好幾次(宿主最多每 100ms 送一次),重畫會在使用者按下取消、還沒放開時把按鈕換掉,那次點擊就落空了。所以面板是 `#welcome` 旁邊的一個元素,不在 `#welcome` 裡。
+- **面板開著時 `#welcome` 是 `inert`。** 一次一個 clone,而且面板底下的入口不該被點到。面板出現時焦點移到取消鈕。askpass 問帳密時,host prompt overlay(top layer 的 modal)蓋在面板之上,與圖形頁上蓋在進度框之上是同一回事(「補記(#390)」)。
+- 樣式照舊由 `windowPage.ts` 插進同一個 `<style>`,只用 `theme.ts` 已有的 `--vscode-*` 變數。[windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗面板蓋滿 Welcome page、長 URL 不超出視窗、進度條的寬度跟著百分比、取消鈕送出 `cancelClone`。

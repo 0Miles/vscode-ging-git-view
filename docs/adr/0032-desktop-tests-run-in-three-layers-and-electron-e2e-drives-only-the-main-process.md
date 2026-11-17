@@ -135,3 +135,13 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **流程本身(選了資料夾之後做什麼)用 vitest 測。** [repoOpening.ts](../../apps/desktop/src/repoOpening.ts) 把對話框、資料夾檢查、core 的 init 與開 Tab 都當成注入的函式，[repoOpening.test.ts](../../apps/desktop/tests/repoOpening.test.ts) 逐一驗取消、不是存放庫時提議初始化、清單上的資料夾已經不是存放庫時不改開它外層的存放庫;E2E 只走一次整條路徑。
 
 - **選單的三項照 #396 的契約接上。** main process 的 `menuCommands` 交出 `openFolder`、`openRecent`、`initRepository`,`recentRepos` 是 Welcome page 同一份清單的路徑(最多 20 個);開成 Tab 與 known set 改變之後重建選單。資料夾問在系統對話框，所以三項不論有沒有 Tab 都不需要頁面。[welcome.spec.ts](../../apps/desktop/e2e/welcome.spec.ts) 用 `getMenuItemById` 觸發：有 Tab 時的開啟資料夾與初始化，以及 Open Recent 的順序與點下去聚焦既有的 Tab。
+
+## 補記(2026-11-17,#395)
+
+**clone 的 Electron E2E 三條([clone.spec.ts](../../apps/desktop/e2e/clone.spec.ts)),網路照舊只用本機:`file://` bare repo、#392 的 401 server,以及一個新的、永遠不回應的本機 HTTP server([stallingRemote.ts](../../apps/desktop/e2e/stallingRemote.ts))。**
+
+- **URL 在 Welcome page 的 host prompt overlay 裡打,資料夾經 `NativeDialogs` 的 `showOpenDialog` 代答**(#394 的做法)。成功的那條讀分頁列、Tab 頁面上的 commit 數、Open Recent 的第一項與 log。
+- **認證那條驗的是「問在 Welcome page」。** 沒有 Tab 可以問,所以 askpass 的 Username / Password 出現在視窗自己的頁面上,蓋在 clone 面板之上;失敗的錯誤框是原生對話框(`Prompts.showError`),由測試代答並讀它的標題。server 記下的帳密證明回答回到了這一次 clone 的 git。目的地不留。
+- **取消那條的證據是「server 上的連線歸零」。** 永遠不回應的 server 讓 git 停在第一個請求上,clone 只能被取消;server 數著開著的連線,git 與它的每個行程(`git-remote-http`)都結束了才會是零(ADR-0028 的同日補記)。另外斷言目的地被刪掉、沒有 Tab、log 有 `clone: cancelled`。收尾的 `closeAllConnections()` 只是清場,斷言在它之前。
+- **選單項 `ging.cloneRepository`,照 #396 補記的契約新增**(那份契約沒有替 clone 保留 id):`AppMenuCommands.cloneRepository?()`,「Clone Repository...」,沒有 accelerator,位置在 Open Recent 與 Initialize Repository 之間。**只在焦點是 `welcome`、而且沒有 clone 正在問或在跑時 enabled**:進度與帳密都畫在 Welcome page,有 Tab 時被蓋住(票面「clone 發生在還沒有分頁的時候」)。規則在 template([appMenu.ts](../../apps/desktop/src/appMenu.ts) 的 `AppMenuState.cloning`),由 appMenu.test.ts 的表驗;E2E 讀 `enabled` 而不只是 `click()`。有 Tab 時也能 clone,另開 [#461](https://github.com/0Miles/vscode-ging-git-view/issues/461)。
+- **流程本身用 vitest 測**([repoCloning.test.ts](../../apps/desktop/tests/repoCloning.test.ts)):URL 與資料夾的取消、目的地的組法、askpass route 的生命週期、進度的節流、取消、一次一個、視窗關掉時中止且不開 Tab。

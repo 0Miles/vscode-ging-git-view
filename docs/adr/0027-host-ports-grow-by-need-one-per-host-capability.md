@@ -219,3 +219,14 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **選到 bare repo 或 `.git` 資料夾時，不初始化。** `git rev-parse --show-prefix` 在兩者裡都回答空字串、exit 0,單看它會被當成 working tree 的頂端;所以先問 `--is-inside-work-tree`(core 的 `gitFolderPlace`)。init 在這種資料夾回答 `NoWorkTreeFolderError`,命令服務用 app 自己的字串(`init.noWorkTree`)說明;開啟資料夾選到它時不提議初始化，而是說它沒有 working tree 可以顯示。`repoToOpen` 因此多回答「為什麼打不開」(`missing` / `notRepository` / `noWorkTree`),清單上資料夾不在的項目說「找不到」,不說「不是 Git 存放庫」。
 - **清單上的 repo 以 known set 的拼法比對。** git 今天給的拼法可能和 known set 裡的不同(symlink、8.3 短檔名、磁碟代號大小寫，見 #413),所以「它是不是清單上的那一個」經過 `TabWindow.resolve`(`resolveToKnownRepo`),和開成 Tab 時走同一條路。
 - **子存放庫(#393 的 R5 留下的問題)由開啟資料夾處理，不由圖形切換。** 選到 submodule 或巢狀 repo 的資料夾時,`repoToOpen` 以 git 的 `--show-toplevel` 解析到它自己，開在自己的 Tab。CDV 檔案樹點子存放庫(#155)在桌面版仍然不切換：要讓它改成「開在新 Tab」,得讓圖形知道別的 repo,而那正是 R5 拿掉的。
+
+## 補記(2026-11-17,#395)
+
+**core 多了 clone:動作在 [clone.ts](../../packages/core/src/backend/actions/clone.ts),命令服務在 [repoCloneCommand.ts](../../packages/core/src/extension/repoCloneCommand.ts)。port 沒有長,和 #394 的 init 同一個形狀。**
+
+- **問 URL、選資料夾、畫進度都是宿主的事。** 命令服務收已經決定好的 URL 與目的地,外加這一次 clone 自己的 `AbortSignal`、進度的 listener 與 git 的環境(誰來回答帳密的 askpass route)。「問一個資料夾」與「顯示進度」今天只有桌面版要(VS Code 有自己的 Git: Clone),照「先有呼叫端」不開在 `Prompts` 上;桌面版問 URL 用既有的 `Prompts.input`,命令服務交出 `urlProblem` 當它的 `validate`,所以「什麼 URL 不收」只有 core 一份規則。
+- **clone 走 `spawnGit`,不走 simple-git。** 要逐段讀 stderr 的進度,也要能殺掉整棵行程;simple-git 兩者都沒有。`spawnGit` 因此多了選填的 `onStderr` 與 `ownProcessGroup`(後者見 ADR-0028 的同日補記)。
+- **URL 的規則(`cloneUrlProblem`)。** 只收 git 自己的網路 scheme(http、https、ssh、git 與 ssh 的兩種別名)與 `file://`、scp 寫法 `[user@]host:path`、這台電腦上的完整路徑。拒絕:`<transport>::<address>`(`ext::` 會執行任意命令,`fd::` 等其他 remote helper 同樣是「找一個叫這名字的程式來跑」)、`-` 開頭(會被讀成選項)、相對路徑(會對著 git 剛好在的目錄解析)、控制字元(換行會切開 git 的 credential 請求)、其他 scheme、取不出資料夾名稱的。命令列一律是 `-c protocol.ext.allow=never clone --progress -- <url> <folder>`。
+- **目的地照 VS Code 的 clone:選「放在哪個資料夾」,名稱照 git 的規則從 URL 取**(`cloneFolderName`,git 的 `git_url_basename` 在這些 URL 上的行為)。已存在而且不是空資料夾、或上層資料夾不在時,git 不跑,用 app 自己的字串說明。
+- **log 與畫面上的 URL 去掉帳密**(`urlWithoutCredentials`):`https://user:token@host/…` 的 token 不寫進 log 檔。
+- **失敗的原因先拿掉進度行再交給 `formatGitError`。** clone 的 stderr 有 `remote: Counting objects: …` 這類進度,`formatGitError` 會優先挑 `remote:` 開頭的行,選中的就會是進度而不是 git 的 `fatal:`。
