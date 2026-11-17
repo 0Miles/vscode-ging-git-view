@@ -96,6 +96,8 @@ const COLORS: Record<string, readonly [dark: string, light: string]> = {
   "--vscode-list-focusOutline": ["#0078d4", "#005fb8"],
   // dark: registry
   "--vscode-list-hoverBackground": ["#2a2d2e", "#f2f2f2"],
+  // registry
+  "--vscode-list-inactiveSelectionBackground": ["#37373d", "#e4e6f1"],
   // light: registry, dropdown.background
   "--vscode-menu-background": ["#1f1f1f", "#ffffff"],
   "--vscode-menu-border": ["#454545", "#cecece"],

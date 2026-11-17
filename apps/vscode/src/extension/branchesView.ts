@@ -1,12 +1,6 @@
 import * as vscode from "vscode";
 
-import {
-  type BranchActionTarget,
-  type BranchActionTargets,
-  resolveActionTargets
-} from "@ging/core/extension/branchActionTargets";
 import { relativeAge } from "@ging/core/extension/branchActivity";
-import { resolveCleanupCandidates } from "@ging/core/extension/branchCleanup";
 import { type BranchFacts } from "@ging/core/extension/branchFacts";
 import { showAllRepo } from "@ging/core/extension/branchFilter";
 import { type BranchFilterStore } from "@ging/core/extension/branchFilterStore";
@@ -14,13 +8,19 @@ import {
   createBranchSelectionReconciler,
   createDirectFilterWriter
 } from "@ging/core/extension/branchSelectionReconciler";
+import { sideViewBranchRoots } from "@ging/core/extension/branchSideView";
+import {
+  actionTargetRefs,
+  type BranchActionTarget,
+  type BranchActionTargets,
+  resolveActionTargets
+} from "@ging/shared/backend/utils/branchActionTargets";
+import { displayRef, REMOTE_PREFIX } from "@ging/shared/backend/utils/branchRef";
 import {
   branchSelectionOf,
   type BranchTreeLeaf,
-  type BranchTreeNode,
-  buildGroupedBranchRoots
-} from "@ging/core/extension/branchTree";
-import { displayRef, REMOTE_PREFIX } from "@ging/shared/backend/utils/branchRef";
+  type BranchTreeNode
+} from "@ging/shared/backend/utils/branchTree";
 import type { BatchAction } from "@ging/shared/types";
 import * as l10n from "@ging/vscode/l10n";
 
@@ -222,48 +222,13 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
       const facts = await this.deps.branchFacts.facts(repo, { hard });
       if (id !== this.fetchId) return; // superseded by a newer fetch
       this.defaultBranch = facts.defaultBranch;
-      if (!facts.isRepo) {
-        this.roots = [];
-      } else {
-        // Both rules yield a fact set and the hidable subset it implies. The
-        // facts drive the markings (age label, merged badge) and apply even to
-        // exempt branches; only the hidable sets are dimmed and dropped.
-        //
-        // Hiding is a union across the two toggles: a branch removed by either
-        // rule is gone whatever the other says. Dimming covers the whole hidable
-        // union, so the grey on a surviving branch always means "some toggle
-        // would remove this". The toggles stay here rather than in BranchFacts:
-        // they decide presentation, and the graph hides nothing at all.
-        const hidden = new Set<string>();
-        if (!showInactive) for (const branch of facts.inactive.hidable) hidden.add(branch);
-        if (!showMerged) for (const branch of facts.merged.hidable) hidden.add(branch);
-        // Candidacy is resolved from the same facts, but it is not `hidable`:
-        // the exemptions differ by the branch filter, so a leaf can be a
-        // candidate without being dimmed (ADR-0017). It changes nothing about
-        // how a row looks — only whether it offers the cleanup menu item.
-        const cleanupCandidates = new Set(
-          resolveCleanupCandidates({
-            branches: facts.branches,
-            head: facts.head,
-            defaultBranch: facts.defaultBranch,
-            dates: facts.dates,
-            merged: facts.merged,
-            inactive: facts.inactive,
-            patterns: this.deps.resolveExemptPatterns()
-          }).candidates.map((c) => c.ref)
-        );
-        this.roots = buildGroupedBranchRoots(
-          hidden.size === 0 ? facts.branches : facts.branches.filter((b) => !hidden.has(b)),
-          facts.head,
-          {
-            merged: facts.merged.matched,
-            inactive: facts.inactive.matched,
-            hidable: facts.hidable,
-            cleanupCandidates,
-            dates: facts.dates
-          }
-        );
-      }
+      // Which branches are listed and how each is marked is core's, shared
+      // with the desktop host's side view (#399).
+      this.roots = sideViewBranchRoots(
+        facts,
+        { showInactive, showMerged },
+        this.deps.resolveExemptPatterns()
+      );
     } catch {
       if (id !== this.fetchId) return;
       this.roots = [];
@@ -583,12 +548,7 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     const selected = selectedBranchRefs(
       items.filter((i): i is BranchItem => i instanceof BranchItem)
     );
-    const { targets, skipped } = resolveActionTargets(provider.getRoots(), selected, action);
-    return {
-      repo,
-      targets: targets.map((leaf) => leaf.branch),
-      skipped: skipped.map((s) => ({ ref: s.leaf.branch, reason: s.reason }))
-    };
+    return actionTargetRefs(repo, resolveActionTargets(provider.getRoots(), selected, action));
   };
 
   return {

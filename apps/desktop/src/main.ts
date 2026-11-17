@@ -47,6 +47,11 @@ import {
   isHostPromptReply
 } from "@ging/webview/desktop/hostPrompt";
 import {
+  isSideViewRequest,
+  type SideViewRequest,
+  type SideViewStateMessage
+} from "@ging/webview/desktop/sideViews/protocol";
+import {
   isWindowRequest,
   TAB_STRIP_HEIGHT,
   type WelcomeContent,
@@ -127,7 +132,7 @@ type TabPage = TabPageLike & {
   /** The instance's prompts, asked in its page. */
   prompts: DesktopPrompts | null;
   /** Hand the instance a message its page posted. */
-  deliver: (message: RequestMessage | HostPromptReply) => void;
+  deliver: (message: RequestMessage | HostPromptReply | SideViewRequest) => void;
   /** A prompt of its is waiting for an answer. */
   asking: boolean;
 };
@@ -228,6 +233,9 @@ function channelTo(contents: WebContents, logger: HostLogger) {
   const prompt = (message: HostPromptMessage) => {
     send(message);
   };
+  const sideView = (message: SideViewStateMessage) => {
+    send(message);
+  };
   const deliver = (message: RequestMessage) => {
     // A handler that throws has no one else to tell: the dispatch answers what
     // it catches, and this is what it did not.
@@ -235,7 +243,7 @@ function channelTo(contents: WebContents, logger: HostLogger) {
       logger.logError(`webview: handling "${message.command}" failed: ${String(e)}`)
     );
   };
-  return { channel, deliver, prompt };
+  return { channel, deliver, prompt, sideView };
 }
 
 const thisLaunch: LaunchCommandLine = { argv: process.argv, workingDirectory: process.cwd() };
@@ -626,15 +634,18 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       owner.focus();
     }
   });
-  ipcMain.on(CHANNELS.webviewMessage, (event, message: RequestMessage | HostPromptReply) => {
-    // The settings window's page talks to the settings, never to an instance.
-    if (settingsWindow?.deliver(event.sender, message)) return;
-    if (win !== null && event.sender === win.webContents) {
-      fromWindowPage(message);
-      return;
+  ipcMain.on(
+    CHANNELS.webviewMessage,
+    (event, message: RequestMessage | HostPromptReply | SideViewRequest) => {
+      // The settings window's page talks to the settings, never to an instance.
+      if (settingsWindow?.deliver(event.sender, message)) return;
+      if (win !== null && event.sender === win.webContents) {
+        fromWindowPage(message);
+        return;
+      }
+      tabOf(event.sender)?.content.page.deliver(message);
     }
-    tabOf(event.sender)?.content.page.deliver(message);
-  });
+  );
 
   app.on("window-all-closed", () => app.quit());
   // The log and the state file are written out before the process goes, and
@@ -778,7 +789,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
 
     /** A graph on `repo` in `view`, its Current repository kept in `state`. */
     const graphPage = (view: WebContentsView, repo: string, state: ExtensionState): TabPage => {
-      const { channel, deliver, prompt } = channelTo(view.webContents, logger);
+      const { channel, deliver, prompt, sideView } = channelTo(view.webContents, logger);
       // Asked in this Tab's page: a prompt git raises for it comes back here
       // through its askpass route, whichever Tab is in front (#393).
       const prompts = createDesktopPrompts({
@@ -795,6 +806,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         repo,
         channel,
         prompts,
+        postSideView: sideView,
         extensionState: state,
         revealSetting: (key) => settingsWindow?.reveal(key)
       });
@@ -806,11 +818,20 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         }),
         instance,
         prompts,
-        // The page's replies to the prompts are not requests: the dispatch never
-        // sees them (ADR-0031).
+        // The page's replies to the prompts, and its side views' requests
+        // (#399), are not the graph's requests: the dispatch never sees them
+        // (ADR-0031).
         deliver: (message) => {
           if (isHostPromptReply(message)) prompts.receive(message);
-          else deliver(message);
+          else if (isSideViewRequest(message)) {
+            // As `deliver` does for the graph's: what throws has no one else
+            // to tell.
+            instance
+              .sideView(message)
+              .catch((e: unknown) =>
+                logger.logError(`side views: handling "${message.command}" failed: ${String(e)}`)
+              );
+          } else deliver(message);
         },
         asking: false,
         dispose: () => {
