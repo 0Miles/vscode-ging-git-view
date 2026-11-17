@@ -2,6 +2,12 @@ import * as cp from "node:child_process";
 
 import { decode, encodingExists } from "iconv-lite";
 
+/** A file's bytes as text in `encoding` (any iconv-lite knows), or in utf8
+ *  when it knows no encoding of that name. */
+export function decodeFileBytes(bytes: Buffer, encoding: string): string {
+  return decode(bytes, encodingExists(encoding) ? encoding : "utf8");
+}
+
 /** Read a file's contents at a given commit and decode it with the configured
  *  `fileEncoding`. git is spawned directly (not via simple-git) because
  *  the file bytes must be captured raw — simple-git only yields utf8 strings,
@@ -22,8 +28,7 @@ export function getCommitFileContent(
     child.on("error", () => resolve(""));
     child.on("close", (code) => {
       if (code !== 0) return resolve("");
-      const buffer = Buffer.concat(chunks);
-      resolve(decode(buffer, encodingExists(encoding) ? encoding : "utf8"));
+      resolve(decodeFileBytes(Buffer.concat(chunks), encoding));
     });
   });
 }
