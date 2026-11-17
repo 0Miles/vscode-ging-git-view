@@ -6,7 +6,6 @@
 import type { BrowserWindow, WebContents } from "electron";
 
 import type { HostLogger, Opener } from "@ging/core/host/ports";
-import { isWebUrl } from "@ging/shared/webUrl";
 import {
   SETTING_PARAM,
   type SettingsHostMessage,
@@ -14,6 +13,7 @@ import {
 } from "@ging/webview/desktop/settings/protocol";
 
 import { CHANNELS } from "./channels";
+import { keepPageInPlace } from "./pageGuard";
 
 export type SettingsWindow = {
   /** Open the settings, or bring the window they are in forward. */
@@ -64,13 +64,10 @@ export function createSettingsWindow({
   const create = (at: string) => {
     const opened = createWindow();
     win = opened;
-    opened.webContents.setWindowOpenHandler(({ url: target }) => {
-      if (isWebUrl(target)) opener.openExternalUrl(target);
-      return { action: "deny" };
-    });
     // A link to another setting moves within the page, which is no navigation;
-    // anything that would replace the page is refused.
-    opened.webContents.on("will-navigate", (event) => event.preventDefault());
+    // anything else stays as every page of the app does: what leaves it is the
+    // opener's to decide.
+    keepPageInPlace(opened.webContents, opener);
     opened.on("closed", () => {
       win = null;
     });

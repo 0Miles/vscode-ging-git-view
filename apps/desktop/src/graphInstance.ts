@@ -15,6 +15,7 @@ import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
+import { createDesktopOpener, notSupportedYet } from "@ging/desktop/ports/opener";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
 import type { GitGraphViewState, GitRepoSet } from "@ging/shared/types";
 
@@ -128,6 +129,16 @@ export function createGraphInstance(
     });
   });
 
+  // Its own, so what it says is said in this instance's window.
+  const notifier = { prompts, l10n, logger };
+  const opener = createDesktopOpener({
+    ...notifier,
+    os: shared.os,
+    // Files and terminals are opened from its Tab's repository, and no other.
+    repoRoot: () => current,
+    platform: process.platform,
+    env: process.env
+  });
   // Asked in this instance's page, as the failed Create Pull Request that
   // offers it was. The settings are the app's: no workspace holds any.
   const pullRequestProviders = createPullRequestProviderCommands({
@@ -136,15 +147,12 @@ export function createGraphInstance(
     config,
     revealSetting
   });
-
-  /** What #391 brings; until then said in the log, since nothing else will. */
-  const notYet = (what: string) => logger.logError(`${what} is not available yet (#391)`);
   const dispatch = registerMessageHandlers(
     bridge,
     {
       config,
       prompts,
-      opener: shared.opener,
+      opener,
       clipboard: shared.clipboard,
       watcher,
       l10n,
@@ -160,14 +168,22 @@ export function createGraphInstance(
       branchCleanup: shared.branchCleanup,
       sequenceEditor,
       fetchService,
+      // The five hooks into the host's other surfaces (#391). VS Code's are
+      // its side-views and commands; the desktop app has none of them yet.
       // Only ever its own repository: see the channel above.
       onSelectRepo: () => {},
       // The side-view's branch actions are delegated to the graph in VS Code;
       // here the side-view is in the same page (#399), so nothing is held.
       onDelegatedRan: () => {},
-      showAllBranches: async () => notYet("Show All"),
+      // Show All is the side-view's (#399). Until it is here, the graph's
+      // filter chip clears nothing, and the dispatch says so to the graph
+      // (`branchFilterCleared` after a Show All that moved nothing).
+      showAllBranches: async () => {},
+      // Core's own Manage Pull Request Providers (#398), asked in this page.
       configurePullRequestProvider: (host) => void pullRequestProviders.manage(host),
-      openScmView: () => notYet("The source control view")
+      // A stub, said to the user rather than failed, until the working
+      // tree's view (#403).
+      openScmView: () => notSupportedYet(notifier, "the source control view (#403)")
     }
   );
 

@@ -118,6 +118,32 @@ test("a change to the auto-fetch interval takes effect without a restart", async
   expect(logged).not.toContain("ERROR:");
 });
 
+test("a description's link to the web opens in the browser, not in the app", async () => {
+  const repo = fixtureRepo();
+  const electronApp = await launch("--repo", repo.path);
+  await electronApp.firstWindow();
+  const settings = await openSettings(electronApp);
+  // The browser, stood in for as graph.spec.ts stands in for a dialog: the
+  // desktop Opener looks `shell.openExternal` up when called (#391).
+  await electronApp.evaluate(({ shell }) => {
+    const opened: string[] = [];
+    (globalThis as Record<string, unknown>).openedUrls = opened;
+    shell.openExternal = async (url) => {
+      opened.push(url);
+    };
+  });
+
+  const pagesBefore = electronApp.windows().length;
+  await settings.locator("a.externalLink", { hasText: "personal access token" }).click();
+
+  await expect
+    .poll(() => electronApp.evaluate(() => (globalThis as Record<string, unknown>).openedUrls))
+    .toEqual(["https://docs.gitlab.com/user/profile/personal_access_tokens/"]);
+  // No page of the app's opened for it.
+  expect(electronApp.windows()).toHaveLength(pagesBefore);
+  expect(await closeAndReadLog()).not.toContain("ERROR:");
+});
+
 test("a theme chosen by hand is kept after a restart", async () => {
   const repo = fixtureRepo();
   let electronApp = await launch("--repo", repo.path);

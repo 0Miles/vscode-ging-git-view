@@ -161,6 +161,25 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **桌面版的寫入比讀取嚴格。** 讀的時候,超出範圍的數字會被夾回範圍、清單裡不合格的項目會被丟掉(#387,使用者手寫的檔案能用多少用多少);寫的時候這些一律拒絕(`SettingRefused`),因為寫入的一方是設定頁,使用者就在那裡,告訴他比默默改掉他輸入的值好。設定檔不是 JSON 時也拒絕寫入:那是使用者的檔案,寫進去就蓋掉他寫的東西。
 - **`REPO_SETTING_DEFAULT_KEYS` 從 `apps/vscode` 的 `config.ts` 搬到 core 的 [repoSettings.ts](../../packages/core/src/extension/repoSettings.ts)。** 兩個宿主都要從「哪個 key 變了」算出 `setRepoSettingDefaults` 的 `changed`,各寫一份就會漂移。VS Code 這邊只改了 import。
 
+## 補記(2026-11-17,#391)
+
+**桌面版的 `Opener` 不再是過渡版,而且改成每個 webview 實例一份。** [opener.ts](../../apps/desktop/src/ports/opener.ts) 的 `createDesktopOpener` 取代 `createInterimOpener`,由 [graphInstance.ts](../../apps/desktop/src/graphInstance.ts) 用該實例自己的 `Prompts` 建出來。上表「`Opener`(過渡版)」那一列的處置改為「每個實例一個」:`Opener` 有話要說(stub 的通知、終端機開不起來)時,要說在發起那次請求的視窗裡,而全域一份的 `Opener` 不知道是哪個視窗。系統那一側(Electron 的 `shell` 與啟動終端機)沒有狀態,所以是全域一份的 `OsShell`,放在 `SharedServices.os`。
+
+- **`openFile` 只把「已知只會被顯示」的型別交給系統預設程式(`shell.openPath`),其他一律在檔案總管裡選取它(`shell.showItemInFolder`),照樣回答成功;開不了時 reject。** 判斷用的是允許清單(`opensDirectly`:圖片、PDF、純文字與 Markdown、資料與設定檔、編譯型語言的原始碼),不是「會執行的副檔名」清單:哪個型別由哪個程式開，是系統與每個裝上去的 app 自己註冊的，黑名單永遠列不完(捷徑、安裝檔、script host、系統會套用的設定檔、說明檔…),漏一個就是執行別人 repo 裡的程式;允許清單漏一個只是多開一個資料夾視窗。刻意不列:某個平台開啟時會執行的 script(Windows 的 `.js`、`.vbs`,有直譯器註冊時的 `.py`、`.rb`,`.sh`、`.ps1`、`.bat`),以及瀏覽器會連 script 一起開的 `.html`、`.svg`、`.xml`;沒有副檔名的檔案也一律選取。另外三道:判斷的是 `fs.realpath.native` 之後的真實路徑(連結指向什麼就判斷什麼),而且必須在該實例目前 repository 的真實路徑底下(`..`、絕對路徑、指出 repo 的連結都 reject);非 Windows 上有執行位元的檔案不開(macOS 會在終端機裡執行它，不看檔名);Windows 上 `PATHEXT` 列到的型別不開，檔名結尾的點與空白不算副檔名(`a.bat.`),磁碟代號以外出現 `:` 的路徑(`a.bat::$DATA` 這種 stream)直接 reject。代價：沒列到的型別(例如 `Makefile`、`.html`)點下去只會開資料夾。
+- **`openExternalUrl` 只放行 `http:` / `https:`,交給瀏覽器的是 `new URL()` 解析後的 `href`,不是檢查過的原字串(`webUrl`);其他寫 log 後不開。** 呼叫端是 issue 連結(使用者設定拼出來的 URL)與設定頁的描述連結;`file:` 或自訂 scheme 交給系統等於叫它執行東西。app 的每個頁面(視窗自己的頁面、每個 Tab 的 view、設定視窗)都只經過同一個 guard:#393 的 `keepPageInPlace`([pageGuard.ts](../../apps/desktop/src/pageGuard.ts)),它擋下頁面要求的每個導覽與新視窗，把要求的 URL 交給 `openWebUrl`,由它決定放不放行;頁面上的 `<a>`、`window.open` 都繞不過它(app 自己的 `loadURL` 與重新載入不算導覽)。ADR-0031 的 #397 補記說的「點下去暫時只會留一行 log」到此結束。開啟失敗只寫 log:這個方法沒有回傳值，設定視窗也沒有 `Prompts`。
+- **`openTerminal` 開系統的終端機**([terminal.ts](../../apps/desktop/src/terminal.ts)),每個程式都用絕對路徑指名，從不讓系統去找:終端機的工作目錄就是 repo,而 Windows 找程式時會先找目前目錄。Windows 用 `ComSpec /d /c start "<title>" "<ComSpec>"`(`ComSpec` 不是絕對路徑時改用 `SystemRoot\System32\cmd.exe`;與 VS Code 的外部終端機同一招，Windows 11 上會由預設終端機應用程式接手;`cmd /c` 連引號裡的 `%VAR%` 都會展開，所以標題去掉 `%` 與 `"`),macOS 用 `/usr/bin/open -a Terminal <cwd>`,Linux 依序找 `x-terminal-emulator`、桌面環境自己的(gnome-terminal / konsole / xfce4-terminal)、`xterm`,只在 `PATH` 的絕對路徑資料夾裡找(空字串與 `.` 這類相對項目會對著 repo 解析，跳過),找不到的不試。一律 detached、不接 stdio。要求的資料夾也必須在發出請求的 Tab 的 repository 真實路徑底下(與 `openFile` 同一個 `repoRoot`),否則不開。開不起來時寫 log,並在該實例的視窗用 `showError` 說。
+- **四個 stub:`openFileAtRevision`(→ #405)、`diffWithWorking`(→ #404)、`openCommitDiff`(→ #404)、`openMergeEditor`(→ #410)。** 先通知「GING 桌面版尚未支援這項功能」(`desktop.notSupportedYet`,`showInformation`,不等它被關掉),再 resolve,`openCommitDiff` 回 `true`。這是刻意偏離 port 註解「開不了就 reject」的契約:reject 的話,圖形會再跳一個自己的「無法開啟」錯誤框,使用者會看到兩個框,其中一個說的是錯的。偏離只在桌面實作的註解裡寫明,port 本身的契約不變;取代它的 D 票把 stub 換成真實作時一併移除。log 用 `log` 而不是 `logError`:這不是錯誤。
+
+**`MessageHandlerDeps` 的 5 個 hook 在桌面版的處置:**
+
+| hook                           | 處置                                                                                                                    |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `onSelectRepo`                 | no-op(沒有側檢視要跟著換 repo);只更新實例自己的 current repository,auto-fetch 讀它                                      |
+| `onDelegatedRan`               | no-op:側檢視與圖形會在同一個頁面(#399),沒有要為 reload 留著的委派訊息                                                   |
+| `showAllBranches`              | no-op,#399 改成真實作。圖形的篩選 chip 清不掉篩選;dispatch 照樣回 `branchFilterCleared`,圖形不會一直等                  |
+| `configurePullRequestProvider` | core 的 Manage Pull Request Providers(#398 合併後取代原本的 stub),問在該實例自己的頁面,「顯示設定」打開設定視窗的那一列 |
+| `openScmView`                  | stub:通知尚未支援,#403 的 working tree 檢視取代                                                                         |
+
 ## 補記(2026-11-17,#393)
 
 **`ExtensionState` 每個 Tab 一份:建構時可以注入 `CurrentRepoSlot`,也就是「current repository 的路徑字串存在哪裡」。不注入時是 workspace 層的 `lastActiveRepo`,VS Code 的 key 與行為都沒變。** 上面 #388 的表裡「`ExtensionState` 的分頁版：不在本票」那一列，由本票完成。

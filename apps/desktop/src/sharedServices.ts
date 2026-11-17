@@ -16,11 +16,11 @@ import {
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { ExtensionState } from "@ging/core/extensionState";
-import type { Clipboard, HostLogger, HostStorage, L10n, Opener } from "@ging/core/host/ports";
+import type { Clipboard, HostLogger, HostStorage, L10n } from "@ging/core/host/ports";
 import { TabStates } from "@ging/core/tabStates";
 import { createDesktopConfig, type DesktopConfig } from "@ging/desktop/ports/config";
 import { createDesktopL10n } from "@ging/desktop/ports/l10n";
-import { createInterimOpener } from "@ging/desktop/ports/opener";
+import type { OsShell } from "@ging/desktop/ports/opener";
 import { createDesktopRepoSource, type DesktopRepoSource } from "@ging/desktop/ports/repoSource";
 import { openDesktopStorage } from "@ging/desktop/ports/storage";
 import { openDesktopSettings } from "@ging/desktop/settings/schema";
@@ -40,6 +40,7 @@ type SharedServicesOptions = {
   helperDir: string;
   logger: HostLogger;
   clipboard: Clipboard;
+  os: OsShell;
 };
 
 export type SharedServices = {
@@ -52,7 +53,10 @@ export type SharedServices = {
   l10n: L10n;
   logger: HostLogger;
   clipboard: Clipboard;
-  opener: Opener;
+  /** What the system opens files, links and terminals with. Each instance
+   *  opens through an `Opener` of its own over it, which says what it has to
+   *  say in that instance's window (#391). */
+  os: OsShell;
   /** The known repositories are the app's, not a Tab's (GLOSSARY.md: on
    *  the desktop host, the recently opened list); each instance boots on its
    *  own current repository among them. */
@@ -92,7 +96,8 @@ export function createSharedServices({
   locale,
   helperDir,
   logger,
-  clipboard
+  clipboard,
+  os
 }: SharedServicesOptions): SharedServices {
   const settings = openDesktopSettings(userDataPath, { onError: logger.logError });
   const config = createDesktopConfig(settings);
@@ -151,7 +156,7 @@ export function createSharedServices({
     l10n: createDesktopL10n(locale),
     logger,
     clipboard,
-    opener: createInterimOpener(logger),
+    os,
     repoSource,
     extensionState,
     tabStates: new TabStates(storage),

@@ -5,6 +5,7 @@
  * graph on its repository through one webview instance with a dispatch of its
  * own over the services instances share (#388). */
 
+import childProcess from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -32,6 +33,7 @@ import type { ExtensionState } from "@ging/core/extensionState";
 import type { HostLogger } from "@ging/core/host/ports";
 import { createDesktopClipboard } from "@ging/desktop/ports/clipboard";
 import { createDesktopLogger } from "@ging/desktop/ports/logger";
+import { type OsShell, openWebUrl } from "@ging/desktop/ports/opener";
 import {
   createDesktopPrompts,
   type DesktopPrompts,
@@ -75,6 +77,7 @@ import {
 import { createSettingsWindow, type SettingsWindow } from "./settingsWindow";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
 import { createTabWindow, layoutTabViews, type TabPageLike, type TabWindow } from "./tabWindow";
+import { launchTerminal, terminalLaunches } from "./terminal";
 import { type Theme, themeFor } from "./theme";
 import { readThemeChoice, writeThemeChoice } from "./themeChoice";
 
@@ -140,6 +143,20 @@ function dialogsFor(owner: BrowserWindow): NativeDialogs {
     showOpenDialog: (options) => dialog.showOpenDialog(owner, options)
   };
 }
+
+/** What the system opens things with, each looked up when called — Electron's
+ *  `shell` and Node's `spawn` — so the E2E can stand in for them and start no
+ *  program, browser or terminal (ADR-0032). */
+const systemOs: OsShell = {
+  openPath: (file) => shell.openPath(file),
+  showItemInFolder: (file) => shell.showItemInFolder(file),
+  openExternal: (url) => shell.openExternal(url),
+  openTerminal: (cwd, title) =>
+    launchTerminal(
+      (command, args, options) => childProcess.spawn(command, args, options),
+      terminalLaunches(process.platform, process.env, cwd, title)
+    )
+};
 
 /** Serve the app: `pageFor` builds the page a URL of it asks for, or answers
  *  null for a URL that is no page. */
@@ -515,9 +532,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       locale: app.getLocale(),
       helperDir: __dirname,
       logger,
-      clipboard: createDesktopClipboard(clipboard)
+      clipboard: createDesktopClipboard(clipboard),
+      os: systemOs
     });
     shared = host;
+    /** Where every link out of a page of the app goes: the browser, when it is
+     *  a web address (`openWebUrl`), and nowhere else (#391). */
+    const linksOut = { openExternalUrl: (url: string) => openWebUrl(host.os, logger, url) };
     nativeTheme.themeSource = readThemeChoice(host.storage.global);
 
     const handleSettings = createSettingsPageHandler({
@@ -536,7 +557,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       url: `${PAGE_URL}${SETTINGS_PATH.slice(1)}`,
       createWindow,
       handle: handleSettings,
-      opener: host.opener,
+      opener: linksOut,
       logger,
       // Only ever a key the app has: the one Show Setting names.
       valueOf: (key) => host.settings.get(key)
@@ -576,6 +597,9 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     host.repoSource.onDidChangeRepos(postWindowState);
 
     const owner = createWindow();
+    // The window's own page — the Tab strip, the Welcome page — stays put as
+    // every page of the app does.
+    keepPageInPlace(owner.webContents, linksOut);
     win = owner;
     welcomePrompts = createDesktopPrompts({
       dialogs: dialogsFor(owner),
@@ -645,7 +669,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       makeView: () => {
         const view = new WebContentsView({ webPreferences: WEB_PREFERENCES });
         view.setBackgroundColor(currentTheme().background);
-        keepPageInPlace(view.webContents, host.opener);
+        keepPageInPlace(view.webContents, linksOut);
         // The page starting to load, the first time or again (a reload): the
         // graph it brings has yet to pick its repository. Tied to the load,
         // not to building the HTML, which a second fetch of it would repeat.
