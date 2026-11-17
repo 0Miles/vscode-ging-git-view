@@ -141,7 +141,12 @@ test("View Reflog runs on the focused Tab and asks in its page, not in the other
   await expect(secondPage.locator("#commitTable tr.commit")).toHaveCount(second.commits.length);
 
   // Back to the first: the menu's target is the Tab in front when clicked.
+  // A click on the strip only asks: the strip marks the Tab focused once the
+  // main process has made it so (#393), which is what the menu reads.
   await window.locator("#tabStrip .tab", { hasText: path.basename(first.path) }).click();
+  await expect(window.locator("#tabStrip .tab.focused .tabTitle")).toHaveText(
+    path.basename(first.path)
+  );
   expect(await focusedTabPage(electronApp, 2)).toBe(firstPage);
   expect(await clickMenu(electronApp, "ging.viewReflog")).toBe(true);
 
