@@ -16,6 +16,7 @@ import { confirm } from "@ging/core/extension/commandKit";
 import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
 import type { Clipboard, L10n, Prompts } from "@ging/core/host/ports";
 import type { GitFileChangeType, ScmStashEntry } from "@ging/shared/backend/types";
+import type { StashAction } from "@ging/shared/backend/utils/stashActionCatalogue";
 
 /** One stash as the Stash side-view lists it. */
 export type StashListItem = {
@@ -76,6 +77,11 @@ export type ListedStashHost = {
   l10n: Pick<L10n, "t">;
   /** Re-read the list. */
   refresh: () => void;
+  /** Run the git an agreed action comes to — never the question before it —
+   *  as a change to the repository: the desktop host mutes its graph's
+   *  watcher around it and redraws after (`runRepoMutation`, #400). Without
+   *  it the git just runs, as in VS Code, whose graph watches for itself. */
+  mutate?: (work: () => Promise<void>) => Promise<void>;
 };
 
 /** #333: a stash whose position changed is refused, not redirected — the user
@@ -99,7 +105,7 @@ async function runAgreed<Failed extends string>(
   report: (error: unknown) => Failed
 ): Promise<"done" | "refused" | Failed> {
   try {
-    await action();
+    await (host.mutate === undefined ? action() : host.mutate(action));
   } catch (error) {
     if (error instanceof StashMovedError) return refuseMoved(host);
     const outcome = report(error);
@@ -259,6 +265,20 @@ export async function renameListedStash(
   );
   return outcome === "done" ? "renamed" : outcome;
 }
+
+/** What each of the shared catalogue's stash actions runs on a listed stash,
+ *  in the host that lists it (ADR-0029): VS Code's commands and the desktop
+ *  side view's requests alike. Each resolves to its outcome. */
+export const LISTED_STASH_ACTIONS: Record<
+  StashAction,
+  (host: ListedStashHost, stash: StashListItem) => Promise<unknown>
+> = {
+  apply: (host, stash) => applyOrPopListedStash(host, stash, "apply"),
+  pop: (host, stash) => applyOrPopListedStash(host, stash, "pop"),
+  rename: renameListedStash,
+  drop: dropListedStash,
+  copyName: copyStashName
+};
 
 /** One file of an expanded stash. */
 export type StashFile = {

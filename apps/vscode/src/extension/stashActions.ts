@@ -1,37 +1,36 @@
 import {
-  applyOrPopListedStash,
-  copyStashName,
-  dropListedStash,
+  LISTED_STASH_ACTIONS,
   type ListedStashHost,
-  renameListedStash,
   type StashListItem
 } from "@ging/core/extension/stashList";
+import {
+  STASH_ACTION_CATALOGUE,
+  type StashAction,
+  type StashCmvSetting
+} from "@ging/shared/backend/utils/stashActionCatalogue";
 import type { ContextMenuActionsVisibility } from "@ging/shared/types";
 
-type StashCmvSetting = keyof ContextMenuActionsVisibility["stash"];
+export type { StashAction };
 
 /**
- * The Stash side-view's item actions, declared once so its commands, its
- * `cmv.stash.*` context keys and package.json's hand-written when-clauses
- * cannot drift apart (ADR-0010's `cmvKey`, for stash; `null` = always shown).
- * stashMenuConsistency.test.ts holds package.json to this table.
+ * The Stash side-view's item actions, so its commands, its `cmv.stash.*`
+ * context keys and package.json's hand-written when-clauses cannot drift
+ * apart (ADR-0010's `cmvKey`, for stash; `null` = always shown): the shared
+ * catalogue's `cmvKey` with what core runs for each. The desktop side view
+ * reads the same two (#400). stashMenuConsistency.test.ts holds package.json
+ * to this table.
  */
-export const STASH_ACTIONS = {
-  apply: { cmvKey: "apply", run: (host, stash) => applyOrPopListedStash(host, stash, "apply") },
-  pop: { cmvKey: "pop", run: (host, stash) => applyOrPopListedStash(host, stash, "pop") },
-  drop: { cmvKey: "drop", run: dropListedStash },
-  // No setting exists for rename, and #333 adds none.
-  rename: { cmvKey: null, run: renameListedStash },
-  copyName: { cmvKey: "copyName", run: copyStashName }
-} as const satisfies Record<
-  string,
-  {
-    cmvKey: StashCmvSetting | null;
+export const STASH_ACTIONS = Object.fromEntries(
+  (Object.keys(STASH_ACTION_CATALOGUE) as StashAction[]).map((action) => [
+    action,
+    { cmvKey: STASH_ACTION_CATALOGUE[action].cmvKey, run: LISTED_STASH_ACTIONS[action] }
+  ])
+) as {
+  [A in StashAction]: {
+    cmvKey: (typeof STASH_ACTION_CATALOGUE)[A]["cmvKey"];
     run: (host: ListedStashHost, stash: StashListItem) => Promise<unknown>;
-  }
->;
-
-export type StashAction = keyof typeof STASH_ACTIONS;
+  };
+};
 
 /** The command a stash item's menu runs for `action`. */
 export const stashActionCommand = (action: StashAction) => `ging-git-view.stash.${action}`;
@@ -43,7 +42,8 @@ export function stashMenuContextKeys(
 ): Record<string, boolean> {
   const keys: Record<string, boolean> = {};
   for (const { cmvKey } of Object.values(STASH_ACTIONS)) {
-    if (cmvKey !== null) keys[`ging-git-view.cmv.stash.${cmvKey}`] = cmv.stash[cmvKey];
+    const key: StashCmvSetting | null = cmvKey;
+    if (key !== null) keys[`ging-git-view.cmv.stash.${key}`] = cmv.stash[key];
   }
   return keys;
 }

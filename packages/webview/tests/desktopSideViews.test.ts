@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildGroupedBranchRoots } from "@ging/shared/backend/utils/branchTree";
 import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@ging/shared/backend/utils/contextMenuVisibility";
 import type {
+  SideViewStash,
   SideViewStateMessage,
   SideViewStrings
 } from "@ging/webview/desktop/sideViews/protocol";
@@ -54,9 +55,17 @@ const STRINGS = Object.fromEntries(
     "editUrl",
     "renameRemote",
     "removeRemote",
-    "copyUrl"
+    "copyUrl",
+    "stashes",
+    "noStashes"
   ].map((key) => [key, `<${key}>`])
 ) as SideViewStrings;
+
+/** Two stashes, as the host lists them. */
+const STASHES: SideViewStash[] = [
+  { id: "aaa111", selector: "stash@{0}", message: "On main: newer", tooltip: "newer" },
+  { id: "bbb222", selector: "stash@{1}", message: "On main: older", tooltip: "older" }
+];
 
 const BRANCHES = ["main", "feature/login", "topic", "remotes/origin/main"];
 
@@ -65,7 +74,8 @@ const BRANCHES = ["main", "feature/login", "topic", "remotes/origin/main"];
 function state(
   filter: string[] = [],
   remotes = true,
-  filterSeq = Number.MAX_SAFE_INTEGER
+  filterSeq = Number.MAX_SAFE_INTEGER,
+  more: Partial<SideViewStateMessage> = {}
 ): SideViewStateMessage {
   const roots = buildGroupedBranchRoots(BRANCHES, "main");
   return {
@@ -89,8 +99,10 @@ function state(
           }
         ]
       : [],
+    stashes: STASHES,
     cmv: DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY,
-    strings: STRINGS
+    strings: STRINGS,
+    ...more
   };
 }
 
@@ -293,6 +305,124 @@ describe("the desktop side views", () => {
 
     expect(document.activeElement?.closest("#sideViews")).not.toBeNull();
     expect(document.activeElement).not.toBe(first);
+  });
+
+  // --- The Stash view (#400) ----------------------------------------------
+
+  const stashRow = (id: string) => {
+    const elem = document.querySelector<HTMLElement>(
+      `#stashView [data-stash="${id}"]:not([data-path])`
+    );
+    expect(elem, id).not.toBeNull();
+    return elem!;
+  };
+  /** Collapse every stash the last test left open: the page outlives tests. */
+  const collapseStashes = () => {
+    // One at a time: each click draws the rows anew.
+    let open: HTMLElement | null;
+    while (
+      (open = document.querySelector<HTMLElement>(
+        '#stashView .sideViewRow.stash[aria-expanded="true"]'
+      )) !== null
+    ) {
+      clickElem(open);
+    }
+  };
+
+  it("lists the stashes third in the column, newest first, each with its selector", () => {
+    collapseStashes();
+    const sections = Array.from(document.querySelectorAll("#sideViews > section")).map((s) => s.id);
+    expect(sections).toEqual(["branchesView", "remotesView", "stashView"]);
+    expect(document.querySelector("#stashView .sideViewTitleText")?.textContent).toBe("<stashes>");
+
+    const rows = Array.from(document.querySelectorAll<HTMLElement>("#stashView .sideViewRow"));
+    expect(
+      rows.map((r) => [
+        r.querySelector(".sideViewLabel")?.textContent,
+        r.querySelector(".sideViewDescription")?.textContent
+      ])
+    ).toEqual([
+      ["On main: newer", "stash@{0}"],
+      ["On main: older", "stash@{1}"]
+    ]);
+    expect(rows[0].title).toBe("newer");
+  });
+
+  it("says when the repository has no stashes", () => {
+    hostSays(state([], true, Number.MAX_SAFE_INTEGER, { stashes: [] }));
+    expect(document.querySelector("#stashView .sideViewEmpty")?.textContent).toBe("<noStashes>");
+  });
+
+  it("offers the catalogue's stash actions, under the graph's names, and asks the host to run one", () => {
+    rightClick(stashRow("bbb222"));
+    expect(menuItemLabels()).toEqual([
+      "Apply Stash…",
+      "Pop Stash…",
+      "Rename Stash…",
+      "Drop Stash…",
+      "Copy Stash Name to Clipboard"
+    ]);
+    clickItem("Pop Stash…");
+
+    // The host runs it (ADR-0029), never the graph: no graph request either.
+    expect(mock.sentMessages).toEqual([{ command: "sideViewStash", action: "pop", id: "bbb222" }]);
+  });
+
+  it("hides the stash actions the settings hide, but never Rename, which has no setting", () => {
+    const cmv = structuredClone(DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY);
+    cmv.stash = { apply: false, pop: false, drop: false, copyName: false };
+    hostSays(state([], true, Number.MAX_SAFE_INTEGER, { cmv }));
+
+    rightClick(stashRow("aaa111"));
+
+    expect(menuItemLabels()).toEqual(["Rename Stash…"]);
+  });
+
+  it("expands a stash into the files the host read, asking once, and asks for a file's diff", () => {
+    collapseStashes();
+    clickElem(stashRow("aaa111"));
+    expect(sideViewPosts()).toEqual([{ command: "sideViewStashFiles", id: "aaa111" }]);
+    expect(stashRow("aaa111").getAttribute("aria-expanded")).toBe("true");
+
+    hostSays({
+      command: "sideViewStashFiles",
+      repo: DEFAULT_REPO,
+      id: "aaa111",
+      files: [
+        { path: "src/a.ts", name: "a.ts", dir: "src", badge: "M", tooltip: "src/a.ts" },
+        { path: "new.txt", name: "new.txt", dir: "", badge: "U", tooltip: "new.txt" }
+      ]
+    });
+    const files = Array.from(
+      document.querySelectorAll<HTMLElement>("#stashView .sideViewRow.stashFile")
+    );
+    expect(
+      files.map((f) => [
+        f.querySelector(".sideViewLabel")?.textContent,
+        f.querySelector(".sideViewFileBadge")?.textContent
+      ])
+    ).toEqual([
+      ["a.ts", "M"],
+      ["new.txt", "U"]
+    ]);
+
+    clickElem(files[0]);
+    // Collapsed and opened again: the files are the page's to keep.
+    clickElem(stashRow("aaa111"));
+    clickElem(stashRow("aaa111"));
+    expect(sideViewPosts()).toEqual([
+      { command: "sideViewStashFiles", id: "aaa111" },
+      { command: "sideViewStashDiff", id: "aaa111", path: "src/a.ts" }
+    ]);
+    // No stash menu on a file.
+    rightClick(document.querySelector("#stashView .sideViewRow.stashFile")!);
+    expect(menuItemLabels()).toEqual([]);
+    collapseStashes();
+  });
+
+  it("asks the host to read the stashes again from its heading", () => {
+    clickElem(document.querySelector('#stashView .sideViewActions [data-action="refresh"]')!);
+    expect(sideViewPosts()).toEqual([{ command: "sideViewRefresh" }]);
   });
 });
 

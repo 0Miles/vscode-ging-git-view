@@ -48,7 +48,7 @@ import {
 import {
   isSideViewRequest,
   type SideViewRequest,
-  type SideViewStateMessage
+  type SideViewMessage
 } from "@ging/webview/desktop/sideViews/protocol";
 import {
   isWindowRequest,
@@ -231,7 +231,7 @@ function channelTo(contents: WebContents, logger: HostLogger) {
   const prompt = (message: HostPromptMessage) => {
     send(message);
   };
-  const sideView = (message: SideViewStateMessage) => {
+  const sideView = (message: SideViewMessage) => {
     send(message);
   };
   const deliver = (message: RequestMessage) => {
