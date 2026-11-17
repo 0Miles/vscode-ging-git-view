@@ -104,17 +104,24 @@ test("a file clicked in the Commit Details View opens its diff over the graph, s
     })
   ).toBe(true);
   // Over the graph's area, the graph left where it was beneath it.
-  // Its whole area, scroll bar aside: no side-view or working tree column
-  // takes any of it yet (#399, #403).
+  // All of it, scroll bar aside, and no more: the side views' column (#399)
+  // stays in view on its left; the working tree's (#403) is closed.
   const area = await page.evaluate(() => ({
     width: document.documentElement.clientWidth,
     height: document.documentElement.clientHeight
   }));
+  const sideViews = (await page.locator("#sideViews").boundingBox())!;
   const box = (await viewer.boundingBox())!;
-  expect({ ...box, width: Math.round(box.width), height: Math.round(box.height) }).toEqual({
-    x: 0,
-    y: 0,
-    ...area
+  expect({
+    left: Math.round(box.x),
+    top: Math.round(box.y),
+    right: Math.round(box.x + box.width),
+    bottom: Math.round(box.y + box.height)
+  }).toEqual({
+    left: Math.round(sideViews.x + sideViews.width),
+    top: 0,
+    right: area.width,
+    bottom: area.height
   });
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(fixture.commits.length);
 

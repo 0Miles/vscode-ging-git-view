@@ -8,6 +8,8 @@ status: accepted
 
 _有邊界的例外:圖內對話框要靠已載入的列才能運作的動作,側檢視不委派,改在 host 原生執行,見 ADR-0029(今天是 Stash 側檢視的動作)。_
 
+_桌面版的側檢視和圖形在同一頁,沒有行程要跨:分支動作不委派,直接呼叫圖形的同一套流程,見 ADR-0033。_
+
 ## 為什麼未來的讀者會困惑
 
 `copyName` 的批次實作在 `apps/vscode/src/extension.ts`,`delete` 的批次實作在 `packages/webview/src/main.ts` —— 同一個右鍵選單上的兩個項目落在兩個不同的行程裡,看起來像是有人偷懶沒統一。

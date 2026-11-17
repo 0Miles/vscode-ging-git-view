@@ -1,10 +1,10 @@
 /* The desktop entry: the webview bundle only the desktop host ships
  * (`apps/desktop`, #386). Desktop-only screens and the listener for the
  * desktop host's own messages come in through here and nowhere else
- * (ADR-0031). Today: the graph view, the marker, the host prompt overlay
- * (#390), the settings page (#397), the window's own page — the tab strip
- * and the Welcome page (#393) — the working tree panel (#403) and the diff
- * viewer (#404).
+ * (ADR-0031). Today: the graph view with its Branches and Remotes side views
+ * (#399), the marker, the host prompt overlay (#390), the settings page
+ * (#397), the window's own page — the tab strip and the Welcome page (#393) —
+ * the working tree panel (#403) and the diff viewer (#404).
  *
  * Importing it only marks the page; `startDesktopEntry` starts what the page
  * shows. The app calls it, handing in what the webview may not import itself:
@@ -21,6 +21,7 @@ import { type HostPromptReply, isHostPromptMessage } from "./hostPrompt";
 import { createHostPromptOverlay } from "./hostPromptOverlay";
 import type { SettingsPageState } from "./settings/protocol";
 import { startSettingsPage } from "./settings/settingsPage";
+import { startSideViews } from "./sideViews/sideViews";
 import { startWindowPage } from "./window/windowPage";
 import { startWorkingTreePanel } from "./workingTree/workingTreePanel";
 
@@ -95,7 +96,8 @@ export function startDesktopEntry({ editors }: DesktopEntryDeps): void {
       if (typeof viewState === "undefined") {
         reportMissing("graph page without a viewState");
       } else {
-        startGitGraphView();
+        // The side views sit beside the graph, in this page (#399).
+        startSideViews(startGitGraphView());
         // A graph page is one with a host instance behind it, and the instance
         // is what asks (#390). The settings page has none, so asks nothing.
         listenForHostPrompts();
