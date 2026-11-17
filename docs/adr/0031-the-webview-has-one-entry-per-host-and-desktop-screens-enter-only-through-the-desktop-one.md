@@ -101,6 +101,19 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **「這個 Tab 在等回答」的標記只畫在後面的 Tab 上。** 前景 Tab 的 prompt 就在畫面上，不需要再提醒;背景 Tab 的 prompt 畫在看不見的頁面裡，分頁列是使用者唯一看得到它的地方。標記不會把那個 Tab 拉到前面：搶走使用者正在用的 Tab 比晚一點回答更糟。
 - **Tab 的頁面不會被導覽走。** Tab 的 view 若被導覽到 `?id=M`,會畫出 Tab M 的圖形，訊息卻仍送到自己的實例。所以每個 Tab 的 webContents 擋掉 `will-navigate`、`window.open` 一律不開新視窗(網址交給 `Opener.openExternalUrl`),寫在 [pageGuard.ts](../../apps/desktop/src/pageGuard.ts) 的 `keepPageInPlace`,與設定視窗(「補記(#397)」)的規則相同;main process 自己的 `loadURL` 與重新載入不受影響。
 
+## 補記(2026-11-17,#403)
+
+**working tree 區由 working tree 面板填上:圖形頁上一個 `<aside id="workingTree">`,寬 `WORKING_TREE_WIDTH`(320px)、與視窗等高的 `position: fixed` 右側直欄。** 它在 [workingTreePanel.ts](../../packages/webview/src/desktop/workingTree/workingTreePanel.ts),只從桌面入口的 `graph` 頁啟動。
+
+- **開著時 `body` 帶 `workingTreeOpen`,`padding-right` 讓出它的寬度。** 上面「後果」最後一條要 #403 處理的 docked Commit Details View 與 `#scrollShadow`,連同同樣 fixed 在右上角的 find widget,都在這個 class 底下讓出右緣。樣式照「補記(#397)」的做法由模組自己插進一個 `<style>`,只用 `theme.ts` 已經提供的 `--vscode-*` 變數。版面由 [workingTree.spec.ts](../../e2e/webview/workingTree.spec.ts)(webview E2E)驗:直欄貼右、等高,圖形、控制列與 find widget 的右緣都在它左邊,關掉後寬度還給圖形。
+- **預設關著,開關記在頁面的 `localStorage`(`ging.workingTree.open`)。** 這只是每位使用者的便利:讀寫失敗就當成關著。打開它的入口是圖形自己的 Open Source Control View(uncommitted changes 那一列的選單),也就是 `openScmView` hook(ADR-0027 的同日補記);宿主送 `workingTreeShow`,面板打開並讀一次 status。`GraphInstance.showWorkingTree()` 送的是同一則訊息,留給應用程式選單(#396)接。
+- **協定:頁面送 `workingTreeLoad`、`workingTreeStage`、`workingTreeUnstage`、`workingTreeCommit`;宿主對每一個都回一則 `workingTreeStatus`,帶著做完之後讀到的 status、失敗的原因,以及面板的字串。** 型別在 [protocol.ts](../../packages/webview/src/desktop/workingTree/protocol.ts),`WORKING_TREE_COMMANDS_STAY_APART` 檢查它們不與 `RequestMessage` / `ResponseMessage` 撞名。字串跟著每個回答來,理由同「補記(#390)」的按鈕文字:面板因此不依賴 `webviewL10n`,VS Code 的 bundle 也不帶這些字串。
+- **面板畫的永遠是宿主回答的 status,不是它自己以為的結果。** 一個請求在外面時,所有按鈕停用;圖形被告知 `refresh`(檔案監看看到變更,或任何一次改動 repo 之後)時面板重讀一次,剛好有請求在外面就等它回來再讀。
+- **面板的鍵盤事件停在面板。** 圖形的 `documentKeydown` 會把方向鍵、Enter、Space 拿去移動列;面板在自己身上 `stopPropagation`,所以焦點在面板裡時圖形的快捷鍵不作用。訊息框裡按 Ctrl+Enter(macOS 是 ⌘Enter,placeholder 由宿主依平台寫明)commit。
+- **鍵盤到得了每個按鈕,重繪後也留在原處。** 每一列的按鈕平常淡出(`opacity: 0`),滑鼠移上或焦點在那一列時才顯示;不用 `visibility: hidden`,那會讓按鈕連 Tab 都到不了。請求在外時按鈕標 `aria-disabled`,不用 `disabled`:後者會把焦點從剛按下的按鈕上拿走。面板每次收到回答都整個重繪,重繪前記下焦點在哪個按鈕、哪個檔案,重繪後放回同一個;那個檔案已經離開這一組(例如剛被 stage),就放到接替它位置的那一列,再不然是那一組的「全部」按鈕。
+- **一組最多畫 500 列,其餘只寫「還有 N 個檔案」。** 沒被 ignore 的建置輸出可能有上千個未追蹤檔;Stage All 仍點名全部,不只畫出來的那些。
+- **點檔案列還沒有作用。** `startWorkingTreePanel({ showDiff })` 是留給 diff viewer(#404)的接縫:給了 `showDiff(file, area)`,檔案列才可以點、可以聚焦;#406 的 hunk stage 也從那裡進來。
+
 ## 補記(2026-11-17,#396)
 
 **Show Statistics 的統計頁不是桌面入口的一種頁面，而是兩個宿主共用的一份完整 HTML 文件**([statisticsMarkup.ts](../../packages/webview/src/statisticsMarkup.ts)),桌面版從 `ging://app/statistics` 提供，開在自己的視窗裡([statisticsWindow.ts](../../apps/desktop/src/statisticsWindow.ts))。
