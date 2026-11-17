@@ -121,10 +121,11 @@ export const GRAPH_SHORTCUT_KEYS = ["F", "R", "H", "S"] as const;
  *   run on its repository.
  * - Set Git User Details and Manage Pull Request Providers ask, and need a
  *   page that listens: a graph's or the Welcome page's, not a notice's.
- * - Settings…, Version Information and #394's entries always.
+ * - Settings… and Version Information always.
  * - Clone Repository… only on the Welcome page, and while no clone is under
  *   way: its progress and its credential prompts are drawn there, which a
- *   Tab's view covers (#395).
+ *   Tab's view covers (#395). #394's entries, which open a Tab, likewise not
+ *   while a clone is under way; otherwise always.
  *
  * Settings… is in the app menu on macOS, as the platform has it, and in the
  * File menu elsewhere.
@@ -164,7 +165,8 @@ export function appMenuTemplate(
     ...(openFolder
       ? [
           item(MENU_IDS.openFolder, "desktop.menu.openFolder", openFolder, {
-            accelerator: "CmdOrCtrl+O"
+            accelerator: "CmdOrCtrl+O",
+            enabled: !cloning
           })
         ]
       : []),
@@ -173,7 +175,7 @@ export function appMenuTemplate(
           {
             id: MENU_IDS.openRecent,
             label: label(l10n.t("desktop.menu.openRecent")),
-            enabled: recentRepos.length > 0,
+            enabled: recentRepos.length > 0 && !cloning,
             submenu: recentRepos.map((repo) => ({
               id: openRecentId(repo),
               label: label(repo),
@@ -190,7 +192,11 @@ export function appMenuTemplate(
         ]
       : []),
     ...(initRepository
-      ? [item(MENU_IDS.initRepository, "desktop.menu.initRepository", initRepository)]
+      ? [
+          item(MENU_IDS.initRepository, "desktop.menu.initRepository", initRepository, {
+            enabled: !cloning
+          })
+        ]
       : [])
   ];
   // A separator between each group there is.

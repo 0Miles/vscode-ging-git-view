@@ -316,6 +316,12 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
           focused === null ? welcomeCommands : focused.content.page.instance?.commands;
         if (commands) void run(commands);
       };
+    /** `run`, unless a clone is asked for or running (#395). */
+    const unlessCloning =
+      (run: () => void): (() => void) =>
+      () => {
+        if (!repoCloning?.busy()) run();
+      };
     return {
       openSettings: () => settingsWindow?.open(),
       fetch: onGraph((c) => c.fetch()),
@@ -343,9 +349,15 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       },
       // #394's: the folder is asked in the system's own dialog, so these need
       // no page, Tab or no Tab.
-      openFolder: () => void repoOpening?.openFolder(),
-      openRecent: (repo) => void repoOpening?.openRecent(repo).finally(checkRecentWhileShown),
-      initRepository: () => void repoOpening?.initRepo(),
+      // Not while a clone is under way (the template disables them): a Tab
+      // would cover its progress and the credentials it may ask for.
+      openFolder: unlessCloning(() => void repoOpening?.openFolder()),
+      openRecent: (repo) => {
+        if (!repoCloning?.busy()) {
+          void repoOpening?.openRecent(repo).finally(checkRecentWhileShown);
+        }
+      },
+      initRepository: unlessCloning(() => void repoOpening?.initRepo()),
       // Asked and shown on the Welcome page, so enabled only while no Tab
       // covers it (appMenu.ts).
       cloneRepository: () => void repoCloning?.clone()
@@ -489,6 +501,28 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     openInTab(target.repo);
   };
 
+  /** What later launches named while a clone was asked for or running
+   *  (#395), in the order they came: opened once it is done. */
+  let launchesWaiting: (RepoToOpen | null)[] = [];
+  /** `open` what a later launch named — unless a clone is under way: its
+   *  prompts and progress are on the Welcome page, which a Tab would cover,
+   *  leaving git waiting on a credential nobody can see. */
+  const openOrWait = (target: RepoToOpen | null) => {
+    if (target === null) return;
+    if (repoCloning?.busy()) {
+      logger.log("launch: a clone is under way, opening what was named once it is done");
+      launchesWaiting.push(target);
+      return;
+    }
+    open(target);
+  };
+  /** The clone is done: open what launches named meanwhile. */
+  const openWaitingLaunches = () => {
+    const waiting = launchesWaiting;
+    launchesWaiting = [];
+    waiting.forEach(open);
+  };
+
   /** Open `repo`, a repository as git spells it, in a Tab of its own — or
    *  focus the Tab it is open in — and put it first in the recent list. Named
    *  on a command line or chosen in the app alike (GLOSSARY.md's Known
@@ -584,7 +618,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     } else {
       logLaunch(request, logger);
       // In a Tab of its own, or the one it is open in, brought forward.
-      void check(request).then(open);
+      void check(request).then(openOrWait);
     }
     const owner = liveWindow();
     if (owner !== null) {
@@ -603,17 +637,20 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   });
 
   app.on("window-all-closed", () => app.quit());
-  // The log is written out before the process goes, and a clone cancelled
-  // has removed what it made (#395): quitting waits once for both, then goes on.
+  // The log and the state file are written out before the process goes, and
+  // a clone cancelled has removed what it made (#395): quitting waits once for
+  // all three, then goes on.
   let logClosed = false;
   app.on("will-quit", (event) => {
     if (logClosed) return;
     event.preventDefault();
     disposeWindow();
     void cloneEnded
-      .then(() => {
+      .then(async () => {
         // After the clone: its askpass route is the shared server's.
         shared?.dispose();
+        // The Tabs as they stand, the recent list's order: the next session's.
+        await shared?.storage.flush();
         return logger.close();
       })
       .finally(() => {
@@ -877,6 +914,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       onChange: () => {
         postWindowState();
         syncMenu();
+        if (!repoCloning?.busy()) openWaitingLaunches();
       }
     });
 

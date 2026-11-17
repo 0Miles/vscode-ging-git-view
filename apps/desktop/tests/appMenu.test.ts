@@ -286,13 +286,23 @@ describe("the application menu", () => {
     }
   });
 
-  it("offers no second Clone Repository while one is asked for or running", () => {
-    const enabled = (cloning: boolean) =>
-      entry(template(mockCommands(), { focus: "welcome", cloning }), MENU_IDS.cloneRepository)
-        ?.enabled;
+  // While a clone is asked for or running, nothing that would open a Tab over
+  // the Welcome page its prompts and progress are drawn on (#395).
+  it.each([
+    [MENU_IDS.cloneRepository, true, false],
+    [MENU_IDS.openFolder, true, false],
+    [MENU_IDS.openRecent, true, false],
+    [MENU_IDS.initRepository, true, false],
+    [MENU_IDS.settings, true, true],
+    [MENU_IDS.versionInfo, true, true],
+    [MENU_IDS.setGitUserDetails, true, true]
+  ])("enables %s %s with no clone, %s with one under way", (id, idle, cloning) => {
+    const enabled = (busy: boolean) =>
+      entry(template(mockCommands(), { focus: "welcome", recentRepos: ["/r"], cloning: busy }), id)
+        ?.enabled ?? true;
 
-    expect(enabled(false)).toBe(true);
-    expect(enabled(true)).toBe(false);
+    expect(enabled(false)).toBe(idle);
+    expect(enabled(true)).toBe(cloning);
   });
 
   it("lists Open Recent's repositories, each by an id of its own, and opens the one clicked", () => {

@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -37,6 +37,25 @@ async function launch(): Promise<ElectronApplication> {
     env: env as Record<string, string>
   });
   return app;
+}
+
+/** Launch the app again while it runs, naming `repo`: the second instance
+ *  hands its command line to the first and exits (#386). */
+async function launchAgainWith(repo: string): Promise<void> {
+  const sandbox = process.platform === "linux" ? ["--no-sandbox"] : [];
+  const second = spawn(
+    ELECTRON,
+    [
+      ...sandbox,
+      "--lang=en-US",
+      APP_DIR,
+      `--user-data-dir=${path.join(scratch, "userData")}`,
+      "--repo",
+      repo
+    ],
+    { env, stdio: "ignore" }
+  );
+  expect(await new Promise((resolve) => second.on("exit", resolve))).toBe(0);
 }
 
 /** Close the app, once it has written its log out, and read the log. */
@@ -212,9 +231,11 @@ test("a remote that asks for credentials asks on the Welcome page, and a clone i
   expect(logged).not.toContain("ERROR:");
 });
 
-test("Cancel stops git, every process of it, and removes the folder it made", async () => {
+test("Cancel stops git, every process of it, and removes the folder it made; nothing opens over the clone meanwhile", async () => {
   const remote: StallingRemote = await startStallingRemote();
   servers.push(remote);
+  const fixture = makeFixtureRepo(env);
+  cleanUp.push(fixture.path);
   const parent = path.join(scratch, "clones");
   mkdirSync(parent);
   const folder = path.join(parent, "repo");
@@ -236,6 +257,18 @@ test("Cancel stops git, every process of it, and removes the folder it made", as
   await expect.poll(() => remote.requests()).toBeGreaterThan(0);
   expect(existsSync(folder)).toBe(true);
   await expect.poll(() => cloneEnabled(electronApp)).toBe(false);
+  // Nothing that would open a Tab over the clone's panel is offered...
+  expect(
+    await electronApp.evaluate(({ Menu }) =>
+      ["ging.openFolder", "ging.initRepository"].map(
+        (id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled
+      )
+    )
+  ).toEqual([false, false]);
+  // ...and a later launch naming a repository waits for the clone.
+  await launchAgainWith(fixture.path);
+  await expect(window.locator("#tabStrip")).toBeHidden();
+  await expect(panel).toBeVisible();
 
   await panel.getByRole("button", { name: "Cancel" }).click();
 
@@ -243,10 +276,13 @@ test("Cancel stops git, every process of it, and removes the folder it made", as
   await expect.poll(() => existsSync(folder)).toBe(false);
   // Nothing of git's is left holding the remote's connection.
   await expect.poll(() => remote.connections()).toBe(0);
-  await expect(window.locator("#tabStrip")).toBeHidden();
-  await expect.poll(() => cloneEnabled(electronApp)).toBe(true);
+  // What the launch named opens once the clone is done.
+  await expect
+    .poll(async () => (await stripTabs(window)).map(({ title }) => title))
+    .toEqual([path.basename(fixture.path)]);
 
   const logged = await closeAndReadLog();
+  expect(logged).toContain("launch: a clone is under way, opening what was named once it is done");
   expect(logged).toContain("clone: cancelling");
   expect(logged).toContain("clone: cancelled");
   expect(logged).not.toContain("ERROR:");

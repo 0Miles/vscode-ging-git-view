@@ -486,7 +486,7 @@
   "desktop.clone.cancelling": "正在取消...",
   "clone.unableTo": "無法複製存放庫",
   "clone.url.empty": "請輸入要複製的存放庫 URL。",
-  "clone.url.option": "要複製的 URL 不能以「-」開頭。",
+  "clone.url.option": "要複製的 URL、它的主機與使用者名稱都不能以「-」開頭。",
   "clone.url.transport": "<transport>::<address> 形式的 URL 會執行程式來連線遠端，不予複製。",
   "clone.url.control": "URL 裡有控制字元，例如換行。",
   "clone.url.scheme": "只複製 https、http、ssh、git 與 file 的 URL。",

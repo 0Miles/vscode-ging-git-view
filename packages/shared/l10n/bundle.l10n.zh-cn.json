@@ -486,7 +486,7 @@
   "desktop.clone.cancelling": "正在取消...",
   "clone.unableTo": "无法克隆仓库",
   "clone.url.empty": "请输入要克隆的仓库 URL。",
-  "clone.url.option": "要克隆的 URL 不能以“-”开头。",
+  "clone.url.option": "要克隆的 URL、它的主机与用户名都不能以“-”开头。",
   "clone.url.transport": "<transport>::<address> 形式的 URL 会运行程序来连接远程，不予克隆。",
   "clone.url.control": "URL 里有控制字符，例如换行。",
   "clone.url.scheme": "只克隆 https、http、ssh、git 和 file 的 URL。",

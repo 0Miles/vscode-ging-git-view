@@ -486,7 +486,7 @@
   "desktop.clone.cancelling": "Cancelling...",
   "clone.unableTo": "Unable to Clone Repository",
   "clone.url.empty": "Enter the URL of the repository to clone.",
-  "clone.url.option": "A URL to clone cannot start with \"-\".",
+  "clone.url.option": "A URL to clone, its host and its user name cannot start with \"-\".",
   "clone.url.transport": "URLs of the form <transport>::<address> run a program to reach the remote, and are not cloned.",
   "clone.url.control": "The URL has a control character in it, such as a line break.",
   "clone.url.scheme": "Only https, http, ssh, git and file URLs are cloned.",
