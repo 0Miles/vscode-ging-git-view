@@ -76,6 +76,10 @@ export type SideViewStateMessage = {
   repo: string;
   branches: SideViewBranches | null;
   remotes: SideViewRemote[] | null;
+  /** The `seq` of the last `sideViewSetFilter` the host had taken when it
+   *  sent this; 0 before any since the page loaded. The page keeps its own
+   *  highlight against a state from before its latest ask. */
+  filterSeq: number;
   /** Which branch actions the settings hide, as the graph's menu reads them. */
   cmv: Pick<ContextMenuActionsVisibility, "branch" | "remoteBranch">;
   strings: SideViewStrings;
@@ -93,8 +97,8 @@ export type SideViewRequest =
   | { command: "sideViewRefresh" }
   | { command: "sideViewToggle"; field: SideViewToggleField }
   /** Make `branches` the repo's branch filter: the tree's selection, or
-   *  Show All's empty one. */
-  | { command: "sideViewSetFilter"; repo: string; branches: string[] }
+   *  Show All's empty one. `seq` counts the page's asks, from 1 at each load. */
+  | { command: "sideViewSetFilter"; repo: string; branches: string[]; seq: number }
   /** A batch action whose every selected branch was ruled out, for the host
    *  to say so. */
   | { command: "sideViewNoTargets"; skipped: BatchSkipped[] }
@@ -124,6 +128,7 @@ export function isSideViewStateMessage(data: unknown): data is SideViewStateMess
     isRecord(data) &&
     data.command === "sideViewState" &&
     typeof data.repo === "string" &&
+    typeof data.filterSeq === "number" &&
     isRecord(data.cmv) &&
     isRecord(data.strings)
   );
@@ -158,7 +163,9 @@ export function isSideViewRequest(data: unknown): data is SideViewRequest {
     case "sideViewToggle":
       return typeof data.field === "string" && TOGGLE_FIELDS.includes(data.field);
     case "sideViewSetFilter":
-      return typeof data.repo === "string" && isStrings(data.branches);
+      return (
+        typeof data.repo === "string" && isStrings(data.branches) && typeof data.seq === "number"
+      );
     case "sideViewNoTargets":
       return (
         Array.isArray(data.skipped) &&

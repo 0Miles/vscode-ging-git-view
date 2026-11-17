@@ -7,14 +7,16 @@
  * backend test project, like its neighbours in this directory.
  */
 
-import type {
-  BranchActionTarget,
-  BranchActionTargets
+import {
+  type BranchActionTarget,
+  type BranchActionTargets,
+  planBatch
 } from "@ging/shared/backend/utils/branchActionTargets";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
+  headGuardBlocks,
   isHostAction,
-  REF_ACTION_CATALOGUE,
+  refKindsAdmit,
   type CatalogueRefAction,
   type HostRefAction
 } from "@ging/shared/backend/utils/refActionCatalogue";
@@ -114,10 +116,9 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
   const run = async (item: unknown, action: CatalogueRefAction): Promise<void> => {
     const target = deps.resolveTarget(item);
     if (target === null) return;
-    const spec = REF_ACTION_CATALOGUE[action];
     // A kind mismatch can only mean a mis-wired menu contribution — fail loud
     // at the source instead of a silent no-op at the far end (ADR-0010).
-    if (spec.refKinds === (target.isRemote ? "local" : "remote")) {
+    if (!refKindsAdmit(action, target.isRemote)) {
       throw new Error(
         `Branch action "${action}" does not apply to ${target.isRemote ? "remote" : "local"} ref "${target.branch}"`
       );
@@ -129,7 +130,7 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
     // The same guard the menus express as `viewItem == branch-local`: these
     // actions never apply to the checked-out branch. Checked before opening
     // the panel, so it doesn't pop up just to do nothing.
-    if (spec.headGuard && target.isCurrent) return;
+    if (headGuardBlocks(action, { isHead: target.isCurrent })) return;
     await deliver({
       command: "runRefAction",
       repo: target.repo,
@@ -143,23 +144,28 @@ export function createBranchActionDelegate(deps: BranchActionDelegateDeps) {
   const runBatch = async (items: unknown[], action: BatchAction): Promise<void> => {
     const resolved = deps.resolveBatchTargets(items, action);
     if (resolved === null) return;
-    if (isHostAction(action)) {
-      if (resolved.targets.length > 0) hostBatchHandlers[action](resolved.targets);
-      return;
+    // What the batch comes to is shared with the desktop side view's
+    // (`planBatch`); only carrying it out is this host's.
+    const plan = planBatch(action, resolved);
+    switch (plan.kind) {
+      case "none":
+        return;
+      case "host":
+        hostBatchHandlers[plan.action](plan.targets);
+        return;
+      case "noTargets":
+        deps.showNoTargets(plan.skipped);
+        return;
+      case "graph":
+        await deliver({
+          command: "runRefBatchAction",
+          repo: plan.repo,
+          action: plan.action,
+          targets: plan.targets,
+          skipped: plan.skipped,
+          seq: ++seq
+        });
     }
-    if (resolved.targets.length === 0) {
-      // Every selected branch was ruled out.
-      deps.showNoTargets(resolved.skipped);
-      return;
-    }
-    await deliver({
-      command: "runRefBatchAction",
-      repo: resolved.repo,
-      action,
-      targets: resolved.targets,
-      skipped: resolved.skipped,
-      seq: ++seq
-    });
   };
 
   /** Open the cleanup dialog on an already-built payload. The candidate rules

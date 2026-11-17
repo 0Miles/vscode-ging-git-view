@@ -345,7 +345,12 @@ describe("a graph instance", () => {
     const page = open(repos[0]);
     await page.receive({ command: "selectRepo", repo: repos[0] });
 
-    page.instance.sideView({ command: "sideViewSetFilter", repo: repos[0], branches: ["main"] });
+    await page.instance.sideView({
+      command: "sideViewSetFilter",
+      repo: repos[0],
+      branches: ["main"],
+      seq: 1
+    });
     expect(sentOf(page.posted, "setBranchFilter")).toEqual([
       { command: "setBranchFilter", branches: ["main"] }
     ]);
@@ -366,7 +371,12 @@ describe("a graph instance", () => {
     const { repos, open } = setUp();
     const page = open(repos[0]);
     await page.receive({ command: "selectRepo", repo: repos[0] });
-    page.instance.sideView({ command: "sideViewSetFilter", repo: repos[0], branches: ["main"] });
+    await page.instance.sideView({
+      command: "sideViewSetFilter",
+      repo: repos[0],
+      branches: ["main"],
+      seq: 1
+    });
 
     await page.receive({ command: "clearBranchFilter", repo: repos[1] });
 

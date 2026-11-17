@@ -187,12 +187,26 @@ describe("the desktop side views' host half", () => {
     views.receive({ command: "sideViewReady" });
     await settled();
 
-    views.receive({ command: "sideViewSetFilter", repo: "/repos/other", branches: ["main"] });
+    void views.receive({
+      command: "sideViewSetFilter",
+      repo: "/repos/other",
+      branches: ["main"],
+      seq: 1
+    });
     expect(filterStore.get(REPO)).toEqual([]);
 
-    views.receive({ command: "sideViewSetFilter", repo: REPO, branches: ["old"] });
+    void views.receive({ command: "sideViewSetFilter", repo: REPO, branches: ["old"], seq: 2 });
     expect(filterStore.get(REPO)).toEqual(["old"]);
-    await vi.waitFor(() => expect(sent.at(-1)!.branches!.filter).toEqual(["old"]));
+    // Sent with the number of the ask it follows.
+    await vi.waitFor(() =>
+      expect(sent.at(-1)).toMatchObject({ branches: { filter: ["old"] }, filterSeq: 2 })
+    );
+
+    // An ask that moves nothing is still owed word that it was taken.
+    const before = sent.length;
+    void views.receive({ command: "sideViewSetFilter", repo: REPO, branches: ["old"], seq: 3 });
+    expect(sent).toHaveLength(before + 1);
+    expect(sent.at(-1)).toMatchObject({ filterSeq: 3 });
 
     // The graph's filter chip, through the dispatch's hook.
     views.showAll("/repos/other");

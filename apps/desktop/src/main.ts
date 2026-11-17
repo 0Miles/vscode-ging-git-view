@@ -759,8 +759,15 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         // (ADR-0031).
         deliver: (message) => {
           if (isHostPromptReply(message)) prompts.receive(message);
-          else if (isSideViewRequest(message)) void instance.sideView(message);
-          else deliver(message);
+          else if (isSideViewRequest(message)) {
+            // As `deliver` does for the graph's: what throws has no one else
+            // to tell.
+            instance
+              .sideView(message)
+              .catch((e: unknown) =>
+                logger.logError(`side views: handling "${message.command}" failed: ${String(e)}`)
+              );
+          } else deliver(message);
         },
         asking: false,
         dispose: () => {

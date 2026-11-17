@@ -12,9 +12,11 @@ import {
   CATALOGUE_REF_ACTIONS,
   type CatalogueRefAction,
   type CmvKey,
+  headGuardBlocks,
   isBatchAction,
   REF_ACTION_CATALOGUE,
-  refActionVisibility
+  refActionVisibility,
+  refKindsAdmit
 } from "@ging/shared/backend/utils/refActionCatalogue";
 import type { BatchAction, ContextMenuActionsVisibility } from "@ging/shared/types";
 import { ELLIPSIS } from "@ging/webview/utils/git";
@@ -99,10 +101,10 @@ export function singleActionApplies(
   row: BranchRowFacts,
   ctx: BranchMenuContext
 ): boolean {
-  const spec = REF_ACTION_CATALOGUE[action];
-  if (spec.refKinds === (row.isRemote ? "local" : "remote")) return false;
-  if (spec.headGuard && row.isHead) return false;
-  if (spec.needsRemotes && !ctx.hasRemotes) return false;
+  if (!refKindsAdmit(action, row.isRemote)) return false;
+  // The same predicate VS Code's delegate asks before it opens the graph.
+  if (headGuardBlocks(action, row)) return false;
+  if (REF_ACTION_CATALOGUE[action].needsRemotes && !ctx.hasRemotes) return false;
   if (row.isRemote && PRESENTATION[action].singleOnRemote === false) return false;
   return refActionVisibility(action, categoryOf(row), ctx.cmv) !== false;
 }

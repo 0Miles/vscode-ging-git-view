@@ -55,6 +55,9 @@ body.gingSideViews.workingTreeOpen #scrollShadow.active { right: ${WORKING_TREE_
 .sideViewRow { display: flex; align-items: center; height: 22px; padding-right: 8px; white-space: nowrap; cursor: pointer; }
 .sideViewRow:hover { background-color: var(--vscode-list-hoverBackground); }
 .sideViewRow.selected { background-color: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+/* As VS Code's lists: the selection of a list without the keyboard is drawn
+   quieter, the theme's inactive selection with the text left as it is. */
+#sideViews:not(:focus-within) .sideViewRow.selected { background-color: var(--vscode-list-inactiveSelectionBackground); color: inherit; }
 .sideViewRow:focus { outline: 1px solid var(--vscode-list-focusOutline); outline-offset: -1px; }
 .sideViewRow.contextMenuActive { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .sideViewTwisty { display: flex; align-items: center; justify-content: center; width: 16px; flex: 0 0 16px; }

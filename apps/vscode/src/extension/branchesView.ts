@@ -10,6 +10,7 @@ import {
 } from "@ging/core/extension/branchSelectionReconciler";
 import { sideViewBranchRoots } from "@ging/core/extension/branchSideView";
 import {
+  actionTargetRefs,
   type BranchActionTarget,
   type BranchActionTargets,
   resolveActionTargets
@@ -547,12 +548,7 @@ export function createBranchesView(deps: BranchesProviderDeps) {
     const selected = selectedBranchRefs(
       items.filter((i): i is BranchItem => i instanceof BranchItem)
     );
-    const { targets, skipped } = resolveActionTargets(provider.getRoots(), selected, action);
-    return {
-      repo,
-      targets: targets.map((leaf) => leaf.branch),
-      skipped: skipped.map((s) => ({ ref: s.leaf.branch, reason: s.reason }))
-    };
+    return actionTargetRefs(repo, resolveActionTargets(provider.getRoots(), selected, action));
   };
 
   return {

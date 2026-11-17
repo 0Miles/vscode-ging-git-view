@@ -6,8 +6,12 @@
  * where its side view is drawn (#399).
  */
 
-import { batchSkipReason } from "@ging/shared/backend/utils/refActionCatalogue";
-import type { BatchAction, BatchSkipped } from "@ging/shared/types";
+import {
+  batchSkipReason,
+  type HostRefAction,
+  isHostAction
+} from "@ging/shared/backend/utils/refActionCatalogue";
+import type { BatchAction, BatchSkipped, DelegatedBatchAction } from "@ging/shared/types";
 
 import type { BranchTreeLeaf, BranchTreeNode } from "./branchTree";
 
@@ -65,6 +69,55 @@ export type BranchActionTargets = {
   targets: string[];
   skipped: BatchSkipped[];
 };
+
+/** `resolved`, for `repo`, as refs: the form a batch is planned in. */
+export function actionTargetRefs(repo: string, resolved: ActionTargets): BranchActionTargets {
+  return {
+    repo,
+    targets: resolved.targets.map((leaf) => leaf.branch),
+    skipped: resolved.skipped.map((s) => ({ ref: s.leaf.branch, reason: s.reason }))
+  };
+}
+
+/** What a batch action comes to, once its targets are resolved. */
+export type BatchPlan =
+  /** Asks nothing, so it never involves the graph (ADR-0009): run it on the
+   *  targets, in tree order. */
+  | { kind: "host"; action: HostRefAction; targets: string[] }
+  /** A host action with nothing to act on: nothing happens, and nothing is
+   *  said — copying no names needs no explanation. */
+  | { kind: "none" }
+  /** Every selected branch was ruled out: say so, naming them and why —
+   *  "nothing happened" reads like a bug. */
+  | { kind: "noTargets"; skipped: BatchSkipped[] }
+  /** The graph's batch flow, with the skipped ones named in its
+   *  confirmation. Never with an empty target set. */
+  | {
+      kind: "graph";
+      action: DelegatedBatchAction;
+      repo: string;
+      targets: string[];
+      skipped: BatchSkipped[];
+    };
+
+/** The one decision of a batch run, for both hosts: VS Code's delegate
+ *  carries a `graph` plan over to the webview, the desktop side view hands it
+ *  to the graph in its own page (ADR-0033). */
+export function planBatch(action: BatchAction, resolved: BranchActionTargets): BatchPlan {
+  if (isHostAction(action)) {
+    return resolved.targets.length === 0
+      ? { kind: "none" }
+      : { kind: "host", action, targets: resolved.targets };
+  }
+  if (resolved.targets.length === 0) return { kind: "noTargets", skipped: resolved.skipped };
+  return {
+    kind: "graph",
+    action,
+    repo: resolved.repo,
+    targets: resolved.targets,
+    skipped: resolved.skipped
+  };
+}
 
 /** The branch a context-menu command operates on. */
 export type BranchActionTarget = {

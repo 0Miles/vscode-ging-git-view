@@ -97,6 +97,8 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
   const { repo, l10n, config } = deps;
 
   let listening = false;
+  /** The last filter the page asked for that this has taken (its `seq`). */
+  let filterSeq = 0;
   let branches: SideViewBranches | null = null;
   let remotes: SideViewRemote[] | null = null;
   // Guards against a slower earlier read overwriting a later one.
@@ -163,6 +165,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
       repo,
       branches,
       remotes,
+      filterSeq,
       cmv: config.contextMenuActionsVisibility(),
       strings: strings()
     });
@@ -293,7 +296,11 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
       }
       case "sideViewSetFilter":
         // Only its own repository's: a page is not to be taken at its word.
-        if (message.repo === repo) deps.filterStore.set(repo, message.branches);
+        if (message.repo !== repo) break;
+        filterSeq = message.seq;
+        // A filter that moved is read again, and sent with this number; one
+        // that did not still owes the page word that its ask was taken.
+        if (!deps.filterStore.set(repo, message.branches)) send();
         break;
       case "sideViewNoTargets":
         void deps.prompts.showInformation(batchNoTargetsMessage(l10n, message.skipped));
@@ -320,6 +327,8 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     },
     pageLoading: () => {
       listening = false;
+      // The new page counts its asks from 1 again.
+      filterSeq = 0;
     },
     showAll: (requested) => {
       if (showAllRepo(repo, requested) !== null) deps.filterStore.set(repo, []);

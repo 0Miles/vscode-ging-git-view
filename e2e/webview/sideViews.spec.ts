@@ -55,6 +55,7 @@ function sideViewState(page: Page, filter: string[] = []) {
       return {
         command: "sideViewState",
         repo: viewState.lastActiveRepo,
+        filterSeq: 0,
         branches: {
           roots,
           rows: {},
@@ -201,11 +202,27 @@ test("a click on a branch asks the host for the filter it makes", async ({ page 
       {
         command: "sideViewSetFilter",
         repo: expect.any(String),
-        branches: ["develop"]
+        branches: ["develop"],
+        seq: 1
       }
     ]);
   await expect(page.locator('#sideViews [data-ref="develop"]')).toHaveAttribute(
     "aria-selected",
     "true"
   );
+
+  // The selection is drawn as VS Code's lists draw it: the active colour while
+  // the keyboard is in the views, the quieter inactive one once it is not.
+  await page.evaluate(() => {
+    const root = globalThis.document.documentElement.style;
+    root.setProperty("--vscode-list-activeSelectionBackground", "rgb(1, 2, 3)");
+    root.setProperty("--vscode-list-inactiveSelectionBackground", "rgb(4, 5, 6)");
+  });
+  const develop = page.locator('#sideViews [data-ref="develop"]');
+  const background = () =>
+    develop.evaluate((el) => globalThis.getComputedStyle(el).backgroundColor);
+  await expect(develop).toBeFocused();
+  expect(await background()).toBe("rgb(1, 2, 3)");
+  await develop.evaluate((el) => (el as HTMLElement).blur());
+  expect(await background()).toBe("rgb(4, 5, 6)");
 });

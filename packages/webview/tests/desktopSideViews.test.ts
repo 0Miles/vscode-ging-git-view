@@ -60,11 +60,18 @@ const STRINGS = Object.fromEntries(
 
 const BRANCHES = ["main", "feature/login", "topic", "remotes/origin/main"];
 
-function state(filter: string[] = [], remotes = true): SideViewStateMessage {
+/** A state as the host sends it. `filterSeq` defaults to a host that has
+ *  taken every ask the page has made. */
+function state(
+  filter: string[] = [],
+  remotes = true,
+  filterSeq = Number.MAX_SAFE_INTEGER
+): SideViewStateMessage {
   const roots = buildGroupedBranchRoots(BRANCHES, "main");
   return {
     command: "sideViewState",
     repo: DEFAULT_REPO,
+    filterSeq,
     branches: {
       roots,
       rows: Object.fromEntries(
@@ -180,10 +187,28 @@ describe("the desktop side views", () => {
         {
           command: "sideViewSetFilter",
           repo: DEFAULT_REPO,
-          branches: ["topic", "remotes/origin/main"]
+          branches: ["topic", "remotes/origin/main"],
+          seq: expect.any(Number)
         }
       ])
     );
+  });
+
+  it("keeps a click's highlight against a state read before the host took it", async () => {
+    hostSays(state([]));
+    clickElem(row("topic"));
+    await vi.waitFor(() => expect(sideViewPosts()).toHaveLength(1));
+    const asked = (sideViewPosts()[0] as unknown as { seq: number }).seq;
+
+    // Read before the ask landed: the old, empty filter.
+    hostSays(state([], true, asked - 1));
+    expect(row("topic").getAttribute("aria-selected")).toBe("true");
+
+    // Read after it: the host's word again, whatever it says.
+    hostSays(state(["topic"], true, asked));
+    expect(row("topic").getAttribute("aria-selected")).toBe("true");
+    hostSays(state([], true, asked));
+    expect(row("topic").getAttribute("aria-selected")).toBe("false");
   });
 
   it("highlights the filter the host says, whoever wrote it", () => {
@@ -256,7 +281,7 @@ describe("the desktop side views", () => {
     clickElem(document.querySelector('#branchesView .sideViewActions [data-action="showAll"]')!);
 
     expect(sideViewPosts()).toEqual([
-      { command: "sideViewSetFilter", repo: DEFAULT_REPO, branches: [] }
+      { command: "sideViewSetFilter", repo: DEFAULT_REPO, branches: [], seq: expect.any(Number) }
     ]);
     expect(document.querySelectorAll("#branchesView .sideViewRow.selected")).toHaveLength(0);
   });

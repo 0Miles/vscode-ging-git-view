@@ -16,10 +16,13 @@
  * selection, which is why its side view has direct writes and a one-shot
  * suppression (GLOSSARY.md); a page can draw any selection, so here the
  * highlight is simply the filter the host last said, and a click asks the
- * host for a new one. */
+ * host for a new one. Each ask is numbered, and the host says which one it
+ * had taken when it read each state, so a state read before the latest click
+ * cannot flip the highlight back while the click is on its way. */
 
 import {
-  type BranchActionTargets,
+  actionTargetRefs,
+  planBatch,
   resolveActionTargets
 } from "@ging/shared/backend/utils/branchActionTargets";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
@@ -138,7 +141,9 @@ export function startSideViews(graph: GraphInPage): void {
   let state: SideViewStateMessage | null = null;
   /** The highlighted branches: the filter the host last said, or the one a
    *  click is about to write. */
-  let selected: string[] = [];
+  let selected = new Set<string>();
+  /** The number of the last filter this page asked the host for. */
+  let filterAsked = 0;
   let pendingWrite: ReturnType<typeof setTimeout> | null = null;
   /** Overrides of `expandedByDefault`, by row key. */
   const expanded = new Map<string, boolean>();
@@ -204,7 +209,7 @@ export function startSideViews(graph: GraphInPage): void {
       }<span class="sideViewLabel">${escapeHtml(label)}</span></div>`;
     }
     const text = state!.branches!.rows[node.branch];
-    const isSelected = selected.includes(node.branch);
+    const isSelected = selected.has(node.branch);
     const classes = [
       "sideViewRow",
       "leaf",
@@ -247,7 +252,7 @@ export function startSideViews(graph: GraphInPage): void {
     }
     if (focusKey === null || !branchRows.some((r) => r.key === focusKey)) {
       focusKey = (
-        branchRows.find((r) => r.node.type === "leaf" && selected.includes(r.node.branch)) ??
+        branchRows.find((r) => r.node.type === "leaf" && selected.has(r.node.branch)) ??
         branchRows[0]
       ).key;
     }
@@ -324,22 +329,24 @@ export function startSideViews(graph: GraphInPage): void {
   const writeFilter = () => {
     if (pendingWrite !== null) clearTimeout(pendingWrite);
     pendingWrite = null;
-    if (state !== null)
-      post({ command: "sideViewSetFilter", repo: state.repo, branches: selected });
+    if (state === null) return;
+    post({
+      command: "sideViewSetFilter",
+      repo: state.repo,
+      branches: [...selected],
+      seq: ++filterAsked
+    });
   };
   const select = (ref: string, toggle: boolean) => {
-    selected = toggle
-      ? selected.includes(ref)
-        ? selected.filter((r) => r !== ref)
-        : [...selected, ref]
-      : [ref];
+    if (!toggle) selected = new Set([ref]);
+    else if (!selected.delete(ref)) selected.add(ref);
     renderBranches();
     if (pendingWrite !== null) clearTimeout(pendingWrite);
     pendingWrite = setTimeout(writeFilter, FILTER_WRITE_DELAY_MS);
   };
   /** Show All: the empty filter, at once. */
   const showAll = () => {
-    selected = [];
+    selected = new Set();
     renderBranches();
     writeFilter();
   };
@@ -373,21 +380,22 @@ export function startSideViews(graph: GraphInPage): void {
   /** Run a batch `action` on the selection, in the tree's order. */
   const runOnSelection = (action: BatchAction) => {
     if (state === null || state.branches === null) return;
-    const resolved = resolveActionTargets(state.branches.roots, selected, action);
-    const targets: BranchActionTargets = {
-      repo: state.repo,
-      targets: resolved.targets.map((leaf) => leaf.branch),
-      skipped: resolved.skipped.map((s) => ({ ref: s.leaf.branch, reason: s.reason }))
-    };
-    if (isHostAction(action)) {
-      if (targets.targets.length > 0) PAGE_HOST_ACTIONS[action](targets.targets);
-      return;
+    const resolved = resolveActionTargets(state.branches.roots, [...selected], action);
+    // What the batch comes to is VS Code's delegate's decision too
+    // (`planBatch`); only carrying it out is this page's.
+    const plan = planBatch(action, actionTargetRefs(state.repo, resolved));
+    switch (plan.kind) {
+      case "none":
+        return;
+      case "host":
+        PAGE_HOST_ACTIONS[plan.action](plan.targets);
+        return;
+      case "noTargets":
+        post({ command: "sideViewNoTargets", skipped: plan.skipped });
+        return;
+      case "graph":
+        graph.runRefBatchAction(plan.action, plan.targets, plan.skipped, plan.repo);
     }
-    if (targets.targets.length === 0) {
-      post({ command: "sideViewNoTargets", skipped: targets.skipped });
-      return;
-    }
-    graph.runRefBatchAction(action, targets.targets, targets.skipped, targets.repo);
   };
 
   const openBranchMenu = (e: Event, row: HTMLElement) => {
@@ -397,7 +405,7 @@ export function startSideViews(graph: GraphInPage): void {
     const repo = state.repo;
     const strings = state.strings;
     const items =
-      selected.length > 1 && selected.includes(leaf.branch)
+      selected.size > 1 && selected.has(leaf.branch)
         ? batchBranchMenu(
             menuContext(),
             {
@@ -621,9 +629,11 @@ export function startSideViews(graph: GraphInPage): void {
   window.addEventListener("message", (event: MessageEvent) => {
     if (!isSideViewStateMessage(event.data)) return;
     state = event.data;
-    // A write still waiting is the user's latest word, and the host's state
-    // is from before it.
-    if (pendingWrite === null) selected = state.branches?.filter ?? [];
+    // A write still waiting, or one the host had not taken when it read this
+    // state, is the user's latest word: the state is from before it.
+    if (pendingWrite === null && state.filterSeq >= filterAsked) {
+      selected = new Set(state.branches?.filter ?? []);
+    }
     render();
   });
   post({ command: "sideViewReady" });
