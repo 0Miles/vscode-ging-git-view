@@ -2,9 +2,15 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import type { SimpleGit } from "simple-git";
+import { GitError, GitPluginError, type SimpleGit } from "simple-git";
 
+import {
+  amendBasis,
+  headCommit,
+  remoteBranchesContainingHead
+} from "@ging/core/backend/queries/amend";
 import { unmergedFiles } from "@ging/core/backend/queries/unmergedFiles";
+import type { CommitRefusal } from "@ging/shared/backend/types";
 
 /** Discard all uncommitted changes to tracked files (git reset --hard HEAD). */
 export async function resetUncommittedChanges(git: SimpleGit): Promise<void> {
@@ -95,33 +101,128 @@ export async function unstageFiles(git: SimpleGit, paths: WholeFiles): Promise<v
   await onPaths(git, ["reset", "-q"], paths);
 }
 
-/**
- * Commit what is staged, with `message` as it is written. Signed with `-S`
- * when `signCommits` (the setting) says so; otherwise no flag at all, so git's
- * own `commit.gpgsign` decides, as for cherry-pick, revert, merge and rebase.
- * Hooks run as they would on the command line. Refused by git when nothing is
- * staged or the message is empty.
- */
-export async function commitChanges(
-  git: SimpleGit,
-  input: { message: string },
-  signCommits: boolean = false
-): Promise<void> {
-  const args = ["commit", "-m", input.message];
-  if (signCommits) args.push("-S"); // GPG/SSH-sign the new commit
-  const before = await headCommit(git);
-  const said = await git.raw(args);
-  // Nothing to commit is said on stdout, with nothing on stderr, and
-  // simple-git resolves such a run whatever git's exit code. So whether a
-  // commit was made is read off HEAD, not off the run.
-  if ((await headCommit(git)) === before) {
-    throw new Error(said.trim() === "" ? "git made no commit" : said.trim());
+export type CommitInput = {
+  message: string;
+  /** Replace HEAD rather than add a commit on it (#407): what is staged, if
+   *  anything, goes in with it, and the message replaces its own. */
+  amend?: boolean;
+  /** Add a `Signed-off-by` trailer (`--signoff`). */
+  signOff?: boolean;
+  /** Amend HEAD even when it is on a remote-tracking branch, as long as it is
+   *  still this commit: the one the user was told about, rewriting pushed
+   *  history, and said to go on with. A HEAD that has moved since is asked
+   *  about anew. */
+  rewritePushed?: string;
+};
+
+/** A commit GING declined to make, for a reason it says in its own words
+ *  (`CommitRefusal`), not git's. Nothing was changed. */
+export class CommitRefusedError extends Error {
+  constructor(
+    readonly refusal: CommitRefusal,
+    detail: string
+  ) {
+    super(detail);
+    this.name = "CommitRefusedError";
   }
 }
 
-/** HEAD's commit, or "" on a branch with none yet. */
-async function headCommit(git: SimpleGit): Promise<string> {
-  // `--verify -q` fails quietly on an unborn branch, which simple-git
-  // resolves with the empty output.
-  return (await git.raw(["rev-parse", "--verify", "-q", "HEAD"])).trim();
+/**
+ * Commit what is staged, with `message` as it is written; with `amend`,
+ * replace HEAD with it instead, staged changes or none. Signed with `-S` when
+ * `signCommits` (the setting) says so; otherwise no flag at all, so git's own
+ * `commit.gpgsign` decides, as for cherry-pick, revert, merge and rebase.
+ * Signed off with git's own `--signoff`, as the committer: git adds no second
+ * trailer when the message already ends on the same one. Hooks run as they
+ * would on the command line.
+ *
+ * Refused, by GING before git runs (`CommitRefusedError`), when git knows no
+ * committer; for an amend, with no commit to amend or an operation in progress
+ * (`amendBasis`), and with HEAD already on a remote-tracking branch unless
+ * `rewritePushed` names it. Refused by git when there is nothing to commit or
+ * the message is empty. `refused` says the caller has just run `refuseCommit`
+ * on the same input itself, so it is not run twice.
+ */
+export async function commitChanges(
+  git: SimpleGit,
+  input: CommitInput,
+  signCommits: boolean = false,
+  refused: "checked" | "unchecked" = "unchecked"
+): Promise<void> {
+  if (refused === "unchecked") await refuseCommit(git, input);
+  const args = ["commit"];
+  if (input.amend === true) args.push("--amend");
+  if (input.signOff === true) args.push("--signoff");
+  args.push("-m", input.message);
+  if (signCommits) args.push("-S"); // GPG/SSH-sign the new commit
+  const before = await headCommit(git);
+  const loggedBefore = input.amend === true ? await headLogLength(git) : 0;
+  const said = await git.raw(args);
+  // Nothing to commit is said on stdout, with nothing on stderr, and
+  // simple-git resolves such a run whatever git's exit code. So whether a
+  // commit was made is read off HEAD, not off the run. An amend that changes
+  // nothing within the second it was made makes the very same commit, which
+  // HEAD's reflog still records. With no reflog (`core.logAllRefUpdates`
+  // false), such an amend is reported as "git made no commit": nothing then
+  // tells it apart from a run that made none.
+  const made =
+    (await headCommit(git)) !== before ||
+    (input.amend === true && (await headLogLength(git)) > loggedBefore);
+  if (!made) throw new Error(said.trim() === "" ? "git made no commit" : said.trim());
+}
+
+/**
+ * Throw the `CommitRefusedError` that `commitChanges` would decline `input`
+ * with, if any, changing nothing: for a caller to hear a refusal without
+ * making a change of it (a muted watcher, a refresh), and then hand
+ * `commitChanges` "checked" so it does not ask again.
+ */
+export async function refuseCommit(git: SimpleGit, input: CommitInput): Promise<void> {
+  if (input.amend === true) await refuseUnamendable(git, input.rewritePushed);
+  await refuseUnknownCommitter(git);
+}
+
+/** Throw unless HEAD can be amended, and is either not pushed or the very
+ *  commit `rewritePushed` names. */
+async function refuseUnamendable(git: SimpleGit, rewritePushed: string | undefined): Promise<void> {
+  const [basis, head] = await Promise.all([amendBasis(git), headCommit(git)]);
+  if (!basis.possible) {
+    throw new CommitRefusedError(
+      { kind: "cannotAmend", reason: basis.reason },
+      `cannot amend: ${basis.reason}`
+    );
+  }
+  if (rewritePushed === head) return;
+  const remoteBranches = await remoteBranchesContainingHead(git);
+  if (remoteBranches.length > 0) {
+    throw new CommitRefusedError(
+      { kind: "pushed", head, remoteBranches },
+      `HEAD ${head} is on ${remoteBranches.join(", ")}`
+    );
+  }
+}
+
+/** Throw when git cannot say who would commit: `git var` applies the same
+ *  strict rule as `git commit` (no auto-detected `(none)` address, and
+ *  `user.useConfigOnly`), and says so on stderr. The committer is who a
+ *  sign-off names, and the author of a new commit unless told otherwise. */
+async function refuseUnknownCommitter(git: SimpleGit): Promise<void> {
+  try {
+    await git.raw(["var", "GIT_COMMITTER_IDENT"]);
+  } catch (e: unknown) {
+    // git ran and refused. Not simple-git declining to run it at all, which
+    // says nothing about who the committer is.
+    if (!(e instanceof GitError) || e instanceof GitPluginError) throw e;
+    throw new CommitRefusedError({ kind: "identityUnknown" }, e.message);
+  }
+}
+
+/** How many entries HEAD's reflog holds; 0 with none. */
+async function headLogLength(git: SimpleGit): Promise<number> {
+  try {
+    return Number((await git.raw(["rev-list", "--walk-reflogs", "--count", "HEAD"])).trim());
+  } catch {
+    // No reflog (`core.logAllRefUpdates` off): HEAD alone tells.
+    return 0;
+  }
 }

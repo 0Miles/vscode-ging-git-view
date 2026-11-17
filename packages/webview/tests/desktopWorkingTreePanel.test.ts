@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { WorkingTreeStatus } from "@ging/shared/backend/types";
+import type { AmendBasis, WorkingTreeStatus } from "@ging/shared/backend/types";
 import type {
   WorkingTreeStatusMessage,
   WorkingTreeStrings
@@ -39,6 +39,20 @@ const STRINGS: WorkingTreeStrings = {
     untracked: "Untracked",
     conflicted: "Conflicted"
   },
+  amend: "Amend last commit",
+  amendCommit: "Amend Commit",
+  signOff: "Sign off",
+  signOffDetail: "Add a Signed-off-by line.",
+  cannotAmend: {
+    unborn: "No commit yet.",
+    merge: "A merge is in progress.",
+    rebase: "A rebase is in progress.",
+    cherrypick: "A cherry-pick is in progress.",
+    revert: "A revert is in progress."
+  },
+  amendPushed: "Already on {0}. Amend <it> anyway?",
+  amendPushedConfirm: "Amend",
+  identityUnknown: "Git does not know who you are.",
   openMergeTool: "Open in Merge Tool",
   markResolved: "Mark Resolved",
   inProgress: "{0} in progress",
@@ -46,6 +60,15 @@ const STRINGS: WorkingTreeStrings = {
   continue: "Continue",
   abort: "Abort"
 };
+
+/** An amend refused for HEAD, commit `head`, being on origin/main. */
+const pushedAs = (head: string) => ({
+  refused: { kind: "pushed" as const, head, remoteBranches: ["origin/main"] }
+});
+
+/** HEAD as an amend would start from it. */
+const HEAD_MESSAGE = "Last commit\n\nIts body.";
+const AMENDABLE: AmendBasis = { possible: true, message: HEAD_MESSAGE };
 
 const STATUS: WorkingTreeStatus = {
   branch: "main",
@@ -58,7 +81,10 @@ const STATUS: WorkingTreeStatus = {
   conflicted: [{ path: "both.txt", change: "conflicted" }]
 };
 
-async function load(open = false) {
+/** What the panel asked in the page's dialog, and how to answer it. */
+type Asked = { html: string; actionName: string; confirmed: () => void };
+
+async function load(open = false, options: { confirm?: boolean } = { confirm: true }) {
   vi.resetModules();
   localStorage.clear();
   if (open) localStorage.setItem("ging.workingTree.open", "true");
@@ -66,10 +92,15 @@ async function load(open = false) {
   document.body.innerHTML = "";
   document.body.className = "";
   const mock = createVscodeMock();
+  const asked: Asked[] = [];
   const { startWorkingTreePanel } =
     await import("@ging/webview/desktop/workingTree/workingTreePanel");
-  startWorkingTreePanel();
-  return mock;
+  startWorkingTreePanel(
+    options.confirm === true
+      ? { confirm: (html, actionName, confirmed) => asked.push({ html, actionName, confirmed }) }
+      : {}
+  );
+  return Object.assign(mock, { asked });
 }
 
 afterEach(() => localStorage.clear());
@@ -81,13 +112,16 @@ function hear(data: unknown) {
 const answer = (
   request: WorkingTreeStatusMessage["request"],
   status: WorkingTreeStatus | null = STATUS,
-  error: string | null = null
+  error: string | null = null,
+  more: Partial<Pick<WorkingTreeStatusMessage, "amend" | "refused">> = {}
 ): WorkingTreeStatusMessage => ({
   command: "workingTreeStatus",
   request,
   status,
+  amend: AMENDABLE,
   error,
-  strings: STRINGS
+  strings: STRINGS,
+  ...more
 });
 
 const panel = () => document.getElementById("workingTree")!;
@@ -368,5 +402,265 @@ describe("the working tree panel", () => {
     expect(document.body.classList.contains("workingTreeOpen")).toBe(false);
     expect(localStorage.getItem("ging.workingTree.open")).toBe("false");
     expect(mock.sentMessages).toEqual([]);
+  });
+});
+
+// Amend and sign-off (#407): two tick boxes under the message. The host's
+// answers say what an amend would start from, and refuse an amend of a pushed
+// HEAD until the user says to go on, asked in the page's own dialog.
+describe("the working tree panel's amend and sign-off", () => {
+  const tick = (action: "amend" | "signOff", on = true) => {
+    const input = panel().querySelector<HTMLInputElement>(`input[data-action="${action}"]`)!;
+    input.checked = on;
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  const tickBox = (action: string) =>
+    panel().querySelector<HTMLInputElement>(`input[data-action="${action}"]`)!;
+  const commitButton = () => button(".wtCommitButton");
+  const alert = () => panel().querySelector("[role=alert]")!.textContent;
+
+  it("starts unticked, Amend filling an empty message box with HEAD's message and taking it back untouched", async () => {
+    await load(true);
+    hear(answer("workingTreeLoad"));
+    expect(tickBox("amend").checked).toBe(false);
+    expect(tickBox("signOff").checked).toBe(false);
+    expect(commitButton().textContent).toBe("Commit");
+
+    tick("amend");
+    expect(box().value).toBe(HEAD_MESSAGE);
+    expect(commitButton().textContent).toBe("Amend Commit");
+
+    tick("amend", false);
+    expect(box().value).toBe("");
+    expect(commitButton().textContent).toBe("Commit");
+  });
+
+  it("keeps what the user wrote, before Amend is ticked or after", async () => {
+    await load(true);
+    hear(answer("workingTreeLoad"));
+
+    type("Mine");
+    tick("amend");
+    expect(box().value).toBe("Mine");
+    tick("amend", false);
+    expect(box().value).toBe("Mine");
+
+    type("");
+    tick("amend");
+    type(`${HEAD_MESSAGE} (reworded)`);
+    tick("amend", false);
+    expect(box().value).toBe(`${HEAD_MESSAGE} (reworded)`);
+  });
+
+  it("amends with nothing staged, the message alone, and says which flags it asks for", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad", { ...STATUS, staged: [] }));
+    expect(commitButton().getAttribute("aria-disabled")).toBe("true");
+
+    tick("amend");
+    tick("signOff");
+    expect(commitButton().hasAttribute("aria-disabled")).toBe(false);
+    mock.sentMessages.length = 0;
+    commitButton().click();
+
+    expect(mock.sentMessages).toEqual([
+      { command: "workingTreeCommit", message: HEAD_MESSAGE, amend: true, signOff: true }
+    ]);
+  });
+
+  it("signs a plain commit off, and keeps Sign off ticked while Amend unticks once done", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad"));
+    tick("signOff");
+    type("Signed");
+    mock.sentMessages.length = 0;
+    commitButton().click();
+    expect(mock.sentMessages).toEqual([
+      { command: "workingTreeCommit", message: "Signed", signOff: true }
+    ]);
+    hear(answer("workingTreeCommit"));
+
+    tick("amend");
+    commitButton().click();
+    hear(answer("workingTreeCommit"));
+
+    expect(tickBox("amend").checked).toBe(false);
+    expect(tickBox("signOff").checked).toBe(true);
+    expect(box().value).toBe("");
+  });
+
+  it("offers no amend when HEAD cannot be amended, saying why, and unticks it when that comes about", async () => {
+    await load(true);
+    hear(answer("workingTreeLoad", STATUS, null, { amend: { possible: false, reason: "unborn" } }));
+    expect(tickBox("amend").disabled).toBe(true);
+    expect(tickBox("amend").closest("label")!.title).toBe("No commit yet.");
+
+    hear(answer("workingTreeLoad"));
+    tick("amend");
+    expect(box().value).toBe(HEAD_MESSAGE);
+
+    // A merge stopped on a conflict, as the next read finds.
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad", STATUS, null, { amend: { possible: false, reason: "merge" } }));
+
+    expect(tickBox("amend").checked).toBe(false);
+    expect(tickBox("amend").disabled).toBe(true);
+    expect(tickBox("amend").closest("label")!.title).toBe("A merge is in progress.");
+    expect(box().value).toBe("");
+  });
+
+  it("asks before amending a pushed HEAD, and asks the host again only once told to go on", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad"));
+    tick("amend");
+    commitButton().click();
+    const refused = {
+      refused: {
+        kind: "pushed" as const,
+        head: "c0ffee",
+        remoteBranches: ["origin/main", "up<stream>/main", "fork/a", "fork/b"]
+      }
+    };
+    mock.sentMessages.length = 0;
+
+    hear(answer("workingTreeCommit", STATUS, null, refused));
+
+    // Nothing failed, nothing is sent yet: a question, in the page's dialog,
+    // naming the first three branches, each escaped.
+    expect(alert()).toBe("");
+    expect(mock.sentMessages).toEqual([]);
+    expect(mock.asked).toHaveLength(1);
+    expect(mock.asked[0].html).toBe(
+      "Already on <b>origin&#x2F;main</b>, <b>up&lt;stream&gt;&#x2F;main</b>, <b>fork&#x2F;a</b>, …. Amend &lt;it&gt; anyway?"
+    );
+    expect(mock.asked[0].actionName).toBe("Amend");
+    // The message stays while the question stands.
+    expect(box().value).toBe(HEAD_MESSAGE);
+
+    mock.asked[0].confirmed();
+
+    expect(mock.sentMessages).toEqual([
+      {
+        command: "workingTreeCommit",
+        message: HEAD_MESSAGE,
+        amend: true,
+        rewritePushed: "c0ffee"
+      }
+    ]);
+  });
+
+  it("asks again about the new HEAD when HEAD moved before the yes reached the host", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad"));
+    tick("amend");
+    commitButton().click();
+    hear(answer("workingTreeCommit", STATUS, null, pushedAs("aaa111")));
+    mock.asked[0].confirmed();
+    expect(mock.sentMessages.at(-1)).toEqual(
+      expect.objectContaining({ amend: true, rewritePushed: "aaa111" })
+    );
+
+    // The host found HEAD elsewhere by then: refused again, for that commit.
+    hear(answer("workingTreeCommit", STATUS, null, pushedAs("bbb222")));
+
+    expect(mock.asked).toHaveLength(2);
+    mock.asked[1].confirmed();
+    expect(mock.sentMessages.at(-1)).toEqual({
+      command: "workingTreeCommit",
+      message: HEAD_MESSAGE,
+      amend: true,
+      rewritePushed: "bbb222"
+    });
+  });
+
+  it("follows HEAD with a message left as Amend put it, and keeps Amend through a read that failed", async () => {
+    await load(true);
+    hear(answer("workingTreeLoad"));
+    tick("amend");
+    expect(box().value).toBe(HEAD_MESSAGE);
+
+    // Committed elsewhere: the untouched box takes the new HEAD's message.
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad", STATUS, null, { amend: { possible: true, message: "Newer" } }));
+    expect(box().value).toBe("Newer");
+
+    // The basis could not be read this time: Amend stays as it was.
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad", STATUS, "could not read", { amend: null }));
+    expect(tickBox("amend").checked).toBe(true);
+    expect(box().value).toBe("Newer");
+
+    // Once edited, the box is the user's: HEAD moving again leaves it.
+    type("Newer, edited");
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad", STATUS, null, { amend: { possible: true, message: "Newest" } }));
+    expect(box().value).toBe("Newer, edited");
+  });
+
+  it("leaves a pushed HEAD alone, its message kept, when the question is not answered yes", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad"));
+    tick("amend");
+    commitButton().click();
+    mock.sentMessages.length = 0;
+
+    hear(
+      answer("workingTreeCommit", STATUS, null, {
+        refused: { kind: "pushed", head: "c0ffee", remoteBranches: ["origin/main"] }
+      })
+    );
+
+    expect(mock.asked).toHaveLength(1);
+    expect(mock.sentMessages).toEqual([]);
+    expect(box().value).toBe(HEAD_MESSAGE);
+    expect(tickBox("amend").checked).toBe(true);
+  });
+
+  it("says the warning instead, and amends nothing, with no dialog to ask in", async () => {
+    const mock = await load(true, {});
+    hear(answer("workingTreeLoad"));
+    tick("amend");
+    commitButton().click();
+    mock.sentMessages.length = 0;
+
+    hear(
+      answer("workingTreeCommit", STATUS, null, {
+        refused: { kind: "pushed", head: "c0ffee", remoteBranches: ["origin/main"] }
+      })
+    );
+
+    expect(alert()).toBe("Already on origin/main. Amend <it> anyway?");
+    expect(mock.sentMessages).toEqual([]);
+  });
+
+  it("says why the host declined a commit, in its own words", async () => {
+    await load(true);
+    hear(answer("workingTreeLoad"));
+    type("Anonymous");
+    commitButton().click();
+
+    hear(answer("workingTreeCommit", STATUS, null, { refused: { kind: "identityUnknown" } }));
+    expect(alert()).toBe("Git does not know who you are.");
+    expect(box().value).toBe("Anonymous");
+
+    tick("amend");
+    commitButton().click();
+    hear(
+      answer("workingTreeCommit", STATUS, null, {
+        refused: { kind: "cannotAmend", reason: "rebase" }
+      })
+    );
+    expect(alert()).toBe("A rebase is in progress.");
+  });
+
+  it("keeps the keyboard on a tick box across the redraw it makes", async () => {
+    await load(true);
+    hear(answer("workingTreeLoad"));
+    tickBox("signOff").focus();
+
+    tick("signOff");
+
+    expect(document.activeElement).toBe(tickBox("signOff"));
+    expect(tickBox("signOff").checked).toBe(true);
   });
 });

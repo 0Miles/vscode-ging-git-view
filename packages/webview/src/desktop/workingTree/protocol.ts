@@ -5,6 +5,9 @@
  * `ResponseMessage` (ADR-0031). */
 
 import type {
+  AmendBasis,
+  AmendRefusal,
+  CommitRefusal,
   GitOperation,
   WorkingTreeChange,
   WorkingTreeStatus
@@ -34,6 +37,21 @@ export type WorkingTreeStrings = {
   submodule: string;
   /** Each kind of change, for the letter's tooltip. */
   changes: Record<WorkingTreeChange, string>;
+  /** The amend tick box (#407), and the commit button's label while it is ticked. */
+  amend: string;
+  amendCommit: string;
+  /** The sign-off tick box, and its tooltip. */
+  signOff: string;
+  signOffDetail: string;
+  /** Why HEAD cannot be amended: the tick box's tooltip, and what a refused
+   *  amend says. */
+  cannotAmend: Record<AmendRefusal, string>;
+  /** Asked before amending a pushed HEAD: `{0}` is the remote branches it is on. */
+  amendPushed: string;
+  /** The button that goes on with it. */
+  amendPushedConfirm: string;
+  /** git knows no committer. */
+  identityUnknown: string;
   /** On a conflicted file's row (#410). */
   openMergeTool: string;
   markResolved: string;
@@ -45,6 +63,18 @@ export type WorkingTreeStrings = {
   abort: string;
 };
 
+/** A commit, or an amend of HEAD (#407). Each flag is sent only when set, so
+ *  a plain commit is just its message. */
+export type WorkingTreeCommitRequest = {
+  command: "workingTreeCommit";
+  message: string;
+  amend?: true;
+  signOff?: true;
+  /** The commit the user was told is pushed, and said to amend all the
+   *  same: HEAD must still be it, or the host asks again. */
+  rewritePushed?: string;
+};
+
 /** Page → host. */
 export type WorkingTreeRequest =
   | { command: "workingTreeLoad" }
@@ -52,7 +82,7 @@ export type WorkingTreeRequest =
    *  "everything", which would take in the conflicted ones too. */
   | { command: "workingTreeStage"; paths: string[] }
   | { command: "workingTreeUnstage"; paths: string[] }
-  | { command: "workingTreeCommit"; message: string }
+  | WorkingTreeCommitRequest
   /** A conflicted file handed to the user's merge tool (#410). Answered at
    *  once, with the status as it is: the tool stays open as long as the user
    *  works in it, and the graph's refresh after it reads the panel anew. */
@@ -76,7 +106,12 @@ export type WorkingTreeMessage =
       request: WorkingTreeRequest["command"];
       /** `null` when it could not be read. */
       status: WorkingTreeStatus | null;
+      /** What an amend of HEAD would start from; `null` when it could not
+       *  be read. */
+      amend: AmendBasis | null;
       error: string | null;
+      /** A commit the host declined to make, and why (#407). */
+      refused?: CommitRefusal;
       strings: WorkingTreeStrings;
     };
 
@@ -120,7 +155,11 @@ export function isWorkingTreeRequest(data: unknown): data is WorkingTreeRequest 
     case "workingTreeMergeTool":
       return typeof data.path === "string";
     case "workingTreeCommit":
-      return typeof data.message === "string";
+      return (
+        typeof data.message === "string" &&
+        [data.amend, data.signOff].every((flag) => flag === undefined || flag === true) &&
+        (data.rewritePushed === undefined || typeof data.rewritePushed === "string")
+      );
     default:
       return false;
   }

@@ -11,7 +11,7 @@
  * the editors, which are Monaco's (`apps/desktop/src/web/page.ts`). */
 
 import type { RequestMessage } from "@ging/shared/types";
-import { startGitGraphView } from "@ging/webview/gitGraphView";
+import { askInGraphDialog, startGitGraphView } from "@ging/webview/gitGraphView";
 import { sendMessage, vscode } from "@ging/webview/utils/vscode";
 
 import { createDiffPanel } from "./diff/diffPanel";
@@ -101,8 +101,9 @@ export function startDesktopEntry({ editors }: DesktopEntryDeps): void {
         // A graph page is one with a host instance behind it, and the instance
         // is what asks (#390). The settings page has none, so asks nothing.
         listenForHostPrompts();
-        // Beside the graph, on its repository (#403).
-        startWorkingTreePanel();
+        // Beside the graph, on its repository (#403), asking in the graph's own
+        // dialog before it rewrites pushed history (#407).
+        startWorkingTreePanel({ confirm: askInGraphDialog });
         // And what it opens a diff in (#404): over the graph it is of.
         listenForDiffs(editors);
       }

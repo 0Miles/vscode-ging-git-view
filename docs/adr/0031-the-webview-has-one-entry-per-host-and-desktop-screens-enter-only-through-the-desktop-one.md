@@ -165,6 +165,16 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **Continue 在還有衝突檔時停用(`aria-disabled`),理由同 core 的 `continueOperation`:它會拒絕,說還有衝突。** Abort 不另外確認,和圖形的衝突橫幅一樣。兩者與橫幅並存:橫幅是兩個宿主共用的圖形的一部分,面板是桌面版自己的原始檔控制檢視,拿掉任何一邊都會改到另一邊的行為。
 - **字串照「補記(#403)」跟著每個回答來。** 「標記為已解決」、Continue、Abort 與操作名稱沿用橫幅的 `conflict.*` key,同一個動作在同一頁上只有一種說法;新的只有 `desktop.workingTree.openMergeTool` 與 `desktop.workingTree.inProgress`。兩顆列上的鈕照舊平常淡出、焦點或滑鼠在那一列時才顯示;版面由 [workingTree.spec.ts](../../e2e/webview/workingTree.spec.ts) 驗:長檔名截斷,兩顆鈕與操作列的按鈕都留在面板裡。
 
+## 補記(2026-11-17,#407)
+
+**working tree 面板長出 Amend 與 Sign off 兩個勾選框;amend 已推送的 commit 前要問,問在圖形自己的 `#dialog`,不是 host prompt overlay。** 圖形頁要問使用者的事用 webview 自己的對話框(ADR-0027),面板與圖形同一頁,所以它也是。
+
+- **`gitGraphView.ts` 多一個 export:`askInGraphDialog(html, actionName, confirmed)`。** 它走 `raiseAnswerDialog`:使用者自己的對話框開著時排隊等它關,不寫掉它;其餘情況立刻出現。桌面入口把它交給面板(`startWorkingTreePanel({ confirm })`),面板不 import `gitGraphView.ts`,jsdom 測試注入假的。VS Code 入口不呼叫它,行為不變;這是共用檔案為桌面入口開的接縫,不是讓圖形認得桌面的元素。對話框開著時面板跟 `<body>` 的其他子元素一樣是 `inert`;關掉後焦點回到 commit 鈕(它有固定的 `id`,面板重繪換掉元素也找得回來)。[workingTree.spec.ts](../../e2e/webview/workingTree.spec.ts) 驗這一段。
+- **擋在 core,不只擋在畫面。** core 的 commit 在 amend 而 HEAD 已在任何 remote-tracking branch 上(`for-each-ref --contains=HEAD refs/remotes/`,略過 symref)時拒絕,回答 `refused: { kind: "pushed", head, remoteBranches }`;面板問完、使用者說要,才帶 `rewritePushed: head` 重送同一個請求。同意綁在問的那個 commit 上:問題可能排在別的對話框後面,HEAD 在那之前移動了,core 就以新的 HEAD 再拒絕一次,面板再問。照 force push 的慣例:沒有設定項,不記住,每次都問。
+- **協定只多選填的欄位。** `workingTreeCommit` 的 `amend`、`signOff` 只在為 true 時帶,`rewritePushed` 只在使用者同意過時帶,#403 的請求形狀不變;`workingTreeStatus` 多 `amend`(HEAD 的訊息,或不能 amend 的原因:unborn、merge、rebase、cherry-pick、revert)與選填的 `refused`。字串照舊跟著回答來。`amend` 由同一次讀取組成:進行中的 operation 取自 status 的 `operation`(#410),不另外偵測一次,再加上 HEAD 的訊息。
+- **拒絕不算改動。** 拒絕的理由(不能 amend、已推送、git 不知道 committer 是誰)在 `runRepoMutation` 之外先查(`refuseCommit`),所以被拒的 commit 不靜音 watcher、不重新整理圖形;服務接著呼叫 `commitChanges` 時告訴它已經查過("checked"),不查第二次。單獨呼叫 `commitChanges` 的人仍由它自己查。
+- **勾選框只在頁面存活期間記得。** Sign off 是對某個專案的聲明(DCO),記在 `localStorage` 會變成每個 repo 都簽;要記住得先讓頁面知道自己是哪個 repo。Amend 成功後取消勾選;勾 Amend 時訊息框是空的才填入 HEAD 的訊息,取消勾選時內容仍是那段原文才清空。
+
 ## 補記(2026-11-17,#404)
 
 **editor 與 diff viewer 的工廠介面長在 [editors.ts](../../packages/webview/src/desktop/editors.ts):`EditorFactory` 只有 `createDiffViewer(container, options)`,回傳的 `DiffViewer` 有 `setLayout`、`setTheme`、`focus`、`dispose`。`apps/desktop` 用 Monaco 實作,經由 `startDesktopEntry({ editors })` 交給桌面入口。** 上面「為什麼未來的讀者會困惑」說介面的形狀與注入點隨第一個呼叫端 #404 長出來,這就是它。
