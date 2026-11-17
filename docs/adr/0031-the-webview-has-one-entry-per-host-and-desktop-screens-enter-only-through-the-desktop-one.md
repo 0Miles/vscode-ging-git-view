@@ -132,3 +132,13 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **啟動參數指錯路徑的說明(`notice`)畫在入口與清單之上**,同一個 `.welcomeBody` 裡：說明之後，使用者馬上能從同一頁改開別的資料夾。
 - **clone 的入口不在這裡。** 票面把它列為 Welcome page 的入口之一，但 clone 本身是 #395;沒有功能的按鈕不先放，由 #395 連同它的流程一起加進 `welcomeHtml`。
 - 樣式仍由 `windowPage.ts` 插進同一個 `<style>`,只用 `theme.ts` 已提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。版面由 [windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗：每一列一行、過長的路徑截斷而不把「移除」鈕擠出去、找不到的資料夾標出來。
+
+## 補記(2026-11-17,#410)
+
+**working tree 面板處理衝突:衝突檔那一列有「以 merge tool 開啟」與「標記為已解決」兩顆鈕,進行中的 merge、rebase、cherry-pick、revert 在清單上方列出名稱,旁邊是 Continue 與 Abort。** git 的部分見 ADR-0027 與 ADR-0030 的同日補記。
+
+- **協定多四種請求:`workingTreeMergeTool`(一個 `path`)、`workingTreeResolve`(`paths`)、`workingTreeContinue`、`workingTreeAbort`**,照舊每一個都回一則 `workingTreeStatus`,`WORKING_TREE_COMMANDS_STAY_APART` 照舊檢查撞名。`WorkingTreeStatus` 多一個選填的 `operation`(core 的 `detectOperation`,沒有進行中的操作時不出現)。
+- **`workingTreeMergeTool` 立刻回答當下的 status,不等工具關掉。** 工具開多久由使用者決定,而面板在請求出去時停用所有按鈕;等它的話,整個面板會停在那裡好幾分鐘。工具關掉之後的 `runRepoMutation` 會讓圖形 refresh,面板照「補記(#403)」的規則跟著重讀,結果就畫出來了。
+- **`workingTreeResolve` 在檔案裡還有衝突標記時,先由宿主用 host prompt 問(`Prompts.choose`)。** 問題畫在 host prompt overlay 裡,不是面板自己的確認列:圖形衝突橫幅的 Mark Resolved 也問同一句,兩邊走同一個 `ConflictCommands.confirmResolve`,問法就只有一種。問題開著時面板的請求還在外面,按鈕照舊停用。
+- **Continue 在還有衝突檔時停用(`aria-disabled`),理由同 core 的 `continueOperation`:它會拒絕,說還有衝突。** Abort 不另外確認,和圖形的衝突橫幅一樣。兩者與橫幅並存:橫幅是兩個宿主共用的圖形的一部分,面板是桌面版自己的原始檔控制檢視,拿掉任何一邊都會改到另一邊的行為。
+- **字串照「補記(#403)」跟著每個回答來。** 「標記為已解決」、Continue、Abort 與操作名稱沿用橫幅的 `conflict.*` key,同一個動作在同一頁上只有一種說法;新的只有 `desktop.workingTree.openMergeTool` 與 `desktop.workingTree.inProgress`。兩顆列上的鈕照舊平常淡出、焦點或滑鼠在那一列時才顯示;版面由 [workingTree.spec.ts](../../e2e/webview/workingTree.spec.ts) 驗:長檔名截斷,兩顆鈕與操作列的按鈕都留在面板裡。

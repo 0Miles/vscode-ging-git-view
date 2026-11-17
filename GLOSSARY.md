@@ -50,7 +50,8 @@ _Avoid_: start page, empty state
 _Avoid_: dialog, 對話框(這兩個詞留給 `#dialog`)
 
 **Working tree panel**:
-桌面 host 上每個 **Tab** 的圖形右側那一欄:列出 current repository 已暫存(staged)、未暫存(unstaged,含未追蹤)與衝突中的檔案,整檔 stage / unstage,並 commit 已暫存的內容([#403](https://github.com/0Miles/vscode-ging-git-view/issues/403),ADR-0031)。它是桌面 host 的「原始檔控制檢視」:圖形的 Open Source Control View 在 VS Code host 打開 VS Code 的原始檔控制檢視,在桌面 host 打開它。只做到整個檔案;hunk 層級是 #406,行級不做。中文寫作「working tree 面板」。桌面 host 專屬。
+桌面 host 上每個 **Tab** 的圖形右側那一欄:列出 current repository 已暫存(staged)、未暫存(unstaged,含未追蹤)與衝突中的檔案,整檔 stage / unstage,並 commit 已暫存的內容([#403](https://github.com/0Miles/vscode-ging-git-view/issues/403),ADR-0031)。它是桌面 host 的「原始檔控制檢視」:圖形的 Open Source Control View 在 VS Code host 打開 VS Code 的原始檔控制檢視,在桌面 host 打開它。只做到整個檔案;hunk 層級是 #406,行級不做。
+衝突中([#410](https://github.com/0Miles/vscode-ging-git-view/issues/410)),衝突檔可以交給 **merge tool** —— 使用者替 git 設定的那一個(`merge.guitool`,沒有就 `merge.tool`),GING 不替他挑 —— 或直接標記為已解決(整檔 stage,檔案裡還有衝突標記時先問);進行中的 merge、rebase、cherry-pick、revert 可以在這裡 Continue 或 Abort。桌面 host 沒有內建的 3-way merge editor(#411),所以圖形的「在 merge editor 中開啟」在桌面 host 也是交給 merge tool。中文寫作「working tree 面板」。桌面 host 專屬。
 _Avoid_: SCM view, source control panel, 暫存區面板
 
 ### 分支的狀態
