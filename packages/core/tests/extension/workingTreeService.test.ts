@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { createWorkingTreeService } from "@ging/core/extension/workingTreeService";
 
 import { makeRepo, rmrf } from "@ging/core/tests/helpers";
@@ -17,10 +18,13 @@ afterEach(() => {
 function setUp(signCommits = false) {
   const repo = makeRepo();
   cleanUp.push(repo);
+  const client = gitClientFactory(repo, "git");
   /** What the host was asked to do, in order. */
   const calls: string[] = [];
   const service = createWorkingTreeService({
-    git: () => simpleGit(repo),
+    // A client as the host makes one: its no-op editor is what lets
+    // `merge --continue` finish instead of waiting on one (gitSpawn.ts).
+    git: () => client.getInstance(),
     repo: () => repo,
     signCommits: () => signCommits,
     runRepoMutation: async (on, work) => {
