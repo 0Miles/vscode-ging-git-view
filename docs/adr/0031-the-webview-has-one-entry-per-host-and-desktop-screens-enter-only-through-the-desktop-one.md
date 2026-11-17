@@ -101,6 +101,19 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **「這個 Tab 在等回答」的標記只畫在後面的 Tab 上。** 前景 Tab 的 prompt 就在畫面上，不需要再提醒;背景 Tab 的 prompt 畫在看不見的頁面裡，分頁列是使用者唯一看得到它的地方。標記不會把那個 Tab 拉到前面：搶走使用者正在用的 Tab 比晚一點回答更糟。
 - **Tab 的頁面不會被導覽走。** Tab 的 view 若被導覽到 `?id=M`,會畫出 Tab M 的圖形，訊息卻仍送到自己的實例。所以每個 Tab 的 webContents 擋掉 `will-navigate`、`window.open` 一律不開新視窗(網址交給 `Opener.openExternalUrl`),寫在 [pageGuard.ts](../../apps/desktop/src/pageGuard.ts) 的 `keepPageInPlace`,與設定視窗(「補記(#397)」)的規則相同;main process 自己的 `loadURL` 與重新載入不受影響。
 
+## 補記(2026-11-17,#403)
+
+**working tree 區由 working tree 面板填上:圖形頁上一個 `<aside id="workingTree">`,寬 `WORKING_TREE_WIDTH`(320px)、與視窗等高的 `position: fixed` 右側直欄。** 它在 [workingTreePanel.ts](../../packages/webview/src/desktop/workingTree/workingTreePanel.ts),只從桌面入口的 `graph` 頁啟動。
+
+- **開著時 `body` 帶 `workingTreeOpen`,`padding-right` 讓出它的寬度。** 上面「後果」最後一條要 #403 處理的 docked Commit Details View 與 `#scrollShadow`,連同同樣 fixed 在右上角的 find widget,都在這個 class 底下讓出右緣。樣式照「補記(#397)」的做法由模組自己插進一個 `<style>`,只用 `theme.ts` 已經提供的 `--vscode-*` 變數。版面由 [workingTree.spec.ts](../../e2e/webview/workingTree.spec.ts)(webview E2E)驗:直欄貼右、等高,圖形、控制列與 find widget 的右緣都在它左邊,關掉後寬度還給圖形。
+- **預設關著,開關記在頁面的 `localStorage`(`ging.workingTree.open`)。** 這只是每位使用者的便利:讀寫失敗就當成關著。打開它的入口是圖形自己的 Open Source Control View(uncommitted changes 那一列的選單),也就是 `openScmView` hook(ADR-0027 的同日補記);宿主送 `workingTreeShow`,面板打開並讀一次 status。`GraphInstance.showWorkingTree()` 送的是同一則訊息,留給應用程式選單(#396)接。
+- **協定:頁面送 `workingTreeLoad`、`workingTreeStage`、`workingTreeUnstage`、`workingTreeCommit`;宿主對每一個都回一則 `workingTreeStatus`,帶著做完之後讀到的 status、失敗的原因,以及面板的字串。** 型別在 [protocol.ts](../../packages/webview/src/desktop/workingTree/protocol.ts),`WORKING_TREE_COMMANDS_STAY_APART` 檢查它們不與 `RequestMessage` / `ResponseMessage` 撞名。字串跟著每個回答來,理由同「補記(#390)」的按鈕文字:面板因此不依賴 `webviewL10n`,VS Code 的 bundle 也不帶這些字串。
+- **面板畫的永遠是宿主回答的 status,不是它自己以為的結果。** 一個請求在外面時,所有按鈕停用;圖形被告知 `refresh`(檔案監看看到變更,或任何一次改動 repo 之後)時面板重讀一次,剛好有請求在外面就等它回來再讀。
+- **面板的鍵盤事件停在面板。** 圖形的 `documentKeydown` 會把方向鍵、Enter、Space 拿去移動列;面板在自己身上 `stopPropagation`,所以焦點在面板裡時圖形的快捷鍵不作用。訊息框裡按 Ctrl+Enter(macOS 是 ⌘Enter,placeholder 由宿主依平台寫明)commit。
+- **鍵盤到得了每個按鈕,重繪後也留在原處。** 每一列的按鈕平常淡出(`opacity: 0`),滑鼠移上或焦點在那一列時才顯示;不用 `visibility: hidden`,那會讓按鈕連 Tab 都到不了。請求在外時按鈕標 `aria-disabled`,不用 `disabled`:後者會把焦點從剛按下的按鈕上拿走。面板每次收到回答都整個重繪,重繪前記下焦點在哪個按鈕、哪個檔案,重繪後放回同一個;那個檔案已經離開這一組(例如剛被 stage),就放到接替它位置的那一列,再不然是那一組的「全部」按鈕。
+- **一組最多畫 500 列,其餘只寫「還有 N 個檔案」。** 沒被 ignore 的建置輸出可能有上千個未追蹤檔;Stage All 仍點名全部,不只畫出來的那些。
+- **點檔案列還沒有作用。** `startWorkingTreePanel({ showDiff })` 是留給 diff viewer(#404)的接縫:給了 `showDiff(file, area)`,檔案列才可以點、可以聚焦;#406 的 hunk stage 也從那裡進來。
+
 ## 補記(2026-11-17,#396)
 
 **Show Statistics 的統計頁不是桌面入口的一種頁面，而是兩個宿主共用的一份完整 HTML 文件**([statisticsMarkup.ts](../../packages/webview/src/statisticsMarkup.ts)),桌面版從 `ging://app/statistics` 提供，開在自己的視窗裡([statisticsWindow.ts](../../apps/desktop/src/statisticsWindow.ts))。
@@ -130,7 +143,7 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **diff editor 的 gutter menu 關掉(`renderGutterMenu: false`)。** 唯讀的 diff 沒有 hunk 動作可放(#406 會帶自己的),而且它在 editor dispose 之後仍可能被計時器重新讀取 action,往頁面丟出 `AbstractContextKeyService has been disposed`:E2E 在負載下大約六次出現一次,關掉之後在 CPU 降速四倍下連跑十二次都沒有再出現。面板也一律先把焦點移出 editor,再 dispose 它。
 - **CSP:只有 graph 頁多了 `font-src 'self'` 與 `worker-src 'self'`**([page.ts](../../apps/desktop/src/page.ts))。`monaco.js` 與 `monaco.css` 本來就在 `script-src 'self'`、`style-src 'self'` 之內;Monaco 自己插入的 `<style>` 靠的是原有的 `'unsafe-inline'`。`worker-src` 沒寫時會退回 `script-src`,所以它在今天是多餘的;寫明是讓「這一頁會開 worker」成為看得見的決定。其他頁面沒有 diff viewer,兩項都不加。
 - **協定:宿主送 `showDiff`([desktop/diff/protocol.ts](../../packages/webview/src/desktop/diff/protocol.ts)),頁面不回任何東西。** 訊息帶標題、左右兩邊的路徑與文字(main process 已依 `defaultFileEncoding` 解好碼)、要捲到的行(從 1 數),以及 diff viewer 自己按鈕的字。字跟著訊息來,理由同 #390 的 host prompt:不讓 `webviewL10n` 為桌面多帶 VS Code 用不到的字串。`DIFF_COMMANDS_STAY_APART` 檢查它不與 `ResponseMessage` 撞名。只有 graph 頁裝這個 listener。
-- **diff viewer 的位置:蓋在圖形區之上的 `position: fixed` 面板,`z-index: 350`。** 在圖形的浮動層(300)之上、`#dialog` 的 backing(400)之下:diff 開著時圖形若跳出自己的對話框(例如背景重新整理失敗),那個對話框仍看得到、按得到。面板放在 `<body>` 裡,所以 `#dialog` 開著時它跟圖形一起變成 inert,這是對的。上面「版面骨架」說 diff viewer 不得改變兩欄的位置:面板的左右緣讀 `--ging-side-view-width` 與 `--ging-working-tree-width`(沒有就是 0),**#399 與 #403 在加上各自的直欄時,要在 `<html>` 或 `<body>` 上設這兩個變數**,diff viewer 就只蓋住圖形區。
+- **diff viewer 的位置:蓋在圖形區之上的 `position: fixed` 面板,`z-index: 350`。** 在圖形的浮動層(300)之上、`#dialog` 的 backing(400)之下:diff 開著時圖形若跳出自己的對話框(例如背景重新整理失敗),那個對話框仍看得到、按得到。面板放在 `<body>` 裡,所以 `#dialog` 開著時它跟圖形一起變成 inert,這是對的。上面「版面骨架」說 diff viewer 不得改變兩欄的位置:面板的左右緣讀 `--ging-side-view-width` 與 `--ging-working-tree-width`(沒有就是 0),**直欄打開時要在 `<html>` 或 `<body>` 上設自己的那個變數**,diff viewer 就只蓋住圖形區。#403 的 working tree 直欄在合併時補上了(`body.workingTreeOpen` 設 `--ging-working-tree-width`,E2E 驗 diff viewer 的右緣正好是直欄的左緣);#399 的側檢視照樣設 `--ging-side-view-width`。
 - **鍵盤留在面板裡。** 面板在自己身上 `stopPropagation` 所有 keydown 與 keyup:圖形的快捷鍵聽在 `document` 上,diff 裡按的方向鍵不該移動圖形的選取。Escape 在 keyup 才關,理由同 #390 的 overlay:keydown 就關的話,焦點回到 CDV 的檔案列,接著的 keyup 會讓圖形的 `documentKeyup` 把 CDV 關掉。Monaco 自己吃掉的 Escape(關 Find)不會關掉面板:Monaco 處理的 keydown 不會冒泡到面板,面板只在自己看到 keydown 時才在 keyup 關。關掉後焦點回到開啟前的元素。
 - **side-by-side 與 inline 由面板的按鈕切換,選擇存在頁面自己的 `localStorage`(`ging.diffViewer.layout`)。** 這是使用者的便利設定,不是要跨裝置或要讓 main process 讀到的狀態;讀寫都包在 try/catch 裡,讀不到就用 side-by-side。Monaco 的 `useInlineViewWhenSpaceIsLimited` 關掉:視窗窄時它會自己切成 inline,按鈕上的選擇就不再是畫面上的樣子。
 - **`webviewEntries.test.ts` 補上 Monaco 的檢查(「後果」第一條要求的那一項)。** Monaco 不在 `src/desktop/` 底下,所以用名字找:VS Code 的 bundle 不得吃進任何 `monaco-editor/` 底下的模組,文字裡也不得有 Monaco diff editor 的 class 名稱 `monaco-diff-editor`。對照組是用 `apps/desktop/esbuild.js` 匯出的 `editorsBuild` 實際打包的 `monaco.js`,同樣的讀法在那裡找得到兩者。

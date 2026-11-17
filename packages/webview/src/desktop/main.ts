@@ -3,7 +3,8 @@
  * desktop host's own messages come in through here and nowhere else
  * (ADR-0031). Today: the graph view, the marker, the host prompt overlay
  * (#390), the settings page (#397), the window's own page — the tab strip
- * and the Welcome page (#393) — and the diff viewer (#404).
+ * and the Welcome page (#393) — the working tree panel (#403) and the diff
+ * viewer (#404).
  *
  * Importing it only marks the page; `startDesktopEntry` starts what the page
  * shows. The app calls it, handing in what the webview may not import itself:
@@ -21,6 +22,7 @@ import { createHostPromptOverlay } from "./hostPromptOverlay";
 import type { SettingsPageState } from "./settings/protocol";
 import { startSettingsPage } from "./settings/settingsPage";
 import { startWindowPage } from "./window/windowPage";
+import { startWorkingTreePanel } from "./workingTree/workingTreePanel";
 
 /** Which entry the page loaded, for the desktop host's E2E to read (#386).
  *  The extension's bundle must never contain it
@@ -97,6 +99,8 @@ export function startDesktopEntry({ editors }: DesktopEntryDeps): void {
         // A graph page is one with a host instance behind it, and the instance
         // is what asks (#390). The settings page has none, so asks nothing.
         listenForHostPrompts();
+        // Beside the graph, on its repository (#403).
+        startWorkingTreePanel();
         // And what it opens a diff in (#404): over the graph it is of.
         listenForDiffs(editors);
       }

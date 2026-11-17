@@ -167,6 +167,14 @@ test("a file at a commit against the working tree is decoded as the setting says
   });
   const page = await focusedTabPage(electronApp);
   const errors = pageErrors(page);
+  // The working tree panel open, as the graph's Open Source Control View
+  // opens it.
+  await expect(page.locator("#commitTable tr.commit").first()).toBeVisible();
+  await page.evaluate(() =>
+    (globalThis as unknown as { acquireVsCodeApi(): { postMessage(m: unknown): void } })
+      .acquireVsCodeApi()
+      .postMessage({ command: "openScmView" })
+  );
 
   // The commit's file, against the working tree: its row's own button. The
   // uncommitted changes' row comes first, so the commit is found by subject.
@@ -177,6 +185,12 @@ test("a file at a commit against the working tree is decoded as the setting says
 
   const viewer = page.locator("#diffViewer");
   await expect(viewer).toBeVisible();
+  // Over the graph's area only: the working tree panel (#403), open beside
+  // the graph, stays in view beside the diff.
+  const panel = page.locator("#workingTree");
+  await expect(panel).toBeVisible();
+  const [viewerBox, panelBox] = [(await viewer.boundingBox())!, (await panel.boundingBox())!];
+  expect(Math.round(viewerBox.x + viewerBox.width)).toBe(Math.round(panelBox.x));
   await expect(viewer.locator(".diffViewerTitle")).toContainText("legacy.txt (");
   await expect(viewer.locator(".diffViewerTitle")).toContainText("Working Tree)");
   await expect(side(page, "original")).toContainText("café");

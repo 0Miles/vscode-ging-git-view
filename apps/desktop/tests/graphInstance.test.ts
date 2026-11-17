@@ -6,8 +6,9 @@ import { describe, expect, it, onTestFinished } from "vitest";
 
 import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedServices } from "@ging/desktop/sharedServices";
-import type { ResponseMessage } from "@ging/shared/types";
+import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
+import type { WorkingTreeRequest } from "@ging/webview/desktop/workingTree/protocol";
 
 import {
   fakePorts,
@@ -274,10 +275,9 @@ describe("a graph instance", () => {
 
     await asking.receive({ command: "viewFileAtRevision", ...file });
     await asking.receive({ command: "openMergeEditor", repo, filePath: "f" });
-    await asking.receive({ command: "openScmView" });
 
     const notice = ["showInformation", "This is not available in the GING desktop app yet."];
-    expect(asking.asked).toEqual([notice, notice, notice]);
+    expect(asking.asked).toEqual([notice, notice]);
     expect(other.asked).toEqual([]);
     // Answered as done: the graph adds no "Unable to open" box of its own.
     expect(sentOf(asking.posted, "viewFileAtRevision")).toEqual([
@@ -355,6 +355,55 @@ describe("a graph instance", () => {
         modified: { path: "notes.txt", content: "committed, then edited\n" }
       })
     ]);
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("opens its working tree panel for the graph's Open Source Control View, and nothing else", async () => {
+    const { repos, open } = setUp();
+    const page = open(repos[0]);
+
+    await page.receive({ command: "openScmView" });
+
+    expect(page.posted).toEqual([{ command: "workingTreeShow" }]);
+    expect(page.asked).toEqual([]);
+  });
+
+  it("stages and commits for its working tree panel, past the dispatch, and refreshes the graph", async () => {
+    const { repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    fs.writeFileSync(path.join(repos[0], "f"), "changed");
+    /** A request of the panel's, as its page posts one: past the graph's types. */
+    const fromPanel = (request: WorkingTreeRequest) =>
+      page.receive(request as unknown as RequestMessage);
+    const answers = () =>
+      page.posted.filter((msg) => (msg.command as string) === "workingTreeStatus");
+
+    await fromPanel({ command: "workingTreeLoad" });
+    await fromPanel({ command: "workingTreeStage", paths: ["f"] });
+    await fromPanel({ command: "workingTreeCommit", message: "From the panel" });
+
+    expect(answers()).toEqual([
+      expect.objectContaining({
+        request: "workingTreeLoad",
+        status: expect.objectContaining({ unstaged: [{ path: "f", change: "modified" }] }),
+        error: null,
+        strings: expect.objectContaining({ commit: "Commit", stageAll: "Stage All" })
+      }),
+      expect.objectContaining({
+        request: "workingTreeStage",
+        status: expect.objectContaining({ staged: [{ path: "f", change: "modified" }] })
+      }),
+      expect.objectContaining({
+        request: "workingTreeCommit",
+        status: expect.objectContaining({ staged: [], unstaged: [] }),
+        error: null
+      })
+    ]);
+    expect(
+      cp.execFileSync("git", ["log", "-1", "--format=%s"], { cwd: repos[0] }).toString().trim()
+    ).toBe("From the panel");
+    // The graph redrawn after each change, not after the read.
+    expect(sentOf(page.posted, "refresh")).toHaveLength(2);
     expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
   });
 
