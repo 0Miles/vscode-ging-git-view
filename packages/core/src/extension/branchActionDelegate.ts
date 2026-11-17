@@ -7,6 +7,10 @@
  * backend test project, like its neighbours in this directory.
  */
 
+import type {
+  BranchActionTarget,
+  BranchActionTargets
+} from "@ging/shared/backend/utils/branchActionTargets";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
   isHostAction,
@@ -20,8 +24,6 @@ import type {
   BranchCleanupPayload,
   DelegatedMessage
 } from "@ging/shared/types";
-
-import type { BranchActionTarget, BranchActionTargets } from "@ging/shared/backend/utils/branchActionTargets";
 
 export type BranchActionDelegateDeps = {
   /** The branch a single-selection command argument points at, or null when it
