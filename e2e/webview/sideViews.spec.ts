@@ -48,7 +48,7 @@ const STRINGS = Object.fromEntries(
  *  with the menu settings the harness's graph has. */
 function sideViewState(page: Page, filter: string[] = []) {
   return page.evaluate(
-    ({ roots, filter, strings }) => {
+    ({ roots, branchFilter, strings }) => {
       const { viewState } = globalThis as unknown as {
         viewState: { lastActiveRepo: string; contextMenuActionsVisibility: unknown };
       };
@@ -58,7 +58,7 @@ function sideViewState(page: Page, filter: string[] = []) {
         branches: {
           roots,
           rows: {},
-          filter,
+          filter: branchFilter,
           toggles: {
             showRemoteBranches: true,
             showInactiveBranches: true,
@@ -70,7 +70,7 @@ function sideViewState(page: Page, filter: string[] = []) {
         strings
       };
     },
-    { roots: [leaf("master", true), leaf("develop")], filter, strings: STRINGS }
+    { roots: [leaf("master", true), leaf("develop")], branchFilter: filter, strings: STRINGS }
   );
 }
 
@@ -82,6 +82,17 @@ function posted(page: Page, command: string): Promise<Record<string, unknown>[]>
         globalThis as unknown as { harnessRequests: Record<string, unknown>[] }
       ).harnessRequests.filter((m) => m.command === wanted),
     command
+  );
+}
+
+/** The column's width, as the page's stylesheet declares it. */
+function columnWidth(page: Page): Promise<number> {
+  return page.evaluate(() =>
+    parseFloat(
+      globalThis
+        .getComputedStyle(globalThis.document.documentElement)
+        .getPropertyValue("--ging-side-view-width")
+    )
   );
 }
 
@@ -112,26 +123,24 @@ test("the side views are a fixed column down the window's left edge, and the gra
   await expect(column.locator('[data-ref="develop"]')).toBeVisible();
 
   const box = (await column.boundingBox())!;
-  const width = await page.evaluate(() =>
-    parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--ging-side-view-width")
-    )
-  );
+  const width = await columnWidth(page);
   expect(width).toBeGreaterThan(0);
   expect(box).toEqual({ x: 0, y: 0, width, height: 700 });
-  expect(await column.evaluate((el) => getComputedStyle(el).position)).toBe("fixed");
+  expect(await column.evaluate((el) => globalThis.getComputedStyle(el).position)).toBe("fixed");
 
   // `body` gives the column its width; the graph and its frozen header begin
   // where the column ends.
-  expect(await page.evaluate(() => getComputedStyle(document.body).paddingLeft)).toBe(`${width}px`);
+  expect(
+    await page.evaluate(() => globalThis.getComputedStyle(globalThis.document.body).paddingLeft)
+  ).toBe(`${width}px`);
   expect((await page.locator("#controls").boundingBox())!.x).toBe(width);
   expect((await page.locator("#commitTable").boundingBox())!.x).toBeGreaterThanOrEqual(width);
 
   // Scrolling the graph leaves the column where it is: the graph keeps the
   // document's scroll.
   await page.evaluate(() => {
-    document.body.style.minHeight = "3000px";
-    window.scrollTo(0, 500);
+    globalThis.document.body.style.minHeight = "3000px";
+    globalThis.scrollTo(0, 500);
   });
   expect((await column.boundingBox())!.y).toBe(0);
 });
@@ -139,28 +148,26 @@ test("the side views are a fixed column down the window's left edge, and the gra
 test("the docked Commit Details View and the scroll shadow give up the column's width on their left", async ({
   page
 }) => {
-  const width = await page.evaluate(() =>
-    parseFloat(
-      getComputedStyle(document.documentElement).getPropertyValue("--ging-side-view-width")
-    )
-  );
+  const width = await columnWidth(page);
   // The two as the graph shows them: classes it sets, read through the
   // stylesheets the page has.
   const edges = await page.evaluate(() => {
+    const { document } = globalThis;
     const docked = document.createElement("div");
     docked.id = "commitDetails";
     docked.className = "docked";
     document.body.appendChild(docked);
     const shadow = document.getElementById("scrollShadow")!;
     shadow.classList.add("active");
-    const read = (el: HTMLElement) => {
+    return [docked, shadow].map((el) => {
       const { left, right } = el.getBoundingClientRect();
       return { left, right };
-    };
-    return { docked: read(docked), shadow: read(shadow) };
+    });
   });
-  expect(edges.docked).toEqual({ left: width, right: 1200 });
-  expect(edges.shadow).toEqual({ left: width, right: 1200 });
+  expect(edges).toEqual([
+    { left: width, right: 1200 },
+    { left: width, right: 1200 }
+  ]);
 });
 
 test("a click on a branch asks the host for the filter it makes", async ({ page }) => {
