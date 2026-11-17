@@ -103,4 +103,8 @@ export const DIFF_PANEL_STYLES = `
   margin: 16px;
   color: var(--vscode-errorForeground);
 }
+#diffViewer .diffViewerNotice {
+  margin: 16px;
+  color: var(--vscode-descriptionForeground);
+}
 `;

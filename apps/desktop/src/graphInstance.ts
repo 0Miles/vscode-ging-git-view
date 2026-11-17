@@ -206,6 +206,7 @@ export function createGraphInstance(
     gitPath: shared.gitPath,
     fileEncoding: config.fileEncoding,
     l10n,
+    repoRoot: () => current,
     post: postDiff
   });
   const opener = createDesktopOpener({

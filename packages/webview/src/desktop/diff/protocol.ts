@@ -37,6 +37,10 @@ export type ShowDiffMessage = {
   /** A 1-based line of the right side to reveal and put the cursor on; null
    *  for none. */
   revealLine: number | null;
+  /** Why there is no text to compare — a binary file, or one too large to
+   *  send — in one line the viewer shows in place of an editor; null when
+   *  there is text. The documents are then empty. */
+  notShown: string | null;
   strings: DiffViewerStrings;
 };
 
@@ -70,6 +74,7 @@ export function isShowDiffMessage(data: unknown): data is ShowDiffMessage {
     isDiffDocument(data.original) &&
     isDiffDocument(data.modified) &&
     (data.revealLine === null || typeof data.revealLine === "number") &&
+    (data.notShown === null || typeof data.notShown === "string") &&
     isRecord(data.strings)
   );
 }

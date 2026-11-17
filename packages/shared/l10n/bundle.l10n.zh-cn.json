@@ -497,6 +497,8 @@
   "desktop.diff.inline": "内联",
   "desktop.diff.close": "关闭 Diff",
   "desktop.diff.cannotShow": "无法加载 diff 查看器。",
+  "desktop.diff.binary": "二进制文件：没有可比较的文本。",
+  "desktop.diff.tooLarge": "超过 {0} MB：太大，无法在此显示。",
   "ui.find": "查找",
   "ui.openTerminal": "终端",
   "ui.findPlaceholder": "在图形中查找…",

@@ -497,6 +497,8 @@
   "desktop.diff.inline": "內嵌",
   "desktop.diff.close": "關閉 Diff",
   "desktop.diff.cannotShow": "無法載入 diff 檢視器。",
+  "desktop.diff.binary": "二進位檔案：沒有可比較的文字。",
+  "desktop.diff.tooLarge": "超過 {0} MB：太大，無法在這裡顯示。",
   "ui.find": "尋找",
   "ui.openTerminal": "終端機",
   "ui.findPlaceholder": "在圖形中尋找…",

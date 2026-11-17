@@ -497,6 +497,8 @@
   "desktop.diff.inline": "Inline",
   "desktop.diff.close": "Close Diff",
   "desktop.diff.cannotShow": "The diff viewer could not be loaded.",
+  "desktop.diff.binary": "Binary file: there is no text to compare.",
+  "desktop.diff.tooLarge": "Larger than {0} MB: too large to show here.",
   "ui.find": "Find",
   "ui.openTerminal": "Terminal",
   "ui.findPlaceholder": "Find in graph…",

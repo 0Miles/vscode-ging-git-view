@@ -3,6 +3,7 @@ import * as path from "node:path";
 
 import { describe, expect, it, onTestFinished } from "vitest";
 
+import type { L10nArg } from "@ging/core/host/ports";
 import { createShowDiff } from "@ging/desktop/diffViewer";
 import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
 
@@ -20,7 +21,8 @@ function setUp(encoding = "utf8") {
   const showDiff = createShowDiff({
     gitPath: () => "git",
     fileEncoding: () => setting,
-    l10n: { t: (key) => `<${key}>` },
+    l10n: { t: (key: string, ...args: L10nArg[]) => `<${[key, ...args].join(" ")}>` },
+    repoRoot: () => repo,
     post: (message) => {
       if (pageThere) posted.push(message);
       return pageThere;
@@ -38,19 +40,26 @@ function setUp(encoding = "utf8") {
 /** "naïve\n" in windows-1252: the ï is the one byte 0xEF. */
 const WIN1252 = Buffer.from([0x6e, 0x61, 0xef, 0x76, 0x65, 0x0a]);
 
+/** A file committed into `repo`: its commit's hash. */
+function commitFile(repo: string, name: string, content: string | Buffer): string {
+  fs.writeFileSync(path.join(repo, name), content);
+  git(["add", name], repo);
+  git(["commit", "-m", `add ${name}`], repo);
+  return rev(repo, "HEAD");
+}
+
 describe("showing a diff in a Tab's page", () => {
   it("hands the page both sides at their revisions, in the page's own words", async () => {
     const { repo, posted, showDiff } = setUp();
-    fs.writeFileSync(path.join(repo, "a.txt"), "one\n");
-    git(["add", "a.txt"], repo);
-    git(["commit", "-m", "one"], repo);
+    commitFile(repo, "a.txt", "one\n");
     fs.writeFileSync(path.join(repo, "a.txt"), "two\n");
     git(["commit", "-am", "two"], repo);
+    const head = rev(repo, "HEAD");
 
     const shown = await showDiff({
       title: "a.txt (x^ ↔ x)",
-      original: { revision: { repo, filePath: "a.txt", commit: "HEAD^" } },
-      modified: { revision: { repo, filePath: "a.txt", commit: rev(repo, "HEAD") } },
+      original: { revision: { repo, filePath: "a.txt", commit: `${head}^` } },
+      modified: { revision: { repo, filePath: "a.txt", commit: head } },
       revealLine: 3
     });
 
@@ -62,6 +71,7 @@ describe("showing a diff in a Tab's page", () => {
         original: { path: "a.txt", content: "one\n" },
         modified: { path: "a.txt", content: "two\n" },
         revealLine: 3,
+        notShown: null,
         strings: {
           sideBySide: "<desktop.diff.sideBySide>",
           inline: "<desktop.diff.inline>",
@@ -79,7 +89,7 @@ describe("showing a diff in a Tab's page", () => {
 
     await showDiff({
       title: "t",
-      original: { revision: { repo, filePath: "src/b.txt", commit: "HEAD" } },
+      original: { revision: { repo, filePath: "src/b.txt", commit: rev(repo, "HEAD") } },
       modified: { workingFile: path.join(repo, "src", "b.txt"), repo }
     });
 
@@ -88,14 +98,26 @@ describe("showing a diff in a Tab's page", () => {
     expect(posted[0].revealLine).toBeNull();
   });
 
+  it("reads the index as the revision `:0`", async () => {
+    const { repo, posted, showDiff } = setUp();
+    fs.writeFileSync(path.join(repo, "c.txt"), "staged\n");
+    git(["add", "c.txt"], repo);
+
+    await showDiff({
+      title: "t",
+      original: { revision: { repo, filePath: "c.txt", commit: ":0" } },
+      modified: { workingFile: path.join(repo, "c.txt"), repo }
+    });
+
+    expect(posted[0].original.content).toBe("staged\n");
+  });
+
   it("decodes both sides per the setting as it is for each diff", async () => {
     const { repo, posted, showDiff, setEncoding } = setUp("win1252");
-    fs.writeFileSync(path.join(repo, "legacy.txt"), WIN1252);
-    git(["add", "legacy.txt"], repo);
-    git(["commit", "-m", "legacy"], repo);
+    const head = commitFile(repo, "legacy.txt", WIN1252);
     const request = {
       title: "t",
-      original: { revision: { repo, filePath: "legacy.txt", commit: "HEAD" } },
+      original: { revision: { repo, filePath: "legacy.txt", commit: head } },
       modified: { workingFile: path.join(repo, "legacy.txt"), repo }
     };
 
@@ -108,15 +130,93 @@ describe("showing a diff in a Tab's page", () => {
     expect(posted[1].original.content).not.toBe("naïve\n");
   });
 
-  it("answers false when the page is gone", async () => {
-    const { repo, posted, showDiff, closePage } = setUp();
-    closePage();
+  it("sends no binary file's bytes, but one line saying why there is nothing to compare", async () => {
+    const { repo, posted, showDiff } = setUp();
+    const head = commitFile(repo, "image.png", Buffer.from([0x89, 0x50, 0, 0x47]));
+
+    await showDiff({
+      title: "t",
+      original: { revision: { repo, filePath: "image.png", commit: `${head}^` } },
+      modified: { revision: { repo, filePath: "image.png", commit: head } }
+    });
+
+    expect(posted[0]).toMatchObject({
+      original: { path: "image.png", content: "" },
+      modified: { path: "image.png", content: "" },
+      notShown: "<desktop.diff.binary>"
+    });
+  });
+
+  it("sends neither side of a diff with a side too large to show, saying so", async () => {
+    const { repo, posted, showDiff } = setUp();
+    const head = commitFile(repo, "small.txt", "small\n");
+    // Larger than FILE_TEXT_LIMIT (5 MiB), in the working tree only.
+    fs.writeFileSync(path.join(repo, "small.txt"), "x".repeat(5 * 1024 * 1024 + 1));
+
+    await showDiff({
+      title: "t",
+      original: { revision: { repo, filePath: "small.txt", commit: head } },
+      modified: { workingFile: path.join(repo, "small.txt"), repo }
+    });
+
+    expect(posted[0]).toMatchObject({
+      original: { content: "" },
+      modified: { content: "" },
+      notShown: "<desktop.diff.tooLarge 5>"
+    });
+  });
+
+  it("reads nothing of a repository that is not the Tab's", async () => {
+    const { repo, posted, showDiff } = setUp();
+    const other = makeRepo();
+    onTestFinished(() => rmrf(other));
+    const head = rev(other, "HEAD");
 
     await expect(
       showDiff({
         title: "t",
-        original: { revision: { repo, filePath: "a", commit: "HEAD" } },
-        modified: { revision: { repo, filePath: "a", commit: "HEAD" } }
+        original: { revision: { repo: other, filePath: "f", commit: head } },
+        modified: { revision: { repo, filePath: "f", commit: rev(repo, "HEAD") } }
+      })
+    ).rejects.toThrow("not this Tab's repository");
+    await expect(
+      showDiff({
+        title: "t",
+        original: { revision: { repo, filePath: "f", commit: rev(repo, "HEAD") } },
+        modified: { workingFile: path.join(other, "f"), repo: other }
+      })
+    ).rejects.toThrow("not in this Tab's repository");
+    expect(posted).toEqual([]);
+  });
+
+  it("runs no revision but a hash, a parent of one, or the index", async () => {
+    const { repo, posted, showDiff } = setUp();
+    const written = path.join(repo, "written.txt");
+    const side = (commit: string) => ({ revision: { repo, filePath: "f", commit } });
+
+    const head = rev(repo, "HEAD");
+    await Promise.all(
+      [`--output=${written}`, "HEAD", "main", "@{-1}", "abc:def"].map((commit) =>
+        expect(
+          showDiff({ title: "t", original: side(commit), modified: side(head) }),
+          commit
+        ).rejects.toThrow("is not a revision a diff reads")
+      )
+    );
+    expect(fs.existsSync(written)).toBe(false);
+    expect(posted).toEqual([]);
+  });
+
+  it("answers false when the page is gone", async () => {
+    const { repo, posted, showDiff, closePage } = setUp();
+    closePage();
+    const head = rev(repo, "HEAD");
+
+    await expect(
+      showDiff({
+        title: "t",
+        original: { revision: { repo, filePath: "a", commit: head } },
+        modified: { revision: { repo, filePath: "a", commit: head } }
       })
     ).resolves.toBe(false);
     expect(posted).toEqual([]);
@@ -128,7 +228,7 @@ describe("showing a diff in a Tab's page", () => {
     await expect(
       showDiff({
         title: "t",
-        original: { revision: { repo, filePath: "a", commit: "HEAD" } },
+        original: { revision: { repo, filePath: "a", commit: rev(repo, "HEAD") } },
         // A folder, not a file.
         modified: { workingFile: repo, repo }
       })

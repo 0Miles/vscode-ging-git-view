@@ -315,6 +315,7 @@ describe("a graph instance", () => {
         original: { path: "legacy.txt", content: "" },
         modified: { path: "legacy.txt", content: "café\n" },
         revealLine: null,
+        notShown: null,
         strings: {
           sideBySide: "Side by Side",
           inline: "Inline",
