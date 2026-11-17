@@ -145,6 +145,16 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **分支動作的字串是圖形的(頁面的 `l10n`),批次動作與檢視自己的字串由宿主隨 state 送來。**同一個動作在圖內選單與側檢視叫同一個名字;批次動作圖形沒有選單,`webviewL10n` 不為桌面多帶 VS Code 用不到的字串。
 - **`gitGraphView.ts` 多了一個回傳值,沒有 import 任何 `desktop/` 底下的東西。**`startGitGraphView()` 回傳 `GraphInPage`,側檢視經由它直接呼叫圖形(ADR-0033)。VS Code 入口忽略它。
 
+## 補記(2026-11-17,#395)
+
+**Welcome page 多了「Clone Repository...」入口(#394 留給本票的那一個),以及 clone 進行中時蓋在 Welcome page 上的進度面板。協定照「補記(#393)」的形狀長出來。**
+
+- **`windowState` 多一欄 `clone`**([desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts) 的 `ClonePanel`):標題(不含帳密的 URL)、目的地、git 自己的進度行(還沒開口前與取消中是宿主的字)、百分比(不知道時 `null`,畫成來回跑的條)、是否取消中、取消鈕的字。沒有 clone 時是 `null`。和 `welcome` 不同,有 Tab 時也照送:clone 期間若有 Tab 開了,面板仍在 Welcome page 上,關掉 Tab 就看得到。
+- **頁面多兩種請求:`cloneRepo`、`cancelClone`。** 一樣只是請求;`WINDOW_COMMANDS_STAY_APART` 照舊檢查撞名。
+- **面板只建一次,之後就地改字,不重畫。** 其他部分每次 `windowState` 都整個重畫(`innerHTML`),但 clone 的進度一秒會來好幾次(宿主最多每 100ms 送一次),重畫會在使用者按下取消、還沒放開時把按鈕換掉,那次點擊就落空了。所以面板是 `#welcome` 旁邊的一個元素,不在 `#welcome` 裡。
+- **面板開著時 `#welcome` 是 `inert`。** 一次一個 clone,而且面板底下的入口不該被點到。面板出現時焦點移到取消鈕。askpass 問帳密時,host prompt overlay(top layer 的 modal)蓋在面板之上,與圖形頁上蓋在進度框之上是同一回事(「補記(#390)」)。
+- 樣式照舊由 `windowPage.ts` 插進同一個 `<style>`,只用 `theme.ts` 已有的 `--vscode-*` 變數。[windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗面板蓋滿 Welcome page、長 URL 不超出視窗、進度條的寬度跟著百分比、取消鈕送出 `cancelClone`。
+
 ## 補記(2026-11-17,#404)
 
 **editor 與 diff viewer 的工廠介面長在 [editors.ts](../../packages/webview/src/desktop/editors.ts):`EditorFactory` 只有 `createDiffViewer(container, options)`,回傳的 `DiffViewer` 有 `setLayout`、`setTheme`、`focus`、`dispose`。`apps/desktop` 用 Monaco 實作,經由 `startDesktopEntry({ editors })` 交給桌面入口。** 上面「為什麼未來的讀者會困惑」說介面的形狀與注入點隨第一個呼叫端 #404 長出來,這就是它。

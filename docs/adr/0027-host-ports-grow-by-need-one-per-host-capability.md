@@ -245,6 +245,17 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **沒有新的 port。**側檢視的 main process 那一半([sideViews.ts](../../apps/desktop/src/sideViews.ts))用的都是既有的:`HostConfig`、`RepoSource.updateRepoState`(toggle)、`Prompts.showInformation`(批次動作全被扣除時的說明)、`Clipboard`(複製 remote URL),以及 core 的 `remoteCommands`、`fetchService`、`pullRequestProviderCommands`、`branchFacts`、`branchFilterStore`。`remoteCommands` 是每個實例一份,問在該實例自己的頁面。
 - **repo state 的寫入由實例的 `RepoSource` 包一層通知側檢視。**VS Code 的 `RepoManager` 有 `onDidWriteRepoState`;桌面版的 `RepoSource` 沒有寫入事件(`setRepoState` 不廣播),所以 `graphInstance.ts` 交給 dispatch 與命令服務的那一份在 `setRepoState`、`updateRepoState` 前後比對三個側檢視欄位(`sideViewStateChanged`),動了才請側檢視重讀。Repository Settings 抽屜改了隱藏 inactive / merged 的設定,側檢視因此跟著變,和 VS Code 一樣。
 
+## 補記(2026-11-17,#395)
+
+**core 多了 clone:動作在 [clone.ts](../../packages/core/src/backend/actions/clone.ts),命令服務在 [repoCloneCommand.ts](../../packages/core/src/extension/repoCloneCommand.ts)。port 沒有長,和 #394 的 init 同一個形狀。**
+
+- **問 URL、選資料夾、畫進度都是宿主的事。** 命令服務收已經決定好的 URL 與目的地,外加這一次 clone 自己的 `AbortSignal`、進度的 listener 與 git 的環境(誰來回答帳密的 askpass route)。「問一個資料夾」與「顯示進度」今天只有桌面版要(VS Code 有自己的 Git: Clone),照「先有呼叫端」不開在 `Prompts` 上;桌面版問 URL 用既有的 `Prompts.input`,命令服務交出 `urlProblem` 當它的 `validate`,所以「什麼 URL 不收」只有 core 一份規則。
+- **clone 走 `spawnGit`,不走 simple-git。** 要逐段讀 stderr 的進度,也要能殺掉整棵行程;simple-git 兩者都沒有。`spawnGit` 因此多了選填的 `onStderr` 與 `ownProcessGroup`(後者見 ADR-0028 的同日補記)。
+- **URL 的規則(`cloneUrlProblem`)。** 只收 git 自己的網路 scheme(http、https、ssh、git 與 ssh 的兩種別名)與 `file://`、scp 寫法 `[user@]host:path`、這台電腦上的完整路徑。拒絕:`<transport>::<address>`(`ext::` 會執行任意命令,`fd::` 等其他 remote helper 同樣是「找一個叫這名字的程式來跑」)、`-` 開頭(會被讀成選項)、相對路徑(會對著 git 剛好在的目錄解析)、控制字元(換行會切開 git 的 credential 請求)、其他 scheme、取不出資料夾名稱的。命令列一律是 `-c protocol.ext.allow=never clone --progress -- <url> <folder>`。
+- **目的地照 VS Code 的 clone:選「放在哪個資料夾」,名稱照 git 的規則從 URL 取**(`cloneFolderName`,git 的 `git_url_basename` 在這些 URL 上的行為)。已存在而且不是空資料夾、或上層資料夾不在時,git 不跑,用 app 自己的字串說明。
+- **log 與畫面上的 URL 去掉帳密**(`urlWithoutCredentials`):`https://user:token@host/…` 的 token 不寫進 log 檔。
+- **失敗的原因先拿掉進度行再交給 `formatGitError`。** clone 的 stderr 有 `remote: Counting objects: …` 這類進度,`formatGitError` 會優先挑 `remote:` 開頭的行,選中的就會是進度而不是 git 的 `fatal:`。
+
 ## 補記(2026-11-17,#404)
 
 **桌面版 `Opener` 的 `openCommitDiff` 與 `diffWithWorking` 不再是 stub:兩者都開在該實例的 Tab 頁面裡、蓋在圖形上的 diff viewer(畫面與 Monaco 的注入見 ADR-0031 的同日補記)。** #391 補記的四個 stub 剩下 `openFileAtRevision`(#405)與 `openMergeEditor`(#410)。port 本身沒有改,VS Code 的實作也沒有改。

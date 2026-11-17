@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { WelcomeContent, WindowStateMessage } from "@ging/webview/desktop/window/protocol";
+import type {
+  ClonePanel,
+  WelcomeContent,
+  WindowStateMessage
+} from "@ging/webview/desktop/window/protocol";
 
 import { createVscodeMock } from "./setup";
 import { startDesktop } from "./startDesktop";
@@ -27,6 +31,7 @@ const STATE: WindowStateMessage = {
   ],
   notice: null,
   welcome: null,
+  clone: null,
   strings: { closeTab: "Close Tab" }
 };
 
@@ -37,6 +42,7 @@ const WELCOME: WelcomeContent = {
   ],
   strings: {
     openFolder: "Open Folder...",
+    cloneRepo: "Clone Repository...",
     initRepo: "Initialize Repository...",
     recent: "Recent",
     noRecent: "Repositories you open are listed here.",
@@ -51,6 +57,18 @@ function hear(data: unknown) {
 
 const strip = () => document.getElementById("tabStrip")!;
 const tabs = () => Array.from(strip().querySelectorAll<HTMLElement>(".tab"));
+
+/** A clone running, as the host shows it (#395). */
+const CLONE: ClonePanel = {
+  title: "Cloning https://example.com/<app>.git",
+  folder: "into /work/app",
+  stage: "Connecting...",
+  percent: null,
+  cancelling: false,
+  cancel: "Cancel"
+};
+const panel = () => document.getElementById("clonePanel")!;
+const part = (selector: string) => panel().querySelector<HTMLElement>(selector)!;
 
 describe("the desktop entry on the window's page", () => {
   it("says it listens, for the tab strip and for the Welcome page's prompts", async () => {
@@ -116,7 +134,7 @@ describe("the desktop entry on the window's page", () => {
     const welcome = document.getElementById("welcome")!;
     expect(
       Array.from(welcome.querySelectorAll(".welcomeAction")).map((b) => b.textContent)
-    ).toEqual(["Open Folder...", "Initialize Repository..."]);
+    ).toEqual(["Open Folder...", "Clone Repository...", "Initialize Repository..."]);
     expect(welcome.querySelector("h3")!.textContent).toBe("Recent");
     const rows = Array.from(welcome.querySelectorAll<HTMLElement>(".recentRepo"));
     expect(
@@ -153,6 +171,7 @@ describe("the desktop entry on the window's page", () => {
     const welcome = document.getElementById("welcome")!;
 
     welcome.querySelector<HTMLElement>('[data-welcome="openFolder"] span')!.click();
+    welcome.querySelector<HTMLElement>('[data-welcome="cloneRepo"]')!.click();
     welcome.querySelector<HTMLElement>('[data-welcome="initRepo"]')!.click();
     welcome.querySelectorAll<HTMLElement>(".recentName")[1].click();
     welcome.querySelectorAll<HTMLElement>(".recentForget")[0].click();
@@ -160,10 +179,65 @@ describe("the desktop entry on the window's page", () => {
 
     expect(mock.sentMessages).toEqual([
       { command: "openFolder" },
+      { command: "cloneRepo" },
       { command: "initRepo" },
       { command: "openRecent", path: "/gone/alpha" },
       { command: "forgetRecent", path: "/repos/beta" }
     ]);
+  });
+
+  describe("a clone running (#395)", () => {
+    it("is shown over the Welcome page, which takes no clicks meanwhile, the way out focused", async () => {
+      await load();
+      hear({ ...STATE, tabs: [], welcome: WELCOME });
+      expect(panel().hidden).toBe(true);
+
+      hear({ ...STATE, tabs: [], welcome: WELCOME, clone: CLONE });
+
+      expect(panel().hidden).toBe(false);
+      expect(document.getElementById("welcome")!.inert).toBe(true);
+      expect(part(".cloneTitle").textContent).toBe("Cloning https://example.com/<app>.git");
+      expect(part(".cloneFolder").textContent).toBe("into /work/app");
+      expect(part(".cloneStage").textContent).toBe("Connecting...");
+      // Not known yet: no value, and the bar says so.
+      expect(part(".cloneBar").classList.contains("indeterminate")).toBe(true);
+      expect(part(".cloneBar").hasAttribute("aria-valuenow")).toBe(false);
+      expect(document.activeElement).toBe(part(".cloneCancel"));
+    });
+
+    it("changes in place as it goes, so the Cancel button is the same one throughout", async () => {
+      const mock = await load();
+      hear({ ...STATE, tabs: [], welcome: WELCOME, clone: CLONE });
+      const cancel = part(".cloneCancel");
+
+      hear({
+        ...STATE,
+        tabs: [],
+        welcome: WELCOME,
+        clone: { ...CLONE, stage: "Receiving objects:  45% (9/20)", percent: 45 }
+      });
+
+      expect(part(".cloneCancel")).toBe(cancel);
+      expect(part(".cloneStage").textContent).toBe("Receiving objects:  45% (9/20)");
+      expect(part(".cloneBar").classList.contains("indeterminate")).toBe(false);
+      expect(part(".cloneBar").getAttribute("aria-valuenow")).toBe("45");
+      expect(part(".cloneBarFill").style.width).toBe("45%");
+      mock.sentMessages.length = 0;
+      cancel.click();
+      expect(mock.sentMessages).toEqual([{ command: "cancelClone" }]);
+    });
+
+    it("disables Cancel once asked, and goes when the clone is done", async () => {
+      await load();
+      hear({ ...STATE, tabs: [], welcome: WELCOME, clone: CLONE });
+
+      hear({ ...STATE, tabs: [], welcome: WELCOME, clone: { ...CLONE, cancelling: true } });
+      expect((part(".cloneCancel") as HTMLButtonElement).disabled).toBe(true);
+
+      hear({ ...STATE, tabs: [], welcome: WELCOME });
+      expect(panel().hidden).toBe(true);
+      expect(document.getElementById("welcome")!.inert).toBe(false);
+    });
   });
 
   it("ignores messages that are not the window's state", async () => {

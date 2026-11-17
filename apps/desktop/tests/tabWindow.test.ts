@@ -74,13 +74,10 @@ function setUp() {
         page: tab.content.page.graph ? "graph" : "notice",
         focused: tab === window.tabs.focused()
       }));
-    return { window, repoSource, logged, views, shown };
+    return { window, repoSource, logged, views, shown, storage };
   };
   return { userData, folder, session };
 }
-
-/** Wait for the state file's queued write to land. */
-const settled = () => new Promise((resolve) => setTimeout(resolve, 50));
 
 describe("the desktop window's Tabs", () => {
   it("come back in their order, the one that was in front in front", async () => {
@@ -89,7 +86,8 @@ describe("the desktop window's Tabs", () => {
     const first = session();
     for (const repo of [a, b, c]) first.window.openRepo(repo);
     first.window.tabs.focus(first.window.tabs.find(b)!.id);
-    await settled();
+    // The state file as the Tabs left it, before the next session reads it.
+    await first.storage.flush();
 
     const second = session();
     second.window.restore();
@@ -112,7 +110,8 @@ describe("the desktop window's Tabs", () => {
     const first = session();
     first.window.openRepo(kept);
     first.window.openRepo(gone);
-    await settled();
+    // The state file as the Tabs left it, before the next session reads it.
+    await first.storage.flush();
     const parked = `${gone}-parked`;
     fs.renameSync(gone, parked);
 
