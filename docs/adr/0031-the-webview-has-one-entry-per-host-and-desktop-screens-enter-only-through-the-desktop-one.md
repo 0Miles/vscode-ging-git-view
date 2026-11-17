@@ -122,4 +122,3 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **它在 `packages/webview`,不在 `desktop/` 底下,** 因為 VS Code 也用它;它只是產生字串的函式，不 import 任何會碰頁面的東西。圖形的資料型別由 core 的 `Statistics` 依形狀對上(`StatisticsFigures`),`packages/webview` 照 ADR-0026 不依賴 core。
 - **主題。** VS Code 自己注入 `--vscode-*`;桌面版在提供頁面時把當下主題的變數寫在 `<html>` 的 `style` 上(與其他頁面相同),之後的主題切換照舊由 preload 套上。它用到的 `--vscode-charts-blue` 因此加進了 `theme.ts`(值取自 VS Code 色彩登錄的 `editorInfo.foreground`),`apps/desktop/tests/theme.test.ts` 掃 `packages/webview` 時會守住它。
 - **頁面不會被導覽走、也不開新視窗**(`keepPageInPlace`,同 #393 的 Tab)。`serveApp` 因此多了一種回答:除了組成入口頁面的 `PageContent`,也可以是整份文件(`{ document }`);沒有統計資料時 `ging://app/statistics` 是 404。
-
