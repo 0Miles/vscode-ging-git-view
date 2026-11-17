@@ -38,7 +38,13 @@ const STRINGS: WorkingTreeStrings = {
     typeChanged: "Type changed",
     untracked: "Untracked",
     conflicted: "Conflicted"
-  }
+  },
+  openMergeTool: "Open in Merge Tool",
+  markResolved: "Mark Resolved",
+  inProgress: "{0} in progress",
+  operations: { merge: "Merge", rebase: "Rebase", cherrypick: "Cherry-pick", revert: "Revert" },
+  continue: "Continue",
+  abort: "Abort"
 };
 
 const STATUS: WorkingTreeStatus = {
@@ -114,7 +120,7 @@ describe("the working tree panel", () => {
     expect(mock.sentMessages).toEqual([{ command: "workingTreeLoad" }]);
   });
 
-  it("draws each list from the status, a conflict and a submodule with no button of their own", async () => {
+  it("draws each list from the status, a submodule with no button of its own", async () => {
     await load(true);
     hear(answer("workingTreeLoad"));
 
@@ -128,7 +134,6 @@ describe("the working tree panel", () => {
       "vendor/lib"
     ]);
     expect(rows("unstaged")[1].querySelector(".wtLetter")!.textContent).toBe("U");
-    expect(rows("conflicted")[0].querySelector("button")).toBeNull();
     expect(rows("unstaged")[2].querySelector("button")).toBeNull();
     expect(rows("unstaged")[2].title).toBe("vendor/lib\nA submodule.");
     expect(panel().querySelector(".wtBranch")!.textContent).toBe("main");
@@ -300,6 +305,55 @@ describe("the working tree panel", () => {
     expect(mock.sentMessages).toEqual([
       { command: "workingTreeStage", paths: many.map((file) => file.path) }
     ]);
+  });
+
+  // A conflict (#410).
+  it("offers a conflicted file to the merge tool and to be marked resolved, and nothing to stage", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad"));
+    mock.sentMessages.length = 0;
+    const conflict = rows("conflicted")[0];
+
+    expect(
+      Array.from(conflict.querySelectorAll("button")).map((b) => b.getAttribute("aria-label"))
+    ).toEqual(["Open in Merge Tool", "Mark Resolved"]);
+    expect(conflict.querySelector("[data-action=stage]")).toBeNull();
+
+    conflict.querySelector<HTMLButtonElement>("[data-action=mergeTool]")!.click();
+    hear(answer("workingTreeMergeTool"));
+    rows("conflicted")[0].querySelector<HTMLButtonElement>("[data-action=resolve]")!.click();
+
+    expect(mock.sentMessages).toEqual([
+      { command: "workingTreeMergeTool", path: "both.txt" },
+      { command: "workingTreeResolve", paths: ["both.txt"] }
+    ]);
+  });
+
+  it("names the operation in progress, continued only once no conflict is left, or aborted", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad", { ...STATUS, operation: "cherrypick" }));
+    mock.sentMessages.length = 0;
+    const bar = () => panel().querySelector<HTMLElement>(".wtOperation")!;
+
+    expect(bar().querySelector(".wtOperationTitle")!.textContent).toBe("Cherry-pick in progress");
+    expect(button("[data-action=continue]").getAttribute("aria-disabled")).toBe("true");
+    button("[data-action=continue]").click();
+    expect(mock.sentMessages).toEqual([]);
+
+    hear(answer("workingTreeResolve", { ...STATUS, conflicted: [], operation: "cherrypick" }));
+    expect(button("[data-action=continue]").hasAttribute("aria-disabled")).toBe(false);
+    button("[data-action=continue]").click();
+    expect(mock.sentMessages).toEqual([{ command: "workingTreeContinue" }]);
+    hear(answer("workingTreeContinue", { ...STATUS, conflicted: [], operation: "cherrypick" }));
+    button("[data-action=abort]").click();
+    expect(mock.sentMessages).toEqual([
+      { command: "workingTreeContinue" },
+      { command: "workingTreeAbort" }
+    ]);
+
+    // Done with, it goes.
+    hear(answer("workingTreeAbort", { ...STATUS, conflicted: [] }));
+    expect(panel().querySelector(".wtOperation")).toBeNull();
   });
 
   it("closes, gives back the graph's width, and stays closed", async () => {

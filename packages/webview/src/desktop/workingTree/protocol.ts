@@ -4,7 +4,11 @@
  * channel with the graph's, and stay out of `RequestMessage` /
  * `ResponseMessage` (ADR-0031). */
 
-import type { WorkingTreeChange, WorkingTreeStatus } from "@ging/shared/backend/types";
+import type {
+  GitOperation,
+  WorkingTreeChange,
+  WorkingTreeStatus
+} from "@ging/shared/backend/types";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 /** The panel's words, in the host's language: they come with every status,
@@ -30,6 +34,15 @@ export type WorkingTreeStrings = {
   submodule: string;
   /** Each kind of change, for the letter's tooltip. */
   changes: Record<WorkingTreeChange, string>;
+  /** On a conflicted file's row (#410). */
+  openMergeTool: string;
+  markResolved: string;
+  /** Over the lists while an operation is in progress: `{0}` is its name,
+   *  from `operations`. */
+  inProgress: string;
+  operations: Record<GitOperation, string>;
+  continue: string;
+  abort: string;
 };
 
 /** Page → host. */
@@ -39,7 +52,17 @@ export type WorkingTreeRequest =
    *  "everything", which would take in the conflicted ones too. */
   | { command: "workingTreeStage"; paths: string[] }
   | { command: "workingTreeUnstage"; paths: string[] }
-  | { command: "workingTreeCommit"; message: string };
+  | { command: "workingTreeCommit"; message: string }
+  /** A conflicted file handed to the user's merge tool (#410). Answered at
+   *  once, with the status as it is: the tool stays open as long as the user
+   *  works in it, and the graph's refresh after it reads the panel anew. */
+  | { command: "workingTreeMergeTool"; path: string }
+  /** Conflicted files marked resolved, each staged whole as it is; the host
+   *  asks first when conflict markers remain. */
+  | { command: "workingTreeResolve"; paths: string[] }
+  /** The operation in progress continued, or aborted. */
+  | { command: "workingTreeContinue" }
+  | { command: "workingTreeAbort" };
 
 /** Host → page. */
 export type WorkingTreeMessage =
@@ -87,10 +110,15 @@ export function isWorkingTreeRequest(data: unknown): data is WorkingTreeRequest 
   if (!isRecord(data)) return false;
   switch (data.command) {
     case "workingTreeLoad":
+    case "workingTreeContinue":
+    case "workingTreeAbort":
       return true;
     case "workingTreeStage":
     case "workingTreeUnstage":
+    case "workingTreeResolve":
       return isPaths(data.paths);
+    case "workingTreeMergeTool":
+      return typeof data.path === "string";
     case "workingTreeCommit":
       return typeof data.message === "string";
     default:
