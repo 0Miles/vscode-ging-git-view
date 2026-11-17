@@ -22,7 +22,8 @@ export type CloneProgress = {
 /** Why a text is no URL to clone; see `cloneUrlProblem`. */
 export type CloneUrlProblem =
   | "empty"
-  /** Starts with `-`: git would read it as an option. */
+  /** Starts with `-`, or its host or user does: git would read it as an
+   *  option, or hand it to ssh as one (`ssh://-oProxyCommand=…`). */
   | "option"
   /** `<transport>::<address>`: git hands it to a program of that name
    *  (`git-remote-<transport>`), `ext::` running any command it is given. */
@@ -59,6 +60,37 @@ const SCP_LIKE = /^(?:[^@/\\:]+@)?[^@/\\:]{2,}:/;
 // eslint-disable-next-line no-control-regex -- control characters are what it finds
 const CONTROL = /[\u0000-\u001f\u007f]/;
 
+/** `text` with its %-escapes undone, as git undoes them in a URL's host and
+ *  user; as it is when they do not decode. */
+function decoded(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+/** The user and host `url` names, when it names any: a URL's authority, or
+ *  scp-like `[user@]host:`. */
+function userAndHost(url: string): string[] {
+  const scheme = SCHEME_URL.exec(url);
+  if (scheme !== null) {
+    const rest = url.slice(scheme[0].length);
+    const authority = rest.slice(0, rest.search(/[\\/]|$/));
+    const at = authority.lastIndexOf("@");
+    const user = at === -1 ? [] : [authority.slice(0, at).split(":")[0]];
+    return [...user, authority.slice(at + 1)];
+  }
+  const scp = /^(?:([^@/\\:]+)@)?([^@/\\:]+):/.exec(url);
+  return scp === null ? [] : [scp[1] ?? "", scp[2]];
+}
+
+/** A host or user that ssh would take for an option: git turns most of them
+ *  away itself ("strange hostname", git 2.14.1 on), but nothing here counts
+ *  on the git a user happens to have. */
+const optionLike = (url: string) =>
+  userAndHost(url).some((part) => decoded(part).trimStart().startsWith("-"));
+
 /**
  * Why `url` is not one to clone, or `null` when it is: a URL of git's own
  * network schemes or `file://`, git's scp-like `host:path`, or a full path on
@@ -71,7 +103,7 @@ const CONTROL = /[\u0000-\u001f\u007f]/;
 export function cloneUrlProblem(url: string): CloneUrlProblem | null {
   if (url === "") return "empty";
   if (CONTROL.test(url)) return "control";
-  if (url.startsWith("-")) return "option";
+  if (url.startsWith("-") || optionLike(url)) return "option";
   if (TRANSPORT.test(url)) return "transport";
   const scheme = SCHEME_URL.exec(url)?.[1];
   if (scheme !== undefined) {
@@ -267,9 +299,16 @@ async function makeWritable(target: string): Promise<void> {
 async function removeWhatCloneMade(folder: string, existed: boolean): Promise<boolean> {
   if (!existed) return removeAll(folder);
   const entries = (await contentsOf(folder)) ?? [];
-  const removed = await Promise.all(entries.map((entry) => removeAll(path.join(folder, entry))));
-  return removed.every(Boolean);
+  await Promise.all(entries.map((entry) => removeAll(path.join(folder, entry))));
+  // Looked at again rather than taken from the removals: whatever came after
+  // the listing is still there, and is not to be said gone.
+  return ((await contentsOf(folder)) ?? []).length === 0;
 }
+
+/** How long a cancelled clone's git is given to be gone before what it made
+ *  is removed: a process that escaped the kill (ADR-0028) is not waited for
+ *  past it. */
+export const CANCELLED_GIT_GRACE_MS = 5000;
 
 /**
  * Clone `url` into `folder` (#395): `git clone --progress -- <url> <folder>`,
@@ -332,6 +371,18 @@ export async function cloneRepository({
     if (top.kind === "ok" && top.exitCode === 0) return { repo: top.stdout.toString().trim() };
     // Cloned, and yet no working tree git will say the top of: whatever it
     // is, it is not what was asked for, so it goes too.
+  }
+  if (result.kind === "aborted") {
+    // Sent a kill, settled at once (ADR-0028): git, or index-pack under it,
+    // may still be writing. Removing now would miss what comes after.
+    let grace: NodeJS.Timeout | undefined;
+    await Promise.race([
+      result.exited,
+      new Promise((done) => {
+        grace = setTimeout(done, CANCELLED_GIT_GRACE_MS);
+      })
+    ]);
+    clearTimeout(grace);
   }
   const removed = await removeWhatCloneMade(folder, before !== null);
   switch (result.kind) {

@@ -115,7 +115,13 @@ export type GitSpawnOptions = {
    *  reaches every process in it — the remote helper git starts for an HTTP
    *  remote (`git-remote-http`) included, which git leaves running when it is
    *  itself killed (ADR-0028's 補記 of 2026-11-17). For a caller on the
-   *  network; Windows' `taskkill /T` takes the tree already. */
+   *  network; Windows' `taskkill /T` takes the tree already.
+   *
+   *  It is Node's `detached`, which outside Windows is `setsid`: a session of
+   *  its own as well as a process group, away from any controlling terminal.
+   *  Nothing is lost by that: a credential is asked through askpass, never on
+   *  a terminal. Detached or not, git goes on running should the app itself
+   *  crash: nothing sends it a signal when its parent dies. */
   ownProcessGroup?: boolean;
 };
 
@@ -158,7 +164,14 @@ function killTree(child: cp.ChildProcess, group = false) {
 export type GitSpawnResult =
   | { kind: "ok"; exitCode: number | null; stdout: Buffer; stderr: string }
   | { kind: "timeout" }
-  | { kind: "aborted" }
+  | {
+      kind: "aborted";
+      /** Settles once the child is gone and the last of the processes that
+       *  share its output have closed it: everything git started that could
+       *  still be writing. Not waited for here (ADR-0028); a caller that is to
+       *  clean up after git waits for it, as long as it will. */
+      exited: Promise<void>;
+    }
   | { kind: "error"; error: Error };
 
 /**
@@ -176,7 +189,9 @@ export type GitSpawnResult =
  */
 export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
   const { signal } = options;
-  if (signal?.aborted === true) return Promise.resolve({ kind: "aborted" });
+  if (signal?.aborted === true) {
+    return Promise.resolve({ kind: "aborted", exited: Promise.resolve() });
+  }
   const args = [...GIT_CONFIG_OVERRIDES.flatMap((c) => ["-c", c]), ...options.args];
   options.onCommand?.(options.gitPath, args);
   // `detached` on Windows is a console of its own, not a process group.
@@ -188,6 +203,13 @@ export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
       windowsHide: true,
       detached: group
     });
+    // `close` comes once every process holding the child's stdio has let go
+    // of it — git's own children inherit its stderr — or `error` once it never
+    // started.
+    const exited = new Promise<void>((done) => {
+      child.once("close", () => done());
+      child.once("error", () => done());
+    });
     const timer =
       options.timeoutMs === undefined
         ? undefined
@@ -197,7 +219,7 @@ export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
           }, options.timeoutMs);
     const onAbort = () => {
       killTree(child, group);
-      settle({ kind: "aborted" });
+      settle({ kind: "aborted", exited });
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     let settled = false;
