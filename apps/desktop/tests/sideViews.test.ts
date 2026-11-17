@@ -2,7 +2,6 @@ import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { simpleGit, type SimpleGit } from "simple-git";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { WatchPath } from "@ging/core/backend/queries/gitDirs";
@@ -10,6 +9,8 @@ import type { BranchFactsResult } from "@ging/core/extension/branchFacts";
 import { createBranchFilterStore } from "@ging/core/extension/branchFilterStore";
 import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
 import type { RemoteTarget } from "@ging/core/extension/remoteCommands";
+import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
+import type { ListedStashHost } from "@ging/core/extension/stashList";
 import { createSideViews } from "@ging/desktop/sideViews";
 import type { GitRepoSet, GitRepoState } from "@ging/shared/types";
 import type {
@@ -49,9 +50,16 @@ function facts(filter: string[] = []): BranchFactsResult {
   };
 }
 
+type SimpleGit = ListedStashHost["git"];
+
 /** A git that lists no stash, and never runs: the tests on branches and
  *  remotes have no repository on disk. */
 const NO_GIT = { raw: async () => "" } as unknown as SimpleGit;
+
+/** The desktop host's own git client on `repo`, as an instance makes one
+ *  (`simple-git` is core's dependency, not the app's). */
+const simpleGit = (repo: string) =>
+  createRepoGitClients({ gitPath: () => "git" }).gitClientFor(repo);
 
 /** `repo`'s git, and a way to wait for the next `git stash list` it answers. */
 function stashGit(repo: string) {
