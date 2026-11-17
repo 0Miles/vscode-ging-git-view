@@ -3,14 +3,17 @@
  * repository opens in the program the system shows its type with, when it is
  * a type GING knows only to be shown (`opensDirectly`), and is shown in its
  * folder otherwise; a link opens in the browser, a terminal is the system's
- * own. What the desktop app has no screen
- * for yet — a file at a revision, a diff, a merge — is said to be so, and
- * answered as done: see `notSupportedYet`. */
+ * own. A diff opens in the diff viewer over the instance's graph (#404,
+ * diffViewer.ts). What the desktop app has no screen for yet — a file at a
+ * revision, a merge — is said to be so, and answered as done: see
+ * `notSupportedYet`. */
 
 import fs from "node:fs";
 import path from "node:path";
 
+import { commitDiffView } from "@ging/core/extension/commitDiff";
 import type { HostLogger, L10n, Opener, Prompts } from "@ging/core/host/ports";
+import type { ShowDiff } from "@ging/desktop/diffViewer";
 import { webUrl } from "@ging/shared/webUrl";
 
 /**
@@ -216,13 +219,25 @@ type DesktopOpenerDeps = {
   logger: Pick<HostLogger, "log" | "logError">;
   /** The repository the instance shows: the only one it opens files from. */
   repoRoot: () => string;
+  /** Show a diff in the instance's page (diffViewer.ts). */
+  showDiff: ShowDiff;
   platform: NodeJS.Platform;
   env: NodeJS.ProcessEnv;
   files?: FileFacts;
 };
 
 export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
-  const { os, prompts, l10n, logger, repoRoot, platform, env, files = systemFiles } = deps;
+  const {
+    os,
+    prompts,
+    l10n,
+    logger,
+    repoRoot,
+    showDiff,
+    platform,
+    env,
+    files = systemFiles
+  } = deps;
   const notYet = (what: string) => notSupportedYet(deps, what);
   /** Log why `file` is not opened, and reject with it. */
   const refuse = (file: string, why: string): never => {
@@ -272,22 +287,46 @@ export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
         });
     },
 
+    // The diffs, in the diff viewer over the Tab's graph (#404).
+    openCommitDiff: async (request) => {
+      const view = commitDiffView(request, {
+        addedIn: (abbrevHash) => l10n.t("diff.addedIn", abbrevHash),
+        deletedIn: (abbrevHash) => l10n.t("diff.deletedIn", abbrevHash)
+      });
+      try {
+        return await showDiff({
+          title: view.title,
+          original: { revision: view.left },
+          modified: { revision: view.right },
+          // The view counts from 0, as an editor does; the page from 1.
+          ...(view.reveal === null ? {} : { revealLine: view.reveal + 1 })
+        });
+      } catch (e) {
+        // The port answers whether it opened; the graph says it did not.
+        logger.logError(`opener: could not show a diff of ${request.newFilePath}: ${String(e)}`);
+        return false;
+      }
+    },
+    diffWithWorking: async (left, workingPath, title) => {
+      const asked = path.resolve(workingPath);
+      // The working tree of the Tab's repository, as `openFile` opens only
+      // from it: the request names its file by a path the page built.
+      if (!isWithin(path.resolve(repoRoot()), asked)) refuse(asked, "not in the repository");
+      const shown = await showDiff({
+        title,
+        original: { revision: left },
+        modified: { workingFile: asked, repo: left.repo }
+      });
+      if (!shown) refuse(asked, "the Tab's page is gone");
+    },
+
     // The stubs. The port's contract is to reject what could not be opened,
     // and the graph answers a rejection with an error box of its own ("Unable
     // to open…"). These are not failures: the desktop app has no such screen
-    // yet, which the notice says, so they resolve — `openCommitDiff` to true —
-    // and the graph says nothing more. Each goes when the ticket named on it
-    // brings the screen.
+    // yet, which the notice says, so they resolve and the graph says nothing
+    // more. Each goes when the ticket named on it brings the screen.
     /** #405: a file read-only at a revision. */
     openFileAtRevision: async (file) => notYet(`viewing ${file.filePath} at ${file.commit} (#405)`),
-    /** #404: the diff viewer. */
-    diffWithWorking: async (_left, workingPath) =>
-      notYet(`a diff of ${workingPath} with the working tree (#404)`),
-    /** #404: the diff viewer. */
-    openCommitDiff: async (request) => {
-      notYet(`a diff of ${request.newFilePath} at ${request.commitHash} (#404)`);
-      return true;
-    },
     /** #410: conflicts handed to the user's mergetool. */
     openMergeEditor: (_repo, filePath) => notYet(`merging ${filePath} (#410)`)
   };

@@ -81,8 +81,13 @@
     },
     {
       // The desktop preload runs in the page with Electron's renderer API; the
-      // E2E hands functions to `page.evaluate`, which run in the page too.
-      "files": ["apps/desktop/src/preload.ts", "apps/desktop/e2e/**/*.ts"],
+      // E2E hands functions to `page.evaluate`, which run in the page too; and
+      // src/web/ is the page's own bundles (#404).
+      "files": [
+        "apps/desktop/src/preload.ts",
+        "apps/desktop/src/web/**/*.ts",
+        "apps/desktop/e2e/**/*.ts"
+      ],
       "env": {
         "browser": true
       }

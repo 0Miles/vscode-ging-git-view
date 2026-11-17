@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { L10nArg } from "@ging/core/host/ports";
+import type { DiffRequest } from "@ging/desktop/diffViewer";
 import {
   createDesktopOpener,
   type FileFacts,
@@ -41,7 +42,8 @@ function setUp({
   env = {} as NodeJS.ProcessEnv,
   files = fakeFiles(),
   openPath = async (_file: string) => "",
-  openTerminal = async (_cwd: string, _title: string) => {}
+  openTerminal = async (_cwd: string, _title: string) => {},
+  showDiff = async (_request: DiffRequest): Promise<boolean> => true
 } = {}) {
   const calls: unknown[][] = [];
   const logged: string[] = [];
@@ -77,6 +79,10 @@ function setUp({
       logError: (line) => logged.push(`ERROR: ${line}`)
     },
     repoRoot: () => REPO,
+    showDiff: (request) => {
+      calls.push(["showDiff", request]);
+      return showDiff(request);
+    },
     platform,
     env,
     files
@@ -243,33 +249,14 @@ describe("the desktop Opener", () => {
   // done, so the graph adds no "Unable to open" box of its own.
   describe("what the desktop app cannot show yet", () => {
     const side = { repo: REPO, filePath: "a.txt", commit: "abc" };
-    type TestOpener = ReturnType<typeof setUp>["opener"];
 
-    it.each([
-      ["openFileAtRevision", (o: TestOpener) => o.openFileAtRevision(side)],
-      ["diffWithWorking", (o: TestOpener) => o.diffWithWorking(side, at("a.txt"), "t")]
-    ])("%s resolves after the notice", async (_name, open) => {
+    it("openFileAtRevision resolves after the notice", async () => {
       const { opener, calls, logged } = setUp();
 
-      await expect(open(opener)).resolves.toBeUndefined();
+      await expect(opener.openFileAtRevision(side)).resolves.toBeUndefined();
 
       expect(calls).toEqual([["showInformation", NOT_YET]]);
       expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
-    });
-
-    it("openCommitDiff resolves to true after the notice", async () => {
-      const { opener, calls } = setUp();
-
-      await expect(
-        opener.openCommitDiff({
-          repo: REPO,
-          commitHash: "abc",
-          oldFilePath: "a.txt",
-          newFilePath: "a.txt",
-          type: "M"
-        })
-      ).resolves.toBe(true);
-      expect(calls).toEqual([["showInformation", NOT_YET]]);
     });
 
     it("openMergeEditor gives the notice", () => {
@@ -280,6 +267,119 @@ describe("the desktop Opener", () => {
       expect(calls).toEqual([["showInformation", NOT_YET]]);
       expect(logged).toEqual(["desktop: merging a.txt (#410) is not supported yet"]);
     });
+  });
+});
+
+describe("the desktop Opener's diffs (#404)", () => {
+  const change = {
+    repo: REPO,
+    commitHash: "abc1234def",
+    oldFilePath: "old/a.txt",
+    newFilePath: "src/a.txt",
+    type: "R" as const
+  };
+
+  it("openCommitDiff shows the commit's change in the diff viewer, as VS Code titles it", async () => {
+    const { opener, calls } = setUp();
+
+    await expect(opener.openCommitDiff(change)).resolves.toBe(true);
+
+    expect(calls).toEqual([
+      [
+        "showDiff",
+        {
+          title: "a.txt (abc1234d^ ↔ abc1234d)",
+          original: { revision: { repo: REPO, filePath: "old/a.txt", commit: "abc1234def^" } },
+          modified: { revision: { repo: REPO, filePath: "src/a.txt", commit: "abc1234def" } }
+        }
+      ]
+    ]);
+  });
+
+  it("openCommitDiff names an added file's side as the commit it was added in", async () => {
+    const { opener, calls } = setUp();
+
+    await opener.openCommitDiff({ ...change, type: "A" });
+
+    expect((calls[0][1] as DiffRequest).title).toBe("a.txt (diff.addedIn abc1234d)");
+  });
+
+  it("openCommitDiff reveals the line asked for, counted from 1", async () => {
+    const { opener, calls } = setUp();
+
+    await opener.openCommitDiff({ ...change, revealLine: 12 });
+
+    expect((calls[0][1] as DiffRequest).revealLine).toBe(12);
+  });
+
+  it("openCommitDiff reads a stash's untracked file from where the stash keeps it", async () => {
+    const { opener, calls } = setUp();
+
+    await opener.openCommitDiff({ ...change, type: "A", origin: "untracked" });
+
+    expect((calls[0][1] as DiffRequest).modified).toEqual({
+      revision: { repo: REPO, filePath: "src/a.txt", commit: "abc1234def^3" }
+    });
+  });
+
+  it("openCommitDiff answers false, saying why in the log, when the diff could not be shown", async () => {
+    const gone = setUp({ showDiff: async () => false });
+    await expect(gone.opener.openCommitDiff(change)).resolves.toBe(false);
+
+    const unreadable = setUp({
+      showDiff: async () => {
+        throw new Error("EISDIR");
+      }
+    });
+    await expect(unreadable.opener.openCommitDiff(change)).resolves.toBe(false);
+    expect(unreadable.logged).toEqual([
+      "ERROR: opener: could not show a diff of src/a.txt: Error: EISDIR"
+    ]);
+  });
+
+  it("diffWithWorking shows the revision against the working tree's file", async () => {
+    const { opener, calls } = setUp();
+    const left = { repo: REPO, filePath: "a.txt", commit: "abc1234def" };
+
+    await expect(
+      opener.diffWithWorking(left, `${REPO}/src/a.txt`, "a.txt (abc1234 ↔ Working Tree)")
+    ).resolves.toBeUndefined();
+
+    expect(calls).toEqual([
+      [
+        "showDiff",
+        {
+          title: "a.txt (abc1234 ↔ Working Tree)",
+          original: { revision: left },
+          modified: { workingFile: at("src", "a.txt"), repo: REPO }
+        }
+      ]
+    ]);
+  });
+
+  it("diffWithWorking reads no file outside the Tab's repository", async () => {
+    const { opener, calls } = setUp();
+    const left = { repo: REPO, filePath: "a.txt", commit: "abc" };
+
+    await expect(opener.diffWithWorking(left, `${REPO}/../secret.txt`, "t")).rejects.toThrow(
+      "not in the repository"
+    );
+    expect(calls).toEqual([]);
+  });
+
+  it("diffWithWorking rejects when the diff could not be shown", async () => {
+    const left = { repo: REPO, filePath: "a.txt", commit: "abc" };
+
+    await expect(
+      setUp({ showDiff: async () => false }).opener.diffWithWorking(left, at("a.txt"), "t")
+    ).rejects.toThrow();
+    await expect(
+      setUp({
+        showDiff: async () => {
+          throw new Error("EISDIR");
+        }
+      }).opener.diffWithWorking(left, at("a.txt"), "t")
+    ).rejects.toThrow("EISDIR");
   });
 });
 

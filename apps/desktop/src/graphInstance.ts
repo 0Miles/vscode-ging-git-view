@@ -15,9 +15,11 @@ import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
+import { createShowDiff, type ShowDiff } from "@ging/desktop/diffViewer";
 import { createDesktopOpener, notSupportedYet } from "@ging/desktop/ports/opener";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
 import type { GitGraphViewState, GitRepoSet } from "@ging/shared/types";
+import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
 
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
@@ -34,6 +36,9 @@ type GraphInstanceOptions = {
   /** Show setting `key` in the app's settings, as they are now (#397): where
    *  Manage Pull Request Providers' "show the setting" goes. */
   revealSetting: (key: string) => void;
+  /** Hand its page a diff to show (#404), beside the graph's own messages
+   *  (ADR-0031); false when the page is gone. */
+  postDiff: (message: ShowDiffMessage) => boolean;
 };
 
 export type GraphInstance = {
@@ -49,12 +54,16 @@ export type GraphInstance = {
   /** Core's `fetchRemote` command on its current repository: asks which
    *  remote when there are several (the application menu, #390). */
   fetchRemote(): Promise<void>;
+  /** Show a diff in its page, over its graph (#404): what the working tree's
+   *  view (#403) or a file's history (#408) opens a diff of its repository
+   *  with. The `Opener`'s two diffs go the same way. */
+  showDiff: ShowDiff;
   dispose(): void;
 };
 
 export function createGraphInstance(
   shared: SharedServices,
-  { repo, channel: page, prompts, extensionState, revealSetting }: GraphInstanceOptions
+  { repo, channel: page, prompts, extensionState, revealSetting, postDiff }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
   /** This instance's current repository, its Tab's, for as long as it lives. */
@@ -131,11 +140,19 @@ export function createGraphInstance(
 
   // Its own, so what it says is said in this instance's window.
   const notifier = { prompts, l10n, logger };
+  // Its diffs are shown in its own page.
+  const showDiff = createShowDiff({
+    gitPath: shared.gitPath,
+    fileEncoding: config.fileEncoding,
+    l10n,
+    post: postDiff
+  });
   const opener = createDesktopOpener({
     ...notifier,
     os: shared.os,
     // Files and terminals are opened from its Tab's repository, and no other.
     repoRoot: () => current,
+    showDiff,
     platform: process.platform,
     env: process.env
   });
@@ -198,6 +215,7 @@ export function createGraphInstance(
         config
       ),
     fetchRemote: () => fetchService.fetchRemoteCommand(),
+    showDiff,
     dispose: () => {
       dispatch.dispose();
       reposChanged.dispose();

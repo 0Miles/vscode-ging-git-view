@@ -78,6 +78,21 @@ describe("buildDesktopPage for a repository", () => {
     expect([...doc.scripts].at(-1)?.getAttribute("src")).toBe("web.js");
   });
 
+  it("lets the diff viewer load the editor's worker and font from the app, and nothing else (#404)", () => {
+    const csp = graphPage()
+      .querySelector('meta[http-equiv="Content-Security-Policy"]')!
+      .getAttribute("content")!;
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain("font-src 'self'");
+    expect(csp).toContain("worker-src 'self'");
+    // A page with no diff viewer loads neither.
+    const notice = pageFor("dark")
+      .querySelector('meta[http-equiv="Content-Security-Policy"]')!
+      .getAttribute("content")!;
+    expect(notice).not.toContain("font-src");
+    expect(notice).not.toContain("worker-src");
+  });
+
   it("gives each graph colour its variable", () => {
     const doc = graphPage();
     expect(doc.body.style.getPropertyValue("--git-graph-color1")).toBe("#d9008f");

@@ -14,8 +14,8 @@
  * The page loads one of the webview's two entries (ADR-0031):
  *   --entry=vscode   (the default) apps/vscode/out/web.min.js, the bundle the
  *                    extension ships, so `pnpm run compile` has to run first.
- *   --entry=desktop  packages/webview/src/desktop/main.ts, bundled here: no app
- *                    builds it yet (apps/desktop, #386).
+ *   --entry=desktop  packages/webview/src/desktop/main.ts as the desktop app
+ *                    starts it (apps/desktop/src/web/page.ts), bundled here.
  *
  * With --entry=desktop, --page=settings writes the desktop entry's settings
  * page (#397) instead of a graph, to out/webview-harness/desktop-settings/,
@@ -208,9 +208,12 @@ function placeEntryBundle(entry, out) {
     fs.copyFileSync(bundle, path.join(out, "webview.js"));
     fs.copyFileSync(path.join(APP, "media", "main.css"), path.join(out, "main.css"));
   } else {
-    // The options apps/vscode/esbuild.js builds the VS Code entry with.
+    // The desktop entry as the app starts it (apps/desktop/src/web/page.ts),
+    // with the options apps/vscode/esbuild.js builds the VS Code entry with.
+    // Its editors (Monaco, #404) are a bundle of the app's own that a page
+    // loads on its first diff; no harness page shows one.
     esbuild.buildSync({
-      entryPoints: [path.join(WEBVIEW, "src", "desktop", "main.ts")],
+      entryPoints: [path.join(DESKTOP, "src", "web", "page.ts")],
       bundle: true,
       format: "iife",
       target: "es6",

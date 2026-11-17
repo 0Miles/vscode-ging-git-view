@@ -316,39 +316,8 @@ function actionsOn(repo: string) {
   };
 }
 
-test("a file clicked in the Commit Details View says the diff is not here yet, and nothing failed", async () => {
-  const fixture = makeFixtureRepo(env);
-  cleanUp.push(fixture.path);
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [
-      "--lang=en-US",
-      APP_DIR,
-      `--user-data-dir=${path.join(scratch, "userData")}`,
-      "--repo",
-      fixture.path
-    ],
-    env: env as Record<string, string>
-  });
-  const electronApp = app;
-  const page = await focusedTabPage(electronApp);
-  await standIn(electronApp, scratch);
-
-  // As a user gets there: the newest commit's details, then its one file.
-  await page.locator("#commitTable tr.commit").first().click();
-  const changed = page.locator(".gitFile", { hasText: "file.txt" });
-  await changed.click();
-
-  await expect
-    .poll(() => seenOutside(electronApp))
-    .toEqual([{ kind: "box", type: "info", message: NOT_SUPPORTED, buttons: [] }]);
-  await expect(page.locator("#dialog.active")).toHaveCount(0);
-  await electronApp.close();
-  app = null;
-  expect(readFileSync(path.join(scratch, "userData", "logs", "main.log"), "utf8")).not.toContain(
-    "ERROR:"
-  );
-});
+// A file clicked in the Commit Details View opens its diff: diffViewer.spec.ts
+// (#404), which replaced the stub's test here (#391).
 
 test("the graph's page leaves the app only through the opener", async () => {
   const fixture = makeFixtureRepo(env);
@@ -541,6 +510,17 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     expect(outside).toEqual([notice]);
     await noErrorDialog();
   };
+  /** A diff, shown in the viewer over the graph: nothing outside the app, no
+   *  error box; then closed. */
+  const diffShown = async (outside: Seen[], title: RegExp) => {
+    expect(outside).toEqual([]);
+    await noErrorDialog();
+    const viewer = page.locator("#diffViewer");
+    await expect(viewer.locator(".diffViewerTitle")).toHaveText(title);
+    await expect(viewer.locator(".monaco-diff-editor")).toBeVisible();
+    await viewer.locator(".diffViewerClose").click();
+    await expect(viewer).toBeHidden();
+  };
   const success = (command: ResponseMessage["command"]) =>
     answered(command, (msg) => "success" in msg);
   const succeeded = (answer: ResponseMessage | undefined) =>
@@ -661,11 +641,13 @@ test("every message the dispatch handles finishes, and the webview reports no fa
         await stub(answer, outside);
       }
     }),
+    // The diffs, in the diff viewer over the graph (#404): nothing outside
+    // the app, and no error box. Closed again, so it covers no later step.
     step("viewDiffWithWorking", () => ({ repo, commitHash: c3, filePath: "file.txt" }), {
       answer: success("viewDiffWithWorking"),
       check: async (answer, outside) => {
         succeeded(answer);
-        await stub(answer, outside);
+        await diffShown(outside, /^file\.txt \(.+ ↔ Working Tree\)$/);
       }
     }),
     step(
@@ -681,7 +663,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
         answer: success("viewDiff"),
         check: async (answer, outside) => {
           succeeded(answer);
-          await stub(answer, outside);
+          await diffShown(outside, /^file\.txt \(.+\^ ↔ .+\)$/);
         }
       }
     ),
