@@ -87,6 +87,8 @@ describe("workingTreeStatus", () => {
     expect(status.conflicted).toEqual([{ path: "f", change: "conflicted" }]);
     expect(status.staged).toEqual([]);
     expect(status.unstaged).toEqual([]);
+    // The merge in progress, to continue or abort (#410).
+    expect(status.operation).toBe("merge");
   });
 
   it("says no branch with HEAD detached", async () => {
