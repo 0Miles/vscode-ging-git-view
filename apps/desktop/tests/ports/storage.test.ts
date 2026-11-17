@@ -68,6 +68,25 @@ describe("the desktop HostStorage's file", () => {
     expect(errors).not.toEqual([]);
   });
 
+  it("flushes: settles once every update made so far is in the file, none of them awaited", async () => {
+    const dir = userData();
+    const storage = openDesktopStorage(dir);
+    // As core writes: never awaited, several queued behind one another.
+    for (const n of [1, 2, 3]) void storage.workspace.update(`key${n}`, n);
+    void storage.global.update("key4", 4);
+
+    await storage.flush();
+
+    expect(JSON.parse(fs.readFileSync(path.join(dir, "state.json"), "utf8"))).toEqual({
+      "workspace:key1": 1,
+      "workspace:key2": 2,
+      "workspace:key3": 3,
+      "global:key4": 4
+    });
+    // Nothing written: nothing to wait for.
+    await expect(openDesktopStorage(userData()).flush()).resolves.toBeUndefined();
+  });
+
   it("keeps the global tier's files in a folder of their own", () => {
     const dir = userData();
     expect(openDesktopStorage(dir).globalStoragePath).toBe(path.join(dir, "globalStorage"));

@@ -29,9 +29,17 @@ function tab(id: number, title: string, focused = false) {
 function windowState(
   tabs: ReturnType<typeof tab>[],
   notice: unknown = null,
-  welcome: unknown = null
+  welcome: unknown = null,
+  clone: unknown = null
 ) {
-  return { command: "windowState", tabs, notice, welcome, strings: { closeTab: "Close Tab" } };
+  return {
+    command: "windowState",
+    tabs,
+    notice,
+    welcome,
+    clone,
+    strings: { closeTab: "Close Tab" }
+  };
 }
 
 let errors: string[];
@@ -120,6 +128,7 @@ const WELCOME = {
   ],
   strings: {
     openFolder: "Open Folder...",
+    cloneRepo: "Clone Repository...",
     initRepo: "Initialize Repository...",
     recent: "Recent",
     noRecent: "Repositories you open are listed here.",
@@ -134,6 +143,7 @@ test("the Welcome page offers its entries and the recent list, and asks the host
   await hostSays(page, windowState([], null, WELCOME));
   const welcome = page.locator("#welcome");
   await expect(welcome.getByRole("button", { name: "Open Folder..." })).toBeVisible();
+  await expect(welcome.getByRole("button", { name: "Clone Repository..." })).toBeVisible();
   await expect(welcome.getByRole("button", { name: "Initialize Repository..." })).toBeVisible();
 
   // Each row on one line, inside the window: a long path is cut short rather
@@ -159,12 +169,14 @@ test("the Welcome page offers its entries and the recent list, and asks the host
   await expect(welcome.locator(".recentMissing")).toBeVisible();
 
   await welcome.getByRole("button", { name: "Open Folder..." }).click();
+  await welcome.getByRole("button", { name: "Clone Repository..." }).click();
   await welcome.getByRole("button", { name: "Initialize Repository..." }).click();
   await welcome.locator(".recentOpen", { hasText: "beta" }).click();
   await welcome.locator(".recentRepo", { hasText: "alpha" }).locator(".recentForget").click();
 
   expect((await posted(page)).slice(2)).toEqual([
     { command: "openFolder" },
+    { command: "cloneRepo" },
     { command: "initRepo" },
     { command: "openRecent", path: "/repos/beta" },
     { command: "forgetRecent", path: WELCOME.recent[1].path }
@@ -199,4 +211,51 @@ test("with no Tab, the Welcome page fills the window, and asks in the host promp
   expect((await posted(page)).filter((m) => m.command === "hostPromptAnswer")).toEqual([
     { command: "hostPromptAnswer", id: 1, answer: "s3cret" }
   ]);
+});
+
+test("a clone running stands over the Welcome page, its progress drawn, and asks the host to cancel it", async ({
+  page
+}) => {
+  const clone = {
+    title: `Cloning https://example.com/${"long-name/".repeat(12)}app.git`,
+    folder: "into /work/app",
+    stage: "Connecting...",
+    percent: null,
+    cancelling: false,
+    cancel: "Cancel"
+  };
+  await hostSays(page, windowState([], null, WELCOME, clone));
+  const panel = page.locator("#clonePanel");
+  await expect(panel).toBeVisible();
+  // Over the whole Welcome page, which takes no clicks under it.
+  expect(await panel.boundingBox()).toMatchObject({ x: 0, y: 0, ...page.viewportSize() });
+  await expect(page.locator("#welcome")).toHaveAttribute("inert", "");
+  const cancel = panel.getByRole("button", { name: "Cancel" });
+  await expect(cancel).toBeFocused();
+  // A long URL wraps inside the box rather than out of the window.
+  const box = (await panel.locator(".cloneBox").boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+
+  await hostSays(
+    page,
+    windowState([], null, WELCOME, {
+      ...clone,
+      stage: "Receiving objects:  50% (5/10)",
+      percent: 50
+    })
+  );
+  await expect(panel.locator(".cloneStage")).toHaveText("Receiving objects:  50% (5/10)");
+  const [bar, fill] = await Promise.all([
+    panel.locator(".cloneBar").boundingBox(),
+    panel.locator(".cloneBarFill").boundingBox()
+  ]);
+  expect(Math.abs(fill!.width - bar!.width / 2)).toBeLessThanOrEqual(1);
+
+  await cancel.click();
+  expect((await posted(page)).at(-1)).toEqual({ command: "cancelClone" });
+
+  await hostSays(page, windowState([], null, WELCOME));
+  await expect(panel).toBeHidden();
+  await expect(page.locator("#welcome")).not.toHaveAttribute("inert", "");
 });
