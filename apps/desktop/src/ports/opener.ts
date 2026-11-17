@@ -3,9 +3,9 @@
  * repository opens in the program the system shows its type with, when it is
  * a type GING knows only to be shown (`opensDirectly`), and is shown in its
  * folder otherwise; a link opens in the browser, a terminal is the system's
- * own. What the desktop app has no screen
- * for yet — a file at a revision, a diff, a merge — is said to be so, and
- * answered as done: see `notSupportedYet`. */
+ * own, a conflicted file goes to the merge tool the user configured for git
+ * (#410). What the desktop app has no screen for yet — a file at a revision,
+ * a diff — is said to be so, and answered as done: see `notSupportedYet`. */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -223,10 +223,14 @@ type DesktopOpenerDeps = {
   platform: NodeJS.Platform;
   env: NodeJS.ProcessEnv;
   files?: FileFacts;
+  /** Hand a conflicted file, relative to the repository, to the user's merge
+   *  tool (core's `ConflictCommands.mergeTool`), which says what came of it. */
+  mergeTool: (filePath: string) => void;
 };
 
 export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
   const { os, prompts, l10n, logger, repoRoot, platform, env, files = systemFiles } = deps;
+  const { mergeTool } = deps;
   const notYet = (what: string) => notSupportedYet(deps, what);
   /** Log why `file` is not opened, and reject with it. */
   const refuse = (file: string, why: string): never => {
@@ -292,7 +296,10 @@ export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
       notYet(`a diff of ${request.newFilePath} at ${request.commitHash} (#404)`);
       return true;
     },
-    /** #410: conflicts handed to the user's mergetool. */
-    openMergeEditor: (_repo, filePath) => notYet(`merging ${filePath} (#410)`)
+    // The desktop app has no 3-way editor of its own (#411's): the file goes
+    // to the merge tool the user configured for git (#410), on the instance's
+    // own repository — the only one its graph is shown, whatever `repo` the
+    // request names.
+    openMergeEditor: (_repo, filePath) => mergeTool(filePath)
   };
 }

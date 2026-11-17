@@ -1,15 +1,17 @@
 import type { SimpleGit } from "simple-git";
 
+import { abortOperation, continueOperation } from "@ging/core/backend/actions/operation";
 import {
   type CommitInput,
   CommitRefusedError,
   commitChanges,
   refuseCommit,
+  resolveFiles,
   stageFiles,
   unstageFiles,
   type WholeFiles
 } from "@ging/core/backend/actions/workingTree";
-import { amendBasis } from "@ging/core/backend/queries/amend";
+import { amendBasisOf, headMessage } from "@ging/core/backend/queries/amend";
 import { workingTreeStatus } from "@ging/core/backend/queries/workingTreeStatus";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import type { RunRepoMutation } from "@ging/core/host/ports";
@@ -50,12 +52,23 @@ export type WorkingTreeService = {
    *  is answered `refused: pushed` with that HEAD's commit, and made only
    *  once asked again with `rewritePushed` naming it. */
   commit(input: CommitInput): Promise<WorkingTreeAnswer>;
+  /** Mark the conflicted ones among these files resolved, each staged whole
+   *  as it is (#410); any other path named is left alone. Whether conflict
+   *  markers remain is the caller's to ask first (`ConflictCommands`). */
+  resolve(paths: WholeFiles): Promise<WorkingTreeAnswer>;
+  /** Continue the merge, rebase, cherry-pick or revert in progress; refused
+   *  while a conflict remains. */
+  continueOperation(): Promise<WorkingTreeAnswer>;
+  /** Abort the operation in progress, back to where it started. */
+  abortOperation(): Promise<WorkingTreeAnswer>;
 };
 
 /**
  * The working tree of one repository as a host's screen works it (#403): its
- * status, whole-file stage and unstage, and commit or amend (#407).
- * Host-neutral: the desktop host's working tree panel is today's only caller.
+ * status, whole-file stage and unstage, and commit or amend (#407); and in a
+ * conflict (#410), marking files resolved and continuing or aborting the
+ * operation. Host-neutral: the desktop host's working tree panel is today's
+ * only caller.
  *
  * Every call answers with the status read after it, failed or not, so the
  * caller draws what is there rather than what it asked for. Calls run one at
@@ -70,17 +83,22 @@ export function createWorkingTreeService(deps: WorkingTreeServiceDeps): WorkingT
     return run;
   };
 
-  /** The status and the amend basis, side by side: both only read. */
+  /** The status and HEAD's message, side by side: both only read. The amend
+   *  basis is made of the two, the operation in progress taken from the
+   *  status, so it is detected once per read. */
   const read = async (
     error: string | null,
     refused?: CommitRefusal
   ): Promise<WorkingTreeAnswer> => {
     const git = deps.git();
-    const [status, amend] = await Promise.allSettled([workingTreeStatus(git), amendBasis(git)]);
-    const unread = [status, amend].find((r) => r.status === "rejected");
+    const [status, message] = await Promise.allSettled([workingTreeStatus(git), headMessage(git)]);
+    const unread = [status, message].find((r) => r.status === "rejected");
     return {
       status: status.status === "fulfilled" ? status.value : null,
-      amend: amend.status === "fulfilled" ? amend.value : null,
+      amend:
+        status.status === "fulfilled" && message.status === "fulfilled"
+          ? amendBasisOf(status.value.operation, message.value)
+          : null,
       error: error ?? (unread === undefined ? null : formatGitError(unread.reason)),
       ...(refused !== undefined && { refused })
     };
@@ -115,6 +133,9 @@ export function createWorkingTreeService(deps: WorkingTreeServiceDeps): WorkingT
         // Checked just before, outside the mutation: not asked twice.
         (git) => commitChanges(git, input, deps.signCommits(), "checked"),
         (git) => refuseCommit(git, input)
-      )
+      ),
+    resolve: (paths) => mutate((git) => resolveFiles(git, paths)),
+    continueOperation: () => mutate(continueOperation),
+    abortOperation: () => mutate(abortOperation)
   };
 }

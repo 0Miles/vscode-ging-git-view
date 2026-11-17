@@ -35,8 +35,12 @@ export type WorkingTreeStatus = {
   unstaged: WorkingTreeFile[];
   /** Unmerged paths, from a merge, rebase, cherry-pick or stash that stopped
    *  on a conflict. In neither list above: staging one marks it resolved,
-   *  which is #410's to offer. */
+   *  which only "Mark Resolved" does (#410). */
   conflicted: WorkingTreeFile[];
+  /** The merge, rebase, cherry-pick or revert in progress, to be continued or
+   *  aborted (#410); absent with none. A stash applied with conflicts leaves
+   *  none: its conflicts are listed all the same. */
+  operation?: GitOperation;
 };
 
 /** Why HEAD cannot be amended (#407): there is no commit to amend yet, or an

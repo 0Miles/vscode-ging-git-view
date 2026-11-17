@@ -41,4 +41,20 @@ describe("workingTreeStrings", () => {
       expect(strings.more, locale).toContain("{0}");
     }
   });
+
+  it("words a conflict's buttons as the graph's banner does, and leaves the operation to the panel (#410)", () => {
+    const l10n = createDesktopL10n("en");
+    const strings = workingTreeStrings(l10n, "linux");
+
+    expect(strings.markResolved).toBe(l10n.t("conflict.markResolved"));
+    expect([strings.continue, strings.abort]).toEqual(["Continue", "Abort"]);
+    expect(strings.inProgress.replace("{0}", strings.operations.cherrypick)).toBe(
+      "Cherry-pick in progress"
+    );
+    for (const locale of ["zh-tw", "zh-cn"]) {
+      const translated = workingTreeStrings(createDesktopL10n(locale), "linux");
+      expect(translated.openMergeTool, locale).not.toBe(strings.openMergeTool);
+      expect(translated.inProgress, locale).toContain("{0}");
+    }
+  });
 });

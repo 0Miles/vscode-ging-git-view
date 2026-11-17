@@ -34,11 +34,19 @@ export type WholeFiles = readonly string[];
  * command line (`--pathspec-from-file`, git 2.25+), which on Windows holds
  * only about 32k characters: "Stage All" may name thousands of files. An
  * unmerged path is never among them: staging or unstaging one resolves the
- * conflict, which is #410's to offer, not a side effect of a whole-file stage.
+ * conflict, which only `resolveFiles` does (#410), never a whole-file stage.
  */
 async function onPaths(git: SimpleGit, args: string[], paths: WholeFiles): Promise<void> {
   const conflicted = new Set(await unmergedFiles(git));
-  const named = paths.filter((p) => !conflicted.has(p));
+  await onNamed(
+    git,
+    args,
+    paths.filter((p) => !conflicted.has(p))
+  );
+}
+
+/** Run `git <args>` on exactly `named`, through a pathspec file. */
+async function onNamed(git: SimpleGit, args: string[], named: WholeFiles): Promise<void> {
   if (named.length === 0) return;
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ging-pathspec-"));
   const file = path.join(dir, "paths");
@@ -62,6 +70,23 @@ async function onPaths(git: SimpleGit, args: string[], paths: WholeFiles): Promi
  */
 export async function stageFiles(git: SimpleGit, paths: WholeFiles): Promise<void> {
   await onPaths(git, ["add", "-A"], paths);
+}
+
+/**
+ * Mark the conflicted ones among `paths` resolved (#410): each staged whole as
+ * the working tree has it now — the file as the user left it, or its deletion
+ * when that is what they chose (`add -A`). A path named that is not in
+ * conflict is left alone: this is never a way to stage anything else. The
+ * operation stays in progress (MERGE_HEAD and the like); continuing it is a
+ * step of its own. Whether markers remain is the caller's to ask about.
+ */
+export async function resolveFiles(git: SimpleGit, paths: WholeFiles): Promise<void> {
+  const conflicted = new Set(await unmergedFiles(git));
+  await onNamed(
+    git,
+    ["add", "-A"],
+    paths.filter((p) => conflicted.has(p))
+  );
 }
 
 /**

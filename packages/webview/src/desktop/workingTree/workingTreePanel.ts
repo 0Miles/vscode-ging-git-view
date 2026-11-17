@@ -1,7 +1,9 @@
 /* The working tree panel (#403): the desktop graph page's right-hand column
  * (ADR-0031's layout), listing what is staged, what is not and what is in
  * conflict, staging and unstaging whole files, and committing what is staged
- * or amending the last commit, signed off or not (#407). Every change is the
+ * or amending the last commit, signed off or not (#407); in a conflict
+ * (#410), handing a file to the user's merge tool, marking it resolved, and
+ * continuing or aborting the operation in progress. Every change is the
  * host's to make; the panel only asks, and draws the status each answer
  * brings back. */
 
@@ -106,6 +108,14 @@ body.workingTreeOpen #findWidget { right: ${WORKING_TREE_WIDTH + 14}px; }
 #workingTree .wtLetter.untracked { color: var(--vscode-gitDecoration-untrackedResourceForeground); }
 #workingTree .wtLetter.conflicted { color: var(--vscode-errorForeground); }
 #workingTree .wtClean { padding: 4px 12px; color: var(--vscode-descriptionForeground); }
+#workingTree .wtOperation { display: flex; align-items: center; gap: 6px; padding: 0 12px 8px; flex: 0 0 auto; }
+#workingTree .wtOperationTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+#workingTree .wtTextButton {
+  flex: 0 0 auto; padding: 2px 8px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 2px;
+  color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); cursor: pointer; font: inherit;
+}
+#workingTree .wtTextButton:hover:not([aria-disabled="true"]) { background: var(--vscode-button-secondaryHoverBackground); }
+#workingTree .wtTextButton[aria-disabled="true"] { opacity: 0.5; cursor: default; }
 `;
 
 /** The letter each change is drawn as, as `git status --short` writes it. */
@@ -251,8 +261,9 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
   const iconButton = (action: string, label: string, text: string, off: boolean) =>
     `<button class="wtIconButton" type="button" data-action="${action}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"${off ? ' aria-disabled="true"' : ""}>${text}</button>`;
 
-  /** The rows of `area`, each with its button, or none for a conflict or a
-   *  submodule; at most `MAX_ROWS`, the rest counted. */
+  /** The rows of `area`, each with its button — a conflict with two: its
+   *  merge tool, and marking it resolved — and a submodule with none; at most
+   *  `MAX_ROWS`, the rest counted. */
   const fileRows = (files: WorkingTreeFile[], area: Area, s: WorkingTreeStrings) =>
     files
       .slice(0, MAX_ROWS)
@@ -267,7 +278,8 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
               ? iconButton("unstage", s.unstage, "&minus;", busy)
               : area === "unstaged"
                 ? iconButton("stage", s.stage, "+", busy)
-                : "";
+                : iconButton("mergeTool", s.openMergeTool, svgIcons.gitMerge, busy) +
+                  iconButton("resolve", s.markResolved, svgIcons.check, busy);
         const where = file.oldPath === undefined ? file.path : `${file.oldPath} → ${file.path}`;
         const tooltip = file.submodule === true ? `${where}\n${s.submodule}` : where;
         return `<div class="wtFile${file.submodule === true ? " submodule" : ""}" role="listitem" data-area="${area}" data-index="${index}" data-path="${escapeHtml(file.path)}" title="${escapeHtml(tooltip)}"${options.showDiff ? ' tabindex="0"' : ""}><span class="wtName">${escapeHtml(name)}</span><span class="wtDir">${escapeHtml(dir)}</span>${action}<span class="wtLetter ${file.change}" title="${escapeHtml(s.changes[file.change])}">${LETTERS[file.change]}</span></div>`;
@@ -329,6 +341,24 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
       case "identityUnknown":
         return s.identityUnknown;
     }
+  };
+
+  /** A text button; `aria-disabled` for the reason `iconButton`'s is. */
+  const textButton = (action: string, label: string, off: boolean) =>
+    `<button class="wtTextButton" type="button" data-action="${action}"${off ? ' aria-disabled="true"' : ""}>${escapeHtml(label)}</button>`;
+
+  /** The merge, rebase, cherry-pick or revert in progress (#410), to continue
+   *  once no conflict is left, or to abort. */
+  const operationBar = (s: WorkingTreeStrings) => {
+    const operation = status?.operation;
+    if (operation === undefined) return "";
+    const title = s.inProgress.replace("{0}", s.operations[operation]);
+    const conflicts = status?.conflicted.length ?? 0;
+    return `<div class="wtOperation" role="status"><span class="wtOperationTitle" title="${escapeHtml(title)}">${escapeHtml(title)}</span>${textButton(
+      "continue",
+      s.continue,
+      busy || conflicts > 0
+    )}${textButton("abort", s.abort, busy)}</div>`;
   };
 
   /** Where the keyboard is in the panel, so a redraw can put it back. */
@@ -408,7 +438,7 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
       status?.branch ? ` <span class="wtBranch">${escapeHtml(status.branch)}</span>` : ""
     }</span>${iconButton("close", s.close, svgIcons.close, false)}</div><div class="wtCommit">${tickBoxes(s)}<button class="wtCommitButton" id="wtCommitButton" type="button" data-action="commit"${
       cannotCommit() ? ' aria-disabled="true"' : ""
-    }>${escapeHtml(amend ? s.amendCommit : s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error ?? "")}</div></div><div class="wtLists">${lists}</div>`;
+    }>${escapeHtml(amend ? s.amendCommit : s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error ?? "")}</div></div>${operationBar(s)}<div class="wtLists">${lists}</div>`;
     panel.querySelector(".wtCommit")!.prepend(box);
     if (at !== null) refocus(at);
   }
@@ -449,7 +479,10 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
   };
 
   /** Ask for `paths`, when there are any. */
-  const sendPaths = (command: "workingTreeStage" | "workingTreeUnstage", paths: string[]) => {
+  const sendPaths = (
+    command: "workingTreeStage" | "workingTreeUnstage" | "workingTreeResolve",
+    paths: string[]
+  ) => {
     if (paths.length > 0) send({ command, paths });
   };
 
@@ -480,6 +513,19 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
           break;
         case "unstage":
           if (file !== null) sendPaths("workingTreeUnstage", pathsOf(file));
+          break;
+        // A conflicted file's (#410).
+        case "mergeTool":
+          if (file !== null) send({ command: "workingTreeMergeTool", path: file.path });
+          break;
+        case "resolve":
+          if (file !== null) sendPaths("workingTreeResolve", [file.path]);
+          break;
+        case "continue":
+          send({ command: "workingTreeContinue" });
+          break;
+        case "abort":
+          send({ command: "workingTreeAbort" });
           break;
       }
       return;

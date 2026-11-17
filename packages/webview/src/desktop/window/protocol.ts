@@ -43,12 +43,31 @@ export type WelcomeContent = {
   recent: RecentRepoEntry[];
   strings: {
     openFolder: string;
+    cloneRepo: string;
     initRepo: string;
     recent: string;
     noRecent: string;
     missing: string;
     forget: string;
   };
+};
+
+/** A clone running (#395), as the Welcome page shows it over its entries:
+ *  every word the host's, the page only lays them out. */
+export type ClonePanel = {
+  /** What is cloned: its URL, without any credentials in it. */
+  title: string;
+  /** Where to. */
+  folder: string;
+  /** Where it has got to: git's own progress line, or the host's words
+   *  before git has said anything, or while it is being cancelled. */
+  stage: string;
+  /** How far through that stage, 0 to 100; `null` when not known. */
+  percent: number | null;
+  /** Cancel was asked for: the button stays, disabled, until it is done. */
+  cancelling: boolean;
+  /** The Cancel button's label. */
+  cancel: string;
 };
 
 /** Host → page: the Tabs and what the Welcome page says, whole each time. */
@@ -58,6 +77,8 @@ export type WindowStateMessage = {
   notice: WelcomeNotice | null;
   /** `null` while a Tab is open: its view covers the Welcome page. */
   welcome: WelcomeContent | null;
+  /** The clone running, `null` with none (#395). */
+  clone: ClonePanel | null;
   strings: { closeTab: string };
 };
 
@@ -71,6 +92,10 @@ export type WindowRequest =
   /** The Welcome page's entries (#394): the host asks for the folder. */
   | { command: "openFolder" }
   | { command: "initRepo" }
+  /** The Welcome page's Clone Repository (#395), and the Cancel of the
+   *  clone it shows running. */
+  | { command: "cloneRepo" }
+  | { command: "cancelClone" }
   /** A repository of the recent list, by its `path`. */
   | { command: "openRecent"; path: string }
   | { command: "forgetRecent"; path: string };
@@ -109,6 +134,8 @@ export function isWindowRequest(data: unknown): data is WindowRequest {
     case "windowReady":
     case "openFolder":
     case "initRepo":
+    case "cloneRepo":
+    case "cancelClone":
       return true;
     case "focusTab":
     case "closeTab":

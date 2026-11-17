@@ -3,14 +3,16 @@
  * host lays over the Welcome page, below the strip, so this page shows through
  * only where no Tab covers it: the strip always, the Welcome page when there is
  * no Tab. The Welcome page (#394) says why a launch opened nothing, if it did
- * not, and offers Open Folder, Initialize Repository and the recently opened
- * list; each is only asked of the host, which does the rest. */
+ * not, and offers Open Folder, Clone Repository (#395), Initialize Repository
+ * and the recently opened list; each is only asked of the host, which does the
+ * rest. A clone running is shown over it, with a way to cancel it. */
 
 import { escapeHtml } from "@ging/webview/utils/html";
 import { svgIcons } from "@ging/webview/utils/icons";
 import { vscode } from "@ging/webview/utils/vscode";
 
 import {
+  type ClonePanel,
   isWindowStateMessage,
   type RecentRepoEntry,
   TAB_STRIP_HEIGHT,
@@ -87,6 +89,25 @@ body.windowPage { margin: 0; padding: 0; overflow: hidden; }
 .recentForget svg { fill: currentColor; width: 12px; height: 12px; }
 .recentForget:hover { background: var(--vscode-toolbar-hoverBackground); }
 .recentEmpty { color: var(--vscode-descriptionForeground); }
+#clonePanel {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 20px;
+  background: var(--vscode-editor-background);
+}
+#clonePanel[hidden] { display: none; }
+.cloneBox {
+  width: 100%; max-width: 520px; box-sizing: border-box; padding: 16px 20px;
+  background: var(--vscode-editorWidget-background); color: var(--vscode-editorWidget-foreground);
+  border: 1px solid var(--vscode-widget-border); border-radius: 4px; box-shadow: 0 0 8px 2px var(--vscode-widget-shadow);
+}
+.cloneTitle { margin: 0 0 4px; font-size: 1em; font-weight: 600; overflow-wrap: anywhere; }
+.cloneFolder, .cloneStage { color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.cloneStage { margin-top: 6px; min-height: 1.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cloneBar { position: relative; height: 4px; margin-top: 12px; overflow: hidden; border-radius: 2px; background: var(--vscode-widget-border); }
+.cloneBarFill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--vscode-button-background); }
+.cloneBar.indeterminate .cloneBarFill { width: 30%; animation: cloneSweep 1.2s ease-in-out infinite; }
+@keyframes cloneSweep { from { left: -30%; } to { left: 100%; } }
+.cloneButtons { display: flex; justify-content: flex-end; margin-top: 16px; }
+.cloneCancel:disabled { cursor: default; opacity: 0.6; }
 `;
 
 const post = (message: WindowRequest) =>
@@ -111,7 +132,7 @@ function recentHtml(repo: RecentRepoEntry, strings: WelcomeContent["strings"]): 
 function welcomeHtml({ recent, strings }: WelcomeContent): string {
   const action = (command: string, icon: string, label: string) =>
     `<button class="welcomeAction" type="button" data-welcome="${command}">${icon}<span>${escapeHtml(label)}</span></button>`;
-  return `<div class="welcomeActions">${action("openFolder", svgIcons.openFolder, strings.openFolder)}${action("initRepo", svgIcons.branch, strings.initRepo)}</div><section class="recent"><h3>${escapeHtml(strings.recent)}</h3>${
+  return `<div class="welcomeActions">${action("openFolder", svgIcons.openFolder, strings.openFolder)}${action("cloneRepo", svgIcons.download, strings.cloneRepo)}${action("initRepo", svgIcons.branch, strings.initRepo)}</div><section class="recent"><h3>${escapeHtml(strings.recent)}</h3>${
     recent.length === 0
       ? `<p class="recentEmpty">${escapeHtml(strings.noRecent)}</p>`
       : `<ul class="recentList">${recent.map((repo) => recentHtml(repo, strings)).join("")}</ul>`
@@ -132,11 +153,75 @@ function render(strip: HTMLElement, welcome: HTMLElement, state: WindowStateMess
     notice === "" && offers === "" ? "" : `<div class="welcomeBody">${notice}${offers}</div>`;
 }
 
+/** The clone panel's parts (#395). Made once and changed in place as the
+ *  clone goes, never drawn anew: the Cancel button being pressed must be the
+ *  one still there when the press ends, and progress comes several times a
+ *  second. */
+type ClonePanelParts = {
+  root: HTMLElement;
+  title: HTMLElement;
+  folder: HTMLElement;
+  bar: HTMLElement;
+  fill: HTMLElement;
+  stage: HTMLElement;
+  cancel: HTMLButtonElement;
+};
+
+function createClonePanel(): ClonePanelParts {
+  const root = document.createElement("div");
+  root.id = "clonePanel";
+  root.hidden = true;
+  root.innerHTML =
+    '<div class="cloneBox" role="dialog" aria-modal="true" aria-labelledby="cloneTitle">' +
+    '<h3 class="cloneTitle" id="cloneTitle"></h3><div class="cloneFolder"></div>' +
+    '<div class="cloneBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-labelledby="cloneTitle"><div class="cloneBarFill"></div></div>' +
+    '<div class="cloneStage" aria-live="polite"></div>' +
+    '<div class="cloneButtons"><button class="welcomeAction cloneCancel" type="button"></button></div></div>';
+  const part = (selector: string) => root.querySelector<HTMLElement>(selector)!;
+  return {
+    root,
+    title: part(".cloneTitle"),
+    folder: part(".cloneFolder"),
+    bar: part(".cloneBar"),
+    fill: part(".cloneBarFill"),
+    stage: part(".cloneStage"),
+    cancel: part(".cloneCancel") as HTMLButtonElement
+  };
+}
+
+/** Show the clone running over the Welcome page, or put the panel away with
+ *  none. The Welcome page behind it takes no clicks meanwhile: one clone at a
+ *  time, and nothing else opened from under it. */
+function showClonePanel(parts: ClonePanelParts, welcome: HTMLElement, panel: ClonePanel | null) {
+  const appearing = parts.root.hidden && panel !== null;
+  parts.root.hidden = panel === null;
+  welcome.inert = panel !== null;
+  if (panel === null) return;
+  parts.title.textContent = panel.title;
+  parts.folder.textContent = panel.folder;
+  parts.stage.textContent = panel.stage;
+  parts.stage.title = panel.stage;
+  parts.bar.classList.toggle("indeterminate", panel.percent === null);
+  if (panel.percent === null) {
+    parts.fill.style.removeProperty("width");
+    parts.bar.removeAttribute("aria-valuenow");
+  } else {
+    parts.fill.style.width = `${panel.percent}%`;
+    parts.bar.setAttribute("aria-valuenow", String(panel.percent));
+  }
+  parts.cancel.textContent = panel.cancel;
+  parts.cancel.disabled = panel.cancelling;
+  // Where the keyboard goes once the folder dialog has closed: to the way out.
+  if (appearing) parts.cancel.focus();
+}
+
 /** What a click in the Welcome page asks of the host, if anything. */
 function welcomeRequest(target: EventTarget | null): WindowRequest | null {
   if (!(target instanceof Element)) return null;
   const action = target.closest<HTMLElement>("[data-welcome]")?.dataset.welcome;
-  if (action === "openFolder" || action === "initRepo") return { command: action };
+  if (action === "openFolder" || action === "cloneRepo" || action === "initRepo") {
+    return { command: action };
+  }
   const forget = target.closest<HTMLElement>(".recentForget")?.dataset.path;
   if (forget !== undefined) return { command: "forgetRecent", path: forget };
   const open = target.closest<HTMLElement>(".recentOpen")?.dataset.path;
@@ -184,8 +269,13 @@ export function startWindowPage(strip: HTMLElement, welcome: HTMLElement): void 
     const request = welcomeRequest(event.target);
     if (request !== null) post(request);
   });
+  const clonePanel = createClonePanel();
+  welcome.after(clonePanel.root);
+  clonePanel.cancel.addEventListener("click", () => post({ command: "cancelClone" }));
   window.addEventListener("message", (event: MessageEvent) => {
-    if (isWindowStateMessage(event.data)) render(strip, welcome, event.data);
+    if (!isWindowStateMessage(event.data)) return;
+    render(strip, welcome, event.data);
+    showClonePanel(clonePanel, welcome, event.data.clone ?? null);
   });
   post({ command: "windowReady" });
 }

@@ -50,8 +50,13 @@ _Avoid_: start page, empty state
 _Avoid_: dialog, 對話框(這兩個詞留給 `#dialog`)
 
 **Working tree panel**:
-桌面 host 上每個 **Tab** 的圖形右側那一欄:列出 current repository 已暫存(staged)、未暫存(unstaged,含未追蹤)與衝突中的檔案,整檔 stage / unstage,並 commit 已暫存的內容([#403](https://github.com/0Miles/vscode-ging-git-view/issues/403),ADR-0031),或 amend 上一個 commit,可選擇 sign off([#407](https://github.com/0Miles/vscode-ging-git-view/issues/407))。它是桌面 host 的「原始檔控制檢視」:圖形的 Open Source Control View 在 VS Code host 打開 VS Code 的原始檔控制檢視,在桌面 host 打開它。只做到整個檔案;hunk 層級是 #406,行級不做。中文寫作「working tree 面板」。桌面 host 專屬。
+桌面 host 上每個 **Tab** 的圖形右側那一欄:列出 current repository 已暫存(staged)、未暫存(unstaged,含未追蹤)與衝突中的檔案,整檔 stage / unstage,並 commit 已暫存的內容([#403](https://github.com/0Miles/vscode-ging-git-view/issues/403),ADR-0031),或 amend 上一個 commit,可選擇 sign off([#407](https://github.com/0Miles/vscode-ging-git-view/issues/407))。它是桌面 host 的「原始檔控制檢視」:圖形的 Open Source Control View 在 VS Code host 打開 VS Code 的原始檔控制檢視,在桌面 host 打開它。只做到整個檔案;hunk 層級是 #406,行級不做。
+衝突中([#410](https://github.com/0Miles/vscode-ging-git-view/issues/410)),衝突檔可以交給 **merge tool**,或直接標記為已解決(整檔 stage,檔案裡還有衝突標記時先問);進行中的 merge、rebase、cherry-pick、revert 可以在這裡 Continue 或 Abort。中文寫作「working tree 面板」。桌面 host 專屬。
 _Avoid_: SCM view, source control panel, 暫存區面板
+
+**Merge tool**:
+使用者替 git 設定的外部合併程式 —— `merge.guitool`,沒有就 `merge.tool`,也就是 `git mergetool --gui` 會用的那一個。GING 只交出檔案(`git mergetool`),不替使用者挑工具,沒有設定就說怎麼設定;結果看工具結束後檔案還在不在衝突中,不看工具說了什麼(ADR-0030)。它不是 merge editor:那是宿主自己的 3-way 合併畫面(VS Code 的),桌面 host 沒有(內建的在 #411),所以圖形的「在 merge editor 中開啟」在桌面 host 交給 merge tool([#410](https://github.com/0Miles/vscode-ging-git-view/issues/410),ADR-0027)。桌面 host 專屬。
+_Avoid_: merge editor(留給宿主自己的 3-way 畫面), mergetool driver, merge driver(那是 git 的 `merge.<driver>`,另一回事), 合併編輯器
 
 ### 分支的狀態
 

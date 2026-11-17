@@ -1,7 +1,7 @@
 import type { SimpleGit } from "simple-git";
 
 import { detectOperation } from "@ging/core/backend/queries/operationState";
-import type { AmendBasis } from "@ging/shared/backend/types";
+import type { AmendBasis, GitOperation } from "@ging/shared/backend/types";
 
 /**
  * The remote-tracking branches HEAD is on, by short name (`origin/main`):
@@ -37,13 +37,26 @@ export async function remoteBranchesContainingHead(git: SimpleGit): Promise<stri
  */
 export async function amendBasis(git: SimpleGit): Promise<AmendBasis> {
   const [operation, message] = await Promise.all([detectOperation(git), headMessage(git)]);
-  if (operation !== null) return { possible: false, reason: operation };
+  return amendBasisOf(operation, message);
+}
+
+/**
+ * `amendBasis` from what is already read: the operation in progress, as a
+ * status read finds it (`WorkingTreeStatus.operation`), and HEAD's message
+ * (`headMessage`). For a caller reading the status anyway, so the operation
+ * is detected once per read.
+ */
+export function amendBasisOf(
+  operation: GitOperation | null | undefined,
+  message: string | null
+): AmendBasis {
+  if (operation !== null && operation !== undefined) return { possible: false, reason: operation };
   if (message === null) return { possible: false, reason: "unborn" };
   return { possible: true, message };
 }
 
 /** HEAD's message without the newline `%B` ends on, or null with no HEAD. */
-async function headMessage(git: SimpleGit): Promise<string | null> {
+export async function headMessage(git: SimpleGit): Promise<string | null> {
   try {
     return (await git.raw(["log", "-1", "--format=%B", "HEAD"])).replace(/\n+$/, "");
   } catch (e: unknown) {
