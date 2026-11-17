@@ -21,12 +21,21 @@ export type DesktopStorageOptions = {
   onError?: (message: string) => void;
 };
 
+/** The desktop `HostStorage`, and a way to know its writes have landed. */
+export type DesktopStorage = HostStorage & {
+  /** Settles once every update made so far is on disk (or has failed, and
+   *  been reported to `onError`): the tail of the write queue. Nobody else
+   *  awaits a write; the app does before it quits, and a test before it opens
+   *  the file again. */
+  flush(): Promise<void>;
+};
+
 /** The state kept in `userDataPath`, as it is on disk now. One process opens
  *  it at a time: the app holds the single-instance lock. */
 export function openDesktopStorage(
   userDataPath: string,
   { onError = () => {} }: DesktopStorageOptions = {}
-): HostStorage {
+): DesktopStorage {
   const file = path.join(userDataPath, STATE_FILE);
   const state = readJsonObject(file, { onError, consequence: "starting from empty state" });
 
@@ -64,6 +73,7 @@ export function openDesktopStorage(
   return {
     workspace: tier(PREFIX.workspace),
     global: tier(PREFIX.global),
-    globalStoragePath: path.join(userDataPath, GLOBAL_STORAGE_FOLDER)
+    globalStoragePath: path.join(userDataPath, GLOBAL_STORAGE_FOLDER),
+    flush: () => last
   };
 }
