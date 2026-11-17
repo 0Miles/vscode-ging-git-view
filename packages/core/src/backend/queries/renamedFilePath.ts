@@ -1,12 +1,14 @@
 import type { SimpleGit } from "simple-git";
 
+import { NO_INDEX_REFRESH } from "@ging/core/backend/gitSpawn";
+
 const eolRegex = /\r\n|\r|\n/;
 
 /**
  * Detect whether a file known at `commitHash` has since been renamed in the
  * working tree, and return its current path. Runs a rename-only diff
  * between the commit and the working tree; returns null when the file wasn't
- * renamed or the command fails.
+ * renamed or the command fails. Never writes the index (#451).
  */
 export async function getNewPathOfRenamedFile(
   git: SimpleGit,
@@ -15,6 +17,7 @@ export async function getNewPathOfRenamedFile(
 ): Promise<string | null> {
   try {
     const stdout = await git.raw([
+      ...NO_INDEX_REFRESH,
       "-c",
       "core.quotePath=false",
       "diff",

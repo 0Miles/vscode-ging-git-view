@@ -135,3 +135,13 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **流程本身(選了資料夾之後做什麼)用 vitest 測。** [repoOpening.ts](../../apps/desktop/src/repoOpening.ts) 把對話框、資料夾檢查、core 的 init 與開 Tab 都當成注入的函式，[repoOpening.test.ts](../../apps/desktop/tests/repoOpening.test.ts) 逐一驗取消、不是存放庫時提議初始化、清單上的資料夾已經不是存放庫時不改開它外層的存放庫;E2E 只走一次整條路徑。
 
 - **選單的三項照 #396 的契約接上。** main process 的 `menuCommands` 交出 `openFolder`、`openRecent`、`initRepository`,`recentRepos` 是 Welcome page 同一份清單的路徑(最多 20 個);開成 Tab 與 known set 改變之後重建選單。資料夾問在系統對話框，所以三項不論有沒有 Tab 都不需要頁面。[welcome.spec.ts](../../apps/desktop/e2e/welcome.spec.ts) 用 `getMenuItemById` 觸發：有 Tab 時的開啟資料夾與初始化，以及 Open Recent 的順序與點下去聚焦既有的 Tab。
+
+## 補記(2026-11-18,#451、#466)
+
+**拿掉 #391、#403 為了避開 `index.lock` 而加的等待:walk 的 `settle`(改動 repo 的動作之後等圖形的重新載入)與 [workingTree.spec.ts](../../apps/desktop/e2e/workingTree.spec.ts) 在 commit 前等圖形的重新載入。** 根因修在產品:GING 自己的讀取不再拿 `index.lock`,所以動作與背景重新載入重疊也不會被拒。
+
+- **`GIT_OPTIONAL_LOCKS=0` 給 GING 起的每一個 git**(core `gitChildEnv`,兩個宿主共用)。git 只因此略過「讀取順手刷新 index」這一件事;要寫 index 的命令照樣拿鎖。實測沒有它時,一般的 `git status` 即使沒有東西可刷新也會拿 `index.lock`。
+- **對 working tree 的 `git diff`(`unmergedFiles`、`getNewPathOfRenamedFile`)另帶 `-c diff.autoRefreshIndex=false`(`NO_INDEX_REFRESH`)。** 實測 git 2.40.1:這種 diff 在 `GIT_OPTIONAL_LOCKS=0` 下仍會刷新並寫回 index。這個設定不放進全域的 `GIT_CONFIG_OVERRIDES`:它會讓不帶 filter 的 diff 也列出只有時間戳改變的檔案,而 `-c` 會傳到寫入命令執行的 hook 裡。
+- **vitest 不用「讀寫同時跑、沒有失敗」的壓力測試。** 實測沒有修正時,兩個讀取迴圈加 40 次寫入,只有約 1 次被拒,綠燈證明不了什麼。[indexLock.test.ts](../../packages/core/tests/queries/indexLock.test.ts) 改成監看 `.git` 資料夾,斷言讀取期間沒有出現任何 `.lock` 檔:讀取結束後寫一個哨兵檔,等聽到它,之前的事件就都到了(監看事件依發生順序送達)。對照組(不經 GING 的 client 的 `git status`、不帶 `NO_INDEX_REFRESH` 的 diff)確實拿了鎖。
+- **改動失敗的原因不再被之後的 refresh 抹掉(#466)。** 面板只在使用者送出下一個改動時清掉改動的錯誤;讀取的回答不覆蓋它,讀取本身失敗才顯示讀取的錯誤,下一次讀取成功時清掉。jsdom 測試照實際順序:先 `refresh`、再失敗的回答、再 refresh 引起的讀取。
+- **E2E 改動 repo 之前的 fixture 寫入(stash、改檔)仍在 app 啟動前做**,只是不再需要理由:它們是 fixture 的一部分。

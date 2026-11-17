@@ -19,6 +19,20 @@ export const GIT_CONFIG_OVERRIDES = [
   "log.showSignature=false"
 ];
 
+/**
+ * For a `git diff` that compares with the working tree: keeps it from
+ * rewriting the index while it reads, which takes `.git/index.lock` and makes a
+ * write landing at that moment fail (#451). Measured on git 2.40: such a diff
+ * writes the index even with GIT_OPTIONAL_LOCKS=0 (see `gitChildEnv`); with
+ * this it writes nothing.
+ *
+ * Per command, never in GIT_CONFIG_OVERRIDES: with it, a diff also lists the
+ * files whose content is unchanged but whose timestamps moved, so only a diff
+ * whose filter rules those out (`--diff-filter=U`, `=R`) may use it. And `-c`
+ * reaches the hooks a write runs, where it would change what they read.
+ */
+export const NO_INDEX_REFRESH = ["-c", "diff.autoRefreshIndex=false"];
+
 // Environment variables that must NOT be forwarded to the git children we spawn.
 // Two groups:
 //   1. Vars that simple-git's "block unsafe operations" guard rejects unless a
@@ -85,6 +99,17 @@ export function gitChildEnv(gitEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // forever. GIT_EDITOR is the portable way to do this (cross-platform,
   // unlike a `core.editor=true` that relies on a `true` binary being on PATH).
   childEnv["GIT_EDITOR"] = "true";
+  // GING reads the repository in the background — the graph's reload on every
+  // watcher event, refresh and auto-fetch — while the user, or GING itself,
+  // writes to it. A plain `git status` refreshes the index as a side effect and
+  // holds `.git/index.lock` while it does, so a stage, commit or graph action
+  // landing in that moment fails with "index.lock: File exists" (#451). With
+  // optional locks off git skips that side effect and nothing else: a command
+  // that must write the index still takes the lock. It also keeps GING's own
+  // reads from rewriting the index and waking its file watcher.
+  // `git diff` against the working tree refreshes the index regardless; see
+  // NO_INDEX_REFRESH.
+  childEnv["GIT_OPTIONAL_LOCKS"] = "0";
   if (gitEnv !== undefined) {
     for (const [key, value] of Object.entries(gitEnv)) {
       if (value !== undefined) childEnv[key] = value;

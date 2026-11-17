@@ -162,7 +162,14 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
 
   let strings: WorkingTreeStrings | null = null;
   let status: WorkingTreeStatus | null = null;
-  let error: string | null = null;
+  /**
+   * Why the last request failed, and whether it was a read or a change (#466).
+   * A change's reason stays until the viewer makes the next change: the
+   * graph refreshes after every change, failed or not, and the panel reads
+   * itself anew then — a read that must not wipe what the viewer has yet to
+   * see. A read's own failure goes once a read succeeds.
+   */
+  let error: { text: string; from: "read" | "change" } | null = null;
   /** A request is out: the buttons wait for its answer. */
   let busy = false;
   /** The graph refreshed while a request was out: read again once it is in. */
@@ -172,7 +179,7 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
 
   const send = (request: WorkingTreeRequest) => {
     busy = true;
-    error = null;
+    if (request.command !== "workingTreeLoad") error = null;
     render();
     post(request);
   };
@@ -317,7 +324,7 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
       status?.branch ? ` <span class="wtBranch">${escapeHtml(status.branch)}</span>` : ""
     }</span>${iconButton("close", s.close, svgIcons.close, false)}</div><div class="wtCommit"><button class="wtCommitButton" type="button" data-action="commit"${
       cannotCommit() ? ' aria-disabled="true"' : ""
-    }>${escapeHtml(s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error ?? "")}</div></div><div class="wtLists">${lists}</div>`;
+    }>${escapeHtml(s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error?.text ?? "")}</div></div><div class="wtLists">${lists}</div>`;
     panel.querySelector(".wtCommit")!.prepend(box);
     if (at !== null) refocus(at);
   }
@@ -409,7 +416,13 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
   function answered(answer: WorkingTreeStatusMessage): void {
     strings = answer.strings;
     status = answer.status ?? status;
-    error = answer.error;
+    if (answer.request !== "workingTreeLoad") {
+      error = answer.error === null ? null : { text: answer.error, from: "change" };
+    } else if (answer.error !== null) {
+      error = { text: answer.error, from: "read" };
+    } else if (error?.from === "read") {
+      error = null;
+    }
     busy = false;
     if (answer.request === "workingTreeCommit" && answer.error === null) message = "";
     render();
