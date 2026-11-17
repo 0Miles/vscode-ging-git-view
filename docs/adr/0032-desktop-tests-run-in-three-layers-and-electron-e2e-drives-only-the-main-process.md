@@ -86,6 +86,22 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **git 在等提示時關掉 Tab、或結束 app,git 要拿到「取消」並自己結束。** 兩條 E2E 各驗一次：提示還開著時關掉那個 Tab,以及開著兩個 Tab、其中一個在等提示時結束 app;都要 app 照常結束、server 上 git 的連線歸零、log 沒有 `ERROR:`。後者守的是處置順序：視窗關掉之後才處置 Tab,任何一個 Tab 的處置失敗都不能讓後面的 Tab 留著沒處置。
 - **測試收尾時 `server.closeAllConnections()` 是繞道，不是預期行為。** 關掉 Tab 或結束 app 時，正在跑的 git 不會被終止([#450](https://github.com/0Miles/vscode-ging-git-view/issues/450)):git 卡在提示時拿到「取消」會自己結束，但測試若在 git 還連著 server 時失敗，那個 git 會一直留著,server 關不掉、Windows 上暫存目錄也刪不掉。#450 修好之後拿掉這個繞道。
 
+## 補記(2026-11-17,#392)
+
+**askpass 與 interactive rebase 的 E2E 各一條([askpass.spec.ts](../../apps/desktop/e2e/askpass.spec.ts)、[interactiveRebase.spec.ts](../../apps/desktop/e2e/interactiveRebase.spec.ts)),都從圖形自己的按鈕與對話框觸發,斷言只讀頁面、git 與 log。** 兩個 helper 跑不起來時(把 `out/` 裡的 `askpass.sh` 換成 `echo ""`、`sequenceEditor.sh` 換成 `exit 0`)兩條都會紅。
+
+**它們今天還不是 RunAsNode fuse 的偵測器。** 跑的是 `node_modules` 裡未打包、fuse 全開的 Electron,沒有任何建置會把 `RunAsNode` 關掉,所以它們抓得到的是「helper 跑不起來」(檔案沒複製、沒有執行權限、`ELECTRON_RUN_AS_NODE` 沒帶到),抓不到「fuse 被關了」。要等階段 E 把 `executablePath` 換成打包後的 app,它們才會在 fuse 被關掉時變紅;這正是上面「安裝包的 smoke 至少要跑 askpass 與 interactive rebase」的那兩條。
+
+- **401 server 是 [unauthorizedRemote.ts](../../apps/desktop/e2e/unauthorizedRemote.ts)**:Node `http`,綁 127.0.0.1、port 由系統挑,每個請求一律回 401 加 `WWW-Authenticate: Basic`,有沒有帶帳密都一樣,並照到達的順序記下來。`info/refs` 以外的請求(例如 `HEAD /`)也回 401、也記,測試只讀它關心的那幾筆。git 2.40.1 實測:不帶帳密的 `info/refs` 一次,帶帳密的重試一次,然後放棄。重試幾次是 git 的事,沒辦法證明每個版本都一樣(CI 的 ubuntu 上的 git 比開發機新),所以斷言是「至少一次帶帳密的重試,而且每一次都是頁面上輸入的那組」。
+- **頁面上看到的是 `askpass.sh` 切開後的 git 提示。** `askpass.sh` 用沒加引號的 `$*` 把 `Username for 'http://127.0.0.1:…': ` 拆成三個參數,`askpassMain` 取第一個字當 `placeholder`(`Username`、`Password`),取引號裡的 URL 組成標題 `GING: <url>`。所以「先問 Username、再問 Password」是讀 overlay 的 placeholder 與標題,第二題的 URL 帶著第一題填的帳號。這是產品現有的行為(沿用 VS Code 的 askpass),本票不改;同一個拆字讓含空白的提示直接失敗,另開 [#445](https://github.com/0Miles/vscode-ging-git-view/issues/445),修正時這條 E2E 的斷言要跟著改。
+- **錯誤框是圖形自己的 `#dialog`,不是原生對話框。** 從圖形的 Fetch 按鈕觸發,askpass 的 overlay 正好疊在進度框上(ADR-0031 的 #390 補記),失敗時進度框換成 `Unable to fetch` 的錯誤框。斷言只看標題與有沒有 `.errorReason`,不比對 git 的 stderr 全文。
+- **`wasApplied` 不掛測試用的全域來讀,讀它的後果。** rebase 對話框把中間那個 commit 取消勾選,只有 GING 自己寫的 todo 能表達;helper 沒跑的話,git 用自己的 todo 留下每個 commit,`rebaseInteractive` 會因 `wasApplied` 為 false 而失敗。所以「中間那個 commit 不見了、前後兩個照順序留著、沒有錯誤框、log 沒有 `ERROR:`」就是 `wasApplied` 為 true。
+- **fixture 的隔離補上 `XDG_CONFIG_HOME` 與 `GIT_CONFIG_GLOBAL`,兩者管的對象不同。** git 的全域設定有兩處:`$HOME/.gitconfig` 與 `$XDG_CONFIG_HOME/git/config`。`isolatedGitEnv` 原本只把 `HOME` / `USERPROFILE` 指到暫存目錄;開發機上設了 `XDG_CONFIG_HOME` 時,git 仍會讀那裡的 `git/config`,裡面若有 credential helper(例如 GCM),它會在 askpass 之前回答,401 就不會走到 askpass(實測可重現)。
+  - **app 的 git**:core 的 `gitSpawn.ts` 會把 `GIT_CONFIG_GLOBAL` 等設定覆寫變數從子行程的環境裡拿掉(`STRIPPED_GIT_ENV`),所以 app 的 git 拿到的隔離只有它留下的那些:`GIT_CONFIG_NOSYSTEM=1`、`HOME` / `USERPROFILE`(空的 `.gitconfig`),以及現在指到同一個暫存目錄底下 `.config` 的 `XDG_CONFIG_HOME`(那裡沒有 `git/config`)。
+  - **fixture 自己的 git**:另外把 `GIT_CONFIG_GLOBAL` 明確指到那個暫存的空 `.gitconfig`(Windows 上開不了 `/dev/null`,所以用空檔)。app 的 git 看不到這個變數,它只是讓 fixture 這一側不必依賴上面兩處路徑的推導。
+- **helper script 在建置時就設成可執行。** `askpass.sh` 等在 repo 裡是 644,git 在 Windows 以外會直接 exec `GIT_ASKPASS`,所以要有執行權限。`AskpassManager` 與 `SequenceEditorManager` 建構時會 chmod,但不等它完成;`apps/desktop/esbuild.js` 複製到 `out/` 時直接 `chmod 755`,CI 的 ubuntu 不必靠那個時間差。
+- **rebase 的 fixture repo 自己設 `user.name` / `user.email`(repo 層級)。** fixture 的 git 用 `GIT_AUTHOR_*` / `GIT_COMMITTER_*` 環境變數提交,app 的 git 拿不到它們,而隔離後的設定裡沒有任何身分,rebase 重放 commit 時會停在 `unable to auto-detect email address`。
+
 ## 補記(2026-11-17,#396)
 
 **應用程式選單長成 desktop 上 core 命令服務的完整入口(不做 command palette)。** [appMenu.ts](../../apps/desktop/src/appMenu.ts) 的 template 仍是純資料:(macOS 才有的)app 選單、File(#394 的三項、設定…、Close / Quit)、Edit、Repository、View、Window、Help。Repository 底下是 Fetch、Fetch 特定 remote、Manage Remotes、Show/Hide Remote Branches、Manage Pull Request Providers、View Reflog、Show Statistics、Set Git User Details、Open in Terminal;Help 底下是 Version Information。

@@ -13,6 +13,20 @@ export type TerminalLaunch = { command: string; args: string[]; options: SpawnOp
 /** Node's `spawn`, as far as starting a terminal uses it. */
 export type Spawn = (command: string, args: string[], options: SpawnOptions) => ChildProcess;
 
+/**
+ * Windows variable `name` in `env`, whatever the case it is spelled in.
+ * Windows names its variables without regard to case, and `process.env` reads
+ * them that way there, but a copy of it is a plain object: a shell such as Git
+ * Bash hands its children `COMSPEC` where Windows itself says `ComSpec`.
+ */
+export function windowsVariable(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const wanted = name.toLowerCase();
+  for (const [key, value] of Object.entries(env)) {
+    if (key.toLowerCase() === wanted && value !== undefined && value !== "") return value;
+  }
+  return undefined;
+}
+
 /** Whether `file` is a file this process may run. */
 export function isExecutableFile(file: string): boolean {
   try {
@@ -75,9 +89,10 @@ export function terminalLaunches(
 ): TerminalLaunch[] {
   const options: SpawnOptions = { cwd, detached: true, stdio: "ignore" };
   if (platform === "win32") {
-    const system = `${env.SystemRoot ?? "C:\\Windows"}\\System32\\cmd.exe`;
-    const cmd =
-      env.ComSpec !== undefined && path.win32.isAbsolute(env.ComSpec) ? env.ComSpec : system;
+    const root = windowsVariable(env, "SystemRoot");
+    const system = `${root !== undefined && path.win32.isAbsolute(root) ? root : "C:\\Windows"}\\System32\\cmd.exe`;
+    const comSpec = windowsVariable(env, "ComSpec");
+    const cmd = comSpec !== undefined && path.win32.isAbsolute(comSpec) ? comSpec : system;
     const quoted = `"${title.replaceAll(/["%]/g, "")}"`;
     return [
       {
