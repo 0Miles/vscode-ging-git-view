@@ -16,13 +16,13 @@ import {
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { ExtensionState } from "@ging/core/extensionState";
-import type { Clipboard, HostLogger, HostStorage, L10n } from "@ging/core/host/ports";
+import type { Clipboard, HostLogger, L10n } from "@ging/core/host/ports";
 import { TabStates } from "@ging/core/tabStates";
 import { createDesktopConfig, type DesktopConfig } from "@ging/desktop/ports/config";
 import { createDesktopL10n } from "@ging/desktop/ports/l10n";
 import type { OsShell } from "@ging/desktop/ports/opener";
 import { createDesktopRepoSource, type DesktopRepoSource } from "@ging/desktop/ports/repoSource";
-import { openDesktopStorage } from "@ging/desktop/ports/storage";
+import { type DesktopStorage, openDesktopStorage } from "@ging/desktop/ports/storage";
 import { openDesktopSettings } from "@ging/desktop/settings/schema";
 import type { Settings } from "@ging/desktop/settings/settingsFile";
 
@@ -51,7 +51,7 @@ export type SharedServices = {
   settings: Settings;
   /** What `extensionState` keeps; the desktop host's own state (the theme it
    *  was left in, #397) goes in its global tier beside core's. */
-  storage: HostStorage;
+  storage: DesktopStorage;
   l10n: L10n;
   logger: HostLogger;
   clipboard: Clipboard;

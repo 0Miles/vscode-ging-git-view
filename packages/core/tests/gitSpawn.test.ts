@@ -1,4 +1,6 @@
 import * as fs from "node:fs";
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -62,6 +64,22 @@ describe("spawnGit (real git)", () => {
     expect(result.exitCode).toBe(0);
     // `printf 'hello\n' | git hash-object --stdin`, worked out independently.
     expect(result.stdout.toString().trim()).toBe("ce013625030ba8dba906f756967f9e9ca394464a");
+  });
+
+  it("hands stderr to onStderr as it comes, and keeps all of it in the result", async () => {
+    const heard: string[] = [];
+    const result = await spawnGit({
+      gitPath: "git",
+      cwd: repo,
+      // An unknown revision: git says so on stderr, in its own words.
+      args: ["rev-parse", "--verify", "no-such-revision"],
+      onStderr: (text) => heard.push(text)
+    });
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).not.toBe("");
+    expect(heard.join("")).toBe(result.stderr);
   });
 
   it("logs the command it spawns, with the colour-off config the git client uses", async () => {
@@ -148,6 +166,53 @@ describe("spawnGit (real git)", () => {
     }
   });
 
+  // Settled at once, but a caller about to clean up after git (a cancelled
+  // clone, #395) needs to know when it is actually gone. git asking a local
+  // HTTP server that never answers runs a remote helper of its own, a native
+  // program on every platform, which shares its stderr; no shell in the tree,
+  // so none of ADR-0028's three gaps.
+  it("says when an aborted child, and what shares its output, is gone", async () => {
+    const server = http.createServer((req) => req.resume());
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    let requests = 0;
+    server.on("request", () => (requests += 1));
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "ngg-abort-exit-"));
+    try {
+      const abort = new AbortController();
+      const running = spawnGit({
+        gitPath: "git",
+        cwd: repo,
+        args: ["ls-remote", `http://127.0.0.1:${port}/repo.git`],
+        timeoutMs: 60_000,
+        signal: abort.signal,
+        ownProcessGroup: true,
+        // Nobody to ask for a credential, and no config of the machine's.
+        gitEnv: {
+          HOME: home,
+          USERPROFILE: home,
+          XDG_CONFIG_HOME: home,
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_ASKPASS: ""
+        }
+      });
+      await vi.waitFor(() => expect(requests).toBeGreaterThan(0), { timeout: START_TIMEOUT_MS });
+      abort.abort();
+      const result = await running;
+      if (result.kind !== "aborted") throw new Error(`expected aborted, got ${result.kind}`);
+      const abortedAt = Date.now();
+
+      await result.exited;
+
+      // Not git's own giving up, which takes as long as the server's silence.
+      expect(Date.now() - abortedAt).toBeLessThan(TASKKILL_WINDOW_MS);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+      rmrf(home);
+    }
+  });
   it("spawns nothing once already aborted", async () => {
     const logged: string[][] = [];
     const abort = new AbortController();
@@ -160,6 +225,7 @@ describe("spawnGit (real git)", () => {
       onCommand: (_command, args) => logged.push(args)
     });
     expect(result.kind).toBe("aborted");
+    if (result.kind === "aborted") await expect(result.exited).resolves.toBeUndefined();
     expect(logged).toEqual([]);
   });
 

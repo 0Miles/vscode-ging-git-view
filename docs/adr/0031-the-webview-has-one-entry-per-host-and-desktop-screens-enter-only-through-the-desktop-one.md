@@ -132,3 +132,25 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **啟動參數指錯路徑的說明(`notice`)畫在入口與清單之上**,同一個 `.welcomeBody` 裡：說明之後，使用者馬上能從同一頁改開別的資料夾。
 - **clone 的入口不在這裡。** 票面把它列為 Welcome page 的入口之一，但 clone 本身是 #395;沒有功能的按鈕不先放，由 #395 連同它的流程一起加進 `welcomeHtml`。
 - 樣式仍由 `windowPage.ts` 插進同一個 `<style>`,只用 `theme.ts` 已提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。版面由 [windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗：每一列一行、過長的路徑截斷而不把「移除」鈕擠出去、找不到的資料夾標出來。
+
+## 補記(2026-11-17,#399)
+
+**側檢視區已經填上:`<aside id="sideViews">`,由桌面入口在圖形頁啟動圖形之後建立,插在 `<body>` 的第一個位置。**它照上面骨架的約定:視窗左緣、與視窗等高、`position: fixed`,寬度是 `--ging-side-view-width`(260px,[styles.ts](../../packages/webview/src/desktop/sideViews/styles.ts) 的 `SIDE_VIEW_WIDTH`);`body.gingSideViews` 擁有 `padding-left`。「後果」最後一條要 #399 做的那一半也做了:docked Commit Details View 與 `#scrollShadow.active` 的左緣讓出欄寬,右緣不動,留給 #403。
+
+- **「誰先合併都只動自己那一邊」在 `#scrollShadow` 上守不住,所以兩欄都在時多一條規則。**#403 用 `width: calc(100% - 欄寬)` 讓出右邊;左緣一移,同一個寬度會讓它伸進 working tree 的欄位裡。側檢視的樣式因此在兩個 class 都在時(`body.gingSideViews.workingTreeOpen`)改用左右兩緣定位,右緣讀 #403 的 `WORKING_TREE_WIDTH`。docked CDV 用的是 `left` / `right`,兩邊本來就各管各的。[sideViews.spec.ts](../../e2e/webview/sideViews.spec.ts) 在兩欄都在時驗兩者都落在兩欄之間。
+
+- **樣式由側檢視模組在啟動時插進一個 `<style>`**,理由同 #397、#393 的補記;只用 `theme.ts` 已經提供的 `--vscode-*` 變數。[sideViews.spec.ts](../../e2e/webview/sideViews.spec.ts) 在真的瀏覽器裡驗欄位的位置與尺寸、`body` 的 padding、frozen header 從欄位右緣開始、捲動時欄位不動,以及 docked CDV 與 scroll shadow 的左緣。
+- **元素在 `<body>` 裡,所以圖形的 `#dialog` 開著時它跟著被標成 `inert`。**這是要的:圖形的對話框是 modal,側檢視不該在它背後還能按。host prompt overlay 仍在它之上(#390 的補記)。
+- **協定:宿主送 `sideViewState`(兩個檢視的整份內容、選單的可見度設定、檢視自己的字串),頁面回 `sideViewReady`、`sideViewRefresh`、`sideViewToggle`、`sideViewSetFilter`、`sideViewNoTargets`、`sideViewAddRemote`、`sideViewManagePullRequestProviders`、`sideViewRemote`。**型別在 [desktop/sideViews/protocol.ts](../../packages/webview/src/desktop/sideViews/protocol.ts),`SIDE_VIEW_COMMANDS_STAY_APART` 檢查它們不與 `ResponseMessage` / `RequestMessage` 撞名。`sideViewReady` 與 `hostPromptReady` 同理:頁面每次載入都送一次,宿主在那之前不送。main process 在交給 dispatch 之前用 `isSideViewRequest` 把它們分給該實例的側檢視,dispatch 聽不到。
+- **分支動作的字串是圖形的(頁面的 `l10n`),批次動作與檢視自己的字串由宿主隨 state 送來。**同一個動作在圖內選單與側檢視叫同一個名字;批次動作圖形沒有選單,`webviewL10n` 不為桌面多帶 VS Code 用不到的字串。
+- **`gitGraphView.ts` 多了一個回傳值,沒有 import 任何 `desktop/` 底下的東西。**`startGitGraphView()` 回傳 `GraphInPage`,側檢視經由它直接呼叫圖形(ADR-0033)。VS Code 入口忽略它。
+
+## 補記(2026-11-17,#395)
+
+**Welcome page 多了「Clone Repository...」入口(#394 留給本票的那一個),以及 clone 進行中時蓋在 Welcome page 上的進度面板。協定照「補記(#393)」的形狀長出來。**
+
+- **`windowState` 多一欄 `clone`**([desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts) 的 `ClonePanel`):標題(不含帳密的 URL)、目的地、git 自己的進度行(還沒開口前與取消中是宿主的字)、百分比(不知道時 `null`,畫成來回跑的條)、是否取消中、取消鈕的字。沒有 clone 時是 `null`。和 `welcome` 不同,有 Tab 時也照送:clone 期間若有 Tab 開了,面板仍在 Welcome page 上,關掉 Tab 就看得到。
+- **頁面多兩種請求:`cloneRepo`、`cancelClone`。** 一樣只是請求;`WINDOW_COMMANDS_STAY_APART` 照舊檢查撞名。
+- **面板只建一次,之後就地改字,不重畫。** 其他部分每次 `windowState` 都整個重畫(`innerHTML`),但 clone 的進度一秒會來好幾次(宿主最多每 100ms 送一次),重畫會在使用者按下取消、還沒放開時把按鈕換掉,那次點擊就落空了。所以面板是 `#welcome` 旁邊的一個元素,不在 `#welcome` 裡。
+- **面板開著時 `#welcome` 是 `inert`。** 一次一個 clone,而且面板底下的入口不該被點到。面板出現時焦點移到取消鈕。askpass 問帳密時,host prompt overlay(top layer 的 modal)蓋在面板之上,與圖形頁上蓋在進度框之上是同一回事(「補記(#390)」)。
+- 樣式照舊由 `windowPage.ts` 插進同一個 `<style>`,只用 `theme.ts` 已有的 `--vscode-*` 變數。[windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗面板蓋滿 Welcome page、長 URL 不超出視窗、進度條的寬度跟著百分比、取消鈕送出 `cancelClone`。

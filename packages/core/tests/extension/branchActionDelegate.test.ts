@@ -7,7 +7,7 @@ import {
 import type {
   BranchActionTarget,
   BranchActionTargets
-} from "@ging/core/extension/branchActionTargets";
+} from "@ging/shared/backend/utils/branchActionTargets";
 import type { DelegatedMessage } from "@ging/shared/types";
 
 const REPO = "/repo";
@@ -118,6 +118,29 @@ describe("createBranchActionDelegate", () => {
     expect(deps.writeClipboard).toHaveBeenCalledWith("origin/x\nmain\nfeature/a");
     expect(deps.openGraphView).not.toHaveBeenCalled();
     expect(posted).toHaveLength(0);
+  });
+
+  it("copies nothing, and says nothing, for a copyName batch with no targets", async () => {
+    const { delegate, deps } = makeDelegate({ repo: REPO, targets: [], skipped: [] });
+    await delegate.runBatch([{}], "copyName");
+    expect(deps.writeClipboard).not.toHaveBeenCalled();
+    expect(deps.showNoTargets).not.toHaveBeenCalled();
+  });
+
+  it("delivers a batch with its targets and the skipped refs it names", async () => {
+    const skipped = [{ ref: "remotes/origin/x", reason: "remote" as const }];
+    const { delegate, posted } = makeDelegate({ repo: REPO, targets: ["a", "b"], skipped });
+    await delegate.runBatch([{}], "fastForward");
+    expect(posted).toEqual([
+      {
+        command: "runRefBatchAction",
+        repo: REPO,
+        action: "fastForward",
+        targets: ["a", "b"],
+        skipped,
+        seq: 1
+      }
+    ]);
   });
 
   it("reports a batch whose every branch was ruled out, naming the skipped refs", async () => {
