@@ -6,7 +6,12 @@ import * as path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { commitChanges, stageFiles, unstageFiles } from "@ging/core/backend/actions/workingTree";
+import {
+  commitChanges,
+  resolveFiles,
+  stageFiles,
+  unstageFiles
+} from "@ging/core/backend/actions/workingTree";
 
 import { git, makeRepo, makeTempDir, rmrf } from "@ging/core/tests/helpers";
 
@@ -172,6 +177,59 @@ describe("during a merge stopped on a conflict", () => {
     expect(mergeHead(r)).toBe(true);
     expect(unmerged(r)).toBe(conflictBefore);
     expect(short(r)).toBe(["UU f", " M h", "?? g"].join("\n"));
+  });
+
+  // #410: Mark Resolved, the one way a conflicted file is staged.
+  it("resolveFiles stages the conflicted file as the user left it, the merge still in progress, and nothing else named", async () => {
+    const r = conflictedMerge();
+    fs.writeFileSync(path.join(r, "f"), "resolved by hand");
+
+    await resolveFiles(simpleGit(r), ["f", "h"]);
+
+    expect(unmerged(r)).toBe("");
+    expect(mergeHead(r)).toBe(true);
+    // h, named but in no conflict, is left unstaged.
+    expect(short(r)).toBe(["M  f", "A  g", " M h"].join("\n"));
+    expect(out(r, "show", ":f")).toBe("resolved by hand");
+  });
+
+  it("resolveFiles stages a deletion when that is how the user resolved a file one side deleted", async () => {
+    const r = repo();
+    fs.writeFileSync(path.join(r, "d"), "d");
+    git(["add", "d"], r);
+    git(["commit", "-qm", "d"], r);
+    git(["checkout", "-q", "-b", "side"], r);
+    git(["rm", "-q", "d"], r);
+    git(["commit", "-qm", "gone on side"], r);
+    git(["checkout", "-q", "main"], r);
+    fs.writeFileSync(path.join(r, "d"), "changed on main");
+    git(["commit", "-qam", "main"], r);
+    expect(cp.spawnSync("git", ["merge", "side"], { cwd: r }).status).not.toBe(0);
+    expect(short(r)).toBe("UD d");
+    fs.rmSync(path.join(r, "d"));
+
+    await resolveFiles(simpleGit(r), ["d"]);
+
+    expect(unmerged(r)).toBe("");
+    expect(short(r)).toBe("D  d");
+  });
+
+  it("resolveFiles takes a path as written, not as a pattern", async () => {
+    const r = repo();
+    for (const name of ["a.txt", "[ab].txt"]) fs.writeFileSync(path.join(r, name), "base");
+    git(["add", "."], r);
+    git(["commit", "-qm", "base"], r);
+    git(["checkout", "-q", "-b", "side"], r);
+    for (const name of ["a.txt", "[ab].txt"]) fs.writeFileSync(path.join(r, name), "side");
+    git(["commit", "-qam", "side"], r);
+    git(["checkout", "-q", "main"], r);
+    for (const name of ["a.txt", "[ab].txt"]) fs.writeFileSync(path.join(r, name), "main");
+    git(["commit", "-qam", "main"], r);
+    expect(cp.spawnSync("git", ["merge", "side"], { cwd: r }).status).not.toBe(0);
+
+    await resolveFiles(simpleGit(r), ["[ab].txt"]);
+
+    expect(short(r)).toBe(["M  [ab].txt", "UU a.txt"].join("\n"));
   });
 });
 
