@@ -124,9 +124,12 @@ export function createDiffPanel(
     error.className = "diffViewerError";
     error.setAttribute("role", "alert");
     error.hidden = true;
+    const notice = document.createElement("p");
+    notice.className = "diffViewerNotice";
+    notice.hidden = true;
     const editorArea = document.createElement("div");
     editorArea.className = "diffViewerEditor";
-    panel.append(bar, error, editorArea);
+    panel.append(bar, error, notice, editorArea);
 
     panel.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
@@ -150,7 +153,7 @@ export function createDiffPanel(
     });
 
     document.body.append(panel);
-    return { panel, title, layoutButtons, close, error, editorArea };
+    return { panel, title, layoutButtons, close, error, notice, editorArea };
   }
 
   function showLayout(p: NonNullable<typeof parts>) {
@@ -186,6 +189,7 @@ export function createDiffPanel(
     if (parts.panel.contains(document.activeElement))
       (document.activeElement as HTMLElement).blur();
     parts.panel.hidden = true;
+    parts.panel.removeAttribute("aria-busy");
     disposeViewer();
     parts.editorArea.replaceChildren();
   }
@@ -211,11 +215,23 @@ export function createDiffPanel(
       p.close.setAttribute("aria-label", message.strings.close);
       showLayout(p);
       p.error.hidden = true;
+      p.notice.hidden = true;
+      p.editorArea.replaceChildren();
+      if (message.notShown !== null) {
+        // No text to compare: said in one line, and no editor made.
+        p.notice.textContent = message.notShown;
+        p.notice.hidden = false;
+        p.panel.removeAttribute("aria-busy");
+        return;
+      }
       // A new element for each diff: nothing of the last one's editor is left.
       const container = document.createElement("div");
       container.style.position = "absolute";
       container.style.inset = "0";
-      p.editorArea.replaceChildren(container);
+      p.editorArea.append(container);
+      // Until the editor is in it: the first diff on a page loads the editor's
+      // code first, which takes seconds on a slow machine.
+      p.panel.setAttribute("aria-busy", "true");
 
       const asked = { layout, theme: themeOf(document) };
       let made: DiffViewer;
@@ -227,10 +243,12 @@ export function createDiffPanel(
           revealLine: message.revealLine
         });
       } catch (e) {
-        if (mine === generation) {
-          p.error.textContent = message.strings.cannotShow;
-          p.error.hidden = false;
-        }
+        // A diff closed or replaced meanwhile has nobody to tell: no failure
+        // of the page's either, as far as the viewer shown now goes.
+        if (mine !== generation) return;
+        p.panel.removeAttribute("aria-busy");
+        p.error.textContent = message.strings.cannotShow;
+        p.error.hidden = false;
         throw e;
       }
       if (mine !== generation) {
@@ -238,6 +256,7 @@ export function createDiffPanel(
         made.dispose();
         return;
       }
+      p.panel.removeAttribute("aria-busy");
       viewer = made;
       // Changed while it was being made (the editor's code loads on the
       // first diff): what was asked for then is not what is shown now.

@@ -51,6 +51,21 @@ const common = (production) => ({
 });
 
 /**
+ * The page's bundle (out/web.js), built as the extension builds its own (es6,
+ * iife), so both hosts run the same code. Exported, as `editorsBuild` is, for
+ * webviewEntries.test.ts, which checks Monaco stays out of it (#404).
+ */
+function pageBuild(production) {
+  return {
+    ...common(production),
+    entryPoints: [path.join(__dirname, "src", "web", "page.ts")],
+    format: "iife",
+    target: "es6",
+    outfile: path.join(__dirname, "out", "web.js")
+  };
+}
+
+/**
  * The editors' bundle (#404): Monaco and the app's factory over it, apart
  * from the page's so that only a page showing a diff loads it. Its
  * stylesheet comes out beside it, as monaco.css, and the codicon font
@@ -98,15 +113,7 @@ async function main() {
       target: "es2022",
       outdir: "out"
     }),
-    // The page's bundle, built as the extension builds its own (es6, iife), so
-    // both hosts run the same code.
-    esbuild.build({
-      ...common(production),
-      entryPoints: ["src/web/page.ts"],
-      format: "iife",
-      target: "es6",
-      outfile: "out/web.js"
-    }),
+    esbuild.build(pageBuild(production)),
     esbuild.build(editorsBuild()),
     // Monaco's editor worker, which computes the diffs: a worker of its own,
     // minified always, as the editors' bundle is.
@@ -129,7 +136,7 @@ async function main() {
   }
 }
 
-module.exports = { editorsBuild };
+module.exports = { pageBuild, editorsBuild };
 
 if (require.main === module) {
   main().catch((e) => {

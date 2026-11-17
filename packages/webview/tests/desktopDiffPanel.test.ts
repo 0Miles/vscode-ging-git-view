@@ -83,6 +83,7 @@ const message = (overrides: Partial<ShowDiffMessage> = {}): ShowDiffMessage => (
   original: { path: "src/file.txt", content: "before\n" },
   modified: { path: "src/file.txt", content: "after\n" },
   revealLine: null,
+  notShown: null,
   strings: {
     sideBySide: "Side by Side",
     inline: "Inline",
@@ -326,6 +327,66 @@ describe("the diff viewer", () => {
     expect(made[0].themes).toEqual(["light"]);
   });
 
+  it("is busy while the editor is being made, and not once it is in", async () => {
+    const { editors, hold } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = diffs.show(message());
+
+    expect(panel().getAttribute("aria-busy")).toBe("true");
+    release();
+    await showing;
+
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("is not busy once closed while an editor was being made", async () => {
+    const { editors, hold } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = diffs.show(message());
+
+    diffs.close();
+    release();
+    await showing;
+
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("shows the host's one line in place of an editor when there is no text to compare", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await diffs.show(message({ notShown: "Binary file: there is no text to compare." }));
+
+    const notice = panel().querySelector<HTMLElement>(".diffViewerNotice")!;
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toBe("Binary file: there is no text to compare.");
+    expect(made).toEqual([]);
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+
+    // The next diff with text has its editor, and not the line.
+    await diffs.show(message());
+    expect(notice.hidden).toBe(true);
+    expect(made).toHaveLength(1);
+  });
+
+  it("lets a failure to make an editor for a diff no longer shown go unsaid", async () => {
+    let fail!: (e: Error) => void;
+    const editors: EditorFactory = {
+      createDiffViewer: () => new Promise((_resolve, reject) => (fail = reject))
+    };
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    const showing = diffs.show(message());
+
+    diffs.close();
+    fail(new Error("monaco.js did not load"));
+
+    // Nothing to report: nobody is waiting on that diff any more.
+    await expect(showing).resolves.toBeUndefined();
+    expect(panel().querySelector<HTMLElement>(".diffViewerError")!.hidden).toBe(true);
+  });
+
   it("says so in the panel when there is no editor to show the diff in, and rejects", async () => {
     const editors: EditorFactory = {
       createDiffViewer: () => Promise.reject(new Error("monaco.js did not load"))
@@ -338,5 +399,6 @@ describe("the diff viewer", () => {
     expect(error.hidden).toBe(false);
     expect(error.textContent).toBe("No editor");
     expect(error.getAttribute("role")).toBe("alert");
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
   });
 });

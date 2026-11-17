@@ -29,28 +29,40 @@ const isMonaco = (path: string) => path.includes("monaco-editor/");
 type Bundle = { text: string; inputs: string[] };
 let bundles: { vscode: Bundle; desktop: Bundle };
 let editors: Bundle;
+let page: Bundle;
 
 // The desktop app's build script (apps/desktop/esbuild.js), which builds
 // nothing when required.
 const desktopBuild = require(join(__dirname, "..", "..", "..", "desktop", "esbuild.js")) as {
+  pageBuild: (production: boolean) => BuildOptions;
   editorsBuild: () => BuildOptions;
 };
-/** The editors bundle's script, not its stylesheet or font. */
-const isScript = (file: string) => file.endsWith("monaco.js");
 
-beforeAll(async () => {
+/** options' script, built as the desktop app builds it, read in memory: its
+ *  text and the modules it took in. */
+async function buildScript(options: BuildOptions, name: string): Promise<Bundle> {
   const built: BuildResult<{ write: false; metafile: true }> = await build({
-    ...desktopBuild.editorsBuild(),
+    ...options,
     write: false,
     metafile: true,
     logLevel: "silent"
   });
-  editors = {
+  // Its script, not the stylesheet or font beside it.
+  const isScript = (file: string) => file.endsWith(name);
+  return {
     text: built.outputFiles.find((f) => isScript(f.path))!.text,
     inputs: Object.keys(
       Object.entries(built.metafile.outputs).find(([p]) => isScript(p))![1].inputs
     )
   };
+}
+
+beforeAll(async () => {
+  [editors, page] = await Promise.all([
+    buildScript(desktopBuild.editorsBuild(), "monaco.js"),
+    // As released: minified, so tree-shaking is what ships.
+    buildScript(desktopBuild.pageBuild(true), "web.js")
+  ]);
 }, 120_000);
 
 beforeAll(async () => {
@@ -100,5 +112,14 @@ describe("the webview entries' bundles", () => {
     // The control: the same reads find it where the desktop app puts it.
     expect(editors.inputs.filter(isMonaco)).not.toEqual([]);
     expect(editors.text).toContain(MONACO_MARKER);
+  });
+
+  it("leave Monaco out of the desktop app's page bundle, which loads it on a first diff (#404)", () => {
+    // out/web.js, which every page of the app parses: Monaco is a bundle of
+    // its own (ADR-0031), not in this one.
+    expect(page.inputs.filter(isMonaco)).toEqual([]);
+    expect(page.text).not.toContain(MONACO_MARKER);
+    // It is the desktop entry, started: the marker is there.
+    expect(page.text).toContain(MARKER);
   });
 });

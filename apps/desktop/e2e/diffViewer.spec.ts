@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
+import { diffShown, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 import { focusedTabPage } from "./tabPages";
 
@@ -32,6 +33,7 @@ test.beforeEach(() => {
 });
 
 test.afterEach(async () => {
+  if (app !== null) await keepTraceIfFailed(app, test.info());
   await app?.close();
   app = null;
   for (const dir of [scratch, ...cleanUp]) rmSync(dir, { recursive: true, force: true });
@@ -49,6 +51,7 @@ async function launch(repo: string, settings: Record<string, unknown> = {}) {
     args: ["--lang=en-US", APP_DIR, `--user-data-dir=${userData()}`, "--repo", repo],
     env: env as Record<string, string>
   });
+  await startTrace(app);
   return app;
 }
 
@@ -81,8 +84,9 @@ test("a file clicked in the Commit Details View opens its diff over the graph, s
   const changed = page.locator(".gitFile", { hasText: "file.txt" });
   await changed.click();
 
+  // The page's first diff: it loads the editor first.
+  await diffShown(page);
   const viewer = page.locator("#diffViewer");
-  await expect(viewer).toBeVisible();
   const third = fixture.commits[0].hash.slice(0, 8);
   await expect(viewer.locator(".diffViewerTitle")).toHaveText(`file.txt (${third}^ ↔ ${third})`);
   // The commit's parent on the left, the commit on the right.
@@ -145,6 +149,56 @@ test("a file clicked in the Commit Details View opens its diff over the graph, s
   expect(log()).not.toContain("ERROR:");
 });
 
+test("a binary file's diff says there is no text to compare, and draws no editor", async () => {
+  const fixture = makeFixtureRepo(env);
+  cleanUp.push(fixture.path);
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: fixture.path, env, stdio: ["ignore", "pipe", "pipe"] })
+      .toString()
+      .trim();
+  git("config", "user.name", "Alice");
+  git("config", "user.email", "alice@example.com");
+  writeFileSync(path.join(fixture.path, "image.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0]));
+  git("add", "image.png");
+  git("commit", "--quiet", "-m", "Binary file");
+  const commit = git("rev-parse", "HEAD");
+
+  const electronApp = await launch(fixture.path);
+  const page = await focusedTabPage(electronApp);
+  const errors = pageErrors(page);
+  await expect(page.locator("#commitTable tr.commit").first()).toBeVisible();
+  // Sent as the page sends it: git lists no line counts for a binary file, so
+  // its Commit Details View row offers no diff to click, but nothing stops a
+  // request naming one — a file's history (#408) will not know in advance.
+  await page.evaluate(
+    (hash) =>
+      (globalThis as unknown as { acquireVsCodeApi(): { postMessage(m: unknown): void } })
+        .acquireVsCodeApi()
+        .postMessage({
+          command: "viewDiff",
+          repo: (globalThis as { viewState?: { lastActiveRepo: string } }).viewState!
+            .lastActiveRepo,
+          commitHash: hash,
+          oldFilePath: "image.png",
+          newFilePath: "image.png",
+          type: "A"
+        }),
+    commit
+  );
+
+  await diffShown(page);
+  const viewer = page.locator("#diffViewer");
+  await expect(viewer.locator(".diffViewerNotice")).toHaveText(
+    "Binary file: there is no text to compare."
+  );
+  await expect(viewer.locator(".monaco-diff-editor")).toHaveCount(0);
+
+  expect(errors).toEqual([]);
+  await electronApp.close();
+  app = null;
+  expect(log()).not.toContain("ERROR:");
+});
+
 test("a file at a commit against the working tree is decoded as the setting says, on both sides", async () => {
   const fixture = makeFixtureRepo(env);
   cleanUp.push(fixture.path);
@@ -183,8 +237,8 @@ test("a file at a commit against the working tree is decoded as the setting says
   await row.hover();
   await row.locator(".gitFileDiffWorking").click();
 
+  await diffShown(page);
   const viewer = page.locator("#diffViewer");
-  await expect(viewer).toBeVisible();
   // Over the graph's area only: the working tree panel (#403), open beside
   // the graph, stays in view beside the diff.
   const panel = page.locator("#workingTree");

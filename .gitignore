@@ -1,6 +1,8 @@
 .vscode-test/
 node_modules/
 **/out/
+# The desktop app's Electron E2E results (apps/desktop/playwright.config.ts)
+/apps/desktop/e2e-results/
 *.vsix
 
 # Copied into the extension at build / package time (esbuild.js, vscode:prepublish)

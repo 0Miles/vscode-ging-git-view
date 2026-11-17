@@ -109,6 +109,7 @@ describe("the desktop entry", () => {
       original: { path: "file.txt", content: "before\n" },
       modified: { path: "file.txt", content: "after\n" },
       revealLine: null,
+      notShown: null,
       strings: { sideBySide: "Side by Side", inline: "Inline", close: "Close", cannotShow: "-" }
     } as unknown as GG.ResponseMessage);
     await vi.waitFor(() => expect(diffsAsked).toHaveLength(1));

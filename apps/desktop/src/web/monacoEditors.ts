@@ -112,10 +112,11 @@ const editors: EditorFactory = {
       // window does not switch it behind the choice's back.
       useInlineViewWhenSpaceIsLimited: false,
       // Nothing to revert into: both sides are read-only. Nor any hunk
-      // actions for the gutter's menu to offer (#406 brings its own). And
-      // the menu fails when gone: its actions are re-read on a timer, which
-      // can come after the editor is disposed and throw
-      // "AbstractContextKeyService has been disposed" into the page.
+      // actions for the gutter's menu to offer. And off as a workaround for
+      // Monaco 0.57.0: the gutter re-reads its menu's actions on a timer that
+      // dispose does not cancel, which then throws "AbstractContextKeyService
+      // has been disposed" into the page. #406, putting hunk staging in the
+      // gutter, must check the Monaco of its day first (ADR-0031, #404).
       renderMarginRevertIcon: false,
       renderGutterMenu: false,
       automaticLayout: true,

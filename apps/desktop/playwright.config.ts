@@ -7,5 +7,10 @@ export default defineConfig({
   workers: 1,
   timeout: 60_000,
   reporter: "list",
-  outputDir: "out/e2e-results"
+  // Not under out/: `compile` empties out/ first, and with it the results of
+  // the run that failed (#404).
+  outputDir: "e2e-results",
+  // What a failure leaves to look at: every step's page, and the main
+  // process's calls. Kept only for a test that failed.
+  use: { trace: "retain-on-failure" }
 });
