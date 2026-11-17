@@ -39,10 +39,49 @@ const STRINGS = {
     typeChanged: "Type changed",
     untracked: "Untracked",
     conflicted: "Conflicted"
-  }
+  },
+  amend: "Amend last commit",
+  amendCommit: "Amend Commit",
+  signOff: "Sign off",
+  signOffDetail: "Add a Signed-off-by line.",
+  cannotAmend: {
+    unborn: "No commit yet.",
+    merge: "A merge is in progress.",
+    rebase: "A rebase is in progress.",
+    cherrypick: "A cherry-pick is in progress.",
+    revert: "A revert is in progress."
+  },
+  amendPushed: "The last commit is already on {0}. Amend it anyway?",
+  amendPushedConfirm: "Amend",
+  identityUnknown: "Git does not know who you are.",
+  openMergeTool: "Open in Merge Tool",
+  markResolved: "Mark Resolved",
+  inProgress: "{0} in progress",
+  operations: { merge: "Merge", rebase: "Rebase", cherrypick: "Cherry-pick", revert: "Revert" },
+  continue: "Continue",
+  abort: "Abort"
 };
 
 const LONG = "a-file-name-long-enough-to-run-well-past-the-width-of-the-panel-it-is-listed-in.ts";
+
+const HEAD_MESSAGE = "The last commit";
+const STATUS = {
+  branch: "main",
+  staged: [{ path: "src/staged.ts", change: "modified" }],
+  unstaged: [{ path: `deep/folder/${LONG}`, change: "untracked" }],
+  conflicted: []
+};
+
+/** The host's answer to `request`, as the desktop host sends it. */
+const answer = (request: string, more: Record<string, unknown> = {}) => ({
+  command: "workingTreeStatus",
+  request,
+  status: STATUS,
+  amend: { possible: true, message: HEAD_MESSAGE },
+  error: null,
+  strings: STRINGS,
+  ...more
+});
 
 let errors: string[];
 
@@ -55,18 +94,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto(harnessUrl);
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(3);
   await hostSays(page, { command: "workingTreeShow" });
-  await hostSays(page, {
-    command: "workingTreeStatus",
-    request: "workingTreeLoad",
-    status: {
-      branch: "main",
-      staged: [{ path: "src/staged.ts", change: "modified" }],
-      unstaged: [{ path: `deep/folder/${LONG}`, change: "untracked" }],
-      conflicted: []
-    },
-    error: null,
-    strings: STRINGS
-  });
+  await hostSays(page, answer("workingTreeLoad"));
 });
 
 test.afterEach(() => {
@@ -103,6 +131,101 @@ test("a long name is cut short, and its row's button stays in the panel", async 
   const button = (await stage.boundingBox())!;
   expect(button.x + button.width).toBeLessThanOrEqual(panel.x + panel.width);
   expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
+test("a pushed commit's amend is asked in the graph's own dialog, the panel out of reach behind it", async ({
+  page
+}) => {
+  const panel = page.locator("#workingTree");
+  const commit = panel.locator("#wtCommitButton");
+  const dialog = page.locator("#dialog.active");
+  /** The panel's commit requests, as the page sent them to the host. */
+  const commitsSent = () =>
+    page.evaluate(() =>
+      (
+        (globalThis as unknown as { harnessRequests: { command: string }[] }).harnessRequests ?? []
+      ).filter((m) => m.command === "workingTreeCommit")
+    );
+
+  await panel.getByLabel("Amend last commit").check();
+  await expect(panel.locator("textarea")).toHaveValue(HEAD_MESSAGE);
+  await expect(commit).toHaveText("Amend Commit");
+  await commit.click();
+  await hostSays(
+    page,
+    answer("workingTreeCommit", {
+      refused: { kind: "pushed", head: "c0ffee", remoteBranches: ["origin/main"] }
+    })
+  );
+
+  // The graph's dialog, over the page: the panel is behind it, out of reach.
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("The last commit is already on origin/main.");
+  await expect(dialog.locator("b")).toHaveText("origin/main");
+  await expect(panel).toHaveAttribute("inert", "");
+
+  // Walked away from: nothing more asked of the host, the keyboard back on
+  // the button that asked.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(panel).not.toHaveAttribute("inert", "");
+  await expect(commit).toBeFocused();
+  expect(await commitsSent()).toEqual([
+    { command: "workingTreeCommit", message: HEAD_MESSAGE, amend: true }
+  ]);
+
+  // Said yes to: asked again, now to rewrite it.
+  await commit.click();
+  await hostSays(
+    page,
+    answer("workingTreeCommit", {
+      refused: { kind: "pushed", head: "c0ffee", remoteBranches: ["origin/main"] }
+    })
+  );
+  await dialog.locator("#dialogAction").click();
+  await expect(dialog).toHaveCount(0);
+  expect((await commitsSent()).at(-1)).toEqual({
+    command: "workingTreeCommit",
+    message: HEAD_MESSAGE,
+    amend: true,
+    rewritePushed: "c0ffee"
+  });
+});
+
+test("a conflict's two buttons, and the operation's, stay in the panel beside a long name (#410)", async ({
+  page
+}) => {
+  await hostSays(page, {
+    command: "workingTreeStatus",
+    request: "workingTreeLoad",
+    status: {
+      branch: "main",
+      staged: [],
+      unstaged: [],
+      conflicted: [{ path: `deep/folder/${LONG}`, change: "conflicted" }],
+      operation: "cherrypick"
+    },
+    error: null,
+    strings: { ...STRINGS, inProgress: `{0} in progress, ${LONG}` }
+  });
+  const panel = (await page.locator("#workingTree").boundingBox())!;
+  const inPanel = async (selector: ReturnType<Page["locator"]>) => {
+    await expect(selector).toBeVisible();
+    const box = (await selector.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(panel.x);
+    expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width);
+  };
+
+  const row = page.locator('.wtFile[data-area="conflicted"]');
+  await row.hover();
+  await inPanel(row.getByRole("button", { name: "Open in Merge Tool" }));
+  await inPanel(row.getByRole("button", { name: "Mark Resolved" }));
+  expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+
+  const operation = page.locator("#workingTree .wtOperation");
+  await inPanel(operation.getByRole("button", { name: "Continue" }));
+  await inPanel(operation.getByRole("button", { name: "Abort" }));
+  expect(await operation.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
 
 test("closed, it hands the width back to the graph", async ({ page }) => {

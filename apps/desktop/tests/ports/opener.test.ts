@@ -79,7 +79,8 @@ function setUp({
     repoRoot: () => REPO,
     platform,
     env,
-    files
+    files,
+    mergeTool: (filePath) => calls.push(["mergeTool", filePath])
   });
   return { opener, calls, logged };
 }
@@ -271,15 +272,17 @@ describe("the desktop Opener", () => {
       ).resolves.toBe(true);
       expect(calls).toEqual([["showInformation", NOT_YET]]);
     });
+  });
 
-    it("openMergeEditor gives the notice", () => {
-      const { opener, calls, logged } = setUp();
+  // No longer a stub (#410): the file goes to the user's merge tool, which
+  // says what came of it, and nothing says "not yet".
+  it("openMergeEditor hands the file to the merge tool, saying nothing itself", () => {
+    const { opener, calls, logged } = setUp();
 
-      opener.openMergeEditor(REPO, "a.txt");
+    opener.openMergeEditor(REPO, "dir/a b.txt");
 
-      expect(calls).toEqual([["showInformation", NOT_YET]]);
-      expect(logged).toEqual(["desktop: merging a.txt (#410) is not supported yet"]);
-    });
+    expect(calls).toEqual([["mergeTool", "dir/a b.txt"]]);
+    expect(logged).toEqual([]);
   });
 });
 

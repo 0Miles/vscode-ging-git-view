@@ -284,8 +284,13 @@ export interface Opener {
   /** A commit's change to a file in a diff editor (see `commitDiffView`);
    *  resolves to whether it opened. */
   openCommitDiff(request: CommitDiffRequest): PromiseLike<boolean>;
-  /** A conflicted file in a 3-way merge editor, or a plain editor where there
-   *  is none. */
+  /** Hand the conflicted `filePath`, relative to `repo`, to the host's way of
+   *  merging it: a 3-way merge editor where the host has one (VS Code's, a
+   *  plain editor where that is missing), the merge tool the user configured
+   *  for git where it has none (the desktop host's `git mergetool`, #410).
+   *  Answers nothing: what came of it — resolved, still in conflict, no tool
+   *  configured — the host says itself, and the file watcher or the host's
+   *  own refresh shows the result. */
   openMergeEditor(repo: string, filePath: string): void;
   /** A terminal in `cwd`, titled `name`, brought into view. */
   openTerminal(cwd: string, name: string): void;

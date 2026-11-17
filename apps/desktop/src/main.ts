@@ -26,6 +26,7 @@ import {
 } from "electron";
 
 import { getNonce } from "@ging/core/backend/utils/nonce";
+import { createRepoCloneCommand } from "@ging/core/extension/repoCloneCommand";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRepoInitCommand } from "@ging/core/extension/repoInitCommand";
 import type { WebviewChannel } from "@ging/core/extension/webviewBridge";
@@ -72,6 +73,7 @@ import {
 import { buildDesktopPage, type Notice, PAGE_ASSETS, type PageContent } from "./page";
 import { keepPageInPlace } from "./pageGuard";
 import { createRecentRepos, type RecentRepos } from "./recentRepos";
+import { createRepoCloning, type RepoCloning } from "./repoCloning";
 import { createRepoOpening, type RepoOpening } from "./repoOpening";
 import { type RepoToOpen, repoToOpen } from "./repoToOpen";
 import { DESKTOP_SETTINGS_SCHEMA } from "./settings/schema";
@@ -282,6 +284,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   /** Open Folder, Initialize Repository and the recent list's entries (#394),
    *  once the window is there to ask in. */
   let repoOpening: RepoOpening | null = null;
+  /** Clone Repository (#395), asked and shown on the Welcome page. */
+  let repoCloning: RepoCloning | null = null;
+  /** Settles once a clone cancelled as the window went has ended. */
+  let cloneEnded: Promise<void> = Promise.resolve();
 
   const tabList = () => tabWindow?.tabs.list() ?? [];
   const focusedTab = () => tabWindow?.tabs.focused() ?? null;
@@ -318,6 +324,12 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
           focused === null ? welcomeCommands : focused.content.page.instance?.commands;
         if (commands) void run(commands);
       };
+    /** `run`, unless a clone is asked for or running (#395). */
+    const unlessCloning =
+      (run: () => void): (() => void) =>
+      () => {
+        if (!repoCloning?.busy()) run();
+      };
     return {
       openSettings: () => settingsWindow?.open(),
       fetch: onGraph((c) => c.fetch()),
@@ -345,9 +357,18 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       },
       // #394's: the folder is asked in the system's own dialog, so these need
       // no page, Tab or no Tab.
-      openFolder: () => void repoOpening?.openFolder(),
-      openRecent: (repo) => void repoOpening?.openRecent(repo).finally(checkRecentWhileShown),
-      initRepository: () => void repoOpening?.initRepo()
+      // Not while a clone is under way (the template disables them): a Tab
+      // would cover its progress and the credentials it may ask for.
+      openFolder: unlessCloning(() => void repoOpening?.openFolder()),
+      openRecent: (repo) => {
+        if (!repoCloning?.busy()) {
+          void repoOpening?.openRecent(repo).finally(checkRecentWhileShown);
+        }
+      },
+      initRepository: unlessCloning(() => void repoOpening?.initRepo()),
+      // Asked and shown on the Welcome page, so enabled only while no Tab
+      // covers it (appMenu.ts).
+      cloneRepository: () => void repoCloning?.clone()
     };
   })();
 
@@ -359,7 +380,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     const template = appMenuTemplate(shared.l10n, menuCommands, process.platform, {
       focus: menuFocus(focusedTab()?.content.page ?? null),
       // Open Recent's entries: the Welcome page's list, as it stands.
-      recentRepos: recent?.list().map((entry) => entry.path) ?? []
+      recentRepos: recent?.list().map((entry) => entry.path) ?? [],
+      cloning: repoCloning?.busy() ?? false
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   };
@@ -373,6 +395,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       strings: {
         // The menu's words: the same entries (#396).
         openFolder: l10n.t("desktop.menu.openFolder"),
+        cloneRepo: l10n.t("desktop.menu.cloneRepository"),
         initRepo: l10n.t("desktop.menu.initRepository"),
         recent: l10n.t("desktop.welcome.recent"),
         noRecent: l10n.t("desktop.welcome.noRecent"),
@@ -405,6 +428,9 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       // Only while it shows. What it says of each folder is what was last
       // found (`RecentRepos.check`), never looked at here.
       welcome: welcomeShown ? welcomeContent() : null,
+      // Drawn on the Welcome page: under a Tab, should one have opened
+      // meanwhile, until the Tab is closed or the clone is done.
+      clone: repoCloning?.panel() ?? null,
       strings: { closeTab: shared.l10n.t("desktop.tab.close") }
     };
     owner.webContents.send(CHANNELS.hostMessage, message);
@@ -483,6 +509,28 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     openInTab(target.repo);
   };
 
+  /** What later launches named while a clone was asked for or running
+   *  (#395), in the order they came: opened once it is done. */
+  let launchesWaiting: (RepoToOpen | null)[] = [];
+  /** `open` what a later launch named — unless a clone is under way: its
+   *  prompts and progress are on the Welcome page, which a Tab would cover,
+   *  leaving git waiting on a credential nobody can see. */
+  const openOrWait = (target: RepoToOpen | null) => {
+    if (target === null) return;
+    if (repoCloning?.busy()) {
+      logger.log("launch: a clone is under way, opening what was named once it is done");
+      launchesWaiting.push(target);
+      return;
+    }
+    open(target);
+  };
+  /** The clone is done: open what launches named meanwhile. */
+  const openWaitingLaunches = () => {
+    const waiting = launchesWaiting;
+    launchesWaiting = [];
+    waiting.forEach(open);
+  };
+
   /** Open `repo`, a repository as git spells it, in a Tab of its own — or
    *  focus the Tab it is open in — and put it first in the recent list. Named
    *  on a command line or chosen in the app alike (GLOSSARY.md's Known
@@ -537,6 +585,12 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       case "initRepo":
         void repoOpening?.initRepo();
         break;
+      case "cloneRepo":
+        void repoCloning?.clone();
+        break;
+      case "cancelClone":
+        repoCloning?.cancel();
+        break;
       case "openRecent":
         // Whether it opened or not, the list looks at its folders again.
         void repoOpening?.openRecent(message.path).finally(checkRecentWhileShown);
@@ -554,6 +608,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     windowListening = false;
     win = null;
     tabWindow?.tabs.disposeAll();
+    // Its git is sent a kill, and what it made removed: quitting waits for it.
+    cloneEnded = repoCloning?.dispose() ?? cloneEnded;
     welcomePrompts?.dispose();
     recent?.dispose();
   };
@@ -570,7 +626,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     } else {
       logLaunch(request, logger);
       // In a Tab of its own, or the one it is open in, brought forward.
-      void check(request).then(open);
+      void check(request).then(openOrWait);
     }
     const owner = liveWindow();
     if (owner !== null) {
@@ -592,18 +648,26 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   );
 
   app.on("window-all-closed", () => app.quit());
-  // The log is written out before the process goes: quitting waits once for
-  // it, then goes on.
+  // The log and the state file are written out before the process goes, and
+  // a clone cancelled has removed what it made (#395): quitting waits once for
+  // all three, then goes on.
   let logClosed = false;
   app.on("will-quit", (event) => {
     if (logClosed) return;
     event.preventDefault();
     disposeWindow();
-    shared?.dispose();
-    void logger.close().finally(() => {
-      logClosed = true;
-      app.quit();
-    });
+    void cloneEnded
+      .then(async () => {
+        // After the clone: its askpass route is the shared server's.
+        shared?.dispose();
+        // The Tabs as they stand, the recent list's order: the next session's.
+        await shared?.storage.flush();
+        return logger.close();
+      })
+      .finally(() => {
+        logClosed = true;
+        app.quit();
+      });
   });
   void app.whenReady().then(async () => {
     // After ready: the locale is not known before it. Before the window, whose
@@ -852,6 +916,27 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       initRepo: (folder) => repoInit.initRepo(folder),
       openRepo: openInTab,
       resolve: (repo) => tabWindow?.resolve(repo) ?? repo
+    });
+    const welcomeAsker = welcomePrompts;
+    repoCloning = createRepoCloning({
+      prompts: welcomeAsker,
+      dialogs: dialogsFor(owner),
+      l10n: host.l10n,
+      logger,
+      // A failed clone is said in a box over the window, as a failed init is.
+      command: createRepoCloneCommand({
+        prompts: welcomeAsker,
+        l10n: host.l10n,
+        gitPath: desktopGitPath
+      }),
+      // The credentials its git asks for are asked on the Welcome page.
+      askpassRoute: () => host.askpass.route(welcomeAsker),
+      openRepo: openInTab,
+      onChange: () => {
+        postWindowState();
+        syncMenu();
+        if (!repoCloning?.busy()) openWaitingLaunches();
+      }
     });
 
     // The window's page starting to load, the first time or again (a reload):

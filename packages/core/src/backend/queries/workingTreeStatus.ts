@@ -1,5 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
+import { detectOperation } from "@ging/core/backend/queries/operationState";
 import type { WorkingTreeChange, WorkingTreeStatus } from "@ging/shared/backend/types";
 
 /** A status letter of `git status --porcelain=v2`, on one side of the index;
@@ -65,20 +66,25 @@ export function parseWorkingTreeStatus(out: string): WorkingTreeStatus {
 }
 
 /**
- * The working tree's changes, staged and not, and the branch checked out.
- * Every untracked file is listed, not only its folder, so each can be staged
- * on its own. Read without git's optional lock: a plain `git status` may
- * refresh and write the index, and that write would hold `index.lock` against
- * the user's next stage or commit, and wake the file watcher besides.
+ * The working tree's changes, staged and not, the branch checked out, and the
+ * operation in progress, if any. Every untracked file is listed, not only its
+ * folder, so each can be staged on its own. Read without git's optional lock:
+ * a plain `git status` may refresh and write the index, and that write would
+ * hold `index.lock` against the user's next stage or commit, and wake the
+ * file watcher besides.
  */
 export async function workingTreeStatus(git: SimpleGit): Promise<WorkingTreeStatus> {
-  const out = await git.raw([
-    "--no-optional-locks",
-    "status",
-    "--porcelain=v2",
-    "--branch",
-    "--untracked-files=all",
-    "-z"
+  const [out, operation] = await Promise.all([
+    git.raw([
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v2",
+      "--branch",
+      "--untracked-files=all",
+      "-z"
+    ]),
+    detectOperation(git)
   ]);
-  return parseWorkingTreeStatus(out);
+  const status = parseWorkingTreeStatus(out);
+  return operation === null ? status : { ...status, operation };
 }
