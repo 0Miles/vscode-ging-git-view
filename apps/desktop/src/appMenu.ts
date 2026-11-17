@@ -12,12 +12,18 @@ import type { L10n } from "@ging/core/host/ports";
 /** The menu's own entries, by a stable id: the E2E finds an entry by it
  *  (`Menu.getApplicationMenu().getMenuItemById`). */
 export const MENU_IDS = {
+  openFolder: "ging.openFolder",
+  initRepo: "ging.initRepo",
   settings: "ging.settings",
   fetchRemote: "ging.fetchRemote"
 } as const;
 
 /** What the entries do: for the graph shown in the window, or the app's. */
 export type AppMenuCommands = {
+  /** Ask for a folder and open its repository in a Tab (#394). */
+  openFolder(): void;
+  /** Ask for a folder, make a repository there and open it (#394). */
+  initRepo(): void;
   fetchRemote(): void;
   /** Open the settings window, or bring it forward (#397). */
   openSettings(): void;
@@ -33,8 +39,10 @@ export type AppMenuState = {
 /**
  * The menu for `platform` in `state`: Electron's own menus — the ones a
  * window without a menu of its own would have had — and GING's beside them,
- * the graph's entries enabled only while there is a graph. Settings… is the
- * app's, there with or without one.
+ * the graph's entries enabled only while there is a graph. Open Folder…,
+ * Initialize Repository… and Settings… are the app's, there with or without
+ * one: with a Tab open, the menu is the way to another repository, since the
+ * Tab covers the Welcome page that offers them too (#394).
  */
 export function appMenuTemplate(
   l10n: L10n,
@@ -50,6 +58,18 @@ export function appMenuTemplate(
     {
       label: l10n.t("desktop.menu.file"),
       submenu: [
+        {
+          id: MENU_IDS.openFolder,
+          label: l10n.t("desktop.openFolder"),
+          accelerator: "CmdOrCtrl+O",
+          click: () => commands.openFolder()
+        },
+        {
+          id: MENU_IDS.initRepo,
+          label: l10n.t("desktop.initRepo"),
+          click: () => commands.initRepo()
+        },
+        { type: "separator" },
         {
           id: MENU_IDS.settings,
           label: l10n.t("desktop.menu.settings"),

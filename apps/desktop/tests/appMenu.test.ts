@@ -9,7 +9,12 @@ import { appMenuTemplate, MENU_IDS } from "@ging/desktop/appMenu";
 // not check it, so this is where it is held.
 
 const l10n = { t: (key: string) => `<${key}>` };
-const noCommands = { fetchRemote: () => {}, openSettings: () => {} };
+const noCommands = {
+  openFolder: () => {},
+  initRepo: () => {},
+  fetchRemote: () => {},
+  openSettings: () => {}
+};
 
 /** Every item of `template`, submenus included. */
 function itemsOf(template: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
@@ -62,6 +67,26 @@ describe("the application menu", () => {
     }
   });
 
+  it("opens a folder from Open Folder… on CmdOrCtrl+O, and initializes one from its entry, with or without a graph", () => {
+    for (const hasGraph of [true, false]) {
+      const openFolder = vi.fn();
+      const initRepo = vi.fn();
+      const template = appMenuTemplate(l10n, { ...noCommands, openFolder, initRepo }, "linux", {
+        hasGraph
+      });
+      const open = entry(template, MENU_IDS.openFolder);
+      const init = entry(template, MENU_IDS.initRepo);
+
+      expect(open?.label).toBe("<desktop.openFolder>");
+      expect(open?.accelerator).toBe("CmdOrCtrl+O");
+      expect(init?.label).toBe("<desktop.initRepo>");
+      expect([open?.enabled, init?.enabled]).not.toContain(false);
+      (open?.click as (() => void) | undefined)?.();
+      (init?.click as (() => void) | undefined)?.();
+      expect([openFolder.mock.calls.length, initRepo.mock.calls.length]).toEqual([1, 1]);
+    }
+  });
+
   it("keeps Electron's own menus, the app menu only where the platform has one", () => {
     const roles = (platform: NodeJS.Platform) =>
       appMenuTemplate(l10n, noCommands, platform, { hasGraph: true })
@@ -72,13 +97,16 @@ describe("the application menu", () => {
     expect(roles("darwin")).toEqual(["appMenu", "editMenu", "viewMenu", "windowMenu"]);
   });
 
-  it("spells the File menu out as Electron's role has it, with Settings… first", () => {
+  it("spells the File menu out as Electron's role has it, after Open Folder…, Initialize Repository… and Settings…", () => {
     const file = (platform: NodeJS.Platform) =>
       appMenuTemplate(l10n, noCommands, platform, { hasGraph: true }).find(
         (item) => item.label === "<desktop.menu.file>"
       )?.submenu as MenuItemConstructorOptions[];
 
     expect(file("win32").map((item) => item.id ?? item.role ?? item.type)).toEqual([
+      MENU_IDS.openFolder,
+      MENU_IDS.initRepo,
+      "separator",
       MENU_IDS.settings,
       "separator",
       "quit"
