@@ -9,7 +9,8 @@ import {
   type MessageHandlerDeps,
   registerMessageHandlers
 } from "@ging/core/extension/messageHandler";
-import { createPullRequestProviderCommands } from "@ging/core/extension/pullRequestProviderCommands";
+import { createReflogCommand } from "@ging/core/extension/reflogCommand";
+import { createRemoteCommands } from "@ging/core/extension/remoteCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
@@ -25,6 +26,7 @@ import {
   type WorkingTreeRequest
 } from "@ging/webview/desktop/workingTree/protocol";
 
+import { type AppCommands, createAppCommands } from "./appCommands";
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
 import { answerWorkingTree, workingTreeStrings } from "./workingTree";
@@ -53,13 +55,27 @@ export type GraphInstance = {
   /** The host wrote setting `key` (`HostConfig.update`): react as VS Code
    *  does to a configuration change (settingsPush.ts). */
   settingChanged(key: string): void;
-  /** Core's `fetchRemote` command on its current repository: asks which
-   *  remote when there are several (the application menu, #390). */
-  fetchRemote(): Promise<void>;
+  /** What the application menu runs on it (#390, #396). */
+  commands: InstanceCommands;
   /** Open its page's working tree panel (#403), as the graph's Open Source
-   *  Control View does: for the application menu (#396) to offer. */
+   *  Control View does: for the application menu to offer. */
   showWorkingTree(): void;
   dispose(): void;
+};
+
+/** Core's command services on an instance's current repository, asking in its
+ *  page: the application menu's graph entries, and the app's own as asked
+ *  from there. */
+export type InstanceCommands = AppCommands & {
+  fetch(): Promise<void>;
+  /** Asks which remote when there are several. */
+  fetchRemote(): Promise<void>;
+  manageRemotes(): Promise<void>;
+  toggleRemoteVisibility(): Promise<void>;
+  viewReflog(): Promise<void>;
+  /** The system's terminal in the repository, named after its folder as the
+   *  graph's own Terminal button names it. */
+  openTerminal(): void;
 };
 
 export function createGraphInstance(
@@ -111,17 +127,19 @@ export function createGraphInstance(
    *  bridge's own are. */
   const runRepoMutation = createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh });
 
-  // Its own auto-fetch timer, on its own current repository, muted and
-  // refreshed around each fetch as the bridge's own changes are.
-  const fetchService = createFetchService({
-    config,
+  // What core's command services need of it: they change its repository
+  // muted and refreshed around each change, as the bridge's own changes are.
+  const kitDeps = {
     prompts,
     l10n,
     gitClientFor: gitClients.gitClientFor,
     currentRepo: () => current,
     repoSource: shared.repoSource,
     runRepoMutation
-  });
+  };
+  // Its own auto-fetch timer, on its own current repository.
+  const fetchService = createFetchService({ ...kitDeps, config });
+  fetchService.restartAutoFetch();
 
   // The working tree panel's (#403): its stage, unstage and commit refresh
   // the graph after them, so a commit shows up there.
@@ -138,7 +156,6 @@ export function createGraphInstance(
   const panelStrings = workingTreeStrings(l10n, process.platform);
   const answerPanel = async (request: WorkingTreeRequest) =>
     postToPanel(await answerWorkingTree(workingTree, panelStrings, request));
-  fetchService.restartAutoFetch();
 
   // A Tab is one repository, and a repository is open in at most one Tab
   // (GLOSSARY.md; `branchFilterStore` counts on it). So the graph is shown
@@ -171,14 +188,19 @@ export function createGraphInstance(
     platform: process.platform,
     env: process.env
   });
-  // Asked in this instance's page, as the failed Create Pull Request that
-  // offers it was. The settings are the app's: no workspace holds any.
-  const pullRequestProviders = createPullRequestProviderCommands({
+  // Asked in this instance's page — Manage Pull Request Providers too, as the
+  // failed Create Pull Request that offers it was.
+  const appCommands = createAppCommands(shared, {
     prompts,
-    l10n,
-    config,
+    currentRepo: () => current,
+    gitClientFor: gitClients.gitClientFor,
     revealSetting
   });
+  const remoteCommands = createRemoteCommands({
+    ...kitDeps,
+    refreshGraph: () => void bridge.post({ command: "refresh" })
+  });
+  const reflog = createReflogCommand({ ...kitDeps, clipboard: shared.clipboard });
   const dispatch = registerMessageHandlers(
     bridge,
     {
@@ -212,7 +234,7 @@ export function createGraphInstance(
       // (`branchFilterCleared` after a Show All that moved nothing).
       showAllBranches: async () => {},
       // Core's own Manage Pull Request Providers (#398), asked in this page.
-      configurePullRequestProvider: (host) => void pullRequestProviders.manage(host),
+      configurePullRequestProvider: (host) => void appCommands.managePullRequestProviders(host),
       // The host's own source control view is the working tree panel beside
       // the graph, in the same page (#403).
       openScmView: () => postToPanel({ command: "workingTreeShow" })
@@ -229,7 +251,18 @@ export function createGraphInstance(
         { restartAutoFetch: fetchService.restartAutoFetch, post: (msg) => void bridge.post(msg) },
         config
       ),
-    fetchRemote: () => fetchService.fetchRemoteCommand(),
+    commands: {
+      ...appCommands,
+      fetch: () => fetchService.fetchCommand(),
+      fetchRemote: () => fetchService.fetchRemoteCommand(),
+      manageRemotes: () => remoteCommands.manageRemotes(),
+      toggleRemoteVisibility: () => remoteCommands.toggleRemoteVisibility(),
+      viewReflog: () => reflog.viewReflog(),
+      openTerminal: () => {
+        const name = current.split("/").findLast((s) => s !== "") ?? current;
+        opener.openTerminal(current, `GING: ${name}`);
+      }
+    },
     showWorkingTree: () => postToPanel({ command: "workingTreeShow" }),
     dispose: () => {
       dispatch.dispose();

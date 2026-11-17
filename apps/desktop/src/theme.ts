@@ -39,6 +39,8 @@ const COLORS: Record<string, readonly [dark: string, light: string]> = {
   "--vscode-button-secondaryBackground": ["#00000000", "#e5e5e5"],
   "--vscode-button-secondaryForeground": ["#cccccc", "#3b3b3b"],
   "--vscode-button-secondaryHoverBackground": ["#2b2b2b", "#cccccc"],
+  // registry: editorInfo.foreground (the Statistics page's bars, #396)
+  "--vscode-charts-blue": ["#3794ff", "#1a85ff"],
   "--vscode-checkbox-background": ["#313131", "#f8f8f8"],
   "--vscode-checkbox-border": ["#3c3c3c", "#cecece"],
   // registry: dropdown.foreground

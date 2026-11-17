@@ -101,3 +101,28 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
   - **fixture 自己的 git**:另外把 `GIT_CONFIG_GLOBAL` 明確指到那個暫存的空 `.gitconfig`(Windows 上開不了 `/dev/null`,所以用空檔)。app 的 git 看不到這個變數,它只是讓 fixture 這一側不必依賴上面兩處路徑的推導。
 - **helper script 在建置時就設成可執行。** `askpass.sh` 等在 repo 裡是 644,git 在 Windows 以外會直接 exec `GIT_ASKPASS`,所以要有執行權限。`AskpassManager` 與 `SequenceEditorManager` 建構時會 chmod,但不等它完成;`apps/desktop/esbuild.js` 複製到 `out/` 時直接 `chmod 755`,CI 的 ubuntu 不必靠那個時間差。
 - **rebase 的 fixture repo 自己設 `user.name` / `user.email`(repo 層級)。** fixture 的 git 用 `GIT_AUTHOR_*` / `GIT_COMMITTER_*` 環境變數提交,app 的 git 拿不到它們,而隔離後的設定裡沒有任何身分,rebase 重放 commit 時會停在 `unable to auto-detect email address`。
+
+## 補記(2026-11-17,#396)
+
+**應用程式選單長成 desktop 上 core 命令服務的完整入口(不做 command palette)。** [appMenu.ts](../../apps/desktop/src/appMenu.ts) 的 template 仍是純資料:(macOS 才有的)app 選單、File(#394 的三項、設定…、Close / Quit)、Edit、Repository、View、Window、Help。Repository 底下是 Fetch、Fetch 特定 remote、Manage Remotes、Show/Hide Remote Branches、Manage Pull Request Providers、View Reflog、Show Statistics、Set Git User Details、Open in Terminal;Help 底下是 Version Information。
+
+- **四條規則的落點。** 一、每個 GING 自己的項目(含 app / File / Repository / View / Help 這幾個子選單)都有穩定的 `id`,列在 `MENU_IDS`;Electron 的 role 項目與分隔線沒有。二、命令不收 click 傳進來的 window(`MenuItem.click()` 什麼都不傳),而是在被按下的那一刻自己找目標:main process 的 `menuCommands`。三、E2E 用 `getMenuItemById(id).click()` 觸發，旁邊另外讀 `enabled`([appMenu.spec.ts](../../apps/desktop/e2e/appMenu.spec.ts))。四、每個 `id` 的 label key、accelerator、在哪幾種焦點下 enabled,由 [appMenu.test.ts](../../apps/desktop/tests/appMenu.test.ts) 以一張表逐項驗。
+- **「目前聚焦的分頁」不經過 `BrowserWindow.getFocusedWindow()`。** 票面的規則(聚焦的視窗 → 最後聚焦的 → Welcome page)寫在 #393 之前，那時假設一個視窗一個圖形。#393 之後 app 只有一個帶分頁的主視窗，設定與統計視窗都不是圖形視窗，所以不論鍵盤在哪個視窗，目標都是主視窗聚焦的 Tab;沒有 Tab 時是 Welcome page。這等於票面規則在單一主視窗下的結果，少了一層會指向設定視窗的查詢。之後若有第二個主視窗，再把「最後聚焦的主視窗」加回這裡。
+- **焦點分三種(`MenuFocus`):`graph`、`notice`、`welcome`。** 由聚焦的 Tab 決定(`menuFocus`):有圖形、顯示說明頁(重啟時路徑已不在的 Tab)、或沒有 Tab。enabled 規則:Repository 的圖形項目只在 `graph`;會問問題的 app 層命令(Set Git User Details、Manage Pull Request Providers)在 `graph` 與 `welcome`,`notice` 時關掉 —— 說明頁背後沒有實例，也沒有 host prompt 的 listener,而 Welcome page 被那個 Tab 的 view 蓋住，問在那裡使用者看不到;設定…、Version Information 與 #394 的項目一律可按。Version Information 只用系統對話框，所以 `notice` 時用 Welcome page 那一份命令照樣能回答。
+- **沒有 Tab 時，命令問在 Welcome page。** main process 用 Welcome page 的 `Prompts` 建一份 [appCommands.ts](../../apps/desktop/src/appCommands.ts)(current repository 是 `null`,git client 不帶任何實例的 askpass route);有 Tab 時用該 Tab 實例裡同一個工廠建的那一份。Set Git User Details 在沒有存放庫時只剩「全域」可選，這是 core 原本的行為(ADR-0027)。
+- **Show Statistics 開在自己的視窗,Open in Terminal 交給聚焦 Tab 實例自己的 `Opener.openTerminal`(#391)。** 統計頁見 ADR-0031 的同日補記。終端機的名稱與圖形工具列的 Terminal 鈕相同(`GING: <資料夾名>`),也同樣只開在該 Tab 的存放庫裡。E2E 照 #391 的做法替換 `child_process.spawn` 裡 detached 的那一次，讀它被要求在哪個資料夾開終端機，不真的開。
+- **accelerator 只有兩個:** 設定…的 `CmdOrCtrl+,`(#397),開啟資料夾…的 `CmdOrCtrl+O`。其餘命令沒有,表上明寫「沒有」,誤加一個會讓測試紅。
+- **選單不得拿走圖形自己的快捷鍵。** 選單的 accelerator 比頁面先拿到按鍵，所以圖形四個快捷鍵的預設值(`shortcuts.*`:`CTRL/CMD` 加 F、R、H、S;圖形讀 Ctrl 也讀 Cmd,不看 Shift)一個都不能出現在選單上。Electron 的 role 會帶自己的 accelerator,而它們不在 template 的資料裡，所以 appMenu.test.ts 把用到的 role 的預設 accelerator 照 Electron 45 的 `roles.ts` 寫成一張表，三個平台各驗一次;帶 Alt 的組合不算(Alt 在 macOS 會讓頁面讀到另一個字元，在 Windows 是 AltGr)。因此:
+  - **View 選單照 `viewMenu` role 的內容寫出來，拿掉 Reload 與 Force Reload**(`CmdOrCtrl+R` 是圖形的 refresh)。重新載入頁面也不是使用者要的「重新整理」;要重新整理按圖形的鈕或 `CmdOrCtrl+R`。
+  - **macOS 的 app 選單照 `appMenu` role 寫出來,Hide 換成 GING 自己的項目(`ging.hide`,呼叫 `app.hide()`),沒有 accelerator。** role 的 Hide 帶 Cmd+H,那是 scrollToHead 的預設。讓圖形贏，是因為它是使用者可以改的設定、而且在 VS Code 那邊行為一樣;Hide Others(Cmd+Alt+H)留著。
+  - **macOS 的 View 選單不放 Toggle Full Screen**:它的 Control+Command+F 會被圖形當成 Find(圖形讀 Ctrl 也讀 Cmd)。macOS 自己會在選單裡放 Enter Full Screen,視窗的綠色按鈕也照常可用。其他平台的 F11 不衝突，留著。
+  - 使用者把某個圖形快捷鍵**改成**選單已經占用的鍵(設定的選項有 A–Z),選單贏。這只發生在使用者自選的鍵上，不改設定的 schema:它是兩個宿主共用的，在 VS Code 那邊這些鍵並沒有被占用。
+- **macOS 慣例:** 設定…放在 app 選單(其他平台照舊在 File),Help 選單帶 `role: "help"`,macOS 才把它當成 Help 選單(有搜尋欄)。
+- **label 裡的 `&`。** Windows 與 Linux 的原生選單把 `&` 當成 mnemonic 的標記而不顯示，所以 template 在 macOS 以外把 label 裡的 `&` 寫成 `&&`(「Set Git User Name & Email...」、Open Recent 的路徑);macOS 照原樣。
+
+**給 #394 的契約(開啟資料夾、最近使用清單、init)。** id、label 與位置已在 template 裡，#394 只要在 main process 交出 handler:
+
+- `AppMenuCommands.openFolder?()` → `ging.openFolder`,「開啟資料夾...」,`CmdOrCtrl+O`。O 不是任何圖形快捷鍵的預設值，但設定允許使用者把快捷鍵改成 `CTRL/CMD + O`;那時選單贏，理由同上一段的最後一條。
+- `AppMenuCommands.openRecent?(repo)` 加上 `AppMenuState.recentRepos`(最近的在前)→ 子選單 `ging.openRecent`,每一項的 id 是 `openRecentId(repo)`(`ging.openRecent:<路徑>`),label 是路徑;清單是空的時子選單在但不能按。
+- `AppMenuCommands.initRepository?()` → `ging.initRepository`,「初始化存放庫...」。
+- 三個 handler 都是選填:沒給就不出現在選單裡，給了才出現在 File 的最上面，和下面那一組(設定…,macOS 是 Close Window)之間隔一條分隔線。它們一律 enabled;需要別的規則時改 template 與表，不在 main process 改已建好的選單。handler 同樣不收 window,要問就問在 Welcome page 或聚焦的 Tab(`menuCommands` 的 `asking` 是現成的做法)。最近使用清單改變時，main process 要重建選單(`syncMenu`)。

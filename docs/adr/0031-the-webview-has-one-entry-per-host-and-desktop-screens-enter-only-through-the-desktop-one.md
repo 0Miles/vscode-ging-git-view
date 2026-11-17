@@ -113,3 +113,13 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **鍵盤到得了每個按鈕,重繪後也留在原處。** 每一列的按鈕平常淡出(`opacity: 0`),滑鼠移上或焦點在那一列時才顯示;不用 `visibility: hidden`,那會讓按鈕連 Tab 都到不了。請求在外時按鈕標 `aria-disabled`,不用 `disabled`:後者會把焦點從剛按下的按鈕上拿走。面板每次收到回答都整個重繪,重繪前記下焦點在哪個按鈕、哪個檔案,重繪後放回同一個;那個檔案已經離開這一組(例如剛被 stage),就放到接替它位置的那一列,再不然是那一組的「全部」按鈕。
 - **一組最多畫 500 列,其餘只寫「還有 N 個檔案」。** 沒被 ignore 的建置輸出可能有上千個未追蹤檔;Stage All 仍點名全部,不只畫出來的那些。
 - **點檔案列還沒有作用。** `startWorkingTreePanel({ showDiff })` 是留給 diff viewer(#404)的接縫:給了 `showDiff(file, area)`,檔案列才可以點、可以聚焦;#406 的 hunk stage 也從那裡進來。
+
+## 補記(2026-11-17,#396)
+
+**Show Statistics 的統計頁不是桌面入口的一種頁面，而是兩個宿主共用的一份完整 HTML 文件**([statisticsMarkup.ts](../../packages/webview/src/statisticsMarkup.ts)),桌面版從 `ging://app/statistics` 提供，開在自己的視窗裡([statisticsWindow.ts](../../apps/desktop/src/statisticsWindow.ts))。
+
+- **為什麼不做成 `data-ging-page` 的第四種。** 統計頁沒有腳本、沒有互動，VS Code 也是把同一份 HTML 直接塞進一個 `enableScripts: false` 的 webview panel。做成入口的一種頁面，就得讓 bundle 為一頁只有 CSS 的東西啟動、再把畫面搬進 `desktop/`;直接共用文件，兩個宿主畫的是同一份東西，VS Code 的輸出不變(只是產生它的函式從 `apps/vscode` 搬到 `packages/webview`,字串改由呼叫端傳入的 `t` 取得)。
+- **它在 `packages/webview`,不在 `desktop/` 底下,** 因為 VS Code 也用它;它只是產生字串的函式，不 import 任何會碰頁面的東西。圖形的資料型別由 core 的 `Statistics` 依形狀對上(`StatisticsFigures`),`packages/webview` 照 ADR-0026 不依賴 core。
+- **主題。** VS Code 自己注入 `--vscode-*`;桌面版在提供頁面時把當下主題的變數寫在 `<html>` 的 `style` 上(與其他頁面相同),之後的主題切換照舊由 preload 套上。它用到的 `--vscode-charts-blue` 因此加進了 `theme.ts`(值取自 VS Code 色彩登錄的 `editorInfo.foreground`),`apps/desktop/tests/theme.test.ts` 掃 `packages/webview` 時會守住它。
+- **頁面不會被導覽走、也不開新視窗**(`keepPageInPlace`,同 #393 的 Tab)。`serveApp` 因此多了一種回答:除了組成入口頁面的 `PageContent`,也可以是整份文件(`{ document }`);沒有統計資料時 `ging://app/statistics` 是 404。
+
