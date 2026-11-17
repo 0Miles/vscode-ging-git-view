@@ -4,6 +4,7 @@
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { isGitRepository } from "@ging/core/backend/utils/git";
+import { createConflictCommands } from "@ging/core/extension/conflictCommands";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
 import {
@@ -20,7 +21,12 @@ import { createWorkingTreeService } from "@ging/core/extension/workingTreeServic
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
 import { createDesktopOpener } from "@ging/desktop/ports/opener";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
-import type { GitGraphViewState, GitRepoSet, ResponseMessage } from "@ging/shared/types";
+import type {
+  GitGraphViewState,
+  GitRepoSet,
+  RequestMessage,
+  ResponseMessage
+} from "@ging/shared/types";
 import {
   isWorkingTreeRequest,
   type WorkingTreeMessage,
@@ -92,11 +98,13 @@ export function createGraphInstance(
   // Tab would end up on a repository another Tab may have open.
   // The working tree panel's requests are not the graph's: answered here, by
   // core's working tree service, and never handed to the dispatch (ADR-0031).
+  // The banner's Mark Resolved is the graph's, asked about first (#410).
   const channel: WebviewChannel = {
     postMessage: (message) => page.postMessage(message),
     onDidReceiveMessage: (listener) =>
       page.onDidReceiveMessage((message) => {
         if (isWorkingTreeRequest(message)) return answerPanel(message);
+        if (message.command === "markResolved") return markResolvedAsked(message, listener);
         if (message.command === "selectRepo" && message.repo !== repo) {
           if (message.repo) {
             logger.log(`tabs: the Tab on ${repo} stays on it, not ${message.repo}`);
@@ -150,13 +158,37 @@ export function createGraphInstance(
     signCommits: () => config.signCommits(),
     runRepoMutation
   });
+  // A conflict's (#410): the user's merge tool, for the panel and for the
+  // graph's own conflict banner (`Opener.openMergeEditor`), and the question
+  // before a file still holding markers is marked resolved, from either.
+  // Asked and said in this instance's page.
+  const conflicts = createConflictCommands({
+    prompts,
+    l10n,
+    logger,
+    git: () => gitClient.getInstance(),
+    mergeToolRun: () => ({ gitPath: shared.gitPath(), repoPath: current, gitEnv }),
+    repo: () => current,
+    runRepoMutation
+  });
   /** What the panel and the host say to each other is no `ResponseMessage`:
    *  posted past the type, as the host prompts are (ADR-0031). */
   const postToPanel = (message: WorkingTreeMessage) =>
     void page.postMessage(message as unknown as ResponseMessage);
   const panelStrings = workingTreeStrings(l10n, process.platform);
   const answerPanel = async (request: WorkingTreeRequest) =>
-    postToPanel(await answerWorkingTree(workingTree, panelStrings, request));
+    postToPanel(await answerWorkingTree(workingTree, conflicts, panelStrings, request));
+  /** The graph's conflict banner marks a file resolved through the dispatch,
+   *  as in VS Code; here it is asked about first, as the panel's is, when
+   *  conflict markers remain. Declined, the dispatch never hears of it, and
+   *  the graph is answered as for a mark that changed nothing. */
+  const markResolvedAsked = async (
+    message: Extract<RequestMessage, { command: "markResolved" }>,
+    dispatch: (message: RequestMessage) => void | Promise<void>
+  ): Promise<void> => {
+    if (await conflicts.confirmResolve([message.filePath])) return dispatch(message);
+    void page.postMessage({ command: "markResolved", status: null });
+  };
 
   // A Tab is one repository, and a repository is open in at most one Tab
   // (GLOSSARY.md; `branchFilterStore` counts on it). So the graph is shown
@@ -198,7 +230,8 @@ export function createGraphInstance(
     // Files and terminals are opened from its Tab's repository, and no other.
     repoRoot: () => current,
     platform: process.platform,
-    env: process.env
+    env: process.env,
+    mergeTool: (filePath) => void conflicts.mergeTool(filePath)
   });
   // Asked in this instance's page — Manage Pull Request Providers too, as the
   // failed Create Pull Request that offers it was.

@@ -275,10 +275,9 @@ describe("a graph instance", () => {
       newFilePath: "f",
       type: "M"
     });
-    await asking.receive({ command: "openMergeEditor", repo, filePath: "f" });
 
     const notice = ["showInformation", "This is not available in the GING desktop app yet."];
-    expect(asking.asked).toEqual([notice, notice, notice, notice]);
+    expect(asking.asked).toEqual([notice, notice, notice]);
     expect(other.asked).toEqual([]);
     // Answered as done: the graph adds no "Unable to open" box of its own.
     for (const command of ["viewFileAtRevision", "viewDiffWithWorking", "viewDiff"] as const) {
@@ -334,6 +333,114 @@ describe("a graph instance", () => {
     // The graph redrawn after each change, not after the read.
     expect(sentOf(page.posted, "refresh")).toHaveLength(2);
     expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  describe("in a merge stopped on a conflict (#410)", () => {
+    /** `repo`'s merge of `side` stopped on a conflict in f, with the merge
+     *  tool `theirs` configured in the repository: a command, no window. */
+    function conflicted(repo: string) {
+      const run = (...args: string[]) => git(args, repo);
+      run("checkout", "-q", "-b", "side");
+      fs.writeFileSync(path.join(repo, "f"), "side\n");
+      run("commit", "-qam", "side");
+      run("checkout", "-q", "main");
+      fs.writeFileSync(path.join(repo, "f"), "main\n");
+      run("commit", "-qam", "main");
+      expect(cp.spawnSync("git", ["merge", "side"], { cwd: repo }).status).not.toBe(0);
+      run("config", "merge.tool", "theirs");
+      run("config", "mergetool.theirs.cmd", 'cp "$REMOTE" "$MERGED"');
+      run("config", "mergetool.theirs.trustExitCode", "true");
+    }
+    const unmerged = (repo: string) =>
+      cp.execFileSync("git", ["diff", "--name-only", "--diff-filter=U"], { cwd: repo }).toString();
+
+    it("hands the graph's conflicted file to the merge tool, and says in its own window when there is none to resolve", async () => {
+      const { repos, open, logged } = setUp();
+      const page = open(repos[0]);
+      const other = open(repos[1]);
+      conflicted(repos[0]);
+
+      await page.receive({ command: "openMergeEditor", repo: repos[0], filePath: "f" });
+      // The port answers nothing; the graph redrawn once the tool has closed
+      // is what tells. `git mergetool` is a shell script of git's: seconds,
+      // on Windows, before it so much as starts the tool.
+      await expect
+        .poll(() => sentOf(page.posted, "refresh").length, { timeout: 20_000 })
+        .toBeGreaterThan(0);
+      // Resolved: nothing to say.
+      expect(unmerged(repos[0])).toBe("");
+      expect(fs.readFileSync(path.join(repos[0], "f"), "utf8")).toBe("side\n");
+      expect(page.asked).toEqual([]);
+
+      await page.receive({ command: "openMergeEditor", repo: repos[0], filePath: "f" });
+      await expect
+        .poll(() => page.asked)
+        .toEqual([["showInformation", "f has no conflict to resolve."]]);
+      expect(other.asked).toEqual([]);
+      expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+    });
+
+    it("asks before the banner's Mark Resolved stages a file still holding conflict markers", async () => {
+      const { repos, open } = setUp();
+      const page = open(repos[0]);
+      conflicted(repos[0]);
+      const ask = [
+        "choose",
+        "f still has conflict markers in it. Mark it resolved anyway?",
+        { detail: undefined, actions: ["Mark Resolved"] }
+      ];
+
+      // Declined: the dispatch never hears of it, and the graph is answered.
+      await page.receive({ command: "markResolved", repo: repos[0], filePath: "f" });
+      expect(page.asked).toEqual([ask]);
+      expect(unmerged(repos[0])).toBe("f\n");
+      expect(sentOf(page.posted, "markResolved")).toEqual([
+        { command: "markResolved", status: null }
+      ]);
+
+      page.answers.choose = "Mark Resolved";
+      await page.receive({ command: "markResolved", repo: repos[0], filePath: "f" });
+      await expect.poll(() => unmerged(repos[0])).toBe("");
+      expect(page.asked).toEqual([ask, ask]);
+    });
+
+    it("marks resolved and continues for its working tree panel, asking first while markers remain", async () => {
+      const { repos, open, logged } = setUp();
+      const page = open(repos[0]);
+      conflicted(repos[0]);
+      const fromPanel = (request: WorkingTreeRequest) =>
+        page.receive(request as unknown as RequestMessage);
+      const answers = () =>
+        page.posted.filter((msg) => (msg.command as string) === "workingTreeStatus") as unknown as {
+          request: string;
+          status: { conflicted: unknown[]; operation?: string } | null;
+          error: string | null;
+        }[];
+
+      await fromPanel({ command: "workingTreeLoad" });
+      expect(answers()[0].status).toMatchObject({
+        operation: "merge",
+        conflicted: [{ path: "f" }]
+      });
+
+      // Markers left, and the question dismissed: nothing changes.
+      await fromPanel({ command: "workingTreeResolve", paths: ["f"] });
+      expect(page.asked).toHaveLength(1);
+      expect(answers()[1].status?.conflicted).toHaveLength(1);
+
+      fs.writeFileSync(path.join(repos[0], "f"), "both\n");
+      await fromPanel({ command: "workingTreeResolve", paths: ["f"] });
+      expect(page.asked).toHaveLength(1);
+      expect(answers()[2].status?.conflicted).toEqual([]);
+
+      await fromPanel({ command: "workingTreeContinue" });
+      expect(answers()[3]).toMatchObject({ request: "workingTreeContinue", error: null });
+      expect(answers()[3].status?.operation).toBeUndefined();
+      expect(
+        cp.execFileSync("git", ["log", "-1", "--format=%P"], { cwd: repos[0] }).toString().trim()
+      ).toMatch(/^\S+ \S+$/);
+      expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+    });
   });
 
   it("answers the graph's Show All once it has run, which clears nothing yet", async () => {
