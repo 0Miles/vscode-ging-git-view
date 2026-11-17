@@ -1,7 +1,9 @@
 import type { SimpleGit } from "simple-git";
 
+import { abortOperation, continueOperation } from "@ging/core/backend/actions/operation";
 import {
   commitChanges,
+  resolveFiles,
   stageFiles,
   unstageFiles,
   type WholeFiles
@@ -36,11 +38,21 @@ export type WorkingTreeService = {
   /** Unstage these files whole; never an unmerged one. */
   unstage(paths: WholeFiles): Promise<WorkingTreeAnswer>;
   commit(message: string): Promise<WorkingTreeAnswer>;
+  /** Mark the conflicted ones among these files resolved, each staged whole
+   *  as it is (#410); any other path named is left alone. Whether conflict
+   *  markers remain is the caller's to ask first (`ConflictCommands`). */
+  resolve(paths: WholeFiles): Promise<WorkingTreeAnswer>;
+  /** Continue the merge, rebase, cherry-pick or revert in progress; refused
+   *  while a conflict remains. */
+  continueOperation(): Promise<WorkingTreeAnswer>;
+  /** Abort the operation in progress, back to where it started. */
+  abortOperation(): Promise<WorkingTreeAnswer>;
 };
 
 /**
  * The working tree of one repository as a host's screen works it (#403): its
- * status, whole-file stage and unstage, and commit. Host-neutral: the desktop
+ * status, whole-file stage and unstage, and commit; and in a conflict (#410),
+ * marking files resolved and continuing or aborting the operation. Host-neutral: the desktop
  * host's working tree panel is today's only caller.
  *
  * Every call answers with the status read after it, failed or not, so the
@@ -80,6 +92,9 @@ export function createWorkingTreeService(deps: WorkingTreeServiceDeps): WorkingT
     status: () => inTurn(() => read(null)),
     stage: (paths) => mutate((git) => stageFiles(git, paths)),
     unstage: (paths) => mutate((git) => unstageFiles(git, paths)),
-    commit: (message) => mutate((git) => commitChanges(git, { message }, deps.signCommits()))
+    commit: (message) => mutate((git) => commitChanges(git, { message }, deps.signCommits())),
+    resolve: (paths) => mutate((git) => resolveFiles(git, paths)),
+    continueOperation: () => mutate(continueOperation),
+    abortOperation: () => mutate(abortOperation)
   };
 }

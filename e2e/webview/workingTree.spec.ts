@@ -39,7 +39,13 @@ const STRINGS = {
     typeChanged: "Type changed",
     untracked: "Untracked",
     conflicted: "Conflicted"
-  }
+  },
+  openMergeTool: "Open in Merge Tool",
+  markResolved: "Mark Resolved",
+  inProgress: "{0} in progress",
+  operations: { merge: "Merge", rebase: "Rebase", cherrypick: "Cherry-pick", revert: "Revert" },
+  continue: "Continue",
+  abort: "Abort"
 };
 
 const LONG = "a-file-name-long-enough-to-run-well-past-the-width-of-the-panel-it-is-listed-in.ts";
@@ -103,6 +109,42 @@ test("a long name is cut short, and its row's button stays in the panel", async 
   const button = (await stage.boundingBox())!;
   expect(button.x + button.width).toBeLessThanOrEqual(panel.x + panel.width);
   expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
+test("a conflict's two buttons, and the operation's, stay in the panel beside a long name (#410)", async ({
+  page
+}) => {
+  await hostSays(page, {
+    command: "workingTreeStatus",
+    request: "workingTreeLoad",
+    status: {
+      branch: "main",
+      staged: [],
+      unstaged: [],
+      conflicted: [{ path: `deep/folder/${LONG}`, change: "conflicted" }],
+      operation: "cherrypick"
+    },
+    error: null,
+    strings: { ...STRINGS, inProgress: `{0} in progress, ${LONG}` }
+  });
+  const panel = (await page.locator("#workingTree").boundingBox())!;
+  const inPanel = async (selector: ReturnType<Page["locator"]>) => {
+    await expect(selector).toBeVisible();
+    const box = (await selector.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(panel.x);
+    expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width);
+  };
+
+  const row = page.locator('.wtFile[data-area="conflicted"]');
+  await row.hover();
+  await inPanel(row.getByRole("button", { name: "Open in Merge Tool" }));
+  await inPanel(row.getByRole("button", { name: "Mark Resolved" }));
+  expect(await row.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+
+  const operation = page.locator("#workingTree .wtOperation");
+  await inPanel(operation.getByRole("button", { name: "Continue" }));
+  await inPanel(operation.getByRole("button", { name: "Abort" }));
+  expect(await operation.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });
 
 test("closed, it hands the width back to the graph", async ({ page }) => {

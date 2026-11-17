@@ -683,7 +683,22 @@ test("every message the dispatch handles finishes, and the webview reports no fa
         }
       }
     ),
-    step("openMergeEditor", () => ({ repo, filePath: "file.txt" }), { check: stub }),
+    // No longer a stub (#410): the file would go to the user's merge tool,
+    // but it is in no conflict, which is said; no tool runs. The merge tool
+    // itself is conflicts.spec.ts's.
+    step("openMergeEditor", () => ({ repo, filePath: "file.txt" }), {
+      check: async (_answer, outside) => {
+        expect(outside).toEqual([
+          {
+            kind: "box",
+            type: "info",
+            message: "file.txt has no conflict to resolve.",
+            buttons: []
+          }
+        ]);
+        await noErrorDialog();
+      }
+    }),
     // No longer a stub (#403): the working tree panel beside the graph opens,
     // and reads the working tree; nothing is said, nothing opens outside.
     step("openScmView", () => ({}), {

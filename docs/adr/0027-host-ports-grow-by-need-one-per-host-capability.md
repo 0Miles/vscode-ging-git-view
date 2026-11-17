@@ -256,9 +256,22 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **log 與畫面上的 URL 去掉帳密**(`urlWithoutCredentials`):`https://user:token@host/…` 的 token 不寫進 log 檔。
 - **失敗的原因先拿掉進度行再交給 `formatGitError`。** clone 的 stderr 有 `remote: Counting objects: …` 這類進度,`formatGitError` 會優先挑 `remote:` 開頭的行,選中的就會是進度而不是 git 的 `fatal:`。
 
+## 補記(2026-11-17,#410)
+
+**`Opener.openMergeEditor` 在桌面版不再是 stub:衝突檔交給使用者替 git 設定的 merge tool(`git mergetool`)。port 的契約註解跟著改寫:「交給宿主合併它的方式 —— 有 3-way merge editor 的宿主用它(VS Code,沒有時退回一般編輯器),沒有的宿主用使用者設定的 merge tool;不回答任何東西,結果由宿主自己說。」** 上面 #391 那四個 stub 裡的 `openMergeEditor`(→ #410)由本票取代;VS Code 的實作沒有改。內建的 3-way merge 不在這裡,是 #411。
+
+- **git 的部分是 core 的命令服務 [conflictCommands.ts](../../packages/core/src/extension/conflictCommands.ts),不是 port。** 它問 git 設定了哪個工具、執行它、事後讀結果,依賴的是 git client、`Prompts`、`L10n` 與 `RunRepoMutation`,和其他命令服務一樣。桌面版的 `Opener` 只拿到一個 `mergeTool(filePath)` 函式(graph instance 用自己那一份服務建出來),所以 `opener.ts` 不 import 任何 git 的東西,`.oxlintrc.json` 的規則也不必開白名單。工作樹面板(ADR-0031 的同日補記)的「以 merge tool 開啟」走同一個服務。
+- **執行的是 `git mergetool --no-prompt --tool=<工具> -- <路徑>`,經 core 的 `spawnGit`:參數是陣列,中間沒有 shell,stdin 一開始就關掉。** 票面擔心的互動卡住由這兩件事解決:`--no-prompt` 拿掉「按 Enter 開始」;git 其餘在 stdin 上的問題(不信任工具結束碼時的「Was the merge successful [y/n]?」、一邊刪除時的「(m)odified or (d)eleted?」)讀到 EOF,git 當成「否」。simple-git 的 `raw` 不關 stdin,用它會讓這些問題永遠等下去,所以不用它。沒有 timeout:工具是使用者的,他要開多久就多久;ADR-0028 的 kill 因此不會發生。票面的另一個做法(在系統終端機執行、`openTerminal` 帶指令)沒有採用:它要改 port,而且結果回不到 GING。
+- **工具一定是使用者設定的:`merge.guitool`,沒有就 `merge.tool`(等同 `git mergetool --gui` 的解析),都沒有就用 `showError` 說怎麼設定,不執行任何東西。** 不帶 `--tool` 的 `git mergetool` 會自己從一張清單裡猜一個裝著的程式來跑,那是使用者從沒選過的程式。GUI 工具優先,是因為桌面版沒有終端機讓 vimdiff 這類工具跑。工具與它的 `mergetool.<名稱>.cmd` 來自使用者自己的 git 設定(包括 repo 的 `.git/config`,clone 不會帶來它),由 git 自己的 shell script 執行,這和使用者在終端機打 `git mergetool` 是同一件事。
+- **檔名含 `*`、`?`、`[`、`\` 或以 `:` 開頭的檔案不交給 `git mergetool`,說明原因,請使用者在編輯器裡解決。** `git mergetool` 把路徑當 pathspec,`--literal-pathspecs` 與 `:(literal)` 它都不理(git 2.40.1 實測:`[ab].txt` 會去合 `a.txt`;`:(literal)` 找不到檔案;Windows 上反斜線跳脫失敗),所以這種名字交出去,合的可能是另一個檔案。
+- **結果依 ADR-0030 判定:`git mergetool` 結束之後讀 unmerged 路徑,不看 git 的輸出或結束碼。** 解掉了就不說話,圖形與面板重新整理後自己看得到;還在衝突中就用 `showWarning` 說「工具已結束,但檔案仍有衝突」,不說「工具關了」:會 fork 的 GUI 工具立刻就返回,終端機工具(只設了 `merge.tool=vimdiff` 這類)在沒有終端機時直接失敗,這兩種情況工具可能還開著,而 git 已經從備份還原了檔案、刪掉 LOCAL / REMOTE / BASE,之後在工具裡存的內容不會被 stage。所以訊息接著說:工具還開著就在那裡存檔再標記為已解決;終端機工具請改設 `merge.guitool`。
+- **工具開著的期間不靜音 watcher,只有事後的那次讀取包在 `runRepoMutation` 裡(之後 refresh)。** 那是使用者的工作階段,可能好幾分鐘;watcher 的靜音是旗標(`repoMutation.ts`),整段靜音等於這幾分鐘裡外部的變更都看不到。
+- **一個 graph instance 同時只開一個 merge tool;關掉 Tab 不會殺掉它。** 兩個工具各自在結束時 `git add`,會搶同一個 index。殺掉工具會丟掉使用者合到一半的內容,所以 Tab 關掉後它照樣開著,只是結果沒有人回報。`mergetool.keepBackup` 留下的 `.orig` 照使用者的 git 設定,GING 不覆寫。
+- **標記為已解決(stage 一個衝突檔)時,檔案裡還有衝突標記就先用 `Prompts.choose` 問。** 標記是行首的 `<<<<<<<`、`|||||||`(diff3)、`>>>>>>>`(core 的 `filesWithConflictMarkers`);單獨一行 `=======` 不算,它也是 Markdown 與 reStructuredText 的標題底線。面板的「標記為已解決」與圖形衝突橫幅的 Mark Resolved 都問:橫幅那一個是圖形的 `markResolved` 請求,桌面版的 graph instance 在 channel 上先問,使用者答應才交給 dispatch,取消就回圖形一則 `markResolved`(status `null`),dispatch 聽不到。VS Code 的 Mark Resolved 照舊不問,它的外部行為不變。
+
 ## 補記(2026-11-17,#404)
 
-**桌面版 `Opener` 的 `openCommitDiff` 與 `diffWithWorking` 不再是 stub:兩者都開在該實例的 Tab 頁面裡、蓋在圖形上的 diff viewer(畫面與 Monaco 的注入見 ADR-0031 的同日補記)。** #391 補記的四個 stub 剩下 `openFileAtRevision`(#405)與 `openMergeEditor`(#410)。port 本身沒有改,VS Code 的實作也沒有改。
+**桌面版 `Opener` 的 `openCommitDiff` 與 `diffWithWorking` 不再是 stub:兩者都開在該實例的 Tab 頁面裡、蓋在圖形上的 diff viewer(畫面與 Monaco 的注入見 ADR-0031 的同日補記)。** #391 補記的四個 stub 只剩 `openFileAtRevision`(#405):`openMergeEditor` 由 #410 取代。port 本身沒有改,VS Code 的實作也沒有改。
 
 - **兩邊的文字由 main process 讀,依 `defaultFileEncoding` 解碼,讀的地方在 core 的 [fileContents.ts](../../packages/core/src/extension/fileContents.ts)(`readFileAtRevision`、`readWorkingFile`),不是在 `apps/desktop` 那條 lint override 加白名單。** #386 補記把這個選擇留給第一個要讀某版本檔案的桌面呼叫端。選 core:白名單是 VS Code 的 `DiffDocProvider` 為了「依 workspace folder scope 解析 `fileEncoding`」才有的豁免,桌面版沒有這個理由;而「讀 working tree 的檔案並照設定解碼」也是 core 該有一份的事,#405、#406、#408 都會再用到。解碼抽成 `decodeFileBytes`,`getCommitFileContent` 照舊用它,VS Code 的行為不變。
 - **working tree 那一側也照 `defaultFileEncoding` 解碼。** VS Code 的 `diffWithWorking` 右邊是真正的檔案,由 VS Code 用它自己的 `files.encoding` 讀;桌面版沒有那個設定,而這個設定的說明寫的正是「diff 檢視裡顯示的檔案內容」,兩側用同一個編碼,diff 才不會因為兩邊解法不同而整行標成改變。working tree 裡已經沒有那個檔案時讀成空的,跟 revision 那一側沒有那個檔案時一樣:diff 顯示的就是整個被刪掉。

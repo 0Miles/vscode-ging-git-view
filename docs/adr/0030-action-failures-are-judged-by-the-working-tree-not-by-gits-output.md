@@ -30,3 +30,9 @@ status: accepted
 - **有一種情況分不出來。** pop 的 apply 成功、drop 卻失敗時,工作目錄沒有 unmerged 路徑,會被說成「沒有變更」,其實已經套用了。要分辨就得讀 git 的輸出,這裡選擇不讀,並寫在 `StashApplyFailure` 的註解裡。
 - **讀不到工作目錄時,沿用指令本身的結果。** 指令失敗就照 git 的錯誤回報,成功就算成功;不會在不知道的時候說「沒有變更」。執行後查 stash 位置失敗時,只把位置降成「已不在清單中」,衝突照樣回報。
 - **之後的動作**——cherry-pick、revert、merge、rebase 這類會停在衝突上的——要回報衝突時,照這個做法:在 core 讀前後狀態,把結果當成事實送給兩邊,不在 webview 解析字串。今天它們靠的是 `operationState` 的衝突橫幅,還沒有改。
+
+## 補記(2026-11-17,#410)
+
+**第二個呼叫端:桌面版的 merge tool([conflictCommands.ts](../../packages/core/src/extension/conflictCommands.ts))。工具關掉之後,那個檔案還在不在 unmerged 路徑裡,就是「解決了沒有」。**
+
+`git mergetool` 的結束碼與輸出都不可靠:工具的結束碼由 `mergetool.<名稱>.trustExitCode` 決定信不信,不信的時候 git 看檔案有沒有被改過,再問一句「Was the merge successful [y/n]?」;桌面版把 stdin 關掉,這句讀到 EOF 就當成「否」。結束碼為 0 也不保證那個檔案已經 stage,為非 0 也不代表什麼都沒動。所以照這份 ADR:事後讀 `unmergedFiles`,檔案不在裡面就是解決了(git 在工具成功時自己 `git add`),還在就說工具已結束但檔案仍有衝突(不說「關了」,理由見 ADR-0027 的同日補記)。執行前同樣讀一次:檔案本來就不在衝突中時不執行,說它沒有衝突要解決。
