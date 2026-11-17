@@ -100,3 +100,13 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **分頁列的樣式由 `windowPage.ts` 插進一個 `<style>`,** 理由同「補記(#397)」的設定頁;只用 `theme.ts` 已經提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。
 - **「這個 Tab 在等回答」的標記只畫在後面的 Tab 上。** 前景 Tab 的 prompt 就在畫面上，不需要再提醒;背景 Tab 的 prompt 畫在看不見的頁面裡，分頁列是使用者唯一看得到它的地方。標記不會把那個 Tab 拉到前面：搶走使用者正在用的 Tab 比晚一點回答更糟。
 - **Tab 的頁面不會被導覽走。** Tab 的 view 若被導覽到 `?id=M`,會畫出 Tab M 的圖形，訊息卻仍送到自己的實例。所以每個 Tab 的 webContents 擋掉 `will-navigate`、`window.open` 一律不開新視窗(網址交給 `Opener.openExternalUrl`),寫在 [pageGuard.ts](../../apps/desktop/src/pageGuard.ts) 的 `keepPageInPlace`,與設定視窗(「補記(#397)」)的規則相同;main process 自己的 `loadURL` 與重新載入不受影響。
+
+## 補記(2026-11-17,#399)
+
+**側檢視區已經填上:`<aside id="sideViews">`,由桌面入口在圖形頁啟動圖形之後建立,插在 `<body>` 的第一個位置。**它照上面骨架的約定:視窗左緣、與視窗等高、`position: fixed`,寬度是 `--ging-side-view-width`(260px,[styles.ts](../../packages/webview/src/desktop/sideViews/styles.ts) 的 `SIDE_VIEW_WIDTH`);`body.gingSideViews` 擁有 `padding-left`。「後果」最後一條要 #399 做的那一半也做了:docked Commit Details View 與 `#scrollShadow.active` 的左緣讓出欄寬,右緣不動,留給 #403。
+
+- **樣式由側檢視模組在啟動時插進一個 `<style>`**,理由同 #397、#393 的補記;只用 `theme.ts` 已經提供的 `--vscode-*` 變數。[sideViews.spec.ts](../../e2e/webview/sideViews.spec.ts) 在真的瀏覽器裡驗欄位的位置與尺寸、`body` 的 padding、frozen header 從欄位右緣開始、捲動時欄位不動,以及 docked CDV 與 scroll shadow 的左緣。
+- **元素在 `<body>` 裡,所以圖形的 `#dialog` 開著時它跟著被標成 `inert`。**這是要的:圖形的對話框是 modal,側檢視不該在它背後還能按。host prompt overlay 仍在它之上(#390 的補記)。
+- **協定:宿主送 `sideViewState`(兩個檢視的整份內容、選單的可見度設定、檢視自己的字串),頁面回 `sideViewReady`、`sideViewRefresh`、`sideViewToggle`、`sideViewSetFilter`、`sideViewNoTargets`、`sideViewAddRemote`、`sideViewManagePullRequestProviders`、`sideViewRemote`。**型別在 [desktop/sideViews/protocol.ts](../../packages/webview/src/desktop/sideViews/protocol.ts),`SIDE_VIEW_COMMANDS_STAY_APART` 檢查它們不與 `ResponseMessage` / `RequestMessage` 撞名。`sideViewReady` 與 `hostPromptReady` 同理:頁面每次載入都送一次,宿主在那之前不送。main process 在交給 dispatch 之前用 `isSideViewRequest` 把它們分給該實例的側檢視,dispatch 聽不到。
+- **分支動作的字串是圖形的(頁面的 `l10n`),批次動作與檢視自己的字串由宿主隨 state 送來。**同一個動作在圖內選單與側檢視叫同一個名字;批次動作圖形沒有選單,`webviewL10n` 不為桌面多帶 VS Code 用不到的字串。
+- **`gitGraphView.ts` 多了一個回傳值,沒有 import 任何 `desktop/` 底下的東西。**`startGitGraphView()` 回傳 `GraphInPage`,側檢視經由它直接呼叫圖形(ADR-0033)。VS Code 入口忽略它。

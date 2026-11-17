@@ -146,6 +146,9 @@ export function startSideViews(graph: GraphInPage): void {
   /** The row holding the tree's tab stop, by key. */
   let focusKey: string | null = null;
   let remoteFocus: string | null = null;
+  /** The words the headings were last drawn in: redrawn only when they change,
+   *  so a state arriving does not take the keyboard off a heading's button. */
+  let headerWords: string | null = null;
 
   const menuContext = (): BranchMenuContext => ({
     cmv: state!.cmv,
@@ -287,7 +290,8 @@ export function startSideViews(graph: GraphInPage): void {
 
   const renderHeaders = () => {
     const strings = state?.strings;
-    if (strings === undefined) return;
+    if (strings === undefined || JSON.stringify(strings) === headerWords) return;
+    headerWords = JSON.stringify(strings);
     setTitle(branchesView, strings.branches);
     setTitle(remotesView, strings.remotes);
     const actions = (view: HTMLElement, buttons: [string, string, string][]) => {

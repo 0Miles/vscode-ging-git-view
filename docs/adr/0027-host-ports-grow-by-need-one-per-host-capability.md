@@ -204,3 +204,15 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **「顯示設定」不是 port,是命令服務的 `revealSetting` hook。** 理由同 remote 命令的 `refreshGraph`:它是宿主交給這個服務的一個動作，不是 dispatch 要的能力，也避免和同時在改 `Opener` 的 #391 撞在同一個 interface。VS Code 是 `workbench.action.openSettings`;桌面版是設定視窗的 `reveal(key)`:沒開著就以 `?setting=` 開一個新視窗，開在那個設定那一列;已經開著就不重新載入(會丟掉其他列裡打了還沒送出的內容，例如還不是合法 JSON 的文字),而是把那個設定現在的值以 `settingUpdated` 送過去，再送 `revealSetting` 讓頁面捲到那一列並標示出來。
 - **桌面版寫入後沒有推送給各 graph instance。** `pullRequests.providers` 每次建立 pull request 時才讀，`pushSettingChange` 對它本來就什麼都不做。設定視窗若已開著而使用者沒有按「顯示設定」,它顯示的仍是舊值，這是設定頁本身的問題(它只聽自己寫入的回覆),見 #446。
 - **`MessageHandlerDeps.configurePullRequestProvider` 仍是 hook,但桌面版不再是 stub。** 它在桌面版直接呼叫這個命令服務，問在發起 Create Pull Request 的那個 instance 的頁面上。上面「為什麼未來的讀者會困惑」第二條說它跳回的是 VS Code 自己的 QuickPick 命令，現在兩個宿主跑的是同一份流程;它仍是 hook,是因為 VS Code 那邊照舊經由已註冊的命令執行，命令面板的入口與錯誤框的按鈕走同一條路。
+
+## 補記(2026-11-17,#399)
+
+**桌面版的 `showAllBranches` 不再是 no-op:它是 Tab 側檢視的 Show All,清空該 Tab 自己 repository 的 branch filter(`showAllRepo`,別的 repo 一律不清)。**上面 #391 補記那張表的這一列改為:
+
+| hook              | 處置                                                                                                           |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `showAllBranches` | 側檢視的 Show All(#399):清空自己 repository 的 filter,filter 的變更經 `onDidChangeFilter` 同時送給圖形與側檢視 |
+
+- **`onSelectRepo`、`onDelegatedRan` 維持 no-op,理由變了一半。**`onSelectRepo`:Tab 只顯示自己的 repository,側檢視一開始就在它上面,沒有東西要跟著換。`onDelegatedRan`:側檢視不委派,直接呼叫同一頁的圖形(ADR-0033),沒有為 reload 留著的訊息。#388 表上「`branchActionDelegate`:桌面不使用」那一列因此成立,不是暫時的。
+- **沒有新的 port。**側檢視的 main process 那一半([sideViews.ts](../../apps/desktop/src/sideViews.ts))用的都是既有的:`HostConfig`、`RepoSource.updateRepoState`(toggle)、`Prompts.showInformation`(批次動作全被扣除時的說明)、`Clipboard`(複製 remote URL),以及 core 的 `remoteCommands`、`fetchService`、`pullRequestProviderCommands`、`branchFacts`、`branchFilterStore`。`remoteCommands` 是每個實例一份,問在該實例自己的頁面。
+- **repo state 的寫入由實例的 `RepoSource` 包一層通知側檢視。**VS Code 的 `RepoManager` 有 `onDidWriteRepoState`;桌面版的 `RepoSource` 沒有寫入事件(`setRepoState` 不廣播),所以 `graphInstance.ts` 交給 dispatch 與命令服務的那一份在 `setRepoState`、`updateRepoState` 前後比對三個側檢視欄位(`sideViewStateChanged`),動了才請側檢視重讀。Repository Settings 抽屜改了隱藏 inactive / merged 的設定,側檢視因此跟著變,和 VS Code 一樣。
