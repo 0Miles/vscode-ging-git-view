@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
 
-import type { SimpleGit } from "simple-git";
-
 import type { GitRunOptions } from "@ging/core/backend/gitRun";
 import { spawnGit } from "@ging/core/backend/gitSpawn";
-import { unmergedFiles } from "@ging/core/backend/queries/unmergedFiles";
 import type {
   FileHunk,
   FileHunks,
@@ -81,7 +78,8 @@ function headerRefusal(lines: string[]): NoHunksReason | null {
   if (has("new file mode ")) return "added";
   if (has("deleted file mode ")) return "deleted";
   const modes = lines.filter(
-    (line) => line.startsWith("index ") || line.startsWith("old mode ") || line.startsWith("new mode ")
+    (line) =>
+      line.startsWith("index ") || line.startsWith("old mode ") || line.startsWith("new mode ")
   );
   if (modes.some((line) => NOT_A_FILE.test(line))) return "notText";
   return null;
@@ -97,6 +95,12 @@ export function cutFileDiff(out: string): CutDiff {
   const lines = out.split("\n");
   // A diff ends its last line, so the split leaves an empty string after it.
   if (lines.at(-1) === "") lines.pop();
+  // In conflict: the staged side says so, the unstaged one is a combined
+  // diff. Staging any of it would mark it resolved, which only #410's Mark
+  // Resolved does.
+  if (lines.some((line) => /^(?:\* Unmerged path |diff --cc |diff --combined )/.test(line))) {
+    return { kind: "none", reason: "conflicted" };
+  }
   if (lines.filter((line) => line.startsWith("diff --git ")).length !== 1) {
     throw new Error("the path named no single file's diff");
   }
@@ -140,16 +144,11 @@ export function cutFileDiff(out: string): CutDiff {
  * The diff of `path` (repository-relative) in `area`, cut into hunks to
  * stage or unstage one at a time (#406). Read as bytes: a file in an encoding
  * other than UTF-8 goes back to git byte for byte. A conflicted path offers
- * none: staging any of it would mark it resolved, which only #410's Mark
- * Resolved does. Rejects when git fails, or `path` names more than one file.
+ * none. One git run, straight from `spawnGit`: no git client's queue, which
+ * the graph's own reads may fill after a change to the working tree.
+ * Rejects when git fails, or `path` names more than one file.
  */
-export async function readFileDiff(
-  git: SimpleGit,
-  run: DiffRun,
-  path: string,
-  area: HunkArea
-): Promise<CutDiff> {
-  if ((await unmergedFiles(git)).includes(path)) return { kind: "none", reason: "conflicted" };
+export async function readFileDiff(run: DiffRun, path: string, area: HunkArea): Promise<CutDiff> {
   const result = await spawnGit({
     gitPath: run.gitPath,
     cwd: run.repoPath,
@@ -163,6 +162,26 @@ export async function readFileDiff(
     throw new Error(result.stderr.trim() || `git diff exited with ${result.exitCode}`);
   }
   return cutFileDiff(result.stdout.toString("latin1"));
+}
+
+/** HEAD's commit, or `null` on a branch with no commit yet: what the staged
+ *  diff's left side is read at (#460). One git run, as `readFileDiff` is. */
+export async function readHead(run: DiffRun): Promise<string | null> {
+  const result = await spawnGit({
+    gitPath: run.gitPath,
+    cwd: run.repoPath,
+    args: ["rev-parse", "--verify", "-q", "HEAD^{commit}"],
+    onCommand: run.onCommand,
+    gitEnv: run.gitEnv
+  });
+  if (result.kind === "error") throw result.error;
+  if (result.kind !== "ok") throw new Error(`git rev-parse did not finish (${result.kind})`);
+  // `--verify -q` exits 1, saying nothing, when there is no HEAD commit.
+  if (result.exitCode === 1 && result.stdout.length === 0) return null;
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.trim() || `git rev-parse exited with ${result.exitCode}`);
+  }
+  return result.stdout.toString().trim();
 }
 
 /** What `readFileDiff` offers the user: the hunks' spans, and the token

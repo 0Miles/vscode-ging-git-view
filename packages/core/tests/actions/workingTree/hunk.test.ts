@@ -2,7 +2,6 @@ import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applyHunk, type HunkChoice, StaleHunkError } from "@ging/core/backend/actions/hunk";
@@ -39,20 +38,25 @@ function commit(dir: string, file: string, content: string | Buffer) {
   git(["commit", "-qm", `add ${file}`], dir);
 }
 
+/** `s` in windows-1252, whose characters here are latin1's. */
+const win1252 = (s: string) => Buffer.from(s, "latin1");
+
 const run = (dir: string) => ({ gitPath: "git", repoPath: dir });
 const read = async (dir: string, file: string, area: HunkArea): Promise<FileHunks> =>
-  offeredHunks(await readFileDiff(simpleGit(dir), run(dir), file, area));
+  offeredHunks(await readFileDiff(run(dir), file, area));
 
 /** Apply hunk `index` of `file`'s diff in `area`, as last read. */
 async function apply(dir: string, file: string, area: HunkArea, index: number) {
   const hunks = await read(dir, file, area);
   if (hunks.kind !== "hunks") throw new Error(`no hunks: ${hunks.reason}`);
-  await applyHunk(simpleGit(dir), run(dir), { path: file, area, token: hunks.token, hunk: index });
+  await applyHunk(run(dir), { path: file, area, token: hunks.token, hunk: index });
 }
 
 /** Thirty numbered lines, three of them changed far apart: three hunks. */
 const THIRTY = lines(1, 30);
-const CHANGED = lines(1, 30, (n) => (n === 3 ? "three" : n === 15 ? "fifteen" : n === 28 ? "x28" : String(n)));
+const CHANGED = lines(1, 30, (n) =>
+  n === 3 ? "three" : n === 15 ? "fifteen" : n === 28 ? "x28" : String(n)
+);
 const text = (ls: string[], eol = "\n") => ls.join(eol) + eol;
 
 describe("reading a file's hunks", () => {
@@ -101,7 +105,9 @@ describe("reading a file's hunks", () => {
     const changed = await read(r, "n.txt", "unstaged");
 
     expect(first.kind === "hunks" && first.token).toBe(again.kind === "hunks" && again.token);
-    expect(first.kind === "hunks" && first.token).not.toBe(changed.kind === "hunks" && changed.token);
+    expect(first.kind === "hunks" && first.token).not.toBe(
+      changed.kind === "hunks" && changed.token
+    );
   });
 
   it("offers no hunk of a file whose change is the whole file", async () => {
@@ -118,7 +124,10 @@ describe("reading a file's hunks", () => {
     fs.writeFileSync(path.join(r, "bin.dat"), Buffer.from([0, 1, 2, 0]));
     git(["add", "bin.dat"], r);
 
-    expect(await read(r, "untracked.txt", "unstaged")).toEqual({ kind: "none", reason: "unchanged" });
+    expect(await read(r, "untracked.txt", "unstaged")).toEqual({
+      kind: "none",
+      reason: "unchanged"
+    });
     expect(await read(r, "added.txt", "staged")).toEqual({ kind: "none", reason: "added" });
     expect(await read(r, "intent.txt", "unstaged")).toEqual({ kind: "none", reason: "added" });
     expect(await read(r, "gone.txt", "unstaged")).toEqual({ kind: "none", reason: "deleted" });
@@ -211,7 +220,9 @@ describe("reading a file's hunks", () => {
 
     expect(hunks.kind === "hunks" && hunks.hunks).toHaveLength(3);
     await apply(r, "n.txt", "unstaged", 1);
-    expect(indexed(r, "n.txt").toString()).toBe(text(lines(1, 30, (n) => (n === 15 ? "fifteen" : String(n)))));
+    expect(indexed(r, "n.txt").toString()).toBe(
+      text(lines(1, 30, (n) => (n === 15 ? "fifteen" : String(n))))
+    );
   });
 });
 
@@ -267,7 +278,10 @@ describe("staging and unstaging one hunk", () => {
     await apply(r, "crlf.txt", "unstaged", 2);
 
     expect(indexed(r, "crlf.txt").toString()).toBe(
-      text(lines(1, 30, (n) => (n === 28 ? "x28" : String(n))), "\r\n")
+      text(
+        lines(1, 30, (n) => (n === 28 ? "x28" : String(n))),
+        "\r\n"
+      )
     );
   });
 
@@ -290,7 +304,10 @@ describe("staging and unstaging one hunk", () => {
   it("stages a hunk at the end of a file with no newline at its end", async () => {
     const r = repo();
     commit(r, "eof.txt", THIRTY.join("\n"));
-    fs.writeFileSync(path.join(r, "eof.txt"), [...CHANGED.slice(0, 29), "thirty", "more"].join("\n"));
+    fs.writeFileSync(
+      path.join(r, "eof.txt"),
+      [...CHANGED.slice(0, 29), "thirty", "more"].join("\n")
+    );
 
     await apply(r, "eof.txt", "unstaged", 2);
 
@@ -302,10 +319,14 @@ describe("staging and unstaging one hunk", () => {
   it("stages a file's bytes as they are, whatever its encoding", async () => {
     const r = repo();
     // windows-1252 and Big5: neither is UTF-8, and a decode would spoil them.
-    const win1252 = (s: string) => Buffer.from(s, "latin1");
     const big5 = Buffer.from([0xa4, 0xa4, 0xa4, 0xe5]);
     const file = (first: Buffer, last: Buffer) =>
-      Buffer.concat([first, Buffer.from("\n" + lines(2, 29).join("\n") + "\n"), last, Buffer.from("\n")]);
+      Buffer.concat([
+        first,
+        Buffer.from("\n" + lines(2, 29).join("\n") + "\n"),
+        last,
+        Buffer.from("\n")
+      ]);
     commit(r, "enc.txt", file(win1252("caf\xe9"), win1252("na\xefve")));
     fs.writeFileSync(path.join(r, "enc.txt"), file(win1252("CAF\xc9"), big5));
 
@@ -318,7 +339,10 @@ describe("staging and unstaging one hunk", () => {
     const r = repo();
     git(["config", "apply.whitespace", "error"], r);
     commit(r, "ws.txt", text(THIRTY));
-    fs.writeFileSync(path.join(r, "ws.txt"), text(lines(1, 30, (n) => (n === 3 ? "three   " : String(n)))));
+    fs.writeFileSync(
+      path.join(r, "ws.txt"),
+      text(lines(1, 30, (n) => (n === 3 ? "three   " : String(n))))
+    );
 
     await apply(r, "ws.txt", "unstaged", 0);
 
@@ -347,7 +371,7 @@ describe("staging and unstaging one hunk", () => {
     fs.writeFileSync(path.join(r, "n.txt"), "zero\n" + text(CHANGED));
     const choice: HunkChoice = { path: "n.txt", area: "unstaged", token: shown.token, hunk: 1 };
 
-    expect(await rejection(applyHunk(simpleGit(r), run(r), choice))).toBeInstanceOf(StaleHunkError);
+    expect(await rejection(applyHunk(run(r), choice))).toBeInstanceOf(StaleHunkError);
     expect(indexed(r, "n.txt").toString()).toBe(text(THIRTY));
   });
 
@@ -360,7 +384,7 @@ describe("staging and unstaging one hunk", () => {
     await apply(r, "n.txt", "unstaged", 0);
     const staged = indexed(r, "n.txt");
 
-    const stale = applyHunk(simpleGit(r), run(r), {
+    const stale = applyHunk(run(r), {
       path: "n.txt",
       area: "unstaged",
       token: shown.token,
@@ -378,10 +402,19 @@ describe("staging and unstaging one hunk", () => {
     const shown = await read(r, "n.txt", "unstaged");
     if (shown.kind !== "hunks") throw new Error("no hunks");
 
-    for (const hunk of [3, -1, 1.5]) {
-      const choice = { path: "n.txt", area: "unstaged" as const, token: shown.token, hunk };
-      expect(await rejection(applyHunk(simpleGit(r), run(r), choice))).toBeInstanceOf(StaleHunkError);
-    }
+    const refusal = (hunk: number) =>
+      rejection(
+        applyHunk(run(r), {
+          path: "n.txt",
+          area: "unstaged",
+          token: shown.token,
+          hunk
+        })
+      );
+
+    expect(await refusal(3)).toBeInstanceOf(StaleHunkError);
+    expect(await refusal(-1)).toBeInstanceOf(StaleHunkError);
+    expect(await refusal(1.5)).toBeInstanceOf(StaleHunkError);
     expect(indexed(r, "n.txt").toString()).toBe(text(THIRTY));
   });
 });

@@ -15,6 +15,10 @@ afterEach(() => {
   cleanUp.splice(0).forEach(rmrf);
 });
 
+/** Twenty numbered lines, `change` making some of them something else. */
+const numbered = (change: (n: number) => string = String) =>
+  Array.from({ length: 20 }, (_, i) => change(i + 1)).join("\n") + "\n";
+
 function setUp(signCommits = false) {
   const repo = makeRepo();
   cleanUp.push(repo);
@@ -220,9 +224,6 @@ describe("the working tree service", () => {
   });
 
   describe("one hunk at a time (#406)", () => {
-    const numbered = (change: (n: number) => string = String) =>
-      Array.from({ length: 20 }, (_, i) => change(i + 1)).join("\n") + "\n";
-
     function twoHunks() {
       const set = setUp();
       fs.writeFileSync(path.join(set.repo, "f"), numbered());
@@ -248,7 +249,7 @@ describe("the working tree service", () => {
         hunk: 1
       });
 
-      expect(outcome).toEqual({ kind: "applied" });
+      expect(outcome).toEqual({ kind: "applied", hunk: hunks.hunks[1] });
       expect(calls).toEqual(["mute repo", "refresh"]);
       expect(cp.execFileSync("git", ["show", ":0:f"], { cwd: repo }).toString()).toBe(
         numbered((n) => (n === 19 ? "nineteen" : String(n)))
@@ -259,7 +260,10 @@ describe("the working tree service", () => {
       const { repo, calls, service } = twoHunks();
       const hunks = await service.hunks("f", "unstaged");
       if (hunks.kind !== "hunks") throw new Error("no hunks");
-      fs.writeFileSync(path.join(repo, "f"), "zero\n" + numbered((n) => (n === 2 ? "two" : String(n))));
+      fs.writeFileSync(
+        path.join(repo, "f"),
+        "zero\n" + numbered((n) => (n === 2 ? "two" : String(n)))
+      );
 
       const outcome = await service.applyHunk({
         path: "f",

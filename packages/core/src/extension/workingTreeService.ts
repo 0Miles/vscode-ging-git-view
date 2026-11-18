@@ -18,14 +18,20 @@ import {
   unstageFiles,
   type WholeFiles
 } from "@ging/core/backend/actions/workingTree";
-import { amendBasisOf, headCommit, headMessage } from "@ging/core/backend/queries/amend";
-import { type DiffRun, offeredHunks, readFileDiff } from "@ging/core/backend/queries/fileHunks";
+import { amendBasisOf, headMessage } from "@ging/core/backend/queries/amend";
+import {
+  type DiffRun,
+  offeredHunks,
+  readFileDiff,
+  readHead
+} from "@ging/core/backend/queries/fileHunks";
 import { workingTreeStatus } from "@ging/core/backend/queries/workingTreeStatus";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
 import type { RunRepoMutation } from "@ging/core/host/ports";
 import type {
   AmendBasis,
   CommitRefusal,
+  FileHunk,
   FileHunks,
   HunkArea,
   NoHunksReason,
@@ -39,7 +45,8 @@ export type { DiffRun } from "@ging/core/backend/queries/fileHunks";
  *  the file's diff is no longer the one the hunk was shown from; `none`: it
  *  has no hunk to apply on its own. Neither changed anything. */
 export type HunkOutcome =
-  | { kind: "applied" }
+  /** `hunk`: its lines, as the diff it was applied from gave them. */
+  | { kind: "applied"; hunk: FileHunk }
   | { kind: "stale" }
   | { kind: "none"; reason: NoHunksReason }
   | { kind: "failed"; error: string };
@@ -175,18 +182,23 @@ export function createWorkingTreeService(deps: WorkingTreeServiceDeps): WorkingT
     resolve: (paths) => mutate((git) => resolveFiles(git, paths)),
     continueOperation: () => mutate(continueOperation),
     abortOperation: () => mutate(abortOperation),
-    head: () => inTurn(async () => (await headCommit(deps.git())) || null),
-    hunks: (path, area) =>
-      inTurn(async () => offeredHunks(await readFileDiff(deps.git(), deps.diffRun(), path, area))),
+    // Reads for the diff viewer, not in turn with the rest: neither changes
+    // anything, and each is one git run of its own (`spawnGit`), so a diff
+    // shown after a hunk is not held up behind the panel's status read, nor
+    // that behind the graph's reload on the same git client. What a read
+    // racing a change sees is caught by the diff's token, and by the reads
+    // around the diff's text (`createShowDiff`).
+    head: () => readHead(deps.diffRun()),
+    hunks: async (path, area) => offeredHunks(await readFileDiff(deps.diffRun(), path, area)),
     // The patch is made outside the mutation: a hunk refused for a diff that
     // changed, or has none of its own, is no change — the watcher is not
     // muted for it, nor the graph refreshed after it.
     applyHunk: (choice) =>
       inTurn(async (): Promise<HunkOutcome> => {
         try {
-          const patch = await hunkPatch(deps.git(), deps.diffRun(), choice);
-          await deps.runRepoMutation(deps.repo(), () => applyHunkPatch(deps.git(), patch));
-          return { kind: "applied" };
+          const patch = await hunkPatch(deps.diffRun(), choice);
+          await deps.runRepoMutation(deps.repo(), () => applyHunkPatch(deps.diffRun(), patch));
+          return { kind: "applied", hunk: patch.hunk };
         } catch (e: unknown) {
           if (e instanceof StaleHunkError) return { kind: "stale" };
           if (e instanceof NoHunkError) return { kind: "none", reason: e.reason };

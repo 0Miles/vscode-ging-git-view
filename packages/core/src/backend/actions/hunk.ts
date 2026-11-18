@@ -2,10 +2,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import type { SimpleGit } from "simple-git";
-
+import { spawnGit } from "@ging/core/backend/gitSpawn";
 import { type DiffRun, readFileDiff } from "@ging/core/backend/queries/fileHunks";
-import type { HunkArea, NoHunksReason } from "@ging/shared/backend/types";
+import type { FileHunk, HunkArea, NoHunksReason } from "@ging/shared/backend/types";
 
 /** One hunk of a file's diff, as the user was shown it (#406). */
 export type HunkChoice = {
@@ -44,6 +43,8 @@ export type HunkPatch = {
   bytes: Buffer;
   /** Unstaged (the hunk is taken out of the index) rather than staged. */
   reverse: boolean;
+  /** The hunk's lines, as its diff gave them. */
+  hunk: FileHunk;
 };
 
 /**
@@ -54,8 +55,8 @@ export type HunkPatch = {
  * it, is refused (`StaleHunkError`), never applied to lines that have moved.
  * The patch is that diff's header and the one hunk as git wrote them.
  */
-export async function hunkPatch(git: SimpleGit, run: DiffRun, choice: HunkChoice): Promise<HunkPatch> {
-  const diff = await readFileDiff(git, run, choice.path, choice.area);
+export async function hunkPatch(run: DiffRun, choice: HunkChoice): Promise<HunkPatch> {
+  const diff = await readFileDiff(run, choice.path, choice.area);
   if (diff.kind === "none") {
     if (diff.reason === "unchanged") throw new StaleHunkError("the file's diff is empty now");
     throw new NoHunkError(diff.reason);
@@ -65,7 +66,8 @@ export async function hunkPatch(git: SimpleGit, run: DiffRun, choice: HunkChoice
   if (hunk === undefined) throw new StaleHunkError(`the diff has no hunk ${choice.hunk}`);
   return {
     bytes: Buffer.from(diff.header + hunk.text, "latin1"),
-    reverse: choice.area === "staged"
+    reverse: choice.area === "staged",
+    hunk: { original: hunk.original, modified: hunk.modified }
   };
 }
 
@@ -76,27 +78,42 @@ export async function hunkPatch(git: SimpleGit, run: DiffRun, choice: HunkChoice
  * `apply.ignoreWhitespace` would let a hunk land on lines that only look
  * alike. Whitespace is applied as it is: a user's `apply.whitespace=error`
  * must not refuse a hunk the diff showed. Rejects when git refuses it.
+ *
+ * Run straight from `spawnGit`, as the diff is read: not behind a git
+ * client's queue. Never killed (no deadline): git writing the index is not
+ * cut short (ADR-0028). The patch goes in a file, as bytes: stdin takes text.
  */
-export async function applyHunkPatch(git: SimpleGit, patch: HunkPatch): Promise<void> {
+export async function applyHunkPatch(run: DiffRun, patch: HunkPatch): Promise<void> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ging-hunk-"));
   const file = path.join(dir, "hunk.patch");
   try {
     await fs.writeFile(file, patch.bytes);
-    await git.raw([
-      "-c",
-      "apply.ignoreWhitespace=no",
-      "apply",
-      "--cached",
-      "--whitespace=nowarn",
-      ...(patch.reverse ? ["--reverse"] : []),
-      file
-    ]);
+    const result = await spawnGit({
+      gitPath: run.gitPath,
+      cwd: run.repoPath,
+      args: [
+        "-c",
+        "apply.ignoreWhitespace=no",
+        "apply",
+        "--cached",
+        "--whitespace=nowarn",
+        ...(patch.reverse ? ["--reverse"] : []),
+        file
+      ],
+      onCommand: run.onCommand,
+      gitEnv: run.gitEnv
+    });
+    if (result.kind === "error") throw result.error;
+    if (result.kind !== "ok") throw new Error(`git apply did not finish (${result.kind})`);
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr.trim() || `git apply exited with ${result.exitCode}`);
+    }
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 }
 
 /** Stage or unstage one hunk (`hunkPatch`, then `applyHunkPatch`). */
-export async function applyHunk(git: SimpleGit, run: DiffRun, choice: HunkChoice): Promise<void> {
-  await applyHunkPatch(git, await hunkPatch(git, run, choice));
+export async function applyHunk(run: DiffRun, choice: HunkChoice): Promise<void> {
+  await applyHunkPatch(run, await hunkPatch(run, choice));
 }
