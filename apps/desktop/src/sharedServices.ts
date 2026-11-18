@@ -53,6 +53,9 @@ export type SharedServices = {
    *  was left in, #397) goes in its global tier beside core's. */
   storage: DesktopStorage;
   l10n: L10n;
+  /** The app's language (`app.getLocale()`): what `l10n` reads, and what
+   *  times are written in, as a blame's (#409). */
+  locale: string;
   logger: HostLogger;
   clipboard: Clipboard;
   /** What the system opens files, links and terminals with. Each instance
@@ -159,6 +162,7 @@ export function createSharedServices({
     settings,
     storage,
     l10n: createDesktopL10n(locale),
+    locale,
     logger,
     clipboard,
     os,

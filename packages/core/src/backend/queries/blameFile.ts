@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { type GitRunOptions, runWithin } from "@ging/core/backend/gitRun";
+import { readsAsOption } from "@ging/core/backend/utils/string";
 
 import { unquoteGitPath } from "./diffFileChanges";
 
@@ -123,6 +124,21 @@ export type BlameFileOptions = GitRunOptions & {
   /** `contents` come from an editor without unsaved edits; see `blameSource`
    *  for what that changes. */
   editorIsClean?: boolean;
+  /** Files bigger than this many bytes are not blamed; `BLAME_MAX_BYTES`
+   *  when not given. */
+  maxBytes?: number;
+};
+
+/** A file as a commit has it, blamed there: no line of it is uncommitted. */
+export type BlameAtRevisionOptions = GitRunOptions & {
+  /** The file's path in `revision`, relative to `repoPath`, with "/"
+   *  separators. */
+  filePath: string;
+  /** A commit, by anything git reads as one (a hash, `hash^`); never one
+   *  starting with "-", which git would read as an option. */
+  revision: string;
+  /** As `BlameFileOptions.maxBytes`. */
+  maxBytes?: number;
 };
 
 const UTF8_BOM = "\uFEFF";
@@ -187,18 +203,19 @@ export function blameSource(
  */
 export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] | null> {
   const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? BLAME_MAX_BYTES;
   const onDisk = path.join(options.repoPath, options.filePath);
   const diskSize = await fileSize(onDisk);
   // The saved copy is read whole to judge the contents' encoding, so it is
   // held to the same limit either way.
-  if (diskSize !== null && diskSize > BLAME_MAX_BYTES) return null;
+  if (diskSize !== null && diskSize > maxBytes) return null;
   let contents: string | undefined;
   if (options.contents !== undefined) {
     const saved = diskSize === null ? null : await readFileOrNull(onDisk);
     const source = blameSource(options.contents, saved, options.editorIsClean === true);
     if (source === null) return null;
     if (source.from === "contents") {
-      if (Buffer.byteLength(source.text) > BLAME_MAX_BYTES) return null;
+      if (Buffer.byteLength(source.text) > maxBytes) return null;
       // git's own test for binary: a NUL in the first 8000 bytes (buffer_is_binary).
       if (source.text.slice(0, 8000).includes("\0")) return null;
       contents = source.text;
@@ -224,6 +241,38 @@ export async function blameFile(options: BlameFileOptions): Promise<BlameLine[] 
     ["-c", "core.quotePath=false", "blame", "--porcelain", ...contentsArgs, "--", options.filePath],
     contents
   );
+  if (blamed?.kind !== "ok" || blamed.exitCode !== 0) return null;
+  return parseBlamePorcelain(blamed.stdout.toString());
+}
+
+/**
+ * Blame a whole file as `revision` has it (#409): one entry per line, in
+ * order, none of them uncommitted. Resolves null — never rejects — when there
+ * is nothing to show: `revision` starts with "-" (git would read it as an
+ * option), the file is not in it, it is bigger than `maxBytes`, the deadline
+ * passes, the signal aborts, or git fails. Whether the file is text is the
+ * caller's to judge: git blames any blob, line by line.
+ */
+export async function blameFileAtRevision(
+  options: BlameAtRevisionOptions
+): Promise<BlameLine[] | null> {
+  const { revision, filePath } = options;
+  if (readsAsOption(revision)) return null;
+  const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
+  // `<revision>:<path>` names the blob; the path after the first colon is
+  // taken as it is, colons and all.
+  const size = await runWithin(options, deadline, ["cat-file", "-s", `${revision}:${filePath}`]);
+  if (size?.kind !== "ok" || size.exitCode !== 0) return null;
+  if (Number(size.stdout.toString().trim()) > (options.maxBytes ?? BLAME_MAX_BYTES)) return null;
+  const blamed = await runWithin(options, deadline, [
+    "-c",
+    "core.quotePath=false",
+    "blame",
+    "--porcelain",
+    revision,
+    "--",
+    filePath
+  ]);
   if (blamed?.kind !== "ok" || blamed.exitCode !== 0) return null;
   return parseBlamePorcelain(blamed.stdout.toString());
 }

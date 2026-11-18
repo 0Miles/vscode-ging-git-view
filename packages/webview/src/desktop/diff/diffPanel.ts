@@ -4,7 +4,8 @@
  * from its bar and remembered in the page's own storage; closed with its
  * close button or Escape, the keyboard then back where it was before. The
  * same panel shows one file read-only (`ShowFileMessage`, #405), in place of
- * a diff as one diff takes another's: one view over the graph at a time.
+ * a diff as one diff takes another's: one view over the graph at a time. A
+ * file's blame (#409) is toggled from the bar (fileBlame.ts).
  *
  * It does not take the page over: the graph stays where it is under it, and
  * a dialog the graph raises meanwhile shows over it (diffPanelStyles.ts).
@@ -21,7 +22,9 @@ import type {
   ThemeKind
 } from "@ging/webview/desktop/editors";
 
+import type { FileBlameHostMessage, FileBlameOffer, FileBlameRequest } from "./blameProtocol";
 import { DIFF_PANEL_STYLES } from "./diffPanelStyles";
+import { createFileBlameControl } from "./fileBlame";
 import type { DiffHunkRequest, ShowDiffMessage, ShowFileMessage } from "./protocol";
 
 /** Where the layout last chosen is kept: the page's own origin, for this
@@ -37,6 +40,8 @@ export type DiffPanel = {
   /** Show `message`'s file, read-only, in place of any diff or file shown
    *  (#405). Rejects as `show` does. */
   showFile(message: ShowFileMessage): Promise<void>;
+  /** The host's answer about the blame of the file shown (#409). */
+  blame(message: FileBlameHostMessage): void;
   /** Close it, if it is open. */
   close(): void;
 };
@@ -72,7 +77,8 @@ function themeOf(doc: Document): ThemeKind {
 }
 
 /** What the panel shows: a diff's viewer, which has layouts, or a file's. */
-type Shown = FileViewer & Partial<Pick<DiffViewer, "setLayout">>;
+type Shown = Pick<FileViewer, "setTheme" | "focus" | "dispose"> &
+  Partial<Pick<DiffViewer, "setLayout">>;
 
 /** One thing to show in the panel, whichever kind. */
 type Showing = {
@@ -91,21 +97,34 @@ type Showing = {
     now: { layout: DiffLayout; theme: ThemeKind },
     mine: number
   ) => Promise<Shown>;
+  /** A file's blame, when it can be shown beside it (#409); null for a diff. */
+  blame: FileBlameOffer | null;
+  /** Its viewer is the one shown now. */
+  ready?: () => void;
 };
 
 const CLOSE_ICON =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"/></svg>';
 
 export type DiffPanelOptions = {
-  /** Where the layout is remembered; the page's own storage when not given. */
+  /** Where the layout and the blame toggle are remembered; the page's own
+   *  storage when not given. */
   storage?: Storage | null;
   /** Ask the host to stage or unstage a hunk (#406). Without it, no diff
    *  offers any. */
   askHunk?: (request: DiffHunkRequest) => void;
+  /** Ask the host about the blame of a file shown (#409). Without it, no
+   *  file offers its blame. */
+  askBlame?: (request: FileBlameRequest) => void;
 };
 
 export function createDiffPanel(editors: EditorFactory, options: DiffPanelOptions = {}): DiffPanel {
   const storage = options.storage === undefined ? pageStorage() : options.storage;
+  const askBlame = options.askBlame;
+  const blame =
+    askBlame === undefined
+      ? null
+      : createFileBlameControl({ post: askBlame, closePanel: () => closePanel(), storage });
   let parts: ReturnType<typeof build> | null = null;
   let viewer: Shown | null = null;
   let layout = storedLayout(storage);
@@ -152,7 +171,7 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
     close.className = "diffViewerClose";
     close.innerHTML = CLOSE_ICON;
     close.addEventListener("click", () => closePanel());
-    bar.append(title, layouts, close);
+    bar.append(title, layouts, ...(blame?.elements ?? []), close);
 
     const error = document.createElement("p");
     error.className = "diffViewerError";
@@ -274,6 +293,7 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
       (document.activeElement as HTMLElement).blur();
     parts.panel.hidden = true;
     parts.panel.removeAttribute("aria-busy");
+    blame?.showing(null);
     disposeViewer();
     parts.editorArea.replaceChildren();
   }
@@ -289,6 +309,8 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
     // The keyboard out of the last viewer before it is done with, and on the
     // panel until the new one has it.
     p.panel.focus();
+    // No text, no blame: there are no lines to draw it beside.
+    blame?.showing(showing.notShown === null ? showing.blame : null);
     disposeViewer();
     p.title.textContent = showing.title;
     p.title.title = showing.title;
@@ -348,6 +370,7 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
     // first): what was asked for then is not what is shown now.
     if (asked.layout !== layout) made.setLayout?.(layout);
     if (asked.theme !== themeOf(document)) made.setTheme(themeOf(document));
+    showing.ready?.();
     made.focus();
   }
 
@@ -381,20 +404,39 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
             revealLine: message.revealLine,
             ...(hunks !== undefined && { hunks })
           });
-        }
+        },
+        blame: null
       });
     },
-    showFile: (message) =>
-      present({
+    showFile: (message) => {
+      // Its blame is offered only to a panel that can ask the host for it.
+      const offer = blame === null ? null : (message.blame ?? null);
+      let made: FileViewer | null = null;
+      return present({
         title: message.title,
         notShown: message.notShown,
         close: message.strings.close,
         cannotShow: message.strings.cannotShow,
         layouts: null,
         said: null,
-        make: (container, { theme }) =>
-          editors.createFileViewer(container, { document: message.file, theme })
-      }),
+        make: async (container, { theme }) => {
+          made = await editors.createFileViewer(container, {
+            document: message.file,
+            theme,
+            ...(blame !== null &&
+              offer !== null && {
+                blame: { events: blame.events, findInGraph: offer.strings.findInGraph }
+              })
+          });
+          return made;
+        },
+        blame: offer,
+        ready: () => {
+          if (made !== null) blame?.viewerReady(made);
+        }
+      });
+    },
+    blame: (message) => blame?.receive(message),
     close: closePanel
   };
 }

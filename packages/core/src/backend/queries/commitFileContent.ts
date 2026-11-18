@@ -2,6 +2,8 @@ import * as cp from "node:child_process";
 
 import { decode, encodingExists } from "iconv-lite";
 
+import { readsAsOption } from "@ging/core/backend/utils/string";
+
 /** A file's bytes as text in `encoding` (any iconv-lite knows), or in utf8
  *  when it knows no encoding of that name. */
 export function decodeFileBytes(bytes: Buffer, encoding: string): string {
@@ -20,10 +22,8 @@ export const TOO_LARGE = Symbol("too large");
  * With `maxBytes`, a file larger than that is not read to its end:
  * `TOO_LARGE`, and git is stopped.
  *
- * A revision starting with `-` is answered as empty, never run: git would
- * take `-…:path` for an option (`--output=…` writes a file). Refused here
- * rather than with `--end-of-options`, which git only knows from 2.24, so
- * an older git still reads every revision it read before.
+ * A revision git would read as an option (`readsAsOption`) is answered as
+ * empty, never run.
  */
 export function getCommitFileBytes(
   gitPath: string,
@@ -32,7 +32,7 @@ export function getCommitFileBytes(
   filePath: string,
   maxBytes?: number
 ): Promise<Buffer | typeof TOO_LARGE> {
-  if (commit.startsWith("-")) return Promise.resolve(Buffer.alloc(0));
+  if (readsAsOption(commit)) return Promise.resolve(Buffer.alloc(0));
   return new Promise((resolve) => {
     const child = cp.spawn(gitPath, ["show", commit + ":" + filePath], { cwd: repoPath });
     const chunks: Buffer[] = [];

@@ -32,6 +32,7 @@ function mockCommands(): { [K in keyof AppMenuCommands]-?: Mock<(repo?: string) 
     viewReflog: vi.fn(),
     showStatistics: vi.fn(),
     fileHistory: vi.fn(),
+    blameFile: vi.fn(),
     openTerminal: vi.fn(),
     setGitUserDetails: vi.fn(),
     managePullRequestProviders: vi.fn(),
@@ -213,6 +214,12 @@ const ENTRIES: readonly {
     id: MENU_IDS.fileHistory,
     label: "desktop.menu.fileHistory",
     command: "fileHistory",
+    enabledIn: ["graph"]
+  },
+  {
+    id: MENU_IDS.blameFile,
+    label: "desktop.menu.blameFile",
+    command: "blameFile",
     enabledIn: ["graph"]
   },
   {

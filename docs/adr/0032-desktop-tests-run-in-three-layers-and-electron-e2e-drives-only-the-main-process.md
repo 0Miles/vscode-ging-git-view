@@ -202,6 +202,13 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **#407 的 amend E2E 在負載下也撞上同一種 5 秒預設,改用 `AMEND_DRAWN_BUDGET_MS`(20 秒)。** 實測(Windows、CPU 全滿、10 次):按下警告的確認後 1.0–2.9 秒 HEAD 移動,3.8–8.5 秒圖形畫出新的 commit,10 次都有畫出 —— 是重新載入慢,不是重新載入遺失。 #475 審查後再拆:按下確認到畫出之間,頁面只收到一個 `loadCommits` 回答(6 次;畫出在點擊後 1.4–2.4 秒,回答最多早 0.4 秒),沒有重複的重新載入可以合併,時間就是 amend 自己的 git 加一次重新載入。
 - **E2E 改動 repo 之前的 fixture 寫入(stash、改檔)仍在 app 啟動前做**,只是不再需要理由:它們是 fixture 的一部分。
 
+## 補記(2026-11-18,#409)
+
+**blame 的 Electron E2E 兩條在 [fileBlame.spec.ts](../../apps/desktop/e2e/fileBlame.spec.ts),fixture 是測試自己建的兩個 commit(Alice 新增、Bob 改第二行)。** 驗的是只有真的 app 才證明得了的事:Monaco 真的把註記畫在每一行前面(讀 `.view-line` 裡的 `.gingBlameAnnotation`;Monaco 把空白畫成 no-break space,讀之前換回來);hover 是宿主寫好的完整內容(commit 訊息的 body、hunk 的 `+SECOND`),Markdown 的 `command:` 連結真的經 main process 打開這一行的 diff;再次打開檔案時切換鈕記得是開的;鍵盤的 Ctrl+K Ctrl+I 顯示游標那一行的完整 hover,Shift+F10 的 Find Commit in Graph(選單第一項,ArrowDown、Enter 選)與點註記都讓面板關掉、圖形停在那個 commit(CDV 打開或焦點在那一列)。「hover 只在宿主寫好完整 Markdown 時才回答、被取代時回答 null」是 provider 層的事,由 vitest [blameHoverRule.test.ts](../../apps/desktop/tests/blameHoverRule.test.ts) 決定性地驗,E2E 不靠延遲去重現它。另一條從應用程式選單的 `ging.blameFile` 觸發(先讀 `enabled`,再 `click()`),開檔對話框照 #394 的做法換掉,斷言它被問的標題與按鈕、標題寫 working tree,以及還沒 commit 的那一行寫「You • Uncommitted changes」。兩條都斷言 console 沒有 error、log 沒有 `ERROR:`。
+
+- **blame 的語意在 vitest 用真的 git 驗,不在 E2E 重複**:某個 commit 的檔案、`^`、rename 前的檔名、shallow clone 的 boundary、非 UTF-8 檔逐行、特殊字元的路徑、`-` 開頭的 revision、大小上限、abort([atRevision.test.ts](../../packages/core/tests/queries/blameFile/atRevision.test.ts));一次一個檔案、被取代或關掉時回答 null、hover 的內容與連結參數的檢查([fileBlameService.test.ts](../../packages/core/tests/extension/fileBlameService.test.ts));宿主端的訊息往返、選單的 Blame File…、未追蹤的檔案([graphInstance.test.ts](../../apps/desktop/tests/graphInstance.test.ts))。面板的切換、記住、取代與關閉時放掉、過期的回答、點擊與連結在 jsdom 用假的 editors 驗([desktopDiffPanel.test.ts](../../packages/webview/tests/desktopDiffPanel.test.ts))。
+- **它照「本機 E2E 不占用使用者的畫面」補記,經 `launchApp` 啟動 app。** 沒有改 `actions.spec.ts`。
+
 ## 補記(2026-11-18,#401)
 
 **階段 C 的收尾驗收是一條 Electron E2E([phaseC.spec.ts](../../apps/desktop/e2e/phaseC.spec.ts)):一個使用者、一次 app 工作階段，epic #291 C「完成的意思」的每個子句是一個具名的 step。** 各子句自己的 spec 驗得更深，這一條證明它們串得起來;圖形的每一個動作仍由 `actions.spec.ts` 的 walk 驗。

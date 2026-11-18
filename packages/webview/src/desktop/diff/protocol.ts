@@ -9,6 +9,8 @@
 import type { FileHunk, HunkArea } from "@ging/shared/backend/types";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
+import type { FileBlameOffer } from "./blameProtocol";
+
 /** One side of a diff, or the file shown: a file's text, decoded by the host. */
 export type DiffDocument = {
   /** The file's path in its repository, `/`-separated: its name tells the
@@ -112,6 +114,9 @@ export type ShowFileMessage = {
    *  text. The document is then empty. */
   notShown: string | null;
   strings: FileViewerStrings;
+  /** Its blame can be shown beside it (#409); absent when it cannot — no
+   *  text, or the index's copy. */
+  blame?: FileBlameOffer;
 };
 
 /** What the host sends the panel over the graph: a diff, or a file. */
@@ -203,6 +208,11 @@ export function isShowFileMessage(data: unknown): data is ShowFileMessage {
     typeof data.title === "string" &&
     isDiffDocument(data.file) &&
     (data.notShown === null || typeof data.notShown === "string") &&
-    isRecord(data.strings)
+    isRecord(data.strings) &&
+    (data.blame === undefined ||
+      (isRecord(data.blame) &&
+        Number.isSafeInteger(data.blame.file) &&
+        typeof data.blame.show === "boolean" &&
+        isRecord(data.blame.strings)))
   );
 }

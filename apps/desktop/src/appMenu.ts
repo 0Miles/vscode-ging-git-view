@@ -35,6 +35,8 @@ export const MENU_IDS = {
   showStatistics: "ging.showStatistics",
   /** #408's: a file picked, its history shown. */
   fileHistory: "ging.fileHistory",
+  /** #409's: a file picked, the working tree's copy shown blamed. */
+  blameFile: "ging.blameFile",
   setGitUserDetails: "ging.setGitUserDetails",
   openTerminal: "ging.openTerminal",
   viewMenu: "ging.viewMenu",
@@ -66,6 +68,8 @@ export type AppMenuCommands = {
   showStatistics(): void;
   /** A file of the repository picked, its history shown (#408). */
   fileHistory(): void;
+  /** A file of the repository picked, shown blamed (#409). */
+  blameFile(): void;
   /** The system's terminal, in the repository (`Opener.openTerminal`). */
   openTerminal(): void;
   // The app's: asked on the focused Tab's page, or the Welcome page.
@@ -266,6 +270,7 @@ export function appMenuTemplate(
         onGraph(MENU_IDS.viewReflog, "desktop.menu.viewReflog", commands.viewReflog),
         onGraph(MENU_IDS.showStatistics, "desktop.menu.showStatistics", commands.showStatistics),
         onGraph(MENU_IDS.fileHistory, "desktop.menu.fileHistory", commands.fileHistory),
+        onGraph(MENU_IDS.blameFile, "desktop.menu.blameFile", commands.blameFile),
         separator,
         item(
           MENU_IDS.setGitUserDetails,

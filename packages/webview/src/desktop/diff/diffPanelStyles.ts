@@ -11,7 +11,10 @@
  * at its left, does the same in its own variable, and the viewer opens to
  * its right, the list it was opened from still in view. Between the graph's
  * floating layers (300) and the graph's dialog backing (400): a dialog the
- * graph raises meanwhile is still seen, over it. */
+ * graph raises meanwhile is still seen, over it. A file's blame (#409) is
+ * drawn by its viewer in the annotation class the two agree on. */
+
+import { BLAME_ANNOTATION_CLASS } from "@ging/webview/desktop/editors";
 
 export const DIFF_PANEL_STYLES = `
 #diffViewer {
@@ -112,6 +115,25 @@ export const DIFF_PANEL_STYLES = `
 #diffViewer .diffViewerNotice {
   margin: 16px;
   color: var(--vscode-descriptionForeground);
+}
+#diffViewer .diffViewerBlame {
+  flex: none;
+  border-radius: 3px;
+}
+#diffViewer .diffViewerBlame[hidden] {
+  display: none;
+}
+#diffViewer .diffViewerBlameStatus {
+  flex: none;
+  color: var(--vscode-descriptionForeground);
+}
+#diffViewer .diffViewerBlameStatus:empty {
+  display: none;
+}
+#diffViewer .${BLAME_ANNOTATION_CLASS} {
+  color: var(--vscode-descriptionForeground);
+  font-style: normal;
+  cursor: pointer;
 }
 #diffViewer .diffViewerSaid {
   flex: none;

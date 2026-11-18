@@ -5,7 +5,8 @@
  * (#399), the marker, the host prompt overlay (#390), the settings page
  * (#397), the window's own page — the tab strip and the Welcome page (#393) —
  * the working tree panel (#403), the diff viewer (#404), which shows a
- * file read-only too (#405), and the file history panel (#408).
+ * file read-only too (#405) with its blame (#409), and the file history
+ * panel (#408).
  *
  * Importing it only marks the page; `startDesktopEntry` starts what the page
  * shows. The app calls it, handing in what the webview may not import itself:
@@ -16,6 +17,7 @@ import { askInGraphDialog, startGitGraphView } from "@ging/webview/gitGraphView"
 import { formatDate } from "@ging/webview/utils/date";
 import { sendMessage, vscode } from "@ging/webview/utils/vscode";
 
+import { type FileBlameRequest, isFileBlameHostMessage } from "./diff/blameProtocol";
 import { createDiffPanel } from "./diff/diffPanel";
 import { type DiffHunkRequest, isShowDiffMessage, isShowFileMessage } from "./diff/protocol";
 import type { EditorFactory } from "./editors";
@@ -63,16 +65,23 @@ function askHost(request: WorkingTreeShowDiffRequest | DiffHunkRequest) {
 }
 
 /** Show the diffs the host sends (#404) in the diff viewer, and the files it
- *  sends to be read (#405). Like the prompts' listener, this one drops
+ *  sends to be read (#405), with their blame (#409). Like the prompts' listener, this one drops
  *  everything else; the graph's drops these. One that cannot be shown is said
  *  in the viewer, and, uncaught, reaches the graph's error reporter
  *  (ADR-0016). A hunk staged or unstaged in a diff (#406) is the host's to
  *  apply. */
 function listenForDiffs(editors: EditorFactory) {
-  const panel = createDiffPanel(editors, { askHunk: askHost });
+  // A hunk staged or unstaged (#406), and a file's blame (#409), are asked
+  // of the host past the graph's requests.
+  const panel = createDiffPanel(editors, {
+    askHunk: askHost,
+    askBlame: (request: FileBlameRequest) =>
+      vscode.postMessage(request as unknown as RequestMessage)
+  });
   window.addEventListener("message", (event: MessageEvent) => {
     if (isShowDiffMessage(event.data)) void panel.show(event.data);
     else if (isShowFileMessage(event.data)) void panel.showFile(event.data);
+    else if (isFileBlameHostMessage(event.data)) panel.blame(event.data);
   });
 }
 

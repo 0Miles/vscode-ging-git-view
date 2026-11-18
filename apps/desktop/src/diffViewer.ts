@@ -5,7 +5,8 @@
  * diffs through here (ports/opener.ts); anything else of the app that shows
  * a diff of a Tab's repository — the working tree's files (#403), a file's
  * history (#408) — does too. So does one file shown read-only (#405): read,
- * and refused, by the same rules as a diff's side. */
+ * and refused, by the same rules as a diff's side, and offered to be blamed
+ * (#409, fileBlame.ts). */
 
 import path from "node:path";
 
@@ -17,6 +18,7 @@ import {
   readWorkingFile
 } from "@ging/core/extension/fileContents";
 import type { L10n } from "@ging/core/host/ports";
+import type { FileBlameOffer } from "@ging/webview/desktop/diff/blameProtocol";
 import type {
   DiffHunks,
   ShowDiffMessage,
@@ -67,7 +69,17 @@ export type FileRequest = {
   title: string;
   /** The file: at a revision, or the working tree's. */
   file: DiffSource;
+  /** Show its blame at once (#409), whatever the page's toggle was left at. */
+  showBlame?: boolean;
 };
+
+/** What a file shown offers its page to blame it by (#409): null when it
+ *  cannot be blamed. Called for each file shown with text. */
+export type OfferBlame = (
+  file: DiffSource,
+  shownPath: string,
+  show: boolean
+) => FileBlameOffer | null;
 
 /** Show one file, read-only, in the Tab's page (#405). Resolves and rejects
  *  as `ShowDiff` does. */
@@ -207,13 +219,18 @@ export function createShowDiff(deps: ViewerDeps<ShowDiffMessage>): ShowDiff {
   };
 }
 
-export function createShowFile(deps: ViewerDeps<ShowFileMessage>): ShowFile {
+export function createShowFile(
+  deps: ViewerDeps<ShowFileMessage> & { offerBlame?: OfferBlame }
+): ShowFile {
   const { gitPath, fileEncoding, l10n, repoRoot, post } = deps;
 
-  return async ({ title, file }) => {
+  return async ({ title, file, showBlame }) => {
     check(repoRoot(), file);
     const shown = await read(gitPath(), file, fileEncoding());
     const notShown = whyNotShown(l10n, [shown.file], "desktop.file.binary");
+    // Only text has lines to blame.
+    const blame =
+      notShown === null ? (deps.offerBlame?.(file, shown.path, showBlame === true) ?? null) : null;
     return post({
       command: "showFile",
       title,
@@ -225,7 +242,8 @@ export function createShowFile(deps: ViewerDeps<ShowFileMessage>): ShowFile {
       strings: {
         close: l10n.t("desktop.file.close"),
         cannotShow: l10n.t("desktop.file.cannotShow")
-      }
+      },
+      ...(blame !== null && { blame })
     });
   };
 }
