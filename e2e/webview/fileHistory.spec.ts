@@ -112,9 +112,11 @@ test("long subjects and paths are cut short in the column, and the close and Loa
     expect(box.x, selector).toBeGreaterThanOrEqual(column.x);
     expect(box.x + box.width, selector).toBeLessThanOrEqual(column.x + column.width);
   };
-  for (const selector of [".fhTitle", ".fhPath", ".fhClose", ".fhEntry .fhSubject", ".fhMore"]) {
-    await inside(`#fileHistory ${selector}`);
-  }
+  await Promise.all(
+    [".fhTitle", ".fhPath", ".fhClose", ".fhEntry .fhSubject", ".fhMore"].map((selector) =>
+      inside(`#fileHistory ${selector}`)
+    )
+  );
   const subject = page.locator("#fileHistory .fhEntry .fhSubject").first();
   expect(await subject.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 });
