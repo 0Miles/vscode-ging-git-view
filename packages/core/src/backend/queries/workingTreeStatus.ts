@@ -71,7 +71,9 @@ export function parseWorkingTreeStatus(out: string): WorkingTreeStatus {
  * folder, so each can be staged on its own. Read without git's optional lock:
  * a plain `git status` may refresh and write the index, and that write would
  * hold `index.lock` against the user's next stage or commit, and wake the
- * file watcher besides.
+ * file watcher besides. Every git child already gets GIT_OPTIONAL_LOCKS=0
+ * (`gitChildEnv`, #451); the flag stays as belt and braces, so this read keeps
+ * off the lock even run through a client built some other way.
  */
 export async function workingTreeStatus(git: SimpleGit): Promise<WorkingTreeStatus> {
   const [out, operation] = await Promise.all([

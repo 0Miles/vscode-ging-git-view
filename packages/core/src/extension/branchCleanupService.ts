@@ -42,11 +42,16 @@ export type CleanupPayloadWithScannable = {
 };
 
 export function createBranchCleanup(deps: BranchCleanupDeps) {
-  async function build(
+  type Facts = Awaited<ReturnType<BranchFacts["facts"]>>;
+
+  /** The payload `facts` make, with the scan's verdicts if there are any.
+   *  `basis` is the default branch's date when the caller already has it for
+   *  these facts: it depends on the default branch alone. */
+  async function assemble(
     repo: string,
-    opts?: { hard?: boolean; redundant?: ReadonlySet<string> }
+    facts: Facts,
+    opts?: { redundant?: ReadonlySet<string>; basis?: number }
   ): Promise<CleanupPayloadWithScannable> {
-    const facts = await deps.branchFacts.facts(repo, { hard: opts?.hard });
     const resolved = resolveCleanupCandidates({
       branches: facts.branches,
       head: facts.head,
@@ -64,12 +69,21 @@ export function createBranchCleanup(deps: BranchCleanupDeps) {
         defaultBranchDate:
           resolved.defaultBranch === null
             ? 0
-            : await basisDate(deps.gitClientFor(repo), resolved.defaultBranch, deps.dateType()),
+            : (opts?.basis ??
+              (await basisDate(deps.gitClientFor(repo), resolved.defaultBranch, deps.dateType()))),
         remotesHidden: !deps.resolveShowRemote(repo),
         scannable: resolved.scannable.length
       },
       scannable: resolved.scannable
     };
+  }
+
+  async function build(
+    repo: string,
+    opts?: { hard?: boolean; redundant?: ReadonlySet<string> }
+  ): Promise<CleanupPayloadWithScannable> {
+    const facts = await deps.branchFacts.facts(repo, { hard: opts?.hard });
+    return assemble(repo, facts, { redundant: opts?.redundant });
   }
 
   return {
@@ -89,13 +103,21 @@ export function createBranchCleanup(deps: BranchCleanupDeps) {
       repo: string,
       hooks: { isCancelled: () => boolean; onProgress: (done: number, total: number) => void }
     ): Promise<{ payload: BranchCleanupPayload; cancelled: boolean }> {
-      const before = await build(repo);
+      // One read of the facts serves both payloads (#475): read again after
+      // the scan, they come from git a second time whenever the scan outlasts
+      // the facts' TTL, which it does on any repository with a few branches,
+      // and the verdicts were reached against these facts anyway.
+      const facts = await deps.branchFacts.facts(repo);
+      const before = await assemble(repo, facts);
       const scanned = await scanBranchRedundancy(deps.gitClientFor(repo), {
         branches: before.scannable,
         isCancelled: hooks.isCancelled,
         onProgress: hooks.onProgress
       });
-      const after = await build(repo, { redundant: new Set(scanned.redundant) });
+      const after = await assemble(repo, facts, {
+        redundant: new Set(scanned.redundant),
+        basis: before.payload.defaultBranchDate
+      });
       // The scan reports its own basis, and it can come up empty where the facts
       // did not — a default branch whose tree won't resolve, for instance. Left
       // unsaid, that is indistinguishable from "the scan found nothing", so pass
