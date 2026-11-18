@@ -6,6 +6,7 @@ import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { createConflictCommands } from "@ging/core/extension/conflictCommands";
 import { createFetchService } from "@ging/core/extension/fetchService";
+import { createFileHistoryService } from "@ging/core/extension/fileHistoryService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
 import {
   type MessageHandlerDeps,
@@ -29,6 +30,10 @@ import type {
   ResponseMessage
 } from "@ging/shared/types";
 import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
+import {
+  type FileHistoryHostMessage,
+  isFileHistoryRequest
+} from "@ging/webview/desktop/fileHistory/protocol";
 import type { SideViewMessage, SideViewRequest } from "@ging/webview/desktop/sideViews/protocol";
 import {
   isWorkingTreeRequest,
@@ -37,6 +42,7 @@ import {
 } from "@ging/webview/desktop/workingTree/protocol";
 
 import { type AppCommands, createAppCommands } from "./appCommands";
+import { createFileHistory } from "./fileHistory";
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
 import { createSideViews } from "./sideViews";
@@ -60,6 +66,9 @@ type GraphInstanceOptions = {
   /** Hand its page a diff to show (#404), beside the graph's own messages
    *  (ADR-0031); false when the page is gone. */
   postDiff: (message: ShowDiffMessage) => boolean;
+  /** A file of `repo`, picked in the system's dialog opened on it; null when
+   *  none was: the application menu's File History… (#408). */
+  pickFile: (repo: string) => Promise<string | null>;
 };
 
 export type GraphInstance = {
@@ -99,6 +108,8 @@ export type InstanceCommands = AppCommands & {
   /** The system's terminal in the repository, named after its folder as the
    *  graph's own Terminal button names it. */
   openTerminal(): void;
+  /** A file picked, its history shown in the page (#408). */
+  fileHistory(): Promise<void>;
 };
 
 export function createGraphInstance(
@@ -110,7 +121,8 @@ export function createGraphInstance(
     postSideView,
     extensionState,
     revealSetting,
-    postDiff
+    postDiff,
+    pickFile
   }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
@@ -128,6 +140,7 @@ export function createGraphInstance(
     onDidReceiveMessage: (listener) =>
       page.onDidReceiveMessage((message) => {
         if (isWorkingTreeRequest(message)) return answerPanel(message);
+        if (isFileHistoryRequest(message)) return fileHistory.receive(message);
         if (message.command === "markResolved") return markResolvedAsked(message, listener);
         if (message.command === "selectRepo" && message.repo !== repo) {
           if (message.repo) {
@@ -189,6 +202,20 @@ export function createGraphInstance(
     repo: () => current,
     signCommits: () => config.signCommits(),
     runRepoMutation
+  });
+  // A file's history (#408): only read, so no mutation and no refresh.
+  const fileHistory = createFileHistory({
+    // Its own git, read as a stream: none of the client's process slots held
+    // while the panel is open.
+    service: createFileHistoryService({ gitPath: shared.gitPath, repo: () => current }),
+    repo: () => current,
+    showDiff: (request) => showDiff(request),
+    post: (message: FileHistoryHostMessage) =>
+      void page.postMessage(message as unknown as ResponseMessage),
+    pickFile,
+    prompts,
+    l10n,
+    logger
   });
   // A conflict's (#410): the user's merge tool, for the panel and for the
   // graph's own conflict banner (`Opener.openMergeEditor`), and the question
@@ -405,12 +432,14 @@ export function createGraphInstance(
       openTerminal: () => {
         const name = current.split("/").findLast((s) => s !== "") ?? current;
         opener.openTerminal(current, `GING: ${name}`);
-      }
+      },
+      fileHistory: () => fileHistory.pickAndShow()
     },
     sideView: (message) => sideViews.receive(message),
     showWorkingTree: () => postToPanel({ command: "workingTreeShow" }),
     dispose: () => {
       sideViews.dispose();
+      fileHistory.dispose();
       dispatch.dispose();
       reposChanged.dispose();
       fetchService.dispose();

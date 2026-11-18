@@ -9,6 +9,7 @@ import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
+import type { FileHistoryRequest } from "@ging/webview/desktop/fileHistory/protocol";
 import type { SideViewStateMessage } from "@ging/webview/desktop/sideViews/protocol";
 import type { WorkingTreeRequest } from "@ging/webview/desktop/workingTree/protocol";
 
@@ -86,7 +87,7 @@ function setUp() {
 
   /** An instance on `repo`, as the main process opens one; `asked` is what its
    *  own prompts were asked. */
-  const open = (repo: string) => {
+  const open = (repo: string, picked: (root: string) => string | null = () => null) => {
     const page = fakeWebview();
     const { ports, answers, calls } = fakePorts();
     shared.repoSource.addRepo(repo);
@@ -107,7 +108,8 @@ function setUp() {
       postDiff: (message) => {
         diffs.push(message);
         return true;
-      }
+      },
+      pickFile: async (root) => picked(root)
     });
     instances.push(instance);
     return { instance, answers, state, asked: calls, diffs, sideViews, ...page };
@@ -124,6 +126,17 @@ function goneFolder(): string {
 
 const sentOf = (posted: ResponseMessage[], command: ResponseMessage["command"]) =>
   posted.filter((msg) => msg.command === command);
+
+/** The file histories handed to the page (#408): past the graph's types. */
+const histories = (posted: ResponseMessage[]) =>
+  posted.filter((msg) => (msg.command as string) === "fileHistory") as unknown as {
+    path: string;
+    start: string | null;
+    entries: { subject: string; path: string; oldPath: string; hash: string }[];
+    first: boolean;
+    more: boolean;
+    error: string | null;
+  }[];
 
 describe("a graph instance", () => {
   it("boots its page on its own repository, whichever was opened last", () => {
@@ -363,6 +376,164 @@ describe("a graph instance", () => {
       })
     ]);
     expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  describe("a file's history (#408)", () => {
+    const BEFORE = "one\ntwo\nthree\nfour\n";
+    const AFTER = BEFORE + "five\n";
+    /** `repo` with "old.txt" committed, changed, then renamed "new.txt". */
+    function renamed(repo: string) {
+      fs.writeFileSync(path.join(repo, "old.txt"), BEFORE);
+      git(["add", "old.txt"], repo);
+      git(["commit", "-qm", "add old"], repo);
+      fs.writeFileSync(path.join(repo, "old.txt"), AFTER);
+      git(["commit", "-qam", "change old"], repo);
+      git(["mv", "old.txt", "new.txt"], repo);
+      git(["commit", "-qm", "rename to new"], repo);
+    }
+
+    it("reads its panel's history past the dispatch, each entry under the path the file had there", async () => {
+      const { repos, open, logged } = setUp();
+      const page = open(repos[0]);
+      renamed(repos[0]);
+      const fromPanel = (request: FileHistoryRequest) =>
+        page.receive(request as unknown as RequestMessage);
+
+      await fromPanel({ command: "fileHistoryReady" });
+      await fromPanel({ command: "fileHistoryOpen", request: 1, path: "new.txt", start: null });
+
+      expect(page.posted[0]).toEqual({
+        command: "fileHistoryStrings",
+        strings: expect.objectContaining({ menuItem: "View File History" })
+      });
+      const [history] = histories(page.posted);
+      expect(history).toMatchObject({
+        path: "new.txt",
+        start: rev(repos[0], "HEAD"),
+        request: 1,
+        first: true,
+        more: false
+      });
+      expect(
+        history.entries.map(({ subject, path: at, oldPath }) => [subject, at, oldPath])
+      ).toEqual([
+        ["rename to new", "new.txt", "old.txt"],
+        ["change old", "old.txt", "old.txt"],
+        ["add old", "old.txt", "old.txt"]
+      ]);
+      // Only read: the graph is not refreshed, nothing asked.
+      expect(sentOf(page.posted, "refresh")).toEqual([]);
+      expect(page.asked).toEqual([]);
+      expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+    });
+
+    it("opens an entry from before the rename as the old path's diff, in its own page", async () => {
+      const { repos, open, logged } = setUp();
+      const page = open(repos[0]);
+      renamed(repos[0]);
+      const changed = rev(repos[0], "HEAD~1");
+
+      await page.receive({
+        command: "fileHistoryDiff",
+        entry: { hash: changed, change: "M", path: "old.txt", oldPath: "old.txt", submodule: null }
+      } as unknown as RequestMessage);
+
+      expect(page.diffs).toEqual([
+        expect.objectContaining({
+          title: `old.txt (${changed.slice(0, 8)}^ ↔ ${changed.slice(0, 8)})`,
+          original: { path: "old.txt", content: BEFORE },
+          modified: { path: "old.txt", content: AFTER }
+        })
+      ]);
+      expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+    });
+
+    it("refuses an entry whose commit is not a hash, reading nothing", async () => {
+      const { repos, open, logged } = setUp();
+      const page = open(repos[0]);
+
+      await page.receive({
+        command: "fileHistoryDiff",
+        entry: { hash: "--output=x", change: "M", path: "f", oldPath: "f", submodule: null }
+      } as unknown as RequestMessage);
+
+      expect(page.diffs).toEqual([]);
+      expect(logged.filter((line) => line.startsWith("ERROR"))).toHaveLength(1);
+    });
+
+    it("shows the history of the file the menu's File History… picked, from HEAD", async () => {
+      const { repos, open } = setUp();
+      const asked: string[] = [];
+      const page = open(repos[0], (root) => {
+        asked.push(root);
+        return path.join(repos[0], "new.txt");
+      });
+      renamed(repos[0]);
+
+      await page.instance.commands.fileHistory();
+
+      expect(asked).toEqual([repos[0]]);
+      expect(histories(page.posted)).toEqual([
+        expect.objectContaining({ path: "new.txt", start: rev(repos[0], "HEAD"), error: null })
+      ]);
+    });
+
+    it("says so in its own window when the file picked is not in its repository", async () => {
+      const { repos, open } = setUp();
+      const outside = path.join(repos[1], "f");
+      const page = open(repos[0], () => outside);
+
+      await page.instance.commands.fileHistory();
+
+      expect(histories(page.posted)).toEqual([]);
+      expect(page.asked).toEqual([["showError", `${outside} is not in this repository.`]]);
+    });
+
+    it("says so in its own window when the file picked is one git does not track", async () => {
+      const { repos, open } = setUp();
+      fs.writeFileSync(path.join(repos[0], "scratch.txt"), "never added");
+      const page = open(repos[0], () => path.join(repos[0], "scratch.txt"));
+
+      await page.instance.commands.fileHistory();
+
+      expect(histories(page.posted)).toEqual([]);
+      expect(page.asked).toEqual([
+        [
+          "showInformation",
+          "scratch.txt is not tracked by Git (untracked or ignored): it has no history."
+        ]
+      ]);
+    });
+
+    it("answers its panel's later pages of the history open, and none once it is closed", async () => {
+      const { repos, open } = setUp();
+      const page = open(repos[0]);
+      renamed(repos[0]);
+      const fromPanel = (request: FileHistoryRequest) =>
+        page.receive(request as unknown as RequestMessage);
+
+      await fromPanel({ command: "fileHistoryOpen", request: 1, path: "new.txt", start: null });
+      await fromPanel({ command: "fileHistoryMore", request: 1 });
+      // A page of a history not open is nobody's.
+      await fromPanel({ command: "fileHistoryMore", request: 7 });
+      await fromPanel({ command: "fileHistoryClose" });
+      await fromPanel({ command: "fileHistoryMore", request: 1 });
+
+      expect(histories(page.posted).map(({ first, more }) => ({ first, more }))).toEqual([
+        { first: true, more: false },
+        { first: false, more: false }
+      ]);
+    });
+
+    it("does nothing when no file is picked", async () => {
+      const { repos, open } = setUp();
+      const page = open(repos[0]);
+
+      await page.instance.commands.fileHistory();
+
+      expect(page.posted).toEqual([]);
+      expect(page.asked).toEqual([]);
+    });
   });
 
   it("opens its working tree panel for the graph's Open Source Control View, and nothing else", async () => {
