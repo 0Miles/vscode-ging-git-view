@@ -11,6 +11,7 @@ import {
   applyOrPopActions,
   copyStashName,
   dropListedStash,
+  LISTED_STASH_ACTIONS,
   type ListedStashHost,
   loadStashFiles,
   loadStashList,
@@ -541,6 +542,82 @@ describe("applyOrPopListedStash's report for a stash no longer listed", () => {
 
     expect(await applyOrPopListedStash(host, shown, "apply")).toBe("conflicted");
     expect(calls.slice(1)).toEqual([["showWarning", "stashApply.conflictedUnlisted"], ["refresh"]]);
+  });
+});
+
+/** `host` with a `mutate` that logs where it starts and ends. */
+function mutating(host: ListedStashHost, calls: unknown[][]) {
+  host.mutate = async (work) => {
+    calls.push(["mutate:start"]);
+    try {
+      await work();
+    } finally {
+      calls.push(["mutate:end"]);
+    }
+  };
+}
+
+describe("LISTED_STASH_ACTIONS inside the host's mutation (#400)", () => {
+  let repo: string;
+
+  afterEach(() => {
+    if (repo) rmrf(repo);
+  });
+
+  const stashCount = () =>
+    cp.execFileSync("git", ["stash", "list"], { cwd: repo }).toString().trim().split("\n").length;
+
+  it("runs the agreed git inside the mutation, the question before it outside, the re-read after", async () => {
+    repo = makeRepo();
+    pushTwoStashes(repo);
+    const [top] = await loadStashList(simpleGit(repo));
+    const { host, calls, answers } = hostOn(simpleGit(repo));
+    mutating(host, calls);
+    answers.choose = "dialog.stash.pop";
+
+    expect(await LISTED_STASH_ACTIONS.pop(host, top)).toBe("done");
+
+    expect(calls.map(([kind]) => kind)).toEqual([
+      "choose",
+      "mutate:start",
+      "mutate:end",
+      "refresh"
+    ]);
+    expect(stashCount()).toBe(1);
+  });
+
+  it("enters no mutation when the question is dismissed", async () => {
+    repo = makeRepo();
+    pushTwoStashes(repo);
+    const [top] = await loadStashList(simpleGit(repo));
+    const { host, calls, answers } = hostOn(simpleGit(repo));
+    mutating(host, calls);
+    answers.choose = undefined;
+
+    expect(await LISTED_STASH_ACTIONS.drop(host, top)).toBe("cancelled");
+
+    expect(calls.map(([kind]) => kind)).toEqual(["choose"]);
+    expect(stashCount()).toBe(2);
+  });
+
+  it("refuses a stash that moved from inside the mutation, as without one", async () => {
+    repo = makeRepo();
+    pushTwoStashes(repo);
+    const [top] = await loadStashList(simpleGit(repo));
+    git(["stash", "drop", "stash@{0}"], repo);
+    const { host, calls, answers } = hostOn(simpleGit(repo));
+    mutating(host, calls);
+    answers.choose = "dialog.stash.apply";
+
+    expect(await LISTED_STASH_ACTIONS.apply(host, top)).toBe("refused");
+
+    expect(calls.map(([kind]) => kind)).toEqual([
+      "choose",
+      "mutate:start",
+      "mutate:end",
+      "showWarning",
+      "refresh"
+    ]);
   });
 });
 

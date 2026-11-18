@@ -1,6 +1,7 @@
 /* The desktop `Watcher` (`@ging/core/host/ports`): the current repository's
  * folder watched with Node's own recursive `fs.watch`, filtered and debounced
- * as the VS Code host's RepoFileWatcher does. */
+ * as the VS Code host's RepoFileWatcher does; and the one non-recursive
+ * watch the Stash side view needs of it (`watchOneOnDisk`). */
 
 import * as fs from "node:fs";
 
@@ -9,6 +10,7 @@ import {
   REPO_CHANGE_DEBOUNCE_MS,
   REPO_RESUME_GRACE_MS
 } from "@ging/core/backend/utils/repoWatchPaths";
+import type { WatchOne } from "@ging/core/extension/stashWatch";
 import type { Watcher } from "@ging/core/host/ports";
 
 export type DesktopWatcherOptions = {
@@ -25,6 +27,32 @@ export type DesktopWatcher = Watcher & {
   /** Watch nothing, and drop a refresh still waiting out the debounce. */
   stop(): void;
 };
+
+/**
+ * Core's `WatchOne`, on disk: the name `target.glob` directly inside
+ * `target.base`, watched without recursion — what the Stash side view's watch
+ * hangs on (`createStashViewWatch`, #400). An event that names no file is
+ * taken as one for it: Node leaves the name out where the platform does not
+ * say. A folder that cannot be watched, or stops being watchable, is told to
+ * `onError` and watched no longer.
+ */
+export function watchOneOnDisk(onError: (message: string) => void): WatchOne {
+  return ({ base, glob }, onEvent) => {
+    try {
+      const watcher = fs.watch(base, (_event, file) => {
+        if (file === null || file === glob) onEvent();
+      });
+      watcher.on("error", (e) => {
+        onError(`Stopped watching ${glob} in ${base}: ${String(e)}`);
+        watcher.close();
+      });
+      return { dispose: () => watcher.close() };
+    } catch (e) {
+      onError(`Cannot watch ${glob} in ${base}: ${String(e)}`);
+      return { dispose: () => {} };
+    }
+  };
+}
 
 /** `onRepoChange` is the graph refresh: called once the watched repository
  *  has changed and gone quiet again, never for a change made while muted. */

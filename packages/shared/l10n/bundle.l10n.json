@@ -601,6 +601,8 @@
   "desktop.sideView.renameRemote": "Rename Remote…",
   "desktop.sideView.removeRemote": "Remove Remote…",
   "desktop.sideView.copyUrl": "Copy Remote URL",
+  "desktop.sideView.stashes": "Stashes",
+  "desktop.sideView.noStashes": "This repository has no stashes.",
   "branchView.current": "current",
   "branchView.mergedInto": "Merged into {0}",
   "branchView.age.day": "{0}d",

@@ -1,5 +1,6 @@
 /* The desktop host's Branches and Remotes side views (#399): VS Code's two
- * TreeViews, drawn in the Tab's own page beside its graph. What is listed, and
+ * TreeViews, drawn in the Tab's own page beside its graph, with the Stash
+ * view under them (stashView.ts, #400). What is listed, and
  * how each branch is marked, the host reads through core (`branchSideView`),
  * as VS Code's side view does; this module only draws it and answers the
  * user's gestures.
@@ -45,12 +46,15 @@ import {
   singleBranchMenu
 } from "./branchMenu";
 import {
+  isSideViewStashFilesMessage,
   isSideViewStateMessage,
   type SideViewRemoteAction,
   type SideViewRequest,
   type SideViewStateMessage
 } from "./protocol";
+import { createStashView } from "./stashView";
 import { SIDE_VIEW_STYLES } from "./styles";
+import { keyboardMenuEvent, redrawTree, rowKeyed, rowOf, treeKeys } from "./tree";
 
 /** How long the tree waits after a click before it writes the filter, so a
  *  run of Ctrl/Cmd-clicks reloads the graph once: VS Code's side view waits as
@@ -81,22 +85,6 @@ type BranchRow = { node: BranchTreeNode; key: string; depth: number; parent: str
 
 const leafKey = (ref: string) => "leaf:" + ref;
 
-/** The row of `body` keyed `key`. Compared, not put in a selector: a key holds
- *  a branch name, which may hold anything a selector would read as syntax. */
-const rowKeyed = (body: HTMLElement, key: string | null): HTMLElement | null =>
-  key === null
-    ? null
-    : (Array.from(body.querySelectorAll<HTMLElement>("[data-key]")).find(
-        (row) => row.dataset.key === key
-      ) ?? null);
-
-const rowOf = (target: EventTarget | null) =>
-  target instanceof Element ? target.closest<HTMLElement>(".sideViewRow") : null;
-
-/** A menu raised from the keyboard: no pointer, so the graph's menu hangs it
- *  off the row, as it does its own (`menuAnchorPoint`). */
-const keyboardMenuEvent = () => new Event("contextmenu");
-
 /** Set the heading of a side view. */
 function setTitle(view: HTMLElement, text: string) {
   view.querySelector<HTMLElement>(".sideViewTitleText")!.textContent = text;
@@ -105,19 +93,6 @@ function setTitle(view: HTMLElement, text: string) {
 /** Whether a node starts expanded: the Remote / Local headings do, folders do
  *  not, as in VS Code's side view. */
 const expandedByDefault = (node: BranchTreeNode) => node.type === "group";
-
-/** Keys a browser's tree takes, and what they do here. */
-const TREE_KEYS = new Set([
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-  "Home",
-  "End",
-  "Enter",
-  " ",
-  "ContextMenu"
-]);
 
 /** Start the side views in this page, beside `graph`. Once per page. */
 export function startSideViews(graph: GraphInPage): void {
@@ -128,7 +103,9 @@ export function startSideViews(graph: GraphInPage): void {
   const aside = document.createElement("aside");
   aside.id = "sideViews";
   aside.innerHTML =
-    sectionHtml("branchesView", true) + sectionHtml("remotesView", false /* VS Code's too */);
+    sectionHtml("branchesView", true) +
+    sectionHtml("remotesView", false /* VS Code's too */) +
+    sectionHtml("stashView", true);
   // First in the page, so Tab reaches it before the graph, as it sits.
   document.body.insertBefore(aside, document.body.firstChild);
   document.body.classList.add("gingSideViews");
@@ -137,6 +114,11 @@ export function startSideViews(graph: GraphInPage): void {
   const remotesView = aside.querySelector<HTMLElement>("#remotesView")!;
   const branchesBody = branchesView.querySelector<HTMLElement>(".sideViewBody")!;
   const remotesBody = remotesView.querySelector<HTMLElement>(".sideViewBody")!;
+  const stashView = aside.querySelector<HTMLElement>("#stashView")!;
+  const stashes = createStashView(stashView, {
+    post,
+    showContextMenu: (e, items, source) => graph.showContextMenu(e, items, source)
+  });
 
   let state: SideViewStateMessage | null = null;
   /** The highlighted branches: the filter the host last said, or the one a
@@ -227,16 +209,6 @@ export function startSideViews(graph: GraphInPage): void {
     }${node.isMerged ? '<span class="sideViewBadge">✓</span>' : ""}</div>`;
   };
 
-  /** Draw, keeping the keyboard where it was when it was in the tree. */
-  const redraw = (body: HTMLElement, html: string, focused: string | null) => {
-    const hadFocus = body.contains(document.activeElement);
-    body.innerHTML = html;
-    if (!hadFocus || focused === null) return;
-    (rowKeyed(body, focused) ?? body.querySelector<HTMLElement>('[role="treeitem"]'))?.focus({
-      preventScroll: true
-    });
-  };
-
   const renderBranches = () => {
     const strings = state?.strings;
     const branches = state?.branches ?? null;
@@ -256,7 +228,7 @@ export function startSideViews(graph: GraphInPage): void {
         branchRows[0]
       ).key;
     }
-    redraw(
+    redrawTree(
       branchesBody,
       branchRows.map((row) => rowHtml(row, row.key === focusKey)).join(""),
       focusKey
@@ -277,7 +249,7 @@ export function startSideViews(graph: GraphInPage): void {
     if (remoteFocus === null || !remotes.some((r) => "remote:" + r.name === remoteFocus)) {
       remoteFocus = "remote:" + remotes[0].name;
     }
-    redraw(
+    redrawTree(
       remotesBody,
       remotes
         .map((remote) => {
@@ -299,6 +271,7 @@ export function startSideViews(graph: GraphInPage): void {
     headerWords = JSON.stringify(strings);
     setTitle(branchesView, strings.branches);
     setTitle(remotesView, strings.remotes);
+    setTitle(stashView, strings.stashes);
     const actions = (view: HTMLElement, buttons: [string, string, string][]) => {
       view.querySelector<HTMLElement>(".sideViewActions")!.innerHTML = buttons
         .map(
@@ -316,12 +289,14 @@ export function startSideViews(graph: GraphInPage): void {
       ["refresh", svgIcons.refresh, strings.refresh],
       ["more", svgIcons.chevronDown, strings.more]
     ]);
+    actions(stashView, [["refresh", svgIcons.refresh, strings.refresh]]);
   };
 
   const render = () => {
     renderHeaders();
     renderBranches();
     renderRemotes();
+    if (state !== null) stashes.update(state);
   };
 
   // --- The branch filter -------------------------------------------------
@@ -531,68 +506,53 @@ export function startSideViews(graph: GraphInPage): void {
     graph.showContextMenu(e, remoteMenu(row.dataset.remote), row);
   });
 
-  /** A tree's keys, on the tree: they are not the graph's to move its rows by. */
-  const treeKeys = (body: HTMLElement, onRow: (row: HTMLElement, e: KeyboardEvent) => boolean) => {
-    body.addEventListener("keydown", (e) => {
-      const isMenuKey = e.key === "ContextMenu" || (e.shiftKey && e.key === "F10");
-      if (!TREE_KEYS.has(e.key) && !isMenuKey) return;
-      const row = rowOf(document.activeElement);
-      if (row === null || !body.contains(row)) return;
-      const rows = Array.from(body.querySelectorAll<HTMLElement>(".sideViewRow"));
-      const at = rows.indexOf(row);
-      let next: HTMLElement | null = null;
-      if (e.key === "ArrowUp") next = rows[at - 1] ?? null;
-      else if (e.key === "ArrowDown") next = rows[at + 1] ?? null;
-      else if (e.key === "Home") next = rows[0] ?? null;
-      else if (e.key === "End") next = rows[rows.length - 1] ?? null;
-      else if (!onRow(row, e)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (next === null) return;
-      row.tabIndex = -1;
-      next.tabIndex = 0;
-      next.focus();
-      if (typeof next.scrollIntoView === "function") next.scrollIntoView({ block: "nearest" });
-      if (body === branchesBody) focusKey = next.dataset.key!;
-      else remoteFocus = next.dataset.key!;
-    });
-  };
-
-  treeKeys(branchesBody, (row, e) => {
-    const key = row.dataset.key!;
-    const branchRow = branchRows.find((r) => r.key === key);
-    if (branchRow === undefined) return false;
-    if (e.key === "Enter" || e.key === " ") {
-      activateBranchRow(row, e.ctrlKey || e.metaKey);
+  treeKeys(
+    branchesBody,
+    (row, e) => {
+      const key = row.dataset.key!;
+      const branchRow = branchRows.find((r) => r.key === key);
+      if (branchRow === undefined) return false;
+      if (e.key === "Enter" || e.key === " ") {
+        activateBranchRow(row, e.ctrlKey || e.metaKey);
+        return true;
+      }
+      if (e.key === "ContextMenu" || e.key === "F10") {
+        if (row.dataset.ref === undefined) return false;
+        openBranchMenu(keyboardMenuEvent(), row);
+        return true;
+      }
+      if (branchRow.node.type === "leaf") {
+        // Left from a leaf goes up to its folder, as in any tree.
+        if (e.key !== "ArrowLeft" || branchRow.parent === null) return false;
+        focusKey = branchRow.parent;
+        renderBranchesFocused();
+        return true;
+      }
+      const open = isExpanded(branchRow);
+      if (e.key === "ArrowRight" && !open) toggleExpanded(key);
+      else if (e.key === "ArrowLeft" && open) toggleExpanded(key);
+      else if (e.key === "ArrowLeft" && branchRow.parent !== null) {
+        focusKey = branchRow.parent;
+        renderBranchesFocused();
+      } else return false;
       return true;
+    },
+    (next) => {
+      focusKey = next.dataset.key!;
     }
-    if (e.key === "ContextMenu" || e.key === "F10") {
-      if (row.dataset.ref === undefined) return false;
-      openBranchMenu(keyboardMenuEvent(), row);
+  );
+  treeKeys(
+    remotesBody,
+    (row, e) => {
+      if (e.key !== "ContextMenu" && e.key !== "F10") return false;
+      if (row.dataset.remote === undefined || state === null) return false;
+      graph.showContextMenu(keyboardMenuEvent(), remoteMenu(row.dataset.remote), row);
       return true;
+    },
+    (next) => {
+      remoteFocus = next.dataset.key!;
     }
-    if (branchRow.node.type === "leaf") {
-      // Left from a leaf goes up to its folder, as in any tree.
-      if (e.key !== "ArrowLeft" || branchRow.parent === null) return false;
-      focusKey = branchRow.parent;
-      renderBranchesFocused();
-      return true;
-    }
-    const open = isExpanded(branchRow);
-    if (e.key === "ArrowRight" && !open) toggleExpanded(key);
-    else if (e.key === "ArrowLeft" && open) toggleExpanded(key);
-    else if (e.key === "ArrowLeft" && branchRow.parent !== null) {
-      focusKey = branchRow.parent;
-      renderBranchesFocused();
-    } else return false;
-    return true;
-  });
-  treeKeys(remotesBody, (row, e) => {
-    if (e.key !== "ContextMenu" && e.key !== "F10") return false;
-    if (row.dataset.remote === undefined || state === null) return false;
-    graph.showContextMenu(keyboardMenuEvent(), remoteMenu(row.dataset.remote), row);
-    return true;
-  });
+  );
 
   /** Draw, with the keyboard on `focusKey` whether or not it was in the tree. */
   const renderBranchesFocused = () => {
@@ -602,7 +562,8 @@ export function startSideViews(graph: GraphInPage): void {
 
   for (const [view, name] of [
     [branchesView, "branches"],
-    [remotesView, "remotes"]
+    [remotesView, "remotes"],
+    [stashView, "stashes"]
   ] as const) {
     view.querySelector(".sideViewTitle")!.addEventListener("click", () => {
       const open = view.classList.toggle("open");
@@ -620,13 +581,18 @@ export function startSideViews(graph: GraphInPage): void {
           post({ command: "sideViewRefresh" });
           break;
         case "more":
-          graph.showContextMenu(e, moreMenu(name), button);
+          // The Stash view has no More Actions, as VS Code's has none.
+          if (name !== "stashes") graph.showContextMenu(e, moreMenu(name), button);
           break;
       }
     });
   }
 
   window.addEventListener("message", (event: MessageEvent) => {
+    if (isSideViewStashFilesMessage(event.data)) {
+      stashes.receiveFiles(event.data);
+      return;
+    }
     if (!isSideViewStateMessage(event.data)) return;
     state = event.data;
     // A write still waiting, or one the host had not taken when it read this
