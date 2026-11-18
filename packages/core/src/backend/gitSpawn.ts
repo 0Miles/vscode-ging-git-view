@@ -266,7 +266,9 @@ export type GitStream = {
    *  more, until `resume`. Paused from the start. */
   pause(): void;
   resume(): void;
-  /** Kill it (best-effort, see `killTree`); a no-op once it has ended. */
+  /** Stop it: its stdout closed, unread, and the child killed (best-effort,
+   *  see `killTree`; a no-op on a child that has exited). `ended` settles
+   *  after, whatever was left in the pipe. */
   kill(): void;
   /** Settles once it has ended — stdout read to its end, or killed: the exit
    *  code (null when killed by a signal) and all of stderr, or why it never
@@ -308,7 +310,17 @@ export function streamGit(
     onData: (listener) => child.stdout.on("data", listener),
     pause: () => child.stdout.pause(),
     resume: () => child.stdout.resume(),
-    kill: () => killTree(child),
+    kill: () => {
+      // Stop reading too, for good. A child's `close` waits for its stdout to
+      // close. Node resumes it when the child exits, but a reader that pauses
+      // on every piece — the file history's, once it has a page — pauses it
+      // again, and what git wrote before it died is never read to its end:
+      // `ended` never settles and the pipe stays open (#484, ADR-0028).
+      // Dropping the read end also ends a git still writing, should the kill
+      // miss it.
+      child.stdout.destroy();
+      killTree(child);
+    },
     ended
   };
 }

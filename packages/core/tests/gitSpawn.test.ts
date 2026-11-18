@@ -6,7 +6,7 @@ import * as path from "node:path";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { spawnGit } from "@ging/core/backend/gitSpawn";
+import { spawnGit, streamGit } from "@ging/core/backend/gitSpawn";
 
 import { makeRepo, rmrf } from "@ging/core/tests/helpers";
 
@@ -42,6 +42,75 @@ async function expectTreeGone(dir: string, startedAt: number, sleepSeconds: numb
   await new Promise((r) => setTimeout(r, Math.max(0, sleepEnded + 1000 - Date.now())));
   expect(fs.existsSync(path.join(dir, "survived"))).toBe(false);
 }
+
+// A paused stream that is killed must still end (#484): a child's `close`
+// waits for its stdout to close. Node resumes a child's stdout when the child
+// exits, but a reader that pauses on every piece it is handed — as the file
+// history's does once it has a page — pauses it again at the next piece, and
+// the rest of what git wrote before it died is never read to its end. The
+// first case is that one, every time: git killed on a full pipe, which the old
+// `kill` left hanging (its `ended` never settled). The second kills at once,
+// git exited or not by then, and must end either way. Neither waits for
+// anything but `ended`.
+describe("streamGit (real git)", () => {
+  let repo: string;
+  /** A blob far larger than any pipe's buffer: git writing it blocks on a
+   *  reader that has paused. */
+  let big: string;
+  beforeAll(async () => {
+    repo = makeRepo();
+    const written = await spawnGit({
+      gitPath: "git",
+      cwd: repo,
+      args: ["hash-object", "-w", "--stdin"],
+      stdin: "x".repeat(4 * 1024 * 1024)
+    });
+    big = written.kind === "ok" ? written.stdout.toString().trim() : "";
+  });
+  afterAll(() => {
+    rmrf(repo);
+  });
+
+  it("ends once killed while git waits on the full pipe of a paused reader", async () => {
+    const stream = streamGit({ gitPath: "git", cwd: repo, args: ["cat-file", "-p", big] });
+    let read = 0;
+    const first = new Promise<void>((resolve) =>
+      stream.onData((chunk) => {
+        read += chunk.length;
+        stream.pause();
+        resolve();
+      })
+    );
+    stream.resume();
+    await first;
+
+    stream.kill();
+
+    const how = await stream.ended;
+    expect("error" in how).toBe(false);
+    expect(read).toBeLessThan(4 * 1024 * 1024);
+  });
+
+  it("ends once killed before a byte of it was read, whether git had exited or not", async () => {
+    const stream = streamGit({ gitPath: "git", cwd: repo, args: ["rev-parse", "HEAD"] });
+    // A reader listens, and pauses on what it is handed, as the file history's does.
+    stream.onData(() => stream.pause());
+
+    stream.kill();
+
+    expect("error" in (await stream.ended)).toBe(false);
+  });
+
+  it("reads to the end and ends on its own when resumed", async () => {
+    const stream = streamGit({ gitPath: "git", cwd: repo, args: ["cat-file", "-p", big] });
+    let read = 0;
+    stream.onData((chunk) => (read += chunk.length));
+    stream.resume();
+
+    expect(await stream.ended).toEqual({ exitCode: 0, stderr: "" });
+    expect(read).toBe(4 * 1024 * 1024);
+  });
+});
 
 describe("spawnGit (real git)", () => {
   let repo: string;
