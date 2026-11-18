@@ -11,10 +11,12 @@ async function isDirectory(path: string): Promise<boolean> {
     .catch(() => false);
 }
 
-/** Whether `dir` is its own git repository root — i.e. it has a `.git` entry
- *  (a directory for a normal clone, or a gitlink file for a submodule). This is
- *  stricter than `isGitRepository`, which is also true for any subfolder of a
- *  repository. */
+/** Whether `dir` has a `.git` entry (a directory for a normal clone, or a
+ *  gitlink file for a submodule) — one stat, no spawn. It decides which
+ *  initialised submodules to keep, and which folders below a search's start are
+ *  worth asking git about. It does not prove a repository (git may not
+ *  recognise the entry), and unlike `isGitRepository` it is false for a
+ *  subfolder of a repository. */
 async function hasGitEntry(dir: string): Promise<boolean> {
   return fs
     .stat(dir + "/.git")
@@ -43,9 +45,12 @@ async function submoduleRepos(repo: string): Promise<string[]> {
  * under `knownRepoPaths` are skipped.
  *
  * Git is asked about `directory` itself, so a search that starts anywhere
- * inside a working tree finds it. Below a start that is in none, a folder can
- * only be in one by being its top, which has a `.git` entry; so only those
- * folders are put to git, a spawn apiece, rather than every folder walked.
+ * inside a working tree finds it. Below the start, only folders with a `.git`
+ * entry are put to git, a spawn apiece, rather than every folder walked: below
+ * a start that is in no working tree, a folder normally enters one only at its
+ * top, where the `.git` entry is. Folders that reach into a working tree
+ * without one are not found below the start — a junction or symlink to a
+ * repository's subfolder, or a `core.worktree` pointing into the walked tree.
  */
 export function searchDirectoryForRepos(
   directory: string,
