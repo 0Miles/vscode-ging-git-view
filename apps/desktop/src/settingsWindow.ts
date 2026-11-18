@@ -23,6 +23,11 @@ export type SettingsWindow = {
    *  elsewhere since included. An open window is not reloaded: what is typed
    *  and not yet sent in its other rows stays. */
   reveal(key: string): void;
+  /** Show an open window the value setting `key` holds now, as written —
+   *  over whatever is typed and not yet sent in that row, since sending it
+   *  would write over the new value (#446). Nothing, when no window is open:
+   *  one opened later is served the value then. */
+  updated(key: string): void;
   /** Hand the settings a message `sender` posted; anything not from the
    *  settings window's page answers false and is left to whoever else it is
    *  for. */
@@ -94,6 +99,11 @@ export function createSettingsWindow({
       // other rows: told the value now, then to show the row.
       send(shown, { command: "settingUpdated", key, value: valueOf(key), error: null });
       send(shown, { command: "revealSetting", key });
+    },
+    updated: (key) => {
+      if (win !== null) {
+        send(win, { command: "settingUpdated", key, value: valueOf(key), error: null });
+      }
     },
     deliver(sender, message) {
       if (win === null || sender !== win.webContents) return false;
