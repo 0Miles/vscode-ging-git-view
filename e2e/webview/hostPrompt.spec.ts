@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 
-import { harnessPage } from "./harness";
+import { harnessPage, harnessRepo, hostSays, pageErrors, posted } from "./harness";
 
 // The host prompt overlay of the desktop entry (#390), in a real browser: the
 // desktop host's questions shown one at a time over the graph's own dialog,
@@ -10,28 +10,9 @@ import { harnessPage } from "./harness";
 
 const harnessUrl = harnessPage("desktop");
 
-/** A message from the host, delivered to the page as the desktop preload
- *  delivers one. */
-async function hostSays(page: Page, data: unknown) {
-  await page.evaluate((message) => {
-    globalThis.dispatchEvent(new MessageEvent("message", { data: message }));
-  }, data);
-}
-
 /** A host prompt (HostPromptMessage in packages/webview/src/desktop/hostPrompt.ts). */
 function prompt(id: number, asked: Record<string, unknown>) {
   return { command: "hostPrompt", id, prompt: asked, labels: { ok: "OK", cancel: "Cancel" } };
-}
-
-/** What the page posted under `command`, in order. */
-function posted(page: Page, command: string): Promise<Record<string, unknown>[]> {
-  return page.evaluate(
-    (wanted) =>
-      (
-        globalThis as unknown as { harnessRequests: Record<string, unknown>[] }
-      ).harnessRequests.filter((m) => m.command === wanted),
-    command
-  );
 }
 
 const answers = (page: Page) => posted(page, "hostPromptAnswer");
@@ -43,11 +24,7 @@ const focused = (page: Page) => page.evaluate(() => globalThis.document.activeEl
 let errors: string[];
 
 test.beforeEach(async ({ page }) => {
-  errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
-  });
+  errors = pageErrors(page);
   await page.goto(harnessUrl);
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(3);
   // The page said it listens, so the host may send its prompts.
@@ -248,10 +225,7 @@ test("an input masks what is typed when asked for a password, and only then", as
 test("over a batch run's dialogs, a prompt neither closes them nor abandons the run", async ({
   page
 }) => {
-  const repo = await page.evaluate(
-    () =>
-      (globalThis as unknown as { viewState: { lastActiveRepo: string } }).viewState.lastActiveRepo
-  );
+  const repo = await harnessRepo(page);
   const branch = "feature/long-branch-name";
   await hostSays(page, {
     command: "runRefBatchAction",
