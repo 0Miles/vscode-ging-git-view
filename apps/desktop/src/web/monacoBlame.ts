@@ -5,18 +5,20 @@
  * The annotation is written on the first line of each run of lines from one
  * commit, and the lines under it are left blank, as blame views do; every
  * line's annotation has the same width, so the code beside it stays in one
- * column. The hover of an annotation is the decoration's own: what the
- * annotation says until the host has written it in full, then the host's
- * Markdown, whose links run the `BLAME_LINKS` commands. */
+ * column. Its hover comes from a hover provider, which waits for the host's
+ * Markdown (Monaco says it is loading meanwhile), whose links run the
+ * `BLAME_LINKS` commands; the keyboard's Show Hover (Ctrl+K Ctrl+I) shows the
+ * cursor line's. The editor's context menu has Find in Graph for the
+ * cursor's line, the keyboard's way to a click on the annotation. */
 
 import * as monaco from "monaco-editor/editor/editor.api";
 
+import { provideBlameHover } from "@ging/desktop/web/blameHoverRule";
+import { BLAME_LINKS, type BlameLink } from "@ging/webview/desktop/diff/blameProtocol";
 import {
   BLAME_ANNOTATION_CLASS,
-  BLAME_LINKS,
   type BlameGutter,
-  type BlameGutterEvents,
-  type BlameLink
+  type FileViewerBlame
 } from "@ging/webview/desktop/editors";
 
 /** The widest an annotation is drawn, in columns; a longer one is cut. */
@@ -79,58 +81,57 @@ function fit(text: string, width: number): string {
   return out + " ".repeat(Math.max(0, width - used));
 }
 
-/** `text` as Markdown that shows exactly it. */
-const markdownText = (text: string) => text.replace(/[\\`*_{}[\]()#+\-.!|<>~$&=]/g, "\\$&");
+/** Each blamed file's hover, by its model: Monaco's hover providers are the
+ *  page's, by language, and ask about every model there is. */
+const hoverOf = new WeakMap<
+  monaco.editor.ITextModel,
+  (
+    position: monaco.Position,
+    token: monaco.CancellationToken
+  ) => Promise<monaco.languages.Hover | null>
+>();
+let hoversRegistered = false;
 
-/** What Monaco's content hover controller (`editor.contrib.contentHover`)
- *  does that the hover of a line is shown anew with: not in Monaco's API. */
-type ContentHover = {
-  hideContentHover(): void;
-  showContentHover(range: monaco.Range, mode: number, source: number, focus: boolean): void;
-};
-/** `HoverStartMode.Immediate` and `HoverStartSource.Mouse`, as Monaco 0.57
- *  numbers them. */
-const IMMEDIATE = 1;
-const MOUSE = 0;
-
-/** The editor's content hover controller, when it is there as Monaco 0.57
- *  has it; null otherwise, and a hover written in full shows on the next
- *  hover instead. */
-function contentHover(editor: monaco.editor.IStandaloneCodeEditor): ContentHover | null {
-  const controller = editor.getContribution(
-    "editor.contrib.contentHover"
-  ) as Partial<ContentHover> | null;
-  return typeof controller?.showContentHover === "function" &&
-    typeof controller.hideContentHover === "function"
-    ? (controller as ContentHover)
-    : null;
+function registerHovers(): void {
+  if (hoversRegistered) return;
+  hoversRegistered = true;
+  // Every language: a file is coloured by its name, whatever it is.
+  monaco.languages.registerHoverProvider("*", {
+    provideHover: (model, position, token) => hoverOf.get(model)?.(position, token) ?? null
+  });
 }
+
+/** The context key that holds while the editor shows a blame: what Find in
+ *  Graph is offered under. */
+const BLAME_SHOWN = "gingBlameShown";
 
 export type EditorBlame = {
   set(blame: BlameGutter | null): void;
-  setHover(line: number, markdown: string): void;
   dispose(): void;
 };
 
 export function attachBlame(
   editor: monaco.editor.IStandaloneCodeEditor,
-  events: BlameGutterEvents | undefined
+  blame: FileViewerBlame | undefined
 ): EditorBlame {
   registerLinks();
+  registerHovers();
+  const events = blame?.events;
   const ownLinks = (link: BlameLink, arg: unknown) => events?.link({ link, arg });
   linkTarget = ownLinks;
   let shown: BlameGutter | null = null;
   /** Each line's decoration, by its 0-based line. */
   let ids: string[] = [];
   let width = 0;
-  /** The annotation the pointer is on: its 0-based line, or null. */
+  /** Where the pointer is: on an annotation (its 0-based line), on the code,
+   *  or neither. */
   let pointedAt: number | null = null;
+  let pointerOnCode: monaco.IPosition | null = null;
+  const shownKey = editor.createContextKey<boolean>(BLAME_SHOWN, false);
 
-  /** Line `line`'s decoration: its annotation, and `hover`. */
-  function decoration(
-    line: number,
-    hover: monaco.IMarkdownString
-  ): monaco.editor.IModelDeltaDecoration {
+  /** Line `line`'s decoration: its annotation. No hover of its own: the
+   *  provider below writes it, waiting for the host. */
+  function decoration(line: number): monaco.editor.IModelDeltaDecoration {
     const lines = shown!.lines;
     const commit = shown!.commits[lines[line]];
     const first = line === 0 || lines[line - 1] !== lines[line];
@@ -144,8 +145,7 @@ export function attachBlame(
           content: (first ? fit(commit.text, width) : " ".repeat(width)) + GAP,
           inlineClassName: BLAME_ANNOTATION_CLASS,
           cursorStops: monaco.editor.InjectedTextCursorStops.None
-        },
-        hoverMessage: hover
+        }
       }
     };
   }
@@ -158,14 +158,43 @@ export function attachBlame(
     return line < ids.length ? line : null;
   }
 
-  const listeners = [
+  const model = editor.getModel();
+  // The blame's hover: on an annotation, or the keyboard's at the cursor
+  // (`blameHoverLine`), in full once the host has written it.
+  if (model !== null && events !== undefined) {
+    hoverOf.set(model, async (position, token) => {
+      if (shown === null || model !== editor.getModel()) return null;
+      const answer = await provideBlameHover(
+        { position, pointedAt, pointerOnCode, cursor: editor.getPosition() },
+        (line) => events.hover(line),
+        () => token.isCancellationRequested
+      );
+      if (answer === null) return null;
+      return {
+        range: new monaco.Range(answer.line + 1, 1, answer.line + 1, 1),
+        contents: [
+          {
+            value: answer.markdown,
+            supportThemeIcons: true,
+            // The hover's own links, and nothing else, may run a command.
+            isTrusted: { enabledCommands: Object.values(BLAME_LINKS) }
+          }
+        ]
+      };
+    });
+  }
+
+  const disposables: monaco.IDisposable[] = [
     editor.onMouseMove((e) => {
-      const line = annotationAt(e.target);
-      pointedAt = line;
-      if (line !== null) events?.hover(line);
+      pointedAt = annotationAt(e.target);
+      pointerOnCode =
+        pointedAt === null && e.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT
+          ? e.target.position
+          : null;
     }),
     editor.onMouseLeave(() => {
       pointedAt = null;
+      pointerOnCode = null;
     }),
     editor.onMouseDown((e) => {
       if (!e.event.leftButton) return;
@@ -173,52 +202,42 @@ export function attachBlame(
       if (line !== null) events?.click(line);
     })
   ];
+  // The keyboard's way to a click on an annotation: from the context menu
+  // (Shift+F10), for the cursor's line.
+  if (blame !== undefined) {
+    disposables.push(
+      editor.addAction({
+        id: "ging.blame.findInGraph",
+        label: blame.findInGraph,
+        precondition: BLAME_SHOWN,
+        contextMenuGroupId: "navigation",
+        contextMenuOrder: 1,
+        run: (ed) => {
+          const position = ed.getPosition();
+          if (position !== null && shown !== null) events?.click(position.lineNumber - 1);
+        }
+      })
+    );
+  }
 
   return {
-    set(blame) {
-      shown = blame;
-      const model = editor.getModel();
+    set(next) {
+      shown = next;
+      shownKey.set(next !== null);
+      const now = editor.getModel();
       const count =
-        blame === null || model === null ? 0 : Math.min(blame.lines.length, model.getLineCount());
+        next === null || now === null ? 0 : Math.min(next.lines.length, now.getLineCount());
       width = Math.min(
         ANNOTATION_COLUMNS,
-        Math.max(0, ...(blame?.commits.map((c) => widthOf(c.text)) ?? []))
+        Math.max(0, ...(next?.commits.map((c) => widthOf(c.text)) ?? []))
       );
-      const next: monaco.editor.IModelDeltaDecoration[] = [];
-      for (let line = 0; line < count; line++) {
-        const commit = blame!.commits[blame!.lines[line]];
-        next.push(decoration(line, { value: markdownText(commit.text) }));
-      }
-      ids = editor.deltaDecorations(ids, next);
-    },
-    setHover(line, markdown) {
-      if (shown === null || line >= ids.length) return;
-      const hover: monaco.IMarkdownString = {
-        value: markdown,
-        supportThemeIcons: true,
-        // The hover's own links, and nothing else, may run a command.
-        isTrusted: { enabledCommands: Object.values(BLAME_LINKS) }
-      };
-      [ids[line]] = editor.deltaDecorations([ids[line]], [decoration(line, hover)]);
-      // Monaco 0.57's content hover listens to no change of decorations
-      // (contentHoverController.js hooks the model, its content and the
-      // mouse): a hover already shown is computed again only if something
-      // else — a later mouse move — happens to restart it, so the pointer
-      // resting on the annotation could keep seeing what it said before. So
-      // it is shown anew, at once, from the decoration as it is now.
-      if (pointedAt === line) {
-        const controller = contentHover(editor);
-        controller?.hideContentHover();
-        controller?.showContentHover(
-          new monaco.Range(line + 1, 1, line + 1, 1),
-          IMMEDIATE,
-          MOUSE,
-          false
-        );
-      }
+      const decorations: monaco.editor.IModelDeltaDecoration[] = [];
+      for (let line = 0; line < count; line++) decorations.push(decoration(line));
+      ids = editor.deltaDecorations(ids, decorations);
     },
     dispose() {
-      for (const listener of listeners) listener.dispose();
+      for (const disposable of disposables) disposable.dispose();
+      if (model !== null) hoverOf.delete(model);
       if (linkTarget === ownLinks) linkTarget = null;
     }
   };

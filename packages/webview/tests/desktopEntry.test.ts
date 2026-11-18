@@ -37,7 +37,6 @@ const editors: EditorFactory = {
     filesAsked.push(options);
     return {
       setBlame: (blame) => blamesDrawn.push(blame),
-      setBlameHover: () => {},
       setTheme: () => {},
       focus: () => {},
       dispose: () => {}
@@ -152,13 +151,8 @@ describe("the desktop entry", () => {
 
     expect(filesAsked[0]).toEqual({
       document: { path: "file.txt", content: "then\n" },
-      theme: expect.any(String),
-      // What the user does with its blame's annotations (#409).
-      blame: {
-        hover: expect.any(Function),
-        click: expect.any(Function),
-        link: expect.any(Function)
-      }
+      // No blame offered (#409): none for the viewer either.
+      theme: expect.any(String)
     });
     expect(document.getElementById("diffViewer")!.hidden).toBe(false);
     expect(mock.sentOf("reportError")).toEqual([]);
@@ -172,9 +166,21 @@ describe("the desktop entry", () => {
       file: { path: "file.txt", content: "one\n" },
       notShown: null,
       strings: { close: "Close File", cannotShow: "-" },
-      blame: { file: 7, show: true, strings: { toggle: "Blame", blaming: "…", failed: "-" } }
+      blame: {
+        file: 7,
+        show: true,
+        strings: { toggle: "Blame", blaming: "…", failed: "-", findInGraph: "Find" }
+      }
     } as unknown as GG.ResponseMessage);
     await vi.waitFor(() => expect(filesAsked).toHaveLength(2));
+    expect(filesAsked[1].blame).toEqual({
+      events: {
+        hover: expect.any(Function),
+        click: expect.any(Function),
+        link: expect.any(Function)
+      },
+      findInGraph: "Find"
+    });
     await vi.waitFor(() =>
       expect(mock.sentOf("fileBlameOpen" as GG.RequestMessage["command"])).toEqual([
         { command: "fileBlameOpen", file: 7 }

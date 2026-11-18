@@ -111,24 +111,9 @@ test("a file viewed at a revision shows its blame once Blame is pressed, each li
   await expect(viewer(page).locator(".view-lines")).toContainText("first");
 
   // The hover: what the inline blame's says, written in full by the host —
-  // the commit's whole message and its hunk — with its links. The host's
-  // first hover is held back past Monaco's hover delay, as a slow git would
-  // hold it: written in full after it is shown, it must still be seen in
-  // full where the pointer rests (Monaco 0.57 does not redo a hover shown).
-  await page.evaluate(() => {
-    let held = false;
-    window.addEventListener(
-      "message",
-      (e) => {
-        const data = e.data as { command?: string };
-        if (data?.command !== "fileBlameHover" || held) return;
-        held = true;
-        e.stopImmediatePropagation();
-        setTimeout(() => window.postMessage(data, window.location.origin), 1500);
-      },
-      { capture: true }
-    );
-  });
+  // the commit's whole message and its hunk — with its links. (That it waits
+  // for the host's Markdown, and shows none short of it, is vitest's:
+  // blameHoverRule.test.ts.)
   await annotation(page, "first").hover();
   const hover = page.locator(".monaco-hover").filter({ hasText: "add notes" });
   await expect(hover).toBeVisible();
@@ -143,24 +128,41 @@ test("a file viewed at a revision shows its blame once Blame is pressed, each li
   await expect(viewer(page).locator(".monaco-diff-editor")).toHaveCount(1);
   await expect(viewer(page).locator(".diffViewerTitle")).toContainText("↔");
 
-  // Opened again, the toggle is as it was left: blamed at once. A click on
-  // an annotation takes the graph to its commit, the viewer closed over it.
+  // Opened again, the toggle is as it was left: blamed at once. The
+  // keyboard's way: Show Hover (Ctrl+K Ctrl+I) on the cursor's line shows
+  // its blame in full, and the context menu's Find Commit in Graph (Shift+F10)
+  // takes the graph to its commit, the viewer closed over it.
   await viewer(page).getByRole("button", { name: "Close" }).click();
-  await row(page).hover();
-  await row(page).locator(".gitFileViewRev").click();
-  await diffShown(page);
+  await reopen(page);
+  await expect.poll(() => said(annotation(page, "SECOND"))).toMatch(/^Bob, /);
+  await viewer(page)
+    .locator(".view-line", { hasText: /SECOND$/ })
+    .locator("span", { hasText: "SECOND" })
+    .last()
+    .click();
+  await viewer(page).locator(".diffViewerTitle").hover();
+  await page.keyboard.press("Control+K");
+  await page.keyboard.press("Control+I");
+  await expect(page.locator(".monaco-hover").filter({ hasText: "shout second" })).toContainText(
+    "+SECOND"
+  );
+  await page.keyboard.press("Shift+F10");
+  const find = page.getByRole("menuitem", { name: "Find Commit in Graph" });
+  await expect(find).toBeVisible();
+  // Chosen from the keyboard: it is the menu's first item (as #406's Stage Hunk).
+  await page.keyboard.press("ArrowDown");
+  await expect(find).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(viewer(page)).toBeHidden();
+  await expect.poll(() => isLocated(commitRow(page, "shout second"))).toBe(true);
+
+  // And a click on an annotation does the same for its line's commit.
+  await reopen(page);
   await expect.poll(() => said(annotation(page, "first"))).toMatch(/^Alice, /);
   await annotation(page, "first").click();
 
   await expect(viewer(page)).toBeHidden();
-  const located = commitRow(page, "add notes");
-  await expect
-    .poll(() =>
-      located.evaluate(
-        (el) => el.classList.contains("commitDetailsOpen") || el === document.activeElement
-      )
-    )
-    .toBe(true);
+  await expect.poll(() => isLocated(commitRow(page, "add notes"))).toBe(true);
 
   expect(errors).toEqual([]);
   await electronApp.close();
@@ -169,6 +171,19 @@ test("a file viewed at a revision shows its blame once Blame is pressed, each li
 });
 
 const row = (page: Page) => page.locator(".gitFile", { hasText: "notes.txt" });
+
+/** The file opened again from the open Commit Details View. */
+async function reopen(page: Page): Promise<void> {
+  await row(page).hover();
+  await row(page).locator(".gitFileViewRev").click();
+  await diffShown(page);
+}
+
+/** Whether the graph went to `commit`: its details opened, or the keyboard on it. */
+const isLocated = (commit: Locator) =>
+  commit.evaluate(
+    (el) => el.classList.contains("commitDetailsOpen") || el === document.activeElement
+  );
 
 test("the menu's Blame File… shows the working tree's copy of the picked file blamed, its lines not committed said so", async () => {
   writeFileSync(path.join(repo, "notes.txt"), "first\nSECOND\nnot committed\n");

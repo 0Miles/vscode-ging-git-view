@@ -2,7 +2,7 @@
  * shows it: a Blame toggle in the panel's bar, and, while it is on, each
  * line's annotation drawn by the file's viewer (`FileViewer.setBlame`). The
  * host blames the file it offered (`ShowFileMessage.blame`) when asked, and
- * writes each line's hover when the pointer first comes to it. Clicking an
+ * writes a line's hover when the viewer first wants it, which waits for it. Clicking an
  * annotation takes the user to its commit in the graph, under the panel,
  * which closes for it.
  *
@@ -74,8 +74,14 @@ export function createFileBlameControl(deps: FileBlameControlDeps): FileBlameCon
   let blame: FileBlame | null = null;
   /** The host was asked to blame the file shown, and not told to stop. */
   let asked = false;
-  /** The lines whose hover was asked for, of the blame shown. */
-  let hovered = new Set<number>();
+  /** The hovers the host wrote, of the blame shown, by line. */
+  let hovers = new Map<number, string>();
+  /** The hovers asked of the host and not answered yet, by line: each
+   *  settles with the host's answer, or with null once the blame is let go. */
+  let waiting = new Map<
+    number,
+    { promise: Promise<string | null>; settle(md: string | null): void }
+  >();
   let saidTimer: ReturnType<typeof setTimeout> | undefined;
 
   const toggle = document.createElement("button");
@@ -98,7 +104,9 @@ export function createFileBlameControl(deps: FileBlameControlDeps): FileBlameCon
     if (asked && offer !== null) post({ command: "fileBlameClose", file: offer.file });
     asked = false;
     blame = null;
-    hovered = new Set();
+    hovers = new Map();
+    for (const { settle } of waiting.values()) settle(null);
+    waiting = new Map();
     say("");
   }
 
@@ -137,10 +145,18 @@ export function createFileBlameControl(deps: FileBlameControlDeps): FileBlameCon
     elements: [toggle, status],
     events: {
       hover(line) {
-        if (offer === null || blame === null || hovered.has(line)) return;
-        if (line >= blame.lines.length) return;
-        hovered.add(line);
+        if (offer === null || blame === null || line >= blame.lines.length) {
+          return Promise.resolve(null);
+        }
+        const written = hovers.get(line);
+        if (written !== undefined) return Promise.resolve(written);
+        const asking = waiting.get(line);
+        if (asking !== undefined) return asking.promise;
+        let settle!: (md: string | null) => void;
+        const promise = new Promise<string | null>((resolve) => (settle = resolve));
+        waiting.set(line, { promise, settle });
         post({ command: "fileBlameHoverOf", file: offer.file, line });
+        return promise;
       },
       click(line) {
         const commit = commitAt(line);
@@ -179,9 +195,14 @@ export function createFileBlameControl(deps: FileBlameControlDeps): FileBlameCon
           say(message.blame === null ? offer.strings.failed : "");
           viewer?.setBlame(message.blame);
           return;
-        case "fileBlameHover":
-          if (blame !== null) viewer?.setBlameHover(message.line, message.markdown);
+        case "fileBlameHover": {
+          // Not written (asked over): nothing kept, so the next hover of the
+          // line asks again.
+          if (message.markdown !== null) hovers.set(message.line, message.markdown);
+          waiting.get(message.line)?.settle(message.markdown);
+          waiting.delete(message.line);
           return;
+        }
         case "fileBlameSaid":
           say(message.text);
           saidTimer = setTimeout(() => say(""), SAID_MS);

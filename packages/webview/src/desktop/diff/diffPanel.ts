@@ -423,7 +423,10 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
           made = await editors.createFileViewer(container, {
             document: message.file,
             theme,
-            ...(blame !== null && { blame: blame.events })
+            ...(blame !== null &&
+              offer !== null && {
+                blame: { events: blame.events, findInGraph: offer.strings.findInGraph }
+              })
           });
           return made;
         },

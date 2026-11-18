@@ -346,7 +346,8 @@ describe("a graph instance", () => {
           strings: {
             toggle: "Blame",
             blaming: "Blaming...",
-            failed: "Git could not blame this file."
+            failed: "Git could not blame this file.",
+            findInGraph: "Find Commit in Graph"
           }
         }
       }
@@ -809,6 +810,27 @@ describe("a graph instance", () => {
           "showInformation",
           "scratch.txt is not tracked by Git (untracked or ignored): no commit has its lines."
         ]
+      ]);
+    });
+
+    it("answers a hover asked over with none, never one short of its message and hunk", async () => {
+      const { repos, open } = setUp();
+      const page = open(repos[0]);
+      const { second } = twoCommits(repos[0]);
+      const file = await viewAt(page, repos[0], second);
+      await fromPage(page, { command: "fileBlameOpen", file });
+
+      // The pointer sweeps down the annotations: line 0 asked, then line 1.
+      const overtaken = fromPage(page, { command: "fileBlameHoverOf", file, line: 0 });
+      const latest = fromPage(page, { command: "fileBlameHoverOf", file, line: 1 });
+      await Promise.all([overtaken, latest]);
+
+      const hovers = blameMessages(page.posted)
+        .filter((m) => m.command === "fileBlameHover")
+        .toSorted((a, b) => (a as { line: number }).line - (b as { line: number }).line);
+      expect(hovers).toEqual([
+        { command: "fileBlameHover", file, line: 0, markdown: null },
+        expect.objectContaining({ line: 1, markdown: expect.stringContaining("+TWO") })
       ]);
     });
 

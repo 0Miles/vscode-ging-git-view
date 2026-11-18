@@ -154,6 +154,20 @@ describe("createFileBlameService (real git)", () => {
     expect(await blame.hover(4)).toBeNull();
   });
 
+  it("answers no hover for a line asked over, whose lookup was stopped, and the latest in full", async () => {
+    const blame = service();
+    await blame.open({ filePath: "a.txt", revision: second });
+
+    // Lines 0 and 1 are of different commits: asking for 1 stops 0's lookup.
+    const overtaken = blame.hover(0);
+    const latest = blame.hover(1);
+
+    expect(await overtaken).toBeNull();
+    expect(await latest).toContain("-two\n+TWO");
+    // Asked again, it is written in full.
+    expect(await blame.hover(0)).toContain("with a body");
+  });
+
   it("hovers nothing once closed", async () => {
     const blame = service();
     await blame.open({ filePath: "a.txt", revision: second });

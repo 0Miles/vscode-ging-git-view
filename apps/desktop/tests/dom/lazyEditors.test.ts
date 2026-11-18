@@ -23,7 +23,6 @@ const viewer: DiffViewer = {
 };
 const fileViewer: FileViewer = {
   setBlame: () => {},
-  setBlameHover: () => {},
   setTheme: () => {},
   focus: () => {},
   dispose: () => {}

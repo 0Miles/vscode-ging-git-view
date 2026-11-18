@@ -12,6 +12,7 @@
 
 import type { FileHunk } from "@ging/shared/backend/types";
 
+import type { BlameLink } from "./diff/blameProtocol";
 import type { DiffDocument } from "./diff/protocol";
 
 /** Hunks of the diff for the user to act on one at a time (#406): a control
@@ -64,9 +65,18 @@ export type FileViewerOptions = {
    *  colour it as. */
   document: DiffDocument;
   theme: ThemeKind;
-  /** What the user does with its blame's annotations, once it shows them
-   *  (`setBlame`, #409). */
-  blame?: BlameGutterEvents;
+  /** Its blame, once it shows it (`setBlame`, #409): what the user does with
+   *  the annotations, and the words of the viewer's own action. Absent for a
+   *  file that cannot be blamed. */
+  blame?: FileViewerBlame;
+};
+
+export type FileViewerBlame = {
+  events: BlameGutterEvents;
+  /** The editor's action, in its context menu, that finds the commit of the
+   *  cursor's line in the graph — the keyboard's way to what a click on the
+   *  annotation does. */
+  findInGraph: string;
 };
 
 /** A file's blame as a viewer draws it beside the lines (#409): the words of
@@ -78,28 +88,22 @@ export type BlameGutter = {
   lines: number[];
 };
 
-/** A hover link of a blamed line: which one (`BLAME_LINKS`), and the argument
- *  its Markdown gave it. */
+/** A hover link of a blamed line: which one (`BLAME_LINKS`, blameProtocol.ts),
+ *  and the argument its Markdown gave it. */
 export type BlameLinkClick = { link: BlameLink; arg: unknown };
 
 export type BlameGutterEvents = {
-  /** The pointer is on line `line`'s annotation (0-based): its hover is
-   *  wanted, in full (`setBlameHover`). */
-  hover(line: number): void;
-  /** Line `line`'s annotation was clicked. */
+  /** Line `line`'s hover (0-based), in full, as Markdown with codicons and
+   *  the `BLAME_LINKS` commands — asked when the pointer is on its annotation,
+   *  or the keyboard asks for the hover of the cursor's line. Null when there
+   *  is none to show: the blame is gone, or the host did not write it. */
+  hover(line: number): Promise<string | null>;
+  /** Line `line`'s annotation was clicked, or the editor's Find in Graph
+   *  run on it. */
   click(line: number): void;
   /** A link in a hover was clicked. */
   link(click: BlameLinkClick): void;
 };
-
-/** The commands a blamed line's hover links to, as the host writes them into
- *  its Markdown (`command:<id>?<args>`) and the viewer runs them. */
-export const BLAME_LINKS = {
-  copySha: "ging.blame.copySha",
-  openLineChange: "ging.blame.openLineChange",
-  locateCommit: "ging.blame.locateCommit"
-} as const;
-export type BlameLink = keyof typeof BLAME_LINKS;
 
 /** The class of the text a viewer draws a line's annotation in, for the
  *  panel's styles (diffPanelStyles.ts). */
@@ -109,9 +113,6 @@ export const BLAME_ANNOTATION_CLASS = "gingBlameAnnotation";
 export interface FileViewer {
   /** Draw `blame` beside the lines, in place of any drawn; none for null. */
   setBlame(blame: BlameGutter | null): void;
-  /** Line `line`'s hover (0-based), as Markdown with codicons and the
-   *  `BLAME_LINKS` commands. */
-  setBlameHover(line: number, markdown: string): void;
   /** As `DiffViewer.setTheme`. */
   setTheme(theme: ThemeKind): void;
   /** Give it the keyboard. */

@@ -33,8 +33,6 @@ type FakeFileViewer = FileViewer & {
   themes: ThemeKind[];
   /** Each blame it was given to draw (#409), in order. */
   blames: (BlameGutter | null)[];
-  /** Each line's hover it was given, in order. */
-  hovers: [number, string][];
   disposed: boolean;
 };
 
@@ -74,10 +72,8 @@ function fakeEditors() {
         options,
         themes: [],
         blames: [],
-        hovers: [],
         disposed: false,
         setBlame: (blame) => viewer.blames.push(blame),
-        setBlameHover: (line, markdown) => viewer.hovers.push([line, markdown]),
         setTheme: (theme) => viewer.themes.push(theme),
         focus: () => {
           const input = document.createElement("textarea");
@@ -595,7 +591,12 @@ describe("a file shown read-only in the diff viewer (#405)", () => {
 });
 
 describe("a file's blame in the diff viewer (#409)", () => {
-  const STRINGS = { toggle: "Blame", blaming: "Blaming...", failed: "Could not blame." };
+  const STRINGS = {
+    toggle: "Blame",
+    blaming: "Blaming...",
+    failed: "Could not blame.",
+    findInGraph: "Find Commit in Graph"
+  };
   const offered = (file: number, show = false): ShowFileMessage =>
     fileMessage({ blame: { file, show, strings: STRINGS } });
   const SHA_A = "a".repeat(40);
@@ -726,28 +727,75 @@ describe("a file's blame in the diff viewer (#409)", () => {
     expect(files[0].blames).toEqual([null]);
   });
 
-  it("asks for a line's hover once, and hands the viewer what the host wrote", async () => {
+  it("hands the viewer a line's hover only once the host has written it in full, asking once", async () => {
     const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
     await viewer.showFile(offered(1));
     viewer.blame(blameOf(1));
-    const events = files[0].options.blame!;
+    const { events } = files[0].options.blame!;
+    let answered: string | null | undefined;
 
-    events.hover(0);
-    events.hover(0);
-    events.hover(5);
+    const first = events.hover(0).then((md) => (answered = md));
+    const second = events.hover(0);
+    await Promise.resolve();
+    // Waiting on the host: nothing to show yet.
+    expect(answered).toBeUndefined();
     viewer.blame({ command: "fileBlameHover", file: 1, line: 0, markdown: "**Al**" });
+    await first;
 
+    expect(answered).toBe("**Al**");
+    expect(await second).toBe("**Al**");
+    // Written once, kept: not asked again.
+    expect(await events.hover(0)).toBe("**Al**");
+    expect(await events.hover(5)).toBeNull();
     expect(asked.filter((r) => r.command === "fileBlameHoverOf")).toEqual([
       { command: "fileBlameHoverOf", file: 1, line: 0 }
     ]);
-    expect(files[0].hovers).toEqual([[0, "**Al**"]]);
+  });
+
+  it("asks again for a hover the host did not write — asked over — rather than keep it short", async () => {
+    const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const { events } = files[0].options.blame!;
+
+    const overtaken = events.hover(0);
+    viewer.blame({ command: "fileBlameHover", file: 1, line: 0, markdown: null });
+
+    expect(await overtaken).toBeNull();
+    const again = events.hover(0);
+    viewer.blame({ command: "fileBlameHover", file: 1, line: 0, markdown: "**Al**" });
+    expect(await again).toBe("**Al**");
+    expect(asked.filter((r) => r.command === "fileBlameHoverOf")).toHaveLength(2);
+  });
+
+  it("answers a hover still waited for with none once the blame is let go", async () => {
+    const { viewer, files } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const { events } = files[0].options.blame!;
+
+    const waiting = events.hover(0);
+    viewer.close();
+
+    expect(await waiting).toBeNull();
+    expect(await events.hover(0)).toBeNull();
+  });
+
+  it("gives the viewer the words of its Find in Graph", async () => {
+    const { viewer, files } = blamePanel();
+    await viewer.showFile(offered(1));
+    await viewer.showFile(fileMessage());
+
+    expect(files[0].options.blame!.findInGraph).toBe("Find Commit in Graph");
+    // No blame offered: none for the viewer.
+    expect(files[1].options.blame).toBeUndefined();
   });
 
   it("locates a committed line's commit when its annotation is clicked, closing over the graph; not a line not committed", async () => {
     const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
     await viewer.showFile(offered(1));
     viewer.blame(blameOf(1));
-    const events = files[0].options.blame!;
+    const { events } = files[0].options.blame!;
 
     events.click(1);
     expect(panel().hidden).toBe(false);
@@ -770,7 +818,7 @@ describe("a file's blame in the diff viewer (#409)", () => {
     const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
     await viewer.showFile(offered(1));
     viewer.blame(blameOf(1));
-    const events = files[0].options.blame!;
+    const { events } = files[0].options.blame!;
 
     events.link({ link: "copySha", arg: SHA_A });
     viewer.blame({ command: "fileBlameSaid", file: 1, text: "Copied commit hash aaaaaaaa" });

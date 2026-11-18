@@ -7,7 +7,16 @@
  * desktop/ and never part of the graph's protocol (ADR-0031). */
 
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
-import type { BlameGutter, BlameLink } from "@ging/webview/desktop/editors";
+import type { BlameGutter } from "@ging/webview/desktop/editors";
+
+/** The commands a blamed line's hover links to, as the host writes them into
+ *  its Markdown (`command:<id>?<args>`) and the viewer runs them. */
+export const BLAME_LINKS = {
+  copySha: "ging.blame.copySha",
+  openLineChange: "ging.blame.openLineChange",
+  locateCommit: "ging.blame.locateCommit"
+} as const;
+export type BlameLink = keyof typeof BLAME_LINKS;
 
 /** The blame view's own words, in the host's language. */
 export type FileBlameStrings = {
@@ -17,6 +26,9 @@ export type FileBlameStrings = {
   blaming: string;
   /** Said when it could not. */
   failed: string;
+  /** The file viewer's action that finds the cursor line's commit in the
+   *  graph. */
+  findInGraph: string;
 };
 
 /** The file shown can be blamed: by asking for `file`. */
@@ -39,12 +51,14 @@ export type FileBlame = BlameGutter & {
  *  (the offer's `failed` says so then). */
 export type FileBlameMessage = { command: "fileBlame"; file: number; blame: FileBlame | null };
 
-/** Host → page: line `line`'s hover (0-based), as Markdown. */
+/** Host → page: line `line`'s hover (0-based), as Markdown; null when it was
+ *  not written — another line's was asked for meanwhile, which stopped its
+ *  lookup — so it is asked again next time. */
 export type FileBlameHoverMessage = {
   command: "fileBlameHover";
   file: number;
   line: number;
-  markdown: string;
+  markdown: string | null;
 };
 
 /** Host → page: something to say for a moment beside the toggle — a hash
@@ -126,7 +140,7 @@ export function isFileBlameHostMessage(data: unknown): data is FileBlameHostMess
     case "fileBlame":
       return isBlame(data.blame);
     case "fileBlameHover":
-      return isIndex(data.line) && typeof data.markdown === "string";
+      return isIndex(data.line) && (data.markdown === null || typeof data.markdown === "string");
     case "fileBlameSaid":
       return typeof data.text === "string";
     default:

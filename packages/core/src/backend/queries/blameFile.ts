@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { type GitRunOptions, runWithin } from "@ging/core/backend/gitRun";
+import { readsAsOption } from "@ging/core/backend/utils/string";
 
 import { unquoteGitPath } from "./diffFileChanges";
 
@@ -256,7 +257,7 @@ export async function blameFileAtRevision(
   options: BlameAtRevisionOptions
 ): Promise<BlameLine[] | null> {
   const { revision, filePath } = options;
-  if (revision.startsWith("-")) return null;
+  if (readsAsOption(revision)) return null;
   const deadline = options.deadline ?? Date.now() + BLAME_TIMEOUT_MS;
   // `<revision>:<path>` names the blob; the path after the first colon is
   // taken as it is, colons and all.

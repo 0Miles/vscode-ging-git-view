@@ -288,7 +288,6 @@ const editors: EditorFactory = {
     const blame = attachBlame(editor, options.blame);
     const viewer: FileViewer = {
       setBlame: (lines) => blame.set(lines),
-      setBlameHover: (line, markdown) => blame.setHover(line, markdown),
       setTheme: applyTheme,
       focus: () => editor.focus(),
       dispose: () => {

@@ -577,6 +577,7 @@
   "desktop.blame.toggle": "Blame",
   "desktop.blame.blaming": "正在 blame...",
   "desktop.blame.failed": "Git 無法 blame 這個檔案。",
+  "desktop.blame.findInGraph": "在圖形中找到這個 commit",
   "desktop.blame.pickTitle": "Blame 檔案",
   "desktop.blame.pickButton": "Blame",
   "desktop.blame.untracked": "Git 沒有追蹤 {0}：它是未追蹤或已忽略的檔案，沒有任何 commit 含有它的內容。",

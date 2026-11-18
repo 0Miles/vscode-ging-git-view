@@ -27,16 +27,18 @@ export function fileBlameStrings(l10n: Pick<L10n, "t">): FileBlameStrings {
   return {
     toggle: l10n.t("desktop.blame.toggle"),
     blaming: l10n.t("desktop.blame.blaming"),
-    failed: l10n.t("desktop.blame.failed")
+    failed: l10n.t("desktop.blame.failed"),
+    findInGraph: l10n.t("desktop.blame.findInGraph")
   };
 }
 
-/** What `source` is to blame: a commit's file — the index's has no commit to
- *  blame it in — or the working tree's, by its path in `repo`. */
+/** What `source` is to blame: a commit's file — not an index stage's (`:0`,
+ *  `:1`…, anything named from `:`), which has no commit to blame it in — or
+ *  the working tree's, by its path in `repo`. */
 export function blameTargetOf(source: DiffSource, shownPath: string): FileBlameTarget | null {
   if ("revision" in source) {
     const { commit, filePath } = source.revision;
-    return commit === ":0" ? null : { filePath, revision: commit };
+    return commit.startsWith(":") ? null : { filePath, revision: commit };
   }
   return { filePath: shownPath, revision: null };
 }
@@ -81,12 +83,15 @@ export type FileBlame = {
 
 export function createFileBlame(deps: FileBlameDeps): FileBlame {
   const { service, post, l10n, logger } = deps;
-  /** The file offered last, by the number the page names it by. */
-  let offered: { file: number; target: FileBlameTarget } | null = null;
+  /** The file offered last, by the number the page names it by; `blamed`
+   *  while its page shows its blame (asked, and not let go). */
+  let offered: { file: number; target: FileBlameTarget; blamed: boolean } | null = null;
   let files = 0;
 
   /** Whether `file` is the one offered last: nothing else is blamed. */
   const isOffered = (file: number) => offered !== null && offered.file === file;
+  /** Whether `file`'s blame is shown: its hovers are waited for. */
+  const isBlamed = (file: number) => isOffered(file) && offered!.blamed;
 
   const run = async (request: Extract<FileBlameRequest, { command: "fileBlameRun" }>) => {
     switch (request.link) {
@@ -140,7 +145,7 @@ export function createFileBlame(deps: FileBlameDeps): FileBlame {
     offer(source, shownPath, show) {
       service.close();
       const target = blameTargetOf(source, shownPath);
-      offered = target === null ? null : { file: ++files, target };
+      offered = target === null ? null : { file: ++files, target, blamed: false };
       return offered === null
         ? null
         : { file: offered.file, show, strings: fileBlameStrings(l10n) };
@@ -149,6 +154,7 @@ export function createFileBlame(deps: FileBlameDeps): FileBlame {
       switch (request.command) {
         case "fileBlameOpen": {
           if (offered === null || !isOffered(request.file)) return;
+          offered.blamed = true;
           const answer = await service.open(offered.target);
           // Another offered, or let go, meanwhile: nobody waits for it.
           if (answer === null || !isOffered(request.file)) return;
@@ -160,12 +166,15 @@ export function createFileBlame(deps: FileBlameDeps): FileBlame {
           return;
         }
         case "fileBlameClose":
-          if (isOffered(request.file)) service.close();
+          if (offered === null || !isOffered(request.file)) return;
+          offered.blamed = false;
+          service.close();
           return;
         case "fileBlameHoverOf": {
-          if (!isOffered(request.file)) return;
+          if (!isBlamed(request.file)) return;
           const markdown = await service.hover(request.line);
-          if (markdown !== null && isOffered(request.file)) {
+          // Null too: the page waits on it, and asks again next time.
+          if (isBlamed(request.file)) {
             post({ command: "fileBlameHover", file: request.file, line: request.line, markdown });
           }
           return;

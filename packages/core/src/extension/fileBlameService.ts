@@ -86,8 +86,8 @@ export type FileBlameService = {
   open(target: FileBlameTarget): Promise<FileBlameAnswer | null>;
   /** The hover of line `line` (0-based) of the file blamed last, as Markdown
    *  with the host's commands and icons (`blameHoverMarkdown`); null when
-   *  there is no such line, or another file is blamed by the time its
-   *  details are in. */
+   *  there is no such line, or by the time its details are in another file
+   *  is blamed or another hover asked (which stopped this one's lookup). */
   hover(line: number): Promise<string | null>;
   /** The diff a hover's "open this line's change" link asks for, its
    *  argument checked to be of the repository blamed in (`lineChangeArgs`);
@@ -116,6 +116,8 @@ export function createFileBlameService(deps: FileBlameServiceDeps): FileBlameSer
   const maxBytes = deps.maxBytes ?? FILE_TEXT_LIMIT;
   /** The file blamed last, and what stops its git. */
   let open: { abort: AbortController; repo: string; blame: FileBlame | null } | null = null;
+  /** Bumped by each hover asked: one asked over answers nothing. */
+  let hovering = 0;
 
   /** Where and how a git run happens in `repo`, ending within `ms`. */
   const gitIn = (repo: string, ms: number, signal?: AbortSignal): GitRunOptions => ({
@@ -173,10 +175,13 @@ export function createFileBlameService(deps: FileBlameServiceDeps): FileBlameSer
       const shown = open;
       const line = shown?.blame?.lines[index];
       if (shown === null || shown.blame === null || line === undefined) return null;
+      const mine = ++hovering;
       const details = line.uncommitted
         ? { message: null, hunk: null, avatar: null }
         : await lookups.details(line, shown.repo);
-      if (open !== shown) return null;
+      // Asked over: the lookups abort all but the latest, and what an aborted
+      // one answers lacks the message and hunk — no hover to show for good.
+      if (open !== shown || mine !== hovering) return null;
       const t = (key: string) => deps.l10n.t(key);
       return blameHoverMarkdown(line, details, {
         ...context(shown.blame.userEmail),

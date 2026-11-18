@@ -36,6 +36,7 @@ import type {
   ResponseMessage
 } from "@ging/shared/types";
 import {
+  BLAME_LINKS,
   type FileBlameHostMessage,
   isFileBlameRequest
 } from "@ging/webview/desktop/diff/blameProtocol";
@@ -44,7 +45,6 @@ import {
   isDiffHunkRequest,
   type ViewerMessage
 } from "@ging/webview/desktop/diff/protocol";
-import { BLAME_LINKS } from "@ging/webview/desktop/editors";
 import {
   type FileHistoryHostMessage,
   isFileHistoryRequest
