@@ -11072,6 +11072,10 @@ function hideContextMenuListener() {
   if (contextMenu.classList.contains("active")) hideContextMenu();
 }
 
+/** Items the rest of the page adds to a CDV file's context menu, after the
+ *  graph's own; none unless it adds some (`GraphInPage.addCdvFileMenuItems`). */
+let cdvFileMenuItems: ((file: CdvFileMenuTarget) => ContextMenuElement[]) | undefined;
+
 /**
  * Build the graph view into the page and start listening — what loading the
  * VS Code entry did before this module could be imported (ADR-0031). Once per
@@ -11085,10 +11089,6 @@ function hideContextMenuListener() {
  * the error reporter is armed before anything that can throw, and the view
  * exists before the first message or key can reach it.
  */
-/** Items the rest of the page adds to a CDV file's context menu, after the
- *  graph's own; none unless it adds some (`GraphInPage.addCdvFileMenuItems`). */
-let cdvFileMenuItems: ((file: CdvFileMenuTarget) => ContextMenuElement[]) | undefined;
-
 export function startGitGraphView(): GraphInPage {
   errorReporter.watchGlobals(window);
 

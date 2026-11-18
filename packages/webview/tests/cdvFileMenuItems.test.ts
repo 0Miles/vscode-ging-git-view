@@ -49,7 +49,7 @@ describe("a CDV file's context menu in the desktop entry", () => {
     mock.clearMessages();
     clickItem(STRINGS.menuItem);
     expect(mock.sentMessages).toEqual([
-      { command: "fileHistoryLoad", path: "new.txt", start: HASH, offset: 0 }
+      { command: "fileHistoryOpen", request: 1, path: "new.txt", start: HASH }
     ]);
     expect(document.getElementById("fileHistory")!.hidden).toBe(false);
     // The repository is the Tab's: the host reads its own, not the page's word.

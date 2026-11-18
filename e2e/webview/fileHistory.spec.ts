@@ -50,10 +50,11 @@ const entry = (n: number, subject: string) => ({
 const HISTORY = {
   command: "fileHistory",
   path: `deep/folder/${LONG}.ts`,
+  request: null,
   start: "f".repeat(40),
-  offset: 0,
+  first: true,
   entries: [entry(1, LONG), entry(2, "short")],
-  next: 100,
+  more: true,
   error: null,
   strings: STRINGS
 };

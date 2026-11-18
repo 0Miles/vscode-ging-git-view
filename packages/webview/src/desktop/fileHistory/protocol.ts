@@ -35,19 +35,26 @@ export type FileHistoryStrings = {
   submodule: string;
 };
 
-/** Host → page: a page of a file's history. The first (`offset` 0) opens the
- *  panel on it, in place of any shown; a later one adds to the history shown
- *  when it is the page that history asked for. */
+/** Host → page: a page of a file's history. The first (`first`) opens the
+ *  panel on it, in place of any shown, when it answers the latest history the
+ *  page asked to open — or when the host opened it itself (`request` null,
+ *  the application menu's File History…), which supersedes every one the page
+ *  asked for before. A later page adds to the history shown when it is that
+ *  history's, and the page asked for it. */
 export type FileHistoryMessage = {
   command: "fileHistory";
+  /** The `fileHistoryOpen` this history answers; null for one the host
+   *  opened itself. */
+  request: number | null;
   path: string;
   /** The commit it is read from, in full; null for a repository with no
    *  commit yet. */
   start: string | null;
-  offset: number;
+  /** The history's first page. */
+  first: boolean;
   entries: FileHistoryEntry[];
-  /** The `offset` of the page after this one; null when there is none. */
-  next: number | null;
+  /** There are entries past these, for `fileHistoryMore` to ask for. */
+  more: boolean;
   error: string | null;
   strings: FileHistoryStrings;
 };
@@ -66,14 +73,22 @@ export type FileHistoryHostMessage = FileHistoryMessage | FileHistoryStringsMess
  *  on every load of the page. */
 export type FileHistoryReadyRequest = { command: "fileHistoryReady" };
 
-/** Page → host: a page of `path`'s history from commit `start` — HEAD when
- *  null — from `offset`. */
-export type FileHistoryLoadRequest = {
-  command: "fileHistoryLoad";
+/** Page → host: open `path`'s history from commit `start` — HEAD when null —
+ *  in place of any open, and answer its first page. `request` grows with
+ *  every one the page sends. */
+export type FileHistoryOpenRequest = {
+  command: "fileHistoryOpen";
+  request: number;
   path: string;
   start: string | null;
-  offset: number;
 };
+
+/** Page → host: the next page of the history open, the one `request` named
+ *  (null: the one the host opened). */
+export type FileHistoryMoreRequest = { command: "fileHistoryMore"; request: number | null };
+
+/** Page → host: the panel closed; stop reading the history open. */
+export type FileHistoryCloseRequest = { command: "fileHistoryClose" };
 
 /** Page → host: open the diff of one of the history's entries. */
 export type FileHistoryDiffRequest = {
@@ -83,7 +98,9 @@ export type FileHistoryDiffRequest = {
 
 export type FileHistoryRequest =
   | FileHistoryReadyRequest
-  | FileHistoryLoadRequest
+  | FileHistoryOpenRequest
+  | FileHistoryMoreRequest
+  | FileHistoryCloseRequest
   | FileHistoryDiffRequest;
 
 /** True when `A` and `B` share no command name. */
@@ -119,17 +136,23 @@ function isEntryRef(value: unknown): value is FileHistoryDiffRequest["entry"] {
 
 /** Whether `data`, heard on the page's `message` channel, is the host's to
  *  the file history panel. */
+
+const isRequestId = (value: unknown) => value === null || Number.isSafeInteger(value);
+
+/** Whether `data`, heard on the page's `message` channel, is the host's to
+ *  the file history panel. */
 export function isFileHistoryHostMessage(data: unknown): data is FileHistoryHostMessage {
   if (!isRecord(data) || !isRecord(data.strings)) return false;
   if (data.command === "fileHistoryStrings") return true;
   return (
     data.command === "fileHistory" &&
+    isRequestId(data.request) &&
     typeof data.path === "string" &&
     (data.start === null || typeof data.start === "string") &&
-    typeof data.offset === "number" &&
+    typeof data.first === "boolean" &&
     Array.isArray(data.entries) &&
     data.entries.every(isEntryRef) &&
-    (data.next === null || typeof data.next === "number") &&
+    typeof data.more === "boolean" &&
     (data.error === null || typeof data.error === "string")
   );
 }
@@ -139,13 +162,16 @@ export function isFileHistoryRequest(message: unknown): message is FileHistoryRe
   if (!isRecord(message)) return false;
   switch (message.command) {
     case "fileHistoryReady":
+    case "fileHistoryClose":
       return true;
-    case "fileHistoryLoad":
+    case "fileHistoryOpen":
       return (
+        Number.isSafeInteger(message.request) &&
         typeof message.path === "string" &&
-        (message.start === null || typeof message.start === "string") &&
-        typeof message.offset === "number"
+        (message.start === null || typeof message.start === "string")
       );
+    case "fileHistoryMore":
+      return isRequestId(message.request);
     case "fileHistoryDiff":
       return isEntryRef(message.entry);
     default:

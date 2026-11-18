@@ -558,6 +558,7 @@
   "desktop.fileHistory.pickTitle": "檔案歷史",
   "desktop.fileHistory.pickButton": "顯示歷史",
   "desktop.fileHistory.notInRepository": "{0} 不在這個存放庫裡。",
+  "desktop.fileHistory.untracked": "Git 沒有追蹤 {0}：它是未追蹤或已忽略的檔案，沒有歷史。",
   "ui.find": "尋找",
   "ui.openTerminal": "終端機",
   "ui.findPlaceholder": "在圖形中尋找…",

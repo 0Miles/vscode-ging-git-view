@@ -558,6 +558,7 @@
   "desktop.fileHistory.pickTitle": "File History",
   "desktop.fileHistory.pickButton": "Show History",
   "desktop.fileHistory.notInRepository": "{0} is not in this repository.",
+  "desktop.fileHistory.untracked": "{0} is not tracked by Git (untracked or ignored): it has no history.",
   "ui.find": "Find",
   "ui.openTerminal": "Terminal",
   "ui.findPlaceholder": "Find in graph…",

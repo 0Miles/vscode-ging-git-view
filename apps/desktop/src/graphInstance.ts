@@ -205,7 +205,9 @@ export function createGraphInstance(
   });
   // A file's history (#408): only read, so no mutation and no refresh.
   const fileHistory = createFileHistory({
-    service: createFileHistoryService({ git: () => gitClient.getInstance() }),
+    // Its own git, read as a stream: none of the client's process slots held
+    // while the panel is open.
+    service: createFileHistoryService({ gitPath: shared.gitPath, repo: () => current }),
     repo: () => current,
     showDiff: (request) => showDiff(request),
     post: (message: FileHistoryHostMessage) =>
@@ -437,6 +439,7 @@ export function createGraphInstance(
     showWorkingTree: () => postToPanel({ command: "workingTreeShow" }),
     dispose: () => {
       sideViews.dispose();
+      fileHistory.dispose();
       dispatch.dispose();
       reposChanged.dispose();
       fetchService.dispose();

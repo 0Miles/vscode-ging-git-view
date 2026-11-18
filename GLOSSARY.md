@@ -59,7 +59,7 @@ _Avoid_: SCM view, source control panel, 暫存區面板
 _Avoid_: merge editor(留給宿主自己的 3-way 畫面), mergetool driver, merge driver(那是 git 的 `merge.<driver>`,另一回事), 合併編輯器
 
 **File history**:
-一個檔案被哪些 commit 改過 —— 從一個起點 commit 往回的 `git log --follow`:從 CDV 的檔案打開的是到那個 commit 為止,從應用程式選單打開的是到 HEAD 為止。每一筆都帶著檔案在**那個 commit** 的路徑:rename 之前是舊名字,點它打開的 diff 讀的也是舊名字。merge 只有在檔案與每個 parent 都不同時才算一筆(衝突的解法、merge 自己的改動)。它跟的是 git `--follow` 跟得到的:一個路徑,rename 與 copy 往回跟,遇到 rename 之後整次都跟舊名字(ADR-0027 的 #408 補記)。它畫在 Tab 頁面上自己的面板裡,**不是**圖形的路徑篩選:圖形畫什麼、**Navigation** 與 **Loaded commit window** 都不受它影響([#408](https://github.com/0Miles/vscode-ging-git-view/issues/408))。中文寫作「檔案歷史」。桌面 host 專屬。
+一個檔案被哪些 commit 改過 —— 從一個起點 commit 往回的 `git log --follow`:從 CDV 的檔案打開的是到那個 commit 為止,從應用程式選單打開的是到 HEAD 為止。每一筆都帶著檔案在**那個 commit** 的路徑:rename 之前是舊名字,點它打開的 diff 讀的也是舊名字。merge 只有在它自己改了檔案時才算一筆 —— 衝突的解法、merge 裡另外做的改動;乾淨合併兩側各自的改動不算,那些改動列在做出它們的 commit 上。它跟的是 git `--follow` 跟得到的:一個路徑,rename 與 copy 往回跟,遇到 rename 之後整次都跟舊名字(ADR-0027 的 #408 補記)。它畫在 Tab 頁面上自己的面板裡,**不是**圖形的路徑篩選:圖形畫什麼、**Navigation** 與 **Loaded commit window** 都不受它影響([#408](https://github.com/0Miles/vscode-ging-git-view/issues/408))。中文寫作「檔案歷史」。桌面 host 專屬。
 _Avoid_: file log, path filter, 路徑篩選, blame(那是 #409)
 
 ### 分支的狀態

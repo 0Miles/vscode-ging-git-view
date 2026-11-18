@@ -2,21 +2,21 @@ import * as cp from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { simpleGit } from "simple-git";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  FileHistoryClosedError,
   type FileHistoryEntry,
-  loadFileHistory,
-  parseFileHistory
+  parseFileHistory,
+  readFileHistory
 } from "@ging/core/backend/queries/fileHistory";
 
 import { git, makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
 
 // One repository, read and never changed by the tests, made once: a file
 // renamed partway, changed on two branches that are merged, merged into once
-// with a change of the merge's own, copied, and files whose names git would
-// read as patterns or options.
+// with a change of the merge's own, copied, files whose names git would read
+// as patterns or options, and a file a merge both brought in and changed.
 
 let repo: string;
 /** Seconds since the epoch, one more for each commit: the walk's order is by
@@ -111,7 +111,21 @@ beforeAll(() => {
   write("copy.txt", text(["copied", "two", "THREE", "four", "five", "six", "seven", "eight"]));
   commit(["commit", "-am", "change copy"]);
 
-  // Names git would read as a pattern, a magic pathspec or an option.
+  // A file the first parent never had, brought in by a merge that changes it.
+  git(["checkout", "-q", "-b", "brings"], repo);
+  write("brought.txt", "side\n");
+  git(["add", "brought.txt"], repo);
+  commit(["commit", "-m", "add brought"]);
+  git(["checkout", "-q", "main"], repo);
+  write("f", "before bringing");
+  commit(["commit", "-am", "main before bringing"]);
+  commit(["merge", "--no-ff", "--no-commit", "brings"]);
+  write("brought.txt", "side\nmerged\n");
+  git(["add", "brought.txt"], repo);
+  commit(["commit", "-m", "Merge branch 'brings'"]);
+
+  // Names git would read as a pattern, a magic pathspec or an option, and
+  // ones no Windows disk can hold: in the index alone, so no checkout after.
   write("[ab].txt", "brackets\n");
   write("a.txt", "a\n");
   write("-dash.txt", "dash\n");
@@ -119,6 +133,7 @@ beforeAll(() => {
   git(["add", "--", "[ab].txt", "a.txt", "-dash.txt", "sp ace ü.txt"], repo);
   addToIndex("100644", blob("colon\n"), ":colon.txt");
   addToIndex("100644", blob("star\n"), "*.txt");
+  addToIndex("100644", blob("newline\n"), "new\nline.txt");
   commit(["commit", "-m", "odd names"]);
   write("a.txt", "a again\n");
   git(["add", "a.txt"], repo);
@@ -135,14 +150,24 @@ afterAll(() => {
   rmrf(repo);
 });
 
-const history = (file: string, start = "HEAD", offset = 0, count = 1000) =>
-  loadFileHistory(simpleGit(repo), { start, path: file, offset, count });
+const reader = (file: string, start = "HEAD") =>
+  readFileHistory({ gitPath: "git", repo, start, path: file });
+
+/** The whole history, read in one page. */
+async function history(file: string, start = "HEAD") {
+  const read = reader(file, start);
+  try {
+    return await read.next(1000);
+  } finally {
+    read.close();
+  }
+}
 
 /** What each entry says of the file, newest first. */
 const summary = (entries: FileHistoryEntry[]) =>
   entries.map(({ subject, change, path: at, oldPath }) => ({ subject, change, at, oldPath }));
 
-describe("loadFileHistory (real git)", () => {
+describe("readFileHistory (real git)", () => {
   it("names the file's path at each commit: the old one before the rename, both at it", async () => {
     const { entries, more } = await history("new.txt");
 
@@ -150,7 +175,6 @@ describe("loadFileHistory (real git)", () => {
     expect(summary(entries)).toEqual([
       { subject: "Merge branch 'elsewhere'", change: "M", at: "new.txt", oldPath: "new.txt" },
       { subject: "one-sided change", change: "M", at: "new.txt", oldPath: "new.txt" },
-      { subject: "Merge branch 'side'", change: "M", at: "new.txt", oldPath: "new.txt" },
       { subject: "main change", change: "M", at: "new.txt", oldPath: "new.txt" },
       { subject: "side change", change: "M", at: "new.txt", oldPath: "new.txt" },
       { subject: "rename to new", change: "R", at: "new.txt", oldPath: "old.txt" },
@@ -159,17 +183,24 @@ describe("loadFileHistory (real git)", () => {
     ]);
   });
 
-  it("lists a merge only where the file it left is unlike every parent's", async () => {
+  it("lists a merge only for a change of its own, not for one already made on a side", async () => {
     const { entries } = await history("new.txt");
     const merges = entries.filter((entry) => entry.parents.length > 1);
 
-    // Both sides changed it, and the merge's own change: listed. The merge of
-    // a side that alone changed it holds that side's file, and is not.
-    expect(merges.map((entry) => entry.subject)).toEqual([
-      "Merge branch 'elsewhere'",
-      "Merge branch 'side'"
+    // The merge's own change: listed. Both sides' changes merged cleanly, or
+    // one side's taken whole: each already listed where it was made, and the
+    // merge is not — though git's combined raw diff lists the first.
+    expect(merges.map((entry) => entry.subject)).toEqual(["Merge branch 'elsewhere'"]);
+    expect(merges[0].parents).toEqual([rev(repo, merges[0].hash + "^1"), rev(repo, "elsewhere")]);
+  });
+
+  it("names a merge's change from its first parent: a file it brought in is added", async () => {
+    const { entries } = await history("brought.txt");
+
+    expect(summary(entries)).toEqual([
+      { subject: "Merge branch 'brings'", change: "A", at: "brought.txt", oldPath: "brought.txt" },
+      { subject: "add brought", change: "A", at: "brought.txt", oldPath: "brought.txt" }
     ]);
-    expect(merges[0].parents).toEqual([rev(repo, "HEAD~6^1"), rev(repo, "elsewhere")]);
   });
 
   it("carries each commit's own fields", async () => {
@@ -189,22 +220,34 @@ describe("loadFileHistory (real git)", () => {
     expect(entries.map((entry) => entry.subject)).toEqual(["change old", "add old"]);
   });
 
-  it("pages through it, every entry once and in order, saying when there are more", async () => {
+  it("reads it a page at a time from one git, every entry once and in order", async () => {
     const whole = (await history("new.txt")).entries.map((entry) => entry.hash);
+    const read = reader("new.txt");
 
-    const pages = await Promise.all(
-      [0, 3, 6].map((offset) => history("new.txt", "HEAD", offset, 3))
-    );
+    const pages = [await read.next(3), await read.next(3), await read.next(3)];
 
-    // git prints the one-sided merge too, without a diff of the file, and
-    // counts it in `--max-count`: nine printed, eight entries. The pages go by
-    // what git printed, so the first holds two entries, and none is lost.
+    expect(pages.map((page) => page.entries.length)).toEqual([3, 3, 1]);
     expect(pages.map((page) => page.more)).toEqual([true, true, false]);
-    expect(pages.map((page) => page.entries.length)).toEqual([2, 3, 3]);
     expect(pages.flatMap((page) => page.entries.map((entry) => entry.hash))).toEqual(whole);
-    // A page that ends with the history says there is nothing past it.
-    expect((await history("new.txt", "HEAD", 0, whole.length + 1)).more).toBe(false);
-    expect((await history("new.txt", "HEAD", whole.length + 1, 3)).entries).toEqual([]);
+    // Past the end: nothing, and git has ended on its own.
+    expect(await read.next(3)).toEqual({ entries: [], more: false });
+    await read.ended;
+  });
+
+  it("stops git when closed, the page asked after refused", async () => {
+    const read = reader("new.txt");
+    expect((await read.next(1)).more).toBe(true);
+
+    read.close();
+
+    await read.ended;
+    await expect(read.next(1)).rejects.toBeInstanceOf(FileHistoryClosedError);
+  });
+
+  it("says git's own reason when it cannot read the history", async () => {
+    const read = reader("new.txt", "0".repeat(40));
+
+    await expect(read.next(1)).rejects.toThrow(/0{40}|bad|unknown/i);
   });
 
   it("follows a copy back into the history of the file it was copied from", async () => {
@@ -223,7 +266,8 @@ describe("loadFileHistory (real git)", () => {
     ["-dash.txt", "a leading dash"],
     [":colon.txt", "a leading colon, git's magic pathspec"],
     ["*.txt", "a wildcard that would match every .txt"],
-    ["sp ace ü.txt", "spaces and a non-ASCII letter"]
+    ["sp ace ü.txt", "spaces and a non-ASCII letter"],
+    ["new\nline.txt", "a newline"]
   ])("takes %s literally: %s", async (file) => {
     const { entries } = await history(file);
 

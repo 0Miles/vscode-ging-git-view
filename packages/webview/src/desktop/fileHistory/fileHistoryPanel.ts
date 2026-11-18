@@ -91,10 +91,12 @@ const abbrev = (hash: string) => hash.slice(0, 7);
 
 /** The history shown: what it is of, and how far it has been read. */
 type Shown = {
+  /** The `fileHistoryOpen` it answers; null for one the host opened. */
+  request: number | null;
   path: string;
   start: string | null;
   entries: FileHistoryEntry[];
-  next: number | null;
+  more: boolean;
   error: string | null;
 };
 
@@ -120,6 +122,12 @@ export function createFileHistoryPanel(deps: FileHistoryPanelDeps): FileHistoryP
   let strings: FileHistoryStrings | null = null;
   /** A page is asked for and not yet here. */
   let loading = false;
+  /** The last `fileHistoryOpen` sent. */
+  let requests = 0;
+  /** The one whose first page is waited for; null when none is — after the
+   *  first page came, or once the host opened a history of its own, which
+   *  supersedes every one asked for before it. */
+  let waitingFor: number | null = null;
   /** The entry whose diff was last asked for, by its hash. */
   let selected: string | null = null;
   /** What had the keyboard before the panel opened. */
@@ -245,10 +253,10 @@ export function createFileHistoryPanel(deps: FileHistoryPanelDeps): FileHistoryP
   }
 
   function loadMore() {
-    if (shown === null || shown.next === null || loading) return;
+    if (shown === null || !shown.more || loading) return;
     loading = true;
     draw();
-    post({ command: "fileHistoryLoad", path: shown.path, start: shown.start, offset: shown.next });
+    post({ command: "fileHistoryMore", request: shown.request });
   }
 
   /** What an entry says of the file beyond its commit: how the commit
@@ -306,7 +314,7 @@ export function createFileHistoryPanel(deps: FileHistoryPanelDeps): FileHistoryP
     if (parts === null || shown === null || strings === null) return;
     const p = parts;
     const s = strings;
-    const { path, start, entries, next, error } = shown;
+    const { path, start, entries, more: hasMore, error } = shown;
     const name = path.split("/").at(-1) ?? path;
     p.title.textContent = fill(s.title, name);
     p.title.title = path;
@@ -327,7 +335,7 @@ export function createFileHistoryPanel(deps: FileHistoryPanelDeps): FileHistoryP
     if (stopRow !== undefined) stopRow.tabIndex = 0;
     if (focused !== undefined) all.find((row) => row.dataset.hash === focused)?.focus();
 
-    const empty = entries.length === 0 && error === null && !loading && next === null;
+    const empty = entries.length === 0 && error === null && !loading && !hasMore;
     if (empty) {
       const line = document.createElement("li");
       line.className = "fhEmpty";
@@ -336,7 +344,7 @@ export function createFileHistoryPanel(deps: FileHistoryPanelDeps): FileHistoryP
     }
     const hadKeyboard = p.footer.contains(document.activeElement);
     p.footer.replaceChildren();
-    if (next !== null) {
+    if (hasMore) {
       const more = document.createElement("button");
       more.type = "button";
       more.className = "fhMore";
@@ -372,33 +380,40 @@ export function createFileHistoryPanel(deps: FileHistoryPanelDeps): FileHistoryP
     }
     parts.panel.hidden = true;
     document.body.classList.remove("fileHistoryOpen");
-    // What a later page of it would add to is gone.
+    // What a later page of it would add to is gone, and so is its git.
     shown = null;
     loading = false;
+    waitingFor = null;
+    post({ command: "fileHistoryClose" });
   }
 
   return {
     open(path, start) {
       if (strings === null) return;
       show();
-      shown = { path, start, entries: [], next: null, error: null };
+      const request = ++requests;
+      waitingFor = request;
+      shown = { request, path, start, entries: [], more: false, error: null };
       selected = null;
       loading = true;
       draw();
       parts!.panel.focus();
-      post({ command: "fileHistoryLoad", path, start, offset: 0 });
+      post({ command: "fileHistoryOpen", request, path, start });
     },
     receive(message) {
       strings = message.strings;
       if (message.command === "fileHistoryStrings") return;
-      const { path, start, offset, entries, next, error } = message;
-      if (offset === 0) {
-        // A history of its own, in place of any shown: the host's (the menu),
-        // or the answer to `open`.
+      const { request, path, start, first, entries, more, error } = message;
+      if (first) {
+        // The latest one opened, or one the host opened itself, which
+        // supersedes every one asked for before it. A first page of an older
+        // one — its git slower than the next one's — is not shown over it.
+        if (request !== null && request !== waitingFor) return;
+        waitingFor = null;
         const opening = parts === null || parts.panel.hidden;
         show();
         if (shown === null || shown.path !== path || shown.start !== start) selected = null;
-        shown = { path, start, entries, next, error };
+        shown = { request, path, start, entries, more, error };
         loading = false;
         draw();
         if (opening || parts!.panel === document.activeElement) {
@@ -406,14 +421,13 @@ export function createFileHistoryPanel(deps: FileHistoryPanelDeps): FileHistoryP
         }
         return;
       }
-      // The page after the one shown, of the history shown; anything else is
-      // an answer to a history since closed or replaced.
-      if (shown === null || shown.path !== path || shown.start !== start || !loading) return;
+      // The page after the one shown, of the history shown, asked for; anything
+      // else is an answer to a history since closed or replaced.
+      if (shown === null || shown.request !== request || waitingFor !== null || !loading) return;
       shown = {
-        path,
-        start,
+        ...shown,
         entries: error === null ? [...shown.entries, ...entries] : shown.entries,
-        next: error === null ? next : shown.next,
+        more: error === null ? more : shown.more,
         error
       };
       loading = false;

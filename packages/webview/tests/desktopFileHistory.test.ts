@@ -64,10 +64,12 @@ const ENTRIES = [
 const page = (more: Partial<FileHistoryMessage> = {}): FileHistoryMessage => ({
   command: "fileHistory",
   path: "src/new.ts",
+  // The host opened it itself (the menu), unless a test says which request.
+  request: null,
   start: START,
-  offset: 0,
+  first: true,
   entries: ENTRIES,
-  next: null,
+  more: false,
   error: null,
   strings: STRINGS,
   ...more
@@ -138,7 +140,7 @@ describe("the file history panel", () => {
     expect(panel().getAttribute("aria-busy")).toBe("true");
     expect(document.body.classList.contains("fileHistoryOpen")).toBe(true);
     expect(sent()).toEqual([
-      { command: "fileHistoryLoad", path: "src/new.ts", start: "c".repeat(40), offset: 0 }
+      { command: "fileHistoryOpen", request: 1, path: "src/new.ts", start: "c".repeat(40) }
     ]);
   });
 
@@ -149,7 +151,7 @@ describe("the file history panel", () => {
     (menu!(cdvFile({ commitHash: "*" }))[0] as ContextMenuItem).onClick();
 
     expect(sent()).toEqual([
-      { command: "fileHistoryLoad", path: "src/new.ts", start: null, offset: 0 }
+      { command: "fileHistoryOpen", request: 1, path: "src/new.ts", start: null }
     ]);
     expect(menu!(cdvFile({ origin: "untracked" }))).toEqual([]);
   });
@@ -241,8 +243,8 @@ describe("the file history panel", () => {
     expect(document.activeElement).toBe(before);
   });
 
-  it("loads the next page from where the host said, adding to the list", () => {
-    hear(page({ entries: ENTRIES.slice(0, 2), next: 100 }));
+  it("loads the next page of the history shown, adding to the list", () => {
+    hear(page({ entries: ENTRIES.slice(0, 2), more: true }));
     mock.clearMessages();
     const more = panel().querySelector<HTMLButtonElement>(".fhMore")!;
     expect(more.textContent).toBe("Load More");
@@ -251,12 +253,10 @@ describe("the file history panel", () => {
     // Pressed twice while the page is out: asked once.
     panel().querySelector<HTMLButtonElement>(".fhMore")!.click();
 
-    expect(sent()).toEqual([
-      { command: "fileHistoryLoad", path: "src/new.ts", start: START, offset: 100 }
-    ]);
+    expect(sent()).toEqual([{ command: "fileHistoryMore", request: null }]);
     expect(panel().getAttribute("aria-busy")).toBe("true");
 
-    hear(page({ offset: 100, entries: ENTRIES.slice(2), next: null }));
+    hear(page({ first: false, entries: ENTRIES.slice(2), more: false }));
 
     expect(rows().map((row) => row.dataset.hash)).toEqual(ENTRIES.map((e) => e.hash));
     expect(panel().querySelector(".fhMore")).toBeNull();
@@ -264,15 +264,52 @@ describe("the file history panel", () => {
   });
 
   it("drops a later page of a history it no longer shows", () => {
-    hear(page({ entries: ENTRIES.slice(0, 2), next: 100 }));
+    hear(page({ entries: ENTRIES.slice(0, 2), more: true }));
     panel().querySelector<HTMLButtonElement>(".fhMore")!.click();
     hear(
       page({ path: "other.ts", entries: [entry(9, { path: "other.ts", oldPath: "other.ts" })] })
     );
 
-    hear(page({ offset: 100, entries: ENTRIES.slice(2) }));
+    hear(page({ first: false, entries: ENTRIES.slice(2) }));
 
     expect(rows().map((row) => row.dataset.hash)).toEqual([entry(9).hash]);
+  });
+
+  it("shows the history opened last, though the one opened before it answers after it", () => {
+    hear({ command: "fileHistoryStrings", strings: STRINGS });
+    (menu!(cdvFile({ filePath: "a.ts" }))[0] as ContextMenuItem).onClick();
+    (menu!(cdvFile({ filePath: "b.ts" }))[0] as ContextMenuItem).onClick();
+    const b = entry(8, { path: "b.ts", oldPath: "b.ts" });
+    const a = entry(9, { path: "a.ts", oldPath: "a.ts" });
+
+    // B's git is quicker than A's.
+    hear(page({ request: 2, path: "b.ts", entries: [b], more: true }));
+    hear(page({ request: 1, path: "a.ts", entries: [a] }));
+    // Nor does a later page of A's land on B.
+    hear(page({ request: 1, path: "a.ts", first: false, entries: [a] }));
+
+    expect(panel().querySelector(".fhTitle")!.textContent).toBe("History of b.ts");
+    expect(rows().map((row) => row.dataset.hash)).toEqual([b.hash]);
+  });
+
+  it("drops the first page of every history it asked for once the host opens one of its own", () => {
+    hear({ command: "fileHistoryStrings", strings: STRINGS });
+    (menu!(cdvFile({ filePath: "a.ts" }))[0] as ContextMenuItem).onClick();
+    const picked = entry(8, { path: "picked.ts", oldPath: "picked.ts" });
+
+    hear(page({ path: "picked.ts", entries: [picked] }));
+    hear(page({ request: 1, path: "a.ts", entries: [entry(9)] }));
+
+    expect(rows().map((row) => row.dataset.hash)).toEqual([picked.hash]);
+  });
+
+  it("tells the host when it closes, so the history's git stops", () => {
+    hear(page());
+    mock.clearMessages();
+
+    panel().querySelector<HTMLButtonElement>(".fhClose")!.click();
+
+    expect(sent()).toEqual([{ command: "fileHistoryClose" }]);
   });
 
   it("says when no commit changed the file, and why when it could not be read", () => {

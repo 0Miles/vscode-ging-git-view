@@ -133,7 +133,8 @@ const histories = (posted: ResponseMessage[]) =>
     path: string;
     start: string | null;
     entries: { subject: string; path: string; oldPath: string; hash: string }[];
-    next: number | null;
+    first: boolean;
+    more: boolean;
     error: string | null;
   }[];
 
@@ -399,14 +400,20 @@ describe("a graph instance", () => {
         page.receive(request as unknown as RequestMessage);
 
       await fromPanel({ command: "fileHistoryReady" });
-      await fromPanel({ command: "fileHistoryLoad", path: "new.txt", start: null, offset: 0 });
+      await fromPanel({ command: "fileHistoryOpen", request: 1, path: "new.txt", start: null });
 
       expect(page.posted[0]).toEqual({
         command: "fileHistoryStrings",
         strings: expect.objectContaining({ menuItem: "View File History" })
       });
       const [history] = histories(page.posted);
-      expect(history).toMatchObject({ path: "new.txt", start: rev(repos[0], "HEAD"), next: null });
+      expect(history).toMatchObject({
+        path: "new.txt",
+        start: rev(repos[0], "HEAD"),
+        request: 1,
+        first: true,
+        more: false
+      });
       expect(
         history.entries.map(({ subject, path: at, oldPath }) => [subject, at, oldPath])
       ).toEqual([
@@ -480,6 +487,42 @@ describe("a graph instance", () => {
 
       expect(histories(page.posted)).toEqual([]);
       expect(page.asked).toEqual([["showError", `${outside} is not in this repository.`]]);
+    });
+
+    it("says so in its own window when the file picked is one git does not track", async () => {
+      const { repos, open } = setUp();
+      fs.writeFileSync(path.join(repos[0], "scratch.txt"), "never added");
+      const page = open(repos[0], () => path.join(repos[0], "scratch.txt"));
+
+      await page.instance.commands.fileHistory();
+
+      expect(histories(page.posted)).toEqual([]);
+      expect(page.asked).toEqual([
+        [
+          "showInformation",
+          "scratch.txt is not tracked by Git (untracked or ignored): it has no history."
+        ]
+      ]);
+    });
+
+    it("answers its panel's later pages of the history open, and none once it is closed", async () => {
+      const { repos, open } = setUp();
+      const page = open(repos[0]);
+      renamed(repos[0]);
+      const fromPanel = (request: FileHistoryRequest) =>
+        page.receive(request as unknown as RequestMessage);
+
+      await fromPanel({ command: "fileHistoryOpen", request: 1, path: "new.txt", start: null });
+      await fromPanel({ command: "fileHistoryMore", request: 1 });
+      // A page of a history not open is nobody's.
+      await fromPanel({ command: "fileHistoryMore", request: 7 });
+      await fromPanel({ command: "fileHistoryClose" });
+      await fromPanel({ command: "fileHistoryMore", request: 1 });
+
+      expect(histories(page.posted).map(({ first, more }) => ({ first, more }))).toEqual([
+        { first: true, more: false },
+        { first: false, more: false }
+      ]);
     });
 
     it("does nothing when no file is picked", async () => {
