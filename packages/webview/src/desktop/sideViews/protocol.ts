@@ -1,10 +1,12 @@
 /* What the desktop host and a Tab's page say to each other about the page's
- * Branches and Remotes side views (#399). Desktop-only, so declared under
+ * Branches, Remotes and Stash side views (#399, #400). Desktop-only, so declared under
  * desktop/ and never part of `RequestMessage` / `ResponseMessage` (ADR-0031):
  * they share the page's `message` event and the host's channel with the
  * graph's, and the compiler keeps their command names apart. */
 
+import type { GitFileChangeType } from "@ging/shared/backend/types";
 import type { BranchTreeNode } from "@ging/shared/backend/utils/branchTree";
+import { isStashAction, type StashAction } from "@ging/shared/backend/utils/stashActionCatalogue";
 import type {
   BatchSkipped,
   ContextMenuActionsVisibility,
@@ -39,6 +41,33 @@ export type SideViewBranches = {
 /** One configured remote, as the Remotes view lists it. */
 export type SideViewRemote = { name: string; fetchUrl: string; pushUrl: string };
 
+/** One stash, as the Stash view lists it (core's `StashListItem`), worded by
+ *  the host as VS Code's TreeItem is. */
+export type SideViewStash = {
+  /** Its SHA, told apart from a repeat of it (`stashListItems`): what the
+   *  page names it by. */
+  id: string;
+  /** Where it sits now, e.g. `stash@{0}`. */
+  selector: string;
+  message: string;
+  /** Its selector, message and date, a line each. */
+  tooltip: string;
+};
+
+/** One file of an expanded stash (core's `StashFile`). */
+export type SideViewStashFile = {
+  /** Its path in the stash: what the page names it by. */
+  path: string;
+  /** Its name, without its folder. */
+  name: string;
+  /** Its folder; empty at the top. */
+  dir: string;
+  /** git's letter, or `U` for a file untracked when stashed. */
+  badge: GitFileChangeType | "U";
+  /** Its path, or where it was renamed from and to. */
+  tooltip: string;
+};
+
 /** The side views' own words. The branch actions' labels are the graph's
  *  (the page's `l10n`): the same actions, under the same names. */
 export type SideViewStrings = {
@@ -67,23 +96,40 @@ export type SideViewStrings = {
   renameRemote: string;
   removeRemote: string;
   copyUrl: string;
+  stashes: string;
+  noStashes: string;
 };
 
-/** Host → page: both views, whole each time. `null` for a view whose read has
+/** Host → page: every view, whole each time. `null` for a view whose read has
  *  not landed yet, or failed. */
 export type SideViewStateMessage = {
   command: "sideViewState";
   repo: string;
   branches: SideViewBranches | null;
   remotes: SideViewRemote[] | null;
+  /** Newest first, as git lists them. */
+  stashes: SideViewStash[] | null;
   /** The `seq` of the last `sideViewSetFilter` the host had taken when it
    *  sent this; 0 before any since the page loaded. The page keeps its own
    *  highlight against a state from before its latest ask. */
   filterSeq: number;
-  /** Which branch actions the settings hide, as the graph's menu reads them. */
-  cmv: Pick<ContextMenuActionsVisibility, "branch" | "remoteBranch">;
+  /** Which branch and stash actions the settings hide, as the graph's menu
+   *  reads them. */
+  cmv: Pick<ContextMenuActionsVisibility, "branch" | "remoteBranch" | "stash">;
   strings: SideViewStrings;
 };
+
+/** Host → page: the files of a stash the page expanded, `null` when they could
+ *  not be read. A stash never changes under its SHA, so the page keeps them. */
+export type SideViewStashFilesMessage = {
+  command: "sideViewStashFiles";
+  repo: string;
+  id: string;
+  files: SideViewStashFile[] | null;
+};
+
+/** Everything the host posts to the side views. */
+export type SideViewMessage = SideViewStateMessage | SideViewStashFilesMessage;
 
 /** What the Remotes view does to one remote it lists. */
 export type SideViewRemoteAction = "fetch" | "editUrl" | "rename" | "remove" | "copyUrl";
@@ -104,7 +150,14 @@ export type SideViewRequest =
   | { command: "sideViewNoTargets"; skipped: BatchSkipped[] }
   | { command: "sideViewAddRemote" }
   | { command: "sideViewManagePullRequestProviders" }
-  | { command: "sideViewRemote"; action: SideViewRemoteAction; name: string };
+  | { command: "sideViewRemote"; action: SideViewRemoteAction; name: string }
+  /** Run `action` on the stash listed as `id`: in the host, through core
+   *  (ADR-0029), on the stash as the host listed it. */
+  | { command: "sideViewStash"; action: StashAction; id: string }
+  /** Read the files of the stash listed as `id`. */
+  | { command: "sideViewStashFiles"; id: string }
+  /** Open the diff of the file at `path` in the stash listed as `id`. */
+  | { command: "sideViewStashDiff"; id: string; path: string };
 
 /** True when `A` and `B` share no command name. */
 type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
@@ -113,7 +166,7 @@ type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] exten
 
 /** Checked by the compiler (ADR-0031). */
 export const SIDE_VIEW_COMMANDS_STAY_APART: NoCommandShared<
-  SideViewStateMessage["command"],
+  SideViewMessage["command"],
   ResponseMessage["command"]
 > &
   NoCommandShared<SideViewRequest["command"], RequestMessage["command"]> = true;
@@ -131,6 +184,17 @@ export function isSideViewStateMessage(data: unknown): data is SideViewStateMess
     typeof data.filterSeq === "number" &&
     isRecord(data.cmv) &&
     isRecord(data.strings)
+  );
+}
+
+/** Whether `data`, heard on the page's `message` channel, is a stash's files. */
+export function isSideViewStashFilesMessage(data: unknown): data is SideViewStashFilesMessage {
+  return (
+    isRecord(data) &&
+    data.command === "sideViewStashFiles" &&
+    typeof data.repo === "string" &&
+    typeof data.id === "string" &&
+    (data.files === null || Array.isArray(data.files))
   );
 }
 
@@ -182,6 +246,12 @@ export function isSideViewRequest(data: unknown): data is SideViewRequest {
         typeof data.action === "string" &&
         REMOTE_ACTIONS.includes(data.action)
       );
+    case "sideViewStash":
+      return typeof data.id === "string" && isStashAction(data.action);
+    case "sideViewStashFiles":
+      return typeof data.id === "string";
+    case "sideViewStashDiff":
+      return typeof data.id === "string" && typeof data.path === "string";
     default:
       return false;
   }

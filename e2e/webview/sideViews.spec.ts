@@ -5,7 +5,8 @@ import { harnessPage } from "./harness";
 // The desktop side views' column (#399) in a real browser: the region ADR-0031
 // drew for it — the window's left edge, full height, fixed, owning `body`'s
 // `padding-left` — and the graph's two window-wide things giving up its width
-// on their left. jsdom lays nothing out, so this is where that is held. The
+// on their left; and the Stash view (#400) sharing the column's height with
+// the other two. jsdom lays nothing out, so this is where that is held. The
 // host's half is played here, as in hostPrompt.spec.ts.
 
 /** A message from the host, delivered as the desktop preload delivers one. */
@@ -39,16 +40,27 @@ const STRINGS = Object.fromEntries(
     "more",
     "showAll",
     "refresh",
-    "addRemote"
+    "addRemote",
+    "stashes",
+    "noStashes"
   ].map((key) => [key, key])
 );
+
+/** `count` stashes, newest first, as the host lists them (SideViewStash). */
+const stashList = (count: number) =>
+  Array.from({ length: count }, (_, n) => ({
+    id: `stash${n}`,
+    selector: `stash@{${n}}`,
+    message: `On master: work ${n}`,
+    tooltip: `stash@{${n}}`
+  }));
 
 /** A side-view state (SideViewStateMessage in
  *  packages/webview/src/desktop/sideViews/protocol.ts), on the repository and
  *  with the menu settings the harness's graph has. */
-function sideViewState(page: Page, filter: string[] = []) {
+function sideViewState(page: Page, filter: string[] = [], stashes = stashList(0)) {
   return page.evaluate(
-    ({ roots, branchFilter, strings }) => {
+    ({ roots, branchFilter, strings, stashRows }) => {
       const { viewState } = globalThis as unknown as {
         viewState: { lastActiveRepo: string; contextMenuActionsVisibility: unknown };
       };
@@ -67,11 +79,17 @@ function sideViewState(page: Page, filter: string[] = []) {
           }
         },
         remotes: [],
+        stashes: stashRows,
         cmv: viewState.contextMenuActionsVisibility,
         strings
       };
     },
-    { roots: [leaf("master", true), leaf("develop")], branchFilter: filter, strings: STRINGS }
+    {
+      roots: [leaf("master", true), leaf("develop")],
+      branchFilter: filter,
+      strings: STRINGS,
+      stashRows: stashes
+    }
   );
 }
 
@@ -225,4 +243,52 @@ test("a click on a branch asks the host for the filter it makes", async ({ page 
   expect(await background()).toBe("rgb(1, 2, 3)");
   await develop.evaluate((el) => (el as HTMLElement).blur());
   expect(await background()).toBe("rgb(4, 5, 6)");
+});
+
+test("the Stash view is the column's third section, a long list scrolling inside it, its files' changes in the theme's colours", async ({
+  page
+}) => {
+  await hostSays(page, await sideViewState(page, [], stashList(60)));
+  const stashView = page.locator("#stashView");
+  await expect(stashView.locator(".sideViewRow.stash")).toHaveCount(60);
+
+  // Below the other two, inside the window: sixty stashes do not push the
+  // column past its bottom, nor the Branches view out of it.
+  const remotes = (await page.locator("#remotesView").boundingBox())!;
+  const stash = (await stashView.boundingBox())!;
+  expect(stash.y).toBeGreaterThanOrEqual(remotes.y + remotes.height);
+  expect(stash.y + stash.height).toBeLessThanOrEqual(700);
+  await expect(page.locator('#sideViews [data-ref="develop"]')).toBeInViewport();
+  const body = stashView.locator(".sideViewBody");
+  expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+
+  // Expanded, its files carry their change's letter in the colour VS Code's
+  // file decorations give it.
+  await page.evaluate(() => {
+    const root = globalThis.document.documentElement.style;
+    root.setProperty("--vscode-gitDecoration-addedResourceForeground", "rgb(1, 2, 3)");
+    root.setProperty("--vscode-gitDecoration-untrackedResourceForeground", "rgb(4, 5, 6)");
+  });
+  await stashView.locator('[data-stash="stash0"]').first().click();
+  await expect
+    .poll(() => posted(page, "sideViewStashFiles"))
+    .toEqual([{ command: "sideViewStashFiles", id: "stash0" }]);
+  const repo = await page.evaluate(
+    () =>
+      (globalThis as unknown as { viewState: { lastActiveRepo: string } }).viewState.lastActiveRepo
+  );
+  await hostSays(page, {
+    command: "sideViewStashFiles",
+    repo,
+    id: "stash0",
+    files: [
+      { path: "a.txt", name: "a.txt", dir: "", badge: "A", tooltip: "a.txt" },
+      { path: "b.txt", name: "b.txt", dir: "", badge: "U", tooltip: "b.txt" }
+    ]
+  });
+  const badges = stashView.locator(".sideViewFileBadge");
+  await expect(badges).toHaveText(["A", "U"]);
+  expect(
+    await badges.evaluateAll((els) => els.map((el) => globalThis.getComputedStyle(el).color))
+  ).toEqual(["rgb(1, 2, 3)", "rgb(4, 5, 6)"]);
 });

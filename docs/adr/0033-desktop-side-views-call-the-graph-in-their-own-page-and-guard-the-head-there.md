@@ -35,3 +35,16 @@ _與 ADR-0009、ADR-0010 看起來衝突:那兩篇說側檢視的分支動作由
 - 新增 catalogue 動作時,桌面版要在 `branchMenu.ts` 的呈現表加一格(編譯器逼你補);ADR-0010「後果」第一條列的三個檔案之外多這一個。
 - 側檢視的協定(`SideViewStateMessage` / `SideViewRequest`)在 `desktop/sideViews/protocol.ts`,`SIDE_VIEW_COMMANDS_STAY_APART` 檢查它們不和 `ResponseMessage` / `RequestMessage` 撞名(ADR-0031)。
 - 驗證:`packages/webview/tests/desktopSideViewMenu.test.ts`(catalogue 推導)、`desktopSideViews.test.ts`(直接呼叫圖形、head guard 靜默)、`apps/desktop/tests/sideViews.test.ts`(main process 那一半)、`apps/desktop/e2e/sideViews.spec.ts`(篩選、圖形的 Show All、checkout、Remotes 的 rename)。
+
+## 補記(2026-11-18,#400):Stash 側檢視不呼叫圖形
+
+**桌面版的 Stash 側檢視是同一欄的第三段,和圖形在同一頁,但它的動作不呼叫圖形,而是像 VS Code 一樣在宿主執行。** 這不和本文矛盾:本文說分支動作直接呼叫圖形,是因為委派的前提(另一個行程)不存在;stash 走宿主,理由是 ADR-0029,和行程無關 —— 圖形的 stash 對話框要在**已載入的列**裡找到對象(`stashNodeFor`),而側檢視列的正是不在載入範圍內的那些。同頁只省掉了「叫出面板」,沒有讓圖形找得到它沒載入的 stash。
+
+- **跑的是 core 的那一份。** 頁面送 `sideViewStash { action, id }`,main process([sideViews.ts](../../apps/desktop/src/sideViews.ts))找出自己最後一次列出的那一筆,執行 core 的 `LISTED_STASH_ACTIONS`(`applyOrPopListedStash`、`dropListedStash`、`renameListedStash`、`copyStashName`),問題問在該 Tab 頁面的 host prompt overlay。頁面只說「第幾筆」(`id`),selector 與 SHA 都是宿主列出時的值:綁定的是使用者看到的那一筆,頁面無法指定別的(ADR-0029 的綁定規則、#334 的 `expectedHash`)。
+- **互動形狀照 ADR-0029。** apply / pop 是 overlay 的 `choose` 兩顆按鈕,`Apply` 在前(`reinstateIndex: false`);drop 是只有按鈕的確認;rename 是文字輸入。不讀、也不寫 `dialogMemory`。衝突回報與失敗判定照 ADR-0030,同一份 `reportApplyFailure`。
+- **選單從 `@ging/shared` 的 `STASH_ACTION_CATALOGUE` 推導**:順序、分組、`cmvKey`(`contextMenuActionsVisibility.stash.*`;rename 恆顯示)。VS Code 的 `STASH_ACTIONS` 也改由它與 core 的 `LISTED_STASH_ACTIONS` 組成,`stashMenuConsistency.test.ts` 多鎖住 package.json 的分組順序 —— 兩邊的選單不會一邊改了另一邊沒跟上。標籤沿用圖形 stash 選單的字(頁面的 `l10n`)。
+- **改動 repo 的 git 包在 `runRepoMutation` 裡。** core 的 `ListedStashHost` 多了選填的 `mutate`,只包同意之後的 git,不包詢問;桌面版傳入實例的 `runRepoMutation`,所以圖形的 watcher 在執行期間靜音,結束後重繪圖形與側檢視(和 core 命令服務的改動一樣)。VS Code 不傳,行為不變。
+- **它自己監看 stash 的 reflog。** 沿用 core 的 `createStashViewWatch`(common dir 下的 `logs/refs/stash`),頁面聆聽期間開啟;理由同 #333:圖形的 watcher 不看那個檔案(`isWatchedRepoPath`),drop 一筆不在最上面的 stash 只改 reflog。非遞迴的那一個 watch 是 `watchOneOnDisk`(`fs.watch`)。
+- **點檔案開 `Opener.openCommitDiff`**,和 VS Code 的 Stash 側檢視一樣;桌面版在 #404 之前是 stub,先說「尚未支援」。
+
+驗證:`packages/core/tests/extension/stashList.test.ts`(`mutate` 只包同意後的 git)、`packages/webview/tests/desktopSideViews.test.ts`(第三段、catalogue 選單與 cmv、展開與 diff 請求,不經圖形)、`apps/desktop/tests/sideViews.test.ts` 與 `graphInstance.test.ts`(main process 那一半、真 git)、`apps/desktop/e2e/sideViews.spec.ts`(外部 push 的 stash 出現、經 overlay pop)、`e2e/webview/sideViews.spec.ts`(版面)。
