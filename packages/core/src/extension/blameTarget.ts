@@ -1,4 +1,4 @@
-import { blameLocation } from "@ging/core/backend/utils/repoMatch";
+import { locateInKnownRepos, type RepoLocator } from "@ging/core/backend/utils/repoMatch";
 
 /** The parts of an editor that decide whether, and where, it is annotated. */
 export type BlameEditorState = {
@@ -21,12 +21,17 @@ export function spansLines(selections: { startLine: number; endLine: number }[])
 /**
  * The line to annotate and where to blame it, or null when the editor shows
  * nothing to annotate: not a file on disk, a selection across lines, or a file
- * outside every known repository. Unsaved edits don't stop it: they are blamed
- * as the editor shows them, so the line still matches.
+ * outside every known repository, whichever way either is spelled (see
+ * `createRepoLocator`). Unsaved edits don't stop it: they are blamed as the
+ * editor shows them, so the line still matches.
  */
-export function blameTarget(editor: BlameEditorState, knownRepos: string[]): BlameTarget | null {
+export function blameTarget(
+  editor: BlameEditorState,
+  knownRepos: string[],
+  locate: RepoLocator = locateInKnownRepos
+): BlameTarget | null {
   if (editor.scheme !== "file") return null;
   if (spansLines(editor.selections)) return null;
-  const location = blameLocation(editor.filePath, knownRepos);
+  const location = locate(editor.filePath, knownRepos);
   return location === null ? null : { line: editor.cursorLine, ...location };
 }
