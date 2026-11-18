@@ -54,6 +54,8 @@ body.workingTreeOpen #findWidget { right: ${WORKING_TREE_WIDTH + 14}px; }
   font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
 }
 #workingTree[hidden] { display: none; }
+#workingTree .wtPart { display: contents; }
+#workingTree .wtCommit[hidden] { display: none; }
 #workingTree .wtHeader {
   display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; flex: 0 0 auto;
   font-weight: 600; text-transform: uppercase; font-size: 11px;
@@ -184,6 +186,14 @@ export type WorkingTreePanelOptions = {
 const tickBox = (action: string, on: boolean, off: boolean) =>
   `<input type="checkbox" data-action="${action}"${on ? " checked" : ""}${off ? " disabled" : ""}>`;
 
+/** A part of the panel's frame that each draw writes anew; no box of its own
+ *  in the layout (`display: contents`). */
+function part(): HTMLElement {
+  const div = document.createElement("div");
+  div.className = "wtPart";
+  return div;
+}
+
 /** How many of the remote branches a pushed HEAD is on the warning names. */
 const NAMED_BRANCHES = 3;
 
@@ -215,6 +225,24 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
   const panel = document.createElement("aside");
   panel.id = "workingTree";
   panel.hidden = true;
+  /** The panel's frame: the message box, which is never taken out of the
+   *  page, and around it the parts each draw writes anew. Taking the box out
+   *  would blur it (the keyboard lost mid-sentence, an IME composition cut
+   *  short) whenever an answer or a refresh redraws the panel while the user
+   *  types (#479). The parts' wrappers are `display: contents`, so the layout
+   *  is the panel's children as before. The commit area stays hidden until
+   *  the first draw brings the box its words. */
+  const frame = {
+    header: part(),
+    commitArea: document.createElement("div"),
+    box: document.createElement("textarea"),
+    commitPart: part(),
+    body: part()
+  };
+  frame.commitArea.className = "wtCommit";
+  frame.commitArea.hidden = true;
+  frame.commitArea.append(frame.box, frame.commitPart);
+  panel.append(frame.header, frame.commitArea, frame.body);
   document.body.appendChild(panel);
 
   let strings: WorkingTreeStrings | null = null;
@@ -426,10 +454,8 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     const s = strings;
     if (s === null) return;
     const at = focusAt();
-    // The box keeps its text and caret across redraws: it is built once and
-    // only moved back in.
-    const box =
-      panel.querySelector<HTMLTextAreaElement>("textarea") ?? document.createElement("textarea");
+    const { header, box, commitArea, commitPart, body } = frame;
+    commitArea.hidden = false;
     box.placeholder = s.message;
     box.setAttribute("aria-label", s.message);
     if (box.value !== message) box.value = message;
@@ -453,13 +479,16 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
               { action: "stageAll", label: s.stageAll, text: "+" },
               s
             );
-    panel.innerHTML = `<div class="wtHeader"><span class="wtTitle">${escapeHtml(s.title)}${
+    header.innerHTML = `<div class="wtHeader"><span class="wtTitle">${escapeHtml(s.title)}${
       status?.branch ? ` <span class="wtBranch">${escapeHtml(status.branch)}</span>` : ""
-    }</span>${iconButton("close", s.close, svgIcons.close, false)}</div><div class="wtCommit">${tickBoxes(s)}<button class="wtCommitButton" id="wtCommitButton" type="button" data-action="commit"${
+    }</span>${iconButton("close", s.close, svgIcons.close, false)}</div>`;
+    commitPart.innerHTML = `${tickBoxes(s)}<button class="wtCommitButton" id="wtCommitButton" type="button" data-action="commit"${
       cannotCommit() ? ' aria-disabled="true"' : ""
-    }>${escapeHtml(amend ? s.amendCommit : s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error ?? "")}</div></div>${operationBar(s)}<div class="wtLists">${lists}</div>`;
-    panel.querySelector(".wtCommit")!.prepend(box);
-    if (at !== null) refocus(at);
+    }>${escapeHtml(amend ? s.amendCommit : s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error ?? "")}</div>`;
+    body.innerHTML = `${operationBar(s)}<div class="wtLists">${lists}</div>`;
+    // Only what the draw took away is given the keyboard back: the message
+    // box, never taken away, keeps it, its caret and selection untouched.
+    if (at !== null && !panel.contains(document.activeElement)) refocus(at);
   }
 
   const commit = () => {

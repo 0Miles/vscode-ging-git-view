@@ -6,6 +6,7 @@ import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { createConflictCommands } from "@ging/core/extension/conflictCommands";
 import { createFetchService } from "@ging/core/extension/fetchService";
+import { createFileHistoryService } from "@ging/core/extension/fileHistoryService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
 import {
   type MessageHandlerDeps,
@@ -19,7 +20,12 @@ import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/seque
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import { createWorkingTreeService } from "@ging/core/extension/workingTreeService";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
-import { createShowDiff, type ShowDiff } from "@ging/desktop/diffViewer";
+import {
+  createShowDiff,
+  createShowFile,
+  type ShowDiff,
+  type ShowFile
+} from "@ging/desktop/diffViewer";
 import { createDesktopOpener } from "@ging/desktop/ports/opener";
 import { createDesktopWatcher, watchOneOnDisk } from "@ging/desktop/ports/watcher";
 import type {
@@ -31,8 +37,12 @@ import type {
 import {
   type DiffHunkRequest,
   isDiffHunkRequest,
-  type ShowDiffMessage
+  type ViewerMessage
 } from "@ging/webview/desktop/diff/protocol";
+import {
+  type FileHistoryHostMessage,
+  isFileHistoryRequest
+} from "@ging/webview/desktop/fileHistory/protocol";
 import type { SideViewMessage, SideViewRequest } from "@ging/webview/desktop/sideViews/protocol";
 import {
   isWorkingTreeRequest,
@@ -42,6 +52,7 @@ import {
 } from "@ging/webview/desktop/workingTree/protocol";
 
 import { type AppCommands, createAppCommands } from "./appCommands";
+import { createFileHistory } from "./fileHistory";
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
 import { createSideViews } from "./sideViews";
@@ -63,9 +74,12 @@ type GraphInstanceOptions = {
   /** Show setting `key` in the app's settings, as they are now (#397): where
    *  Manage Pull Request Providers' "show the setting" goes. */
   revealSetting: (key: string) => void;
-  /** Hand its page a diff to show (#404), beside the graph's own messages
-   *  (ADR-0031); false when the page is gone. */
-  postDiff: (message: ShowDiffMessage) => boolean;
+  /** Hand its page a diff (#404) or a file (#405) to show, beside the
+   *  graph's own messages (ADR-0031); false when the page is gone. */
+  postDiff: (message: ViewerMessage) => boolean;
+  /** A file of `repo`, picked in the system's dialog opened on it; null when
+   *  none was: the application menu's File History… (#408). */
+  pickFile: (repo: string) => Promise<string | null>;
 };
 
 export type GraphInstance = {
@@ -89,6 +103,9 @@ export type GraphInstance = {
    *  panel (#403) or a file's history (#408) opens a diff of its repository
    *  with. The `Opener`'s two diffs go the same way. */
   showDiff: ShowDiff;
+  /** Show a file read-only in its page, over its graph (#405), as the
+   *  `Opener`'s File at Revision does: what blame (#409) builds on. */
+  showFile: ShowFile;
   dispose(): void;
 };
 
@@ -105,6 +122,8 @@ export type InstanceCommands = AppCommands & {
   /** The system's terminal in the repository, named after its folder as the
    *  graph's own Terminal button names it. */
   openTerminal(): void;
+  /** A file picked, its history shown in the page (#408). */
+  fileHistory(): Promise<void>;
 };
 
 export function createGraphInstance(
@@ -116,7 +135,8 @@ export function createGraphInstance(
     postSideView,
     extensionState,
     revealSetting,
-    postDiff
+    postDiff,
+    pickFile
   }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
@@ -143,6 +163,7 @@ export function createGraphInstance(
         }
         // The diff viewer's hunks (#406).
         if (isDiffHunkRequest(posted)) return applyHunk(posted);
+        if (isFileHistoryRequest(message)) return fileHistory.receive(message);
         if (message.command === "markResolved") return markResolvedAsked(message, listener);
         if (message.command === "selectRepo" && message.repo !== repo) {
           if (message.repo) {
@@ -205,6 +226,20 @@ export function createGraphInstance(
     repo: () => current,
     signCommits: () => config.signCommits(),
     runRepoMutation
+  });
+  // A file's history (#408): only read, so no mutation and no refresh.
+  const fileHistory = createFileHistory({
+    // Its own git, read as a stream: none of the client's process slots held
+    // while the panel is open.
+    service: createFileHistoryService({ gitPath: shared.gitPath, repo: () => current }),
+    repo: () => current,
+    showDiff: (request) => showDiff(request),
+    post: (message: FileHistoryHostMessage) =>
+      void page.postMessage(message as unknown as ResponseMessage),
+    pickFile,
+    prompts,
+    l10n,
+    logger
   });
   // A conflict's (#410): the user's merge tool, for the panel and for the
   // graph's own conflict banner (`Opener.openMergeEditor`), and the question
@@ -304,20 +339,24 @@ export function createGraphInstance(
 
   // Its own, so what it says is said in this instance's window.
   const notifier = { prompts, l10n, logger };
-  // Its diffs are shown in its own page.
-  const showDiff = createShowDiff({
+  // Its diffs and files are shown in its own page, read from its Tab's
+  // repository and no other.
+  const viewerDeps = {
     gitPath: shared.gitPath,
     fileEncoding: config.fileEncoding,
     l10n,
     repoRoot: () => current,
     post: postDiff
-  });
+  };
+  const showDiff = createShowDiff(viewerDeps);
+  const showFile = createShowFile(viewerDeps);
   const opener = createDesktopOpener({
     ...notifier,
     os: shared.os,
     // Files and terminals are opened from its Tab's repository, and no other.
     repoRoot: () => current,
     showDiff,
+    showFile,
     platform: process.platform,
     env: process.env,
     mergeTool: (filePath) => void conflicts.mergeTool(filePath)
@@ -428,6 +467,7 @@ export function createGraphInstance(
       sideViews.refresh();
     },
     showDiff,
+    showFile,
     commands: {
       ...appCommands,
       fetch: () => fetchService.fetchCommand(),
@@ -438,12 +478,14 @@ export function createGraphInstance(
       openTerminal: () => {
         const name = current.split("/").findLast((s) => s !== "") ?? current;
         opener.openTerminal(current, `GING: ${name}`);
-      }
+      },
+      fileHistory: () => fileHistory.pickAndShow()
     },
     sideView: (message) => sideViews.receive(message),
     showWorkingTree: () => postToPanel({ command: "workingTreeShow" }),
     dispose: () => {
       sideViews.dispose();
+      fileHistory.dispose();
       dispatch.dispose();
       reposChanged.dispose();
       fetchService.dispose();

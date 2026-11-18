@@ -2,7 +2,9 @@
  * host sent (`ShowDiffMessage`), drawn by the editor `apps/desktop` hands the
  * desktop entry (editors.ts). Two layouts, side by side and inline, switched
  * from its bar and remembered in the page's own storage; closed with its
- * close button or Escape, the keyboard then back where it was before.
+ * close button or Escape, the keyboard then back where it was before. The
+ * same panel shows one file read-only (`ShowFileMessage`, #405), in place of
+ * a diff as one diff takes another's: one view over the graph at a time.
  *
  * It does not take the page over: the graph stays where it is under it, and
  * a dialog the graph raises meanwhile shows over it (diffPanelStyles.ts).
@@ -14,12 +16,13 @@ import type {
   DiffLayout,
   DiffViewer,
   EditorFactory,
+  FileViewer,
   HunkActions,
   ThemeKind
 } from "@ging/webview/desktop/editors";
 
 import { DIFF_PANEL_STYLES } from "./diffPanelStyles";
-import type { DiffHunkRequest, ShowDiffMessage } from "./protocol";
+import type { DiffHunkRequest, ShowDiffMessage, ShowFileMessage } from "./protocol";
 
 /** Where the layout last chosen is kept: the page's own origin, for this
  *  user, across sessions. A convenience — lost, the viewer opens side by side. */
@@ -31,6 +34,9 @@ export type DiffPanel = {
   /** Show `message`'s diff, in place of any shown. Rejects when the editor
    *  could not be made, after saying so in the panel. */
   show(message: ShowDiffMessage): Promise<void>;
+  /** Show `message`'s file, read-only, in place of any diff or file shown
+   *  (#405). Rejects as `show` does. */
+  showFile(message: ShowFileMessage): Promise<void>;
   /** Close it, if it is open. */
   close(): void;
 };
@@ -65,6 +71,28 @@ function themeOf(doc: Document): ThemeKind {
   return doc.body.classList.contains("vscode-light") ? "light" : "dark";
 }
 
+/** What the panel shows: a diff's viewer, which has layouts, or a file's. */
+type Shown = FileViewer & Partial<Pick<DiffViewer, "setLayout">>;
+
+/** One thing to show in the panel, whichever kind. */
+type Showing = {
+  title: string;
+  notShown: string | null;
+  close: string;
+  cannotShow: string;
+  /** The layout buttons' words; null for what has no layouts — a file. */
+  layouts: { sideBySide: string; inline: string } | null;
+  /** A line to say over it (#406); null for none. */
+  said: string | null;
+  /** Make its viewer in `container`, as the panel is now; `mine` is the
+   *  number it is shown as (`generation`). */
+  make: (
+    container: HTMLElement,
+    now: { layout: DiffLayout; theme: ThemeKind },
+    mine: number
+  ) => Promise<Shown>;
+};
+
 const CLOSE_ICON =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"/></svg>';
 
@@ -79,7 +107,7 @@ export type DiffPanelOptions = {
 export function createDiffPanel(editors: EditorFactory, options: DiffPanelOptions = {}): DiffPanel {
   const storage = options.storage === undefined ? pageStorage() : options.storage;
   let parts: ReturnType<typeof build> | null = null;
-  let viewer: DiffViewer | null = null;
+  let viewer: Shown | null = null;
   let layout = storedLayout(storage);
   /** Bumped by every show and close: a viewer that comes after its show was
    *  overtaken is not wanted any more. */
@@ -170,7 +198,7 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
     });
 
     document.body.append(panel);
-    return { panel, title, layoutButtons, close, error, notice, said, keys, editorArea };
+    return { panel, title, layouts, layoutButtons, close, error, notice, said, keys, editorArea };
   }
 
   function showLayout(p: NonNullable<typeof parts>) {
@@ -183,7 +211,7 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
     layout = value;
     storeLayout(storage, value);
     if (parts !== null) showLayout(parts);
-    viewer?.setLayout(value);
+    viewer?.setLayout?.(value);
   }
 
   /** Done with the viewer shown. The keyboard is taken out of it first, by
@@ -250,89 +278,123 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
     parts.editorArea.replaceChildren();
   }
 
+  async function present(showing: Showing): Promise<void> {
+    parts ??= build();
+    const p = parts;
+    const mine = ++generation;
+    if (p.panel.hidden) {
+      returnFocus = document.activeElement;
+      p.panel.hidden = false;
+    }
+    // The keyboard out of the last viewer before it is done with, and on the
+    // panel until the new one has it.
+    p.panel.focus();
+    disposeViewer();
+    p.title.textContent = showing.title;
+    p.title.title = showing.title;
+    p.layouts.hidden = showing.layouts === null;
+    if (showing.layouts !== null) {
+      p.layoutButtons[0].textContent = showing.layouts.sideBySide;
+      p.layoutButtons[1].textContent = showing.layouts.inline;
+    }
+    p.close.title = showing.close;
+    p.close.setAttribute("aria-label", showing.close);
+    showLayout(p);
+    p.error.hidden = true;
+    p.notice.hidden = true;
+    p.said.textContent = showing.said ?? "";
+    p.said.hidden = showing.said === null;
+    // Described anew by a diff that offers hunks (`describeKeys`).
+    p.keys.textContent = "";
+    p.panel.removeAttribute("aria-describedby");
+    p.editorArea.replaceChildren();
+    if (showing.notShown !== null) {
+      // No text to show: said in one line, and no editor made.
+      p.notice.textContent = showing.notShown;
+      p.notice.hidden = false;
+      p.panel.removeAttribute("aria-busy");
+      return;
+    }
+    // A new element for each: nothing of the last one's editor is left.
+    const container = document.createElement("div");
+    container.style.position = "absolute";
+    container.style.inset = "0";
+    p.editorArea.append(container);
+    // Until the editor is in it: the first on a page loads the editor's code
+    // first, which takes seconds on a slow machine.
+    p.panel.setAttribute("aria-busy", "true");
+
+    const asked = { layout, theme: themeOf(document) };
+    let made: Shown;
+    try {
+      made = await showing.make(container, asked, mine);
+    } catch (e) {
+      // One closed or replaced meanwhile has nobody to tell: no failure of
+      // the page's either, as far as the viewer shown now goes.
+      if (mine !== generation) return;
+      p.panel.removeAttribute("aria-busy");
+      p.error.textContent = showing.cannotShow;
+      p.error.hidden = false;
+      throw e;
+    }
+    if (mine !== generation) {
+      // Closed, or another shown, while this one was being made.
+      made.dispose();
+      return;
+    }
+    p.panel.removeAttribute("aria-busy");
+    viewer = made;
+    // Changed while it was being made (the editor's code loads on the
+    // first): what was asked for then is not what is shown now.
+    if (asked.layout !== layout) made.setLayout?.(layout);
+    if (asked.theme !== themeOf(document)) made.setTheme(themeOf(document));
+    made.focus();
+  }
+
+  /** Say how the keyboard reaches the hunks (#406) as the panel's
+   *  description: their buttons sit outside the editor's keyboard order. */
+  function describeKeys(keyboard: string) {
+    if (parts === null) return;
+    parts.keys.textContent = keyboard;
+    parts.panel.setAttribute("aria-describedby", parts.keys.id);
+  }
+
   return {
-    async show(message) {
+    show: async (message) => {
       // The answer to a hunk asked of a diff no longer shown — another diff
       // opened, or the viewer closed, meanwhile — is not shown over it.
       if (message.answers !== undefined && message.answers !== generation) return;
-      parts ??= build();
-      const p = parts;
-      const mine = ++generation;
-      if (p.panel.hidden) {
-        returnFocus = document.activeElement;
-        p.panel.hidden = false;
-      }
-      // The keyboard out of the last diff's viewer before it is done with,
-      // and on the panel until the new one has it.
-      p.panel.focus();
-      disposeViewer();
-      p.title.textContent = message.title;
-      p.title.title = message.title;
-      p.layoutButtons[0].textContent = message.strings.sideBySide;
-      p.layoutButtons[1].textContent = message.strings.inline;
-      p.close.title = message.strings.close;
-      p.close.setAttribute("aria-label", message.strings.close);
-      showLayout(p);
-      p.error.hidden = true;
-      p.notice.hidden = true;
-      p.said.textContent = message.said ?? "";
-      p.said.hidden = message.said === undefined;
-      p.keys.textContent = "";
-      p.panel.removeAttribute("aria-describedby");
-      p.editorArea.replaceChildren();
-      if (message.notShown !== null) {
-        // No text to compare: said in one line, and no editor made.
-        p.notice.textContent = message.notShown;
-        p.notice.hidden = false;
-        p.panel.removeAttribute("aria-busy");
-        return;
-      }
-      // A new element for each diff: nothing of the last one's editor is left.
-      const container = document.createElement("div");
-      container.style.position = "absolute";
-      container.style.inset = "0";
-      p.editorArea.append(container);
-      // Until the editor is in it: the first diff on a page loads the editor's
-      // code first, which takes seconds on a slow machine.
-      p.panel.setAttribute("aria-busy", "true");
-
-      const asked = { layout, theme: themeOf(document) };
-      const hunks = hunkActions(message, mine);
-      if (hunks !== undefined) {
-        p.keys.textContent = hunks.keyboard;
-        p.panel.setAttribute("aria-describedby", p.keys.id);
-      }
-      let made: DiffViewer;
-      try {
-        made = await editors.createDiffViewer(container, {
-          original: message.original,
-          modified: message.modified,
-          ...asked,
-          revealLine: message.revealLine,
-          ...(hunks !== undefined && { hunks })
-        });
-      } catch (e) {
-        // A diff closed or replaced meanwhile has nobody to tell: no failure
-        // of the page's either, as far as the viewer shown now goes.
-        if (mine !== generation) return;
-        p.panel.removeAttribute("aria-busy");
-        p.error.textContent = message.strings.cannotShow;
-        p.error.hidden = false;
-        throw e;
-      }
-      if (mine !== generation) {
-        // Closed, or another diff shown, while this one was being made.
-        made.dispose();
-        return;
-      }
-      p.panel.removeAttribute("aria-busy");
-      viewer = made;
-      // Changed while it was being made (the editor's code loads on the
-      // first diff): what was asked for then is not what is shown now.
-      if (asked.layout !== layout) made.setLayout(layout);
-      if (asked.theme !== themeOf(document)) made.setTheme(themeOf(document));
-      made.focus();
+      await present({
+        title: message.title,
+        notShown: message.notShown,
+        close: message.strings.close,
+        cannotShow: message.strings.cannotShow,
+        layouts: { sideBySide: message.strings.sideBySide, inline: message.strings.inline },
+        said: message.said ?? null,
+        make: (container, now, mine) => {
+          const hunks = hunkActions(message, mine);
+          if (hunks !== undefined) describeKeys(hunks.keyboard);
+          return editors.createDiffViewer(container, {
+            original: message.original,
+            modified: message.modified,
+            ...now,
+            revealLine: message.revealLine,
+            ...(hunks !== undefined && { hunks })
+          });
+        }
+      });
     },
+    showFile: (message) =>
+      present({
+        title: message.title,
+        notShown: message.notShown,
+        close: message.strings.close,
+        cannotShow: message.strings.cannotShow,
+        layouts: null,
+        said: null,
+        make: (container, { theme }) =>
+          editors.createFileViewer(container, { document: message.file, theme })
+      }),
     close: closePanel
   };
 }

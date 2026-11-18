@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { L10nArg } from "@ging/core/host/ports";
-import type { DiffRequest } from "@ging/desktop/diffViewer";
+import type { DiffRequest, FileRequest } from "@ging/desktop/diffViewer";
 import {
   createDesktopOpener,
   type FileFacts,
@@ -15,7 +15,6 @@ import {
 // with and of the file system: nothing here starts a program, a browser or a
 // terminal, and the links and modes are the fake's.
 
-const NOT_YET = "desktop.notSupportedYet";
 const REPO = path.resolve("/work/repo");
 const at = (...parts: string[]) => path.join(REPO, ...parts);
 
@@ -43,7 +42,8 @@ function setUp({
   files = fakeFiles(),
   openPath = async (_file: string) => "",
   openTerminal = async (_cwd: string, _title: string) => {},
-  showDiff = async (_request: DiffRequest): Promise<boolean> => true
+  showDiff = async (_request: DiffRequest): Promise<boolean> => true,
+  showFile = async (_request: FileRequest): Promise<boolean> => true
 } = {}) {
   const calls: unknown[][] = [];
   const logged: string[] = [];
@@ -64,10 +64,6 @@ function setUp({
   const opener = createDesktopOpener({
     os,
     prompts: {
-      showInformation: async (message: string) => {
-        calls.push(["showInformation", message]);
-        return undefined;
-      },
       showError: async (message) => {
         calls.push(["showError", message]);
         return undefined;
@@ -82,6 +78,10 @@ function setUp({
     showDiff: (request) => {
       calls.push(["showDiff", request]);
       return showDiff(request);
+    },
+    showFile: (request) => {
+      calls.push(["showFile", request]);
+      return showFile(request);
     },
     platform,
     env,
@@ -246,21 +246,6 @@ describe("the desktop Opener", () => {
     expect(logged).toEqual([expect.stringContaining("ERROR: opener: could not open a terminal")]);
   });
 
-  // The stubs: each says the desktop app cannot do it yet, and answers as
-  // done, so the graph adds no "Unable to open" box of its own.
-  describe("what the desktop app cannot show yet", () => {
-    const side = { repo: REPO, filePath: "a.txt", commit: "abc" };
-
-    it("openFileAtRevision resolves after the notice", async () => {
-      const { opener, calls, logged } = setUp();
-
-      await expect(opener.openFileAtRevision(side)).resolves.toBeUndefined();
-
-      expect(calls).toEqual([["showInformation", NOT_YET]]);
-      expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
-    });
-  });
-
   // No longer a stub (#410): the file goes to the user's merge tool, which
   // says what came of it, and nothing says "not yet".
   it("openMergeEditor hands the file to the merge tool, saying nothing itself", () => {
@@ -383,6 +368,70 @@ describe("the desktop Opener's diffs (#404)", () => {
         }
       }).opener.diffWithWorking(left, at("a.txt"), "t")
     ).rejects.toThrow("EISDIR");
+  });
+});
+
+describe("the desktop Opener's file at a revision (#405)", () => {
+  const file = { repo: REPO, filePath: "src/a.txt", commit: "abc1234def" };
+
+  it("openFileAtRevision shows the file read-only, titled by its name and the commit", async () => {
+    const { opener, calls, logged } = setUp();
+
+    await expect(opener.openFileAtRevision(file)).resolves.toBeUndefined();
+
+    expect(calls).toEqual([["showFile", { title: "a.txt (abc1234d)", file: { revision: file } }]]);
+    expect(logged).toEqual([]);
+  });
+
+  it("openFileAtRevision names a stash's untracked file by the stash, not its third parent", async () => {
+    const { opener, calls } = setUp();
+
+    await opener.openFileAtRevision({ ...file, commit: "abc1234def^3" });
+
+    expect(calls).toEqual([
+      [
+        "showFile",
+        {
+          title: "a.txt (abc1234d)",
+          file: { revision: { ...file, commit: "abc1234def^3" } }
+        }
+      ]
+    ]);
+  });
+
+  it("openFileAtRevision keeps any other parent in the title: it is not the named commit", async () => {
+    const { opener, calls } = setUp();
+    const full = "abc1234def5678901234567890123456789abcde";
+
+    await opener.openFileAtRevision({ ...file, commit: `${full}^` });
+    await opener.openFileAtRevision({ ...file, commit: `${full}^2` });
+    await opener.openFileAtRevision({ ...file, commit: ":0" });
+
+    expect(calls.map(([, request]) => (request as FileRequest).title)).toEqual([
+      "a.txt (abc1234d^)",
+      "a.txt (abc1234d^2)",
+      "a.txt (:0)"
+    ]);
+  });
+
+  it("openFileAtRevision rejects, saying why in the log, when the file could not be shown", async () => {
+    const gone = setUp({ showFile: async () => false });
+    await expect(gone.opener.openFileAtRevision(file)).rejects.toThrow("the Tab's page is gone");
+    expect(gone.logged).toEqual([expect.stringMatching(/^ERROR: opener: not opening src\/a\.txt/)]);
+
+    const refused = setUp({
+      showFile: async () => {
+        throw new Error("--output=x is not a revision a diff reads");
+      }
+    });
+    await expect(refused.opener.openFileAtRevision(file)).rejects.toThrow(
+      "is not a revision a diff reads"
+    );
+    expect(refused.logged).toEqual([
+      "ERROR: opener: could not show src/a.txt at abc1234def: Error: --output=x is not a revision a diff reads"
+    ]);
+    // The graph says it could not open it: nothing more is said here.
+    expect(refused.calls.filter(([what]) => what === "showError")).toEqual([]);
   });
 });
 

@@ -1,7 +1,11 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type * as GG from "@ging/shared/types";
-import type { DiffViewerOptions, EditorFactory } from "@ging/webview/desktop/editors";
+import type {
+  DiffViewerOptions,
+  EditorFactory,
+  FileViewerOptions
+} from "@ging/webview/desktop/editors";
 
 import { createVscodeMock, graphRow, makeViewState, receive, setupHtml } from "./setup";
 import { startDesktop } from "./startDesktop";
@@ -20,10 +24,16 @@ const viewState = makeViewState();
 
 /** What the diff viewer asked the editors to draw. */
 const diffsAsked: DiffViewerOptions[] = [];
+/** And the files it asked them to show read-only (#405). */
+const filesAsked: FileViewerOptions[] = [];
 const editors: EditorFactory = {
   createDiffViewer: async (_container, options) => {
     diffsAsked.push(options);
     return { setLayout: () => {}, setTheme: () => {}, focus: () => {}, dispose: () => {} };
+  },
+  createFileViewer: async (_container, options) => {
+    filesAsked.push(options);
+    return { setTheme: () => {}, focus: () => {}, dispose: () => {} };
   }
 };
 
@@ -117,6 +127,26 @@ describe("the desktop entry", () => {
     expect(diffsAsked[0]).toMatchObject({ original: { content: "before\n" } });
     expect(document.getElementById("diffViewer")!.hidden).toBe(false);
     // The graph's listener heard it too, and let it be.
+    expect(mock.sentOf("reportError")).toEqual([]);
+  });
+
+  it("shows a file the host sends read-only in the same viewer (#405)", async () => {
+    mock.clearMessages();
+
+    receive({
+      command: "showFile",
+      title: "file.txt (aaa111)",
+      file: { path: "file.txt", content: "then\n" },
+      notShown: null,
+      strings: { close: "Close File", cannotShow: "-" }
+    } as unknown as GG.ResponseMessage);
+    await vi.waitFor(() => expect(filesAsked).toHaveLength(1));
+
+    expect(filesAsked[0]).toEqual({
+      document: { path: "file.txt", content: "then\n" },
+      theme: expect.any(String)
+    });
+    expect(document.getElementById("diffViewer")!.hidden).toBe(false);
     expect(mock.sentOf("reportError")).toEqual([]);
   });
 });

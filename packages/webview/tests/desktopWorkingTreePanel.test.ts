@@ -292,6 +292,33 @@ describe("the working tree panel", () => {
     expect(panel().querySelector(".wtClean")!.textContent).toBe("No changes.");
   });
 
+  it("keeps the keyboard, caret and selection in the message box when an answer redraws the panel mid-sentence (#479)", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad"));
+    box().focus();
+    type("Half a sentence");
+    box().setSelectionRange(5, 9, "backward");
+    const blurred = vi.fn();
+    box().addEventListener("blur", blurred);
+
+    // The watcher woke the graph (#451): a refresh, the panel's read, its answer.
+    hear({ command: "refresh" });
+    expect(mock.sentMessages.at(-1)).toEqual({ command: "workingTreeLoad" });
+    hear(answer("workingTreeLoad"));
+
+    expect(document.activeElement).toBe(box());
+    expect(blurred).not.toHaveBeenCalled();
+    expect([box().selectionStart, box().selectionEnd, box().selectionDirection]).toEqual([
+      5,
+      9,
+      "backward"
+    ]);
+    // What is typed next still goes where the user was typing.
+    box().setRangeText(" more", box().selectionEnd, box().selectionEnd, "end");
+    box().dispatchEvent(new Event("input", { bubbles: true }));
+    expect(box().value).toBe("Half a se morentence");
+  });
+
   it("lets the keyboard reach a file's button, and keeps it there across redraws", async () => {
     const mock = await load(true);
     hear(answer("workingTreeLoad"));
@@ -722,5 +749,14 @@ describe("the working tree panel's amend and sign-off", () => {
 
     expect(document.activeElement).toBe(tickBox("signOff"));
     expect(tickBox("signOff").checked).toBe(true);
+
+    // Amend rewrites the message box as well as the part around the tick
+    // boxes (#479): the keyboard stays on the tick box, not on the box.
+    tickBox("amend").focus();
+    tick("amend");
+
+    expect(document.activeElement).toBe(tickBox("amend"));
+    expect(tickBox("amend").checked).toBe(true);
+    expect(box().value).toBe(HEAD_MESSAGE);
   });
 });

@@ -36,9 +36,6 @@ const APP_DIR = path.resolve(__dirname, "..");
 /** In Node, the `electron` package is the path to its binary. */
 const ELECTRON = require("electron") as unknown as string;
 
-/** The notice each desktop stub gives (#391). */
-const NOT_SUPPORTED = "This is not available in the GING desktop app yet.";
-
 type Command = RequestMessage["command"];
 type Request<C extends Command> = Extract<RequestMessage, { command: C }>;
 
@@ -513,24 +510,24 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     }
     return { kind: "terminal", command: fakeTerminal, args: [], cwd };
   };
-  const notice = { kind: "box", type: "info", message: NOT_SUPPORTED, buttons: [] };
   /** No box saying something failed in the graph's own page. */
   const noErrorDialog = () => expect(page.locator("#dialog.active")).toHaveCount(0);
-  /** A stub: the notice, then nothing else, and no error box from the graph. */
-  const stub = async (_answer: ResponseMessage | undefined, outside: Seen[]) => {
-    expect(outside).toEqual([notice]);
-    await noErrorDialog();
-  };
-  /** A diff, shown in the viewer over the graph: nothing outside the app, no
-   *  error box; then closed. */
-  const diffOpened = async (outside: Seen[], title: RegExp) => {
+  /** A diff — or a file read-only (#405), in the same viewer, in one editor
+   *  and no diff — shown over the graph: nothing outside the app, no error
+   *  box; then closed. */
+  const diffOpened = async (outside: Seen[], title: RegExp, kind: "diff" | "file" = "diff") => {
     expect(outside).toEqual([]);
     await noErrorDialog();
     // Its editor made: the first diff loads the editor's code first.
     await diffShown(page);
     const viewer = page.locator("#diffViewer");
     await expect(viewer.locator(".diffViewerTitle")).toHaveText(title);
-    await expect(viewer.locator(".monaco-diff-editor")).toBeVisible();
+    if (kind === "diff") {
+      await expect(viewer.locator(".monaco-diff-editor")).toBeVisible();
+    } else {
+      await expect(viewer.locator(".monaco-editor")).toBeVisible();
+      await expect(viewer.locator(".monaco-diff-editor")).toHaveCount(0);
+    }
     await viewer.locator(".diffViewerClose").click();
     await expect(viewer).toBeHidden();
   };
@@ -646,14 +643,6 @@ test("every message the dispatch handles finishes, and the webview reports no fa
       check: (_answer, outside) => expect(outside).toEqual([terminal(path.normalize(repo))])
     }),
 
-    // The stubs: a notice, answered as done, and no error box.
-    step("viewFileAtRevision", () => ({ repo, commitHash: c3, filePath: "file.txt" }), {
-      answer: success("viewFileAtRevision"),
-      check: async (answer, outside) => {
-        succeeded(answer);
-        await stub(answer, outside);
-      }
-    }),
     // The diffs, in the diff viewer over the graph (#404): nothing outside
     // the app, and no error box. Closed again, so it covers no later step.
     // The first on the page loads the editor's code, which blocks the page
@@ -683,6 +672,14 @@ test("every message the dispatch handles finishes, and the webview reports no fa
         }
       }
     ),
+    // No longer a stub (#405): the file read-only, in the same viewer.
+    step("viewFileAtRevision", () => ({ repo, commitHash: c3, filePath: "file.txt" }), {
+      answer: success("viewFileAtRevision"),
+      check: async (answer, outside) => {
+        succeeded(answer);
+        await diffOpened(outside, /^file\.txt \([0-9a-f]{8}\)$/, "file");
+      }
+    }),
     // No longer a stub (#410): the file would go to the user's merge tool,
     // but it is in no conflict, which is said; no tool runs. The merge tool
     // itself is conflicts.spec.ts's.

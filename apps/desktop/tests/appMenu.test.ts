@@ -31,6 +31,7 @@ function mockCommands(): { [K in keyof AppMenuCommands]-?: Mock<(repo?: string) 
     toggleRemoteVisibility: vi.fn(),
     viewReflog: vi.fn(),
     showStatistics: vi.fn(),
+    fileHistory: vi.fn(),
     openTerminal: vi.fn(),
     setGitUserDetails: vi.fn(),
     managePullRequestProviders: vi.fn(),
@@ -206,6 +207,12 @@ const ENTRIES: readonly {
     id: MENU_IDS.showStatistics,
     label: "desktop.menu.showStatistics",
     command: "showStatistics",
+    enabledIn: ["graph"]
+  },
+  {
+    id: MENU_IDS.fileHistory,
+    label: "desktop.menu.fileHistory",
+    command: "fileHistory",
     enabledIn: ["graph"]
   },
   {
