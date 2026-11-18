@@ -14,6 +14,11 @@ import type {
   WorkingTreeStatus
 } from "@ging/shared/backend/types";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import {
+  isRecord,
+  isStringArray,
+  type NoCommandShared
+} from "@ging/webview/desktop/protocolGuards";
 
 /** The panel's words, in the host's language: they come with every status,
  *  so the panel needs none of the graph's strings. */
@@ -134,11 +139,6 @@ export type WorkingTreeStatusMessage = Extract<
   { command: "workingTreeStatus" }
 >;
 
-/** True when `A` and `B` share no command name. */
-type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
-  ? true
-  : false;
-
 /** Checked by the compiler: a message named like one of the graph's would be
  *  taken by the graph's dispatch, or the host's, for its own (ADR-0031). */
 export const WORKING_TREE_COMMANDS_STAY_APART: NoCommandShared<
@@ -146,13 +146,6 @@ export const WORKING_TREE_COMMANDS_STAY_APART: NoCommandShared<
   ResponseMessage["command"]
 > &
   NoCommandShared<WorkingTreeRequest["command"], RequestMessage["command"]> = true;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-const isPaths = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((path) => typeof path === "string");
 
 /** Whether `data`, posted by a Tab's page, is one of the panel's requests. */
 export function isWorkingTreeRequest(data: unknown): data is WorkingTreeRequest {
@@ -165,7 +158,7 @@ export function isWorkingTreeRequest(data: unknown): data is WorkingTreeRequest 
     case "workingTreeStage":
     case "workingTreeUnstage":
     case "workingTreeResolve":
-      return isPaths(data.paths);
+      return isStringArray(data.paths);
     case "workingTreeMergeTool":
       return typeof data.path === "string";
     case "workingTreeShowDiff":

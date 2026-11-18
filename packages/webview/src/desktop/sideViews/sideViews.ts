@@ -34,10 +34,11 @@ import {
   isHostAction
 } from "@ging/shared/backend/utils/refActionCatalogue";
 import type { BatchAction } from "@ging/shared/types";
+import { postToHost } from "@ging/webview/desktop/postToHost";
 import type { GraphInPage } from "@ging/webview/gitGraphView";
 import { escapeHtml } from "@ging/webview/utils/html";
 import { type SvgIconName, svgIcons } from "@ging/webview/utils/icons";
-import { sendMessage, vscode } from "@ging/webview/utils/vscode";
+import { sendMessage } from "@ging/webview/utils/vscode";
 
 import {
   batchBranchMenu,
@@ -54,17 +55,14 @@ import {
 } from "./protocol";
 import { createStashView } from "./stashView";
 import { SIDE_VIEW_STYLES } from "./styles";
-import { keyboardMenuEvent, redrawTree, rowKeyed, rowOf, treeKeys } from "./tree";
+import { isMenuKey, keyboardMenuEvent, redrawTree, rowKeyed, rowOf, treeKeys } from "./tree";
 
 /** How long the tree waits after a click before it writes the filter, so a
  *  run of Ctrl/Cmd-clicks reloads the graph once: VS Code's side view waits as
  *  long (`SELECTION_WRITE_DEBOUNCE_MS`). */
 export const FILTER_WRITE_DELAY_MS = 200;
 
-const post = (message: SideViewRequest) =>
-  // Cast as the host prompt replies are (desktop/main.ts): the host API is
-  // typed for the graph's requests, and the side views' stay out of it.
-  (vscode.postMessage as unknown as (m: SideViewRequest) => void)(message);
+const post: (message: SideViewRequest) => void = postToHost;
 
 /** The actions that run in the host in VS Code because they ask nothing
  *  (ADR-0009). Here they are the page's own requests to the host, with no
@@ -516,7 +514,7 @@ export function startSideViews(graph: GraphInPage): void {
         activateBranchRow(row, e.ctrlKey || e.metaKey);
         return true;
       }
-      if (e.key === "ContextMenu" || e.key === "F10") {
+      if (isMenuKey(e)) {
         if (row.dataset.ref === undefined) return false;
         openBranchMenu(keyboardMenuEvent(), row);
         return true;

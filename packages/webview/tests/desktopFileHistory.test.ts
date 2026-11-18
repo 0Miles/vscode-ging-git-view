@@ -7,7 +7,7 @@ import type {
 } from "@ging/webview/desktop/fileHistory/protocol";
 import type { CdvFileMenuTarget } from "@ging/webview/gitGraphView";
 
-import { createVscodeMock } from "./setup";
+import { createVscodeMock, hear } from "./setup";
 
 // The file history panel (#408) on a desktop graph page, with the graph faked
 // down to the one seam it uses — the Commit Details View's file menu — and the
@@ -74,10 +74,6 @@ const page = (more: Partial<FileHistoryMessage> = {}): FileHistoryMessage => ({
   strings: STRINGS,
   ...more
 });
-
-function hear(data: unknown) {
-  window.dispatchEvent(new MessageEvent("message", { data }));
-}
 
 let menu: ((file: CdvFileMenuTarget) => ContextMenuElement[]) | null;
 let mock: ReturnType<typeof createVscodeMock>;

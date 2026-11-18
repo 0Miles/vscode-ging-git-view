@@ -187,6 +187,13 @@ export function receive(msg: GG.ResponseMessage, opts: { keepToken?: boolean } =
   window.dispatchEvent(new MessageEvent("message", { data }));
 }
 
+/** Post `data` to the page as its host would, untyped: the desktop's own
+ *  messages are not `ResponseMessage`s (ADR-0031), and a suite may post one
+ *  the page must drop. */
+export function hear(data: unknown) {
+  window.dispatchEvent(new MessageEvent("message", { data }));
+}
+
 // The DOM helpers below were each held as local copies by several suites, some
 // down to the doc comment, and some under other names. They are here for the
 // reason `makeViewState` is: a guard that is wrong in one copy is wrong in all

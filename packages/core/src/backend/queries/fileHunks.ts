@@ -182,8 +182,9 @@ function converts(out: string): boolean {
   return false;
 }
 
-/** `git <args>`'s output, as bytes; rejects when git fails. */
-async function gitOut(run: DiffRun, what: string, args: string[]): Promise<Buffer> {
+/** `git <args>`'s output, as bytes; rejects when git fails. Run straight from
+ *  `spawnGit`, not behind a git client's queue. */
+export async function gitOut(run: DiffRun, what: string, args: string[]): Promise<Buffer> {
   const result = await spawnGit({
     gitPath: run.gitPath,
     cwd: run.repoPath,

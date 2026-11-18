@@ -3,8 +3,8 @@
  * change is sent to the host as it is made; the host writes it and answers
  * with what the setting is now, which the row then shows. */
 
+import { postToHost } from "@ging/webview/desktop/postToHost";
 import { escapeHtml, fillTemplate } from "@ging/webview/utils/html";
-import { vscode } from "@ging/webview/utils/vscode";
 
 import { renderDescriptionMarkdown } from "./markdown";
 import type {
@@ -43,8 +43,7 @@ body.settingsPage { padding: 0; }
 .settingError { color: var(--vscode-errorForeground); margin-top: 4px; }
 `;
 
-const post = (message: SettingsRequest) =>
-  (vscode.postMessage as unknown as (m: SettingsRequest) => void)(message);
+const post: (message: SettingsRequest) => void = postToHost;
 
 /** `Dates: Format` as its category and its name, which the title sets apart. */
 function titleHtml(title: string): string {

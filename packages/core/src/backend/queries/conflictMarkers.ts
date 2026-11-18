@@ -1,6 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
+import { looksBinary } from "@ging/core/backend/utils/binary";
+
 /** A line git's merge writes around each side of a conflict: `<<<<<<<` before
  *  ours, `|||||||` before the base (diff3), `>>>>>>>` after theirs, each
  *  followed by a label or nothing. The `=======` between the sides is left
@@ -12,9 +14,6 @@ const MARKER = /^(?:<{7}|\|{7}|>{7})(?: |\r?$)/m;
  *  what a person resolves by hand, and reading all of a huge file to ask one
  *  question would hold the answer up. */
 export const MARKER_SCAN_BYTES = 8 * 1024 * 1024;
-/** Where git looks for a NUL to call a file binary; git writes no markers
- *  into a binary file, it keeps one side whole. */
-const BINARY_PROBE_BYTES = 8000;
 
 /** Whether the start of `full`, up to `MARKER_SCAN_BYTES`, holds a marker. */
 async function holdsMarker(full: string): Promise<boolean> {
@@ -24,7 +23,8 @@ async function holdsMarker(full: string): Promise<boolean> {
     const buffer = Buffer.alloc(length);
     const { bytesRead } = await file.read(buffer, 0, length, 0);
     const head = buffer.subarray(0, bytesRead);
-    if (head.subarray(0, BINARY_PROBE_BYTES).includes(0)) return false;
+    // git writes no markers into a binary file: it keeps one side whole.
+    if (looksBinary(head)) return false;
     return MARKER.test(head.toString("utf8"));
   } finally {
     await file.close();

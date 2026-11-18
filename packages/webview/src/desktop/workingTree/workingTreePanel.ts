@@ -14,9 +14,9 @@ import type {
   WorkingTreeFile,
   WorkingTreeStatus
 } from "@ging/shared/backend/types";
+import { postToHost } from "@ging/webview/desktop/postToHost";
 import { escapeHtml } from "@ging/webview/utils/html";
 import { svgIcons } from "@ging/webview/utils/icons";
-import { vscode } from "@ging/webview/utils/vscode";
 
 import {
   isWorkingTreeMessage,
@@ -136,10 +136,7 @@ const LETTERS: Record<WorkingTreeFile["change"], string> = {
   conflicted: "!"
 };
 
-const post = (message: WorkingTreeRequest) =>
-  // Cast as the host prompt replies are (desktop/main.ts): the host API is
-  // typed for the graph's requests, and the panel's stay out of that protocol.
-  (vscode.postMessage as unknown as (m: WorkingTreeRequest) => void)(message);
+const post: (message: WorkingTreeRequest) => void = postToHost;
 
 /** The paths that name `file` in the index: a staged rename by both its ends. */
 function pathsOf(file: WorkingTreeFile): string[] {

@@ -8,6 +8,7 @@
 
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import type { BlameGutter } from "@ging/webview/desktop/editors";
+import { isRecord, type NoCommandShared } from "@ging/webview/desktop/protocolGuards";
 
 /** The commands a blamed line's hover links to, as the host writes them into
  *  its Markdown (`command:<id>?<args>`) and the viewer runs them. */
@@ -88,11 +89,6 @@ export type FileBlameRequest =
   | FileBlameHoverRequest
   | FileBlameRunRequest;
 
-/** True when `A` and `B` share no command name. */
-type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
-  ? true
-  : false;
-
 /** Checked by the compiler: these share the page's `message` event and the
  *  host's channel with the graph's, and one named like the graph's would be
  *  taken for it (ADR-0031). */
@@ -101,18 +97,10 @@ export const FILE_BLAME_COMMANDS_STAY_APART: [
   NoCommandShared<FileBlameRequest["command"], RequestMessage["command"]>
 ] = [true, true];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 const isIndex = (value: unknown): value is number =>
   Number.isSafeInteger(value) && (value as number) >= 0;
 
-const LINKS: ReadonlySet<unknown> = new Set<BlameLink>([
-  "copySha",
-  "openLineChange",
-  "locateCommit"
-]);
+const LINKS: ReadonlySet<unknown> = new Set(Object.keys(BLAME_LINKS));
 
 function isBlame(value: unknown): value is FileBlame | null {
   if (value === null) return true;

@@ -13,6 +13,11 @@ import type {
   RequestMessage,
   ResponseMessage
 } from "@ging/shared/types";
+import {
+  isRecord,
+  isStringArray,
+  type NoCommandShared
+} from "@ging/webview/desktop/protocolGuards";
 
 /** One of the Branches view's toggles, named by the repo-state field it
  *  writes — core's `SideViewField`, which the host holds this to. */
@@ -159,21 +164,12 @@ export type SideViewRequest =
   /** Open the diff of the file at `path` in the stash listed as `id`. */
   | { command: "sideViewStashDiff"; id: string; path: string };
 
-/** True when `A` and `B` share no command name. */
-type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
-  ? true
-  : false;
-
 /** Checked by the compiler (ADR-0031). */
 export const SIDE_VIEW_COMMANDS_STAY_APART: NoCommandShared<
   SideViewMessage["command"],
   ResponseMessage["command"]
 > &
   NoCommandShared<SideViewRequest["command"], RequestMessage["command"]> = true;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 /** Whether `data`, heard on the page's `message` channel, is the side views'. */
 export function isSideViewStateMessage(data: unknown): data is SideViewStateMessage {
@@ -211,9 +207,6 @@ const REMOTE_ACTIONS: readonly string[] = [
   "copyUrl"
 ] satisfies SideViewRemoteAction[];
 
-const isStrings = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((v) => typeof v === "string");
-
 /** Whether `data`, posted by a Tab's page, is one of its side views' requests.
  *  A page is not to be taken at its word, so every field is checked. */
 export function isSideViewRequest(data: unknown): data is SideViewRequest {
@@ -228,7 +221,9 @@ export function isSideViewRequest(data: unknown): data is SideViewRequest {
       return typeof data.field === "string" && TOGGLE_FIELDS.includes(data.field);
     case "sideViewSetFilter":
       return (
-        typeof data.repo === "string" && isStrings(data.branches) && typeof data.seq === "number"
+        typeof data.repo === "string" &&
+        isStringArray(data.branches) &&
+        typeof data.seq === "number"
       );
     case "sideViewNoTargets":
       return (

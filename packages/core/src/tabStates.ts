@@ -34,8 +34,6 @@ function readStored(storage: HostStorage): StoredTabs {
 
 export class TabStates {
   private readonly storage: HostStorage;
-  /** Each Tab's path string, as its slot holds it now. */
-  private readonly strings = new WeakMap<ExtensionState, () => string | null>();
   /** The list as last saved, which a Tab's own write saves again. */
   private order: readonly ExtensionState[] = [];
   private active: ExtensionState | null = null;
@@ -86,13 +84,13 @@ export class TabStates {
       }
     };
     const state = new ExtensionState(this.storage, slot);
-    this.strings.set(state, () => value);
     return state;
   }
 
   private write(): void {
     const stored: StoredTabs = {
-      repos: this.order.map((state) => this.strings.get(state)?.() ?? null),
+      // Each Tab's path string, as its slot holds it now.
+      repos: this.order.map((state) => state.getPersistedRepoPath()),
       active: this.active === null ? null : this.order.indexOf(this.active)
     };
     void this.storage.workspace.update(OPEN_TABS, stored);

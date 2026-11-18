@@ -11,9 +11,10 @@
  * viewer's do: the graph's shortcuts listen on the document. */
 
 import type { FileHistoryEntry } from "@ging/shared/backend/types";
+import { postToHost } from "@ging/webview/desktop/postToHost";
 import type { CdvFileMenuTarget, GraphInPage } from "@ging/webview/gitGraphView";
+import { fillTemplate } from "@ging/webview/utils/html";
 import { svgIcons } from "@ging/webview/utils/icons";
-import { vscode } from "@ging/webview/utils/vscode";
 
 import {
   type FileHistoryHostMessage,
@@ -77,15 +78,7 @@ body.fileHistoryOpen { --ging-file-history-width: ${FILE_HISTORY_WIDTH}px; }
 #fileHistory .fhError:empty { display: none; }
 `;
 
-const post = (message: FileHistoryRequest) =>
-  // Cast as the working tree panel's are: the host API is typed for the
-  // graph's requests, and the panel's stay out of that protocol.
-  (vscode.postMessage as unknown as (m: FileHistoryRequest) => void)(message);
-
-/** `template` with `{0}`, `{1}` filled in, in one pass. */
-function fill(template: string, ...args: string[]): string {
-  return template.replace(/\{(\d)\}/g, (whole, i: string) => args[Number(i)] ?? whole);
-}
+const post: (message: FileHistoryRequest) => void = postToHost;
 
 const abbrev = (hash: string) => hash.slice(0, 7);
 
@@ -264,16 +257,16 @@ export function createFileHistoryPanel(deps: FileHistoryPanelDeps): FileHistoryP
   function noteOf(entry: FileHistoryEntry, s: FileHistoryStrings, path: string): string {
     if (entry.submodule !== null) {
       const side = (sha: string | null) => (sha === null ? "—" : abbrev(sha));
-      return fill(s.submodule, side(entry.submodule.from), side(entry.submodule.to));
+      return fillTemplate(s.submodule, side(entry.submodule.from), side(entry.submodule.to));
     }
     const notes: string[] = [];
     if (entry.parents.length > 1) notes.push(s.merge);
-    if (entry.change === "R") notes.push(fill(s.renamedFrom, entry.oldPath));
-    else if (entry.change === "C") notes.push(fill(s.copiedFrom, entry.oldPath));
+    if (entry.change === "R") notes.push(fillTemplate(s.renamedFrom, entry.oldPath));
+    else if (entry.change === "C") notes.push(fillTemplate(s.copiedFrom, entry.oldPath));
     else if (entry.change === "A") notes.push(s.added);
     else if (entry.change === "D") notes.push(s.deleted);
     if (entry.path !== path && entry.change !== "R" && entry.change !== "C") {
-      notes.push(fill(s.asPath, entry.path));
+      notes.push(fillTemplate(s.asPath, entry.path));
     }
     return notes.join(" · ");
   }
@@ -316,9 +309,10 @@ export function createFileHistoryPanel(deps: FileHistoryPanelDeps): FileHistoryP
     const s = strings;
     const { path, start, entries, more: hasMore, error } = shown;
     const name = path.split("/").at(-1) ?? path;
-    p.title.textContent = fill(s.title, name);
+    p.title.textContent = fillTemplate(s.title, name);
     p.title.title = path;
-    p.where.textContent = start === null ? path : `${path} · ${fill(s.upTo, abbrev(start))}`;
+    p.where.textContent =
+      start === null ? path : `${path} · ${fillTemplate(s.upTo, abbrev(start))}`;
     p.where.title = p.where.textContent;
     p.close.title = s.close;
     p.close.setAttribute("aria-label", s.close);
