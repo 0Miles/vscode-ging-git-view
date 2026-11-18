@@ -399,6 +399,21 @@ describe("the desktop Opener's file at a revision (#405)", () => {
     ]);
   });
 
+  it("openFileAtRevision keeps any other parent in the title: it is not the named commit", async () => {
+    const { opener, calls } = setUp();
+    const full = "abc1234def5678901234567890123456789abcde";
+
+    await opener.openFileAtRevision({ ...file, commit: `${full}^` });
+    await opener.openFileAtRevision({ ...file, commit: `${full}^2` });
+    await opener.openFileAtRevision({ ...file, commit: ":0" });
+
+    expect(calls.map(([, request]) => (request as FileRequest).title)).toEqual([
+      "a.txt (abc1234d^)",
+      "a.txt (abc1234d^2)",
+      "a.txt (:0)"
+    ]);
+  });
+
   it("openFileAtRevision rejects, saying why in the log, when the file could not be shown", async () => {
     const gone = setUp({ showFile: async () => false });
     await expect(gone.opener.openFileAtRevision(file)).rejects.toThrow("the Tab's page is gone");

@@ -532,6 +532,41 @@ describe("a file shown read-only in the diff viewer (#405)", () => {
     expect(files).toEqual([]);
   });
 
+  it("does not keep a file's editor that came after a diff took its place", async () => {
+    const { editors, made, files, hold } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showingFile = viewer.showFile(fileMessage());
+
+    // The diff is held back too: both are made once released.
+    const showingDiff = viewer.show(message());
+    release();
+    await Promise.all([showingFile, showingDiff]);
+
+    expect(files[0].disposed).toBe(true);
+    expect(made[0].disposed).toBe(false);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe(
+      "file.txt (abc1234^ ↔ abc1234)"
+    );
+    expect(panel().querySelector<HTMLElement>(".diffViewerLayouts")!.hidden).toBe(false);
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("does not keep a file's editor that came after the panel was closed, nor stay busy", async () => {
+    const { editors, files, hold } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = viewer.showFile(fileMessage());
+
+    viewer.close();
+    release();
+    await showing;
+
+    expect(panel().hidden).toBe(true);
+    expect(files[0].disposed).toBe(true);
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
   it("says so in the panel, in its own words, when there is no editor to show it in", async () => {
     const editors: EditorFactory = {
       createDiffViewer: () => Promise.reject(new Error("not asked")),

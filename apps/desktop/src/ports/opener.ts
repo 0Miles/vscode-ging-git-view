@@ -319,7 +319,11 @@ export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
     // the untracked file it keeps in its third parent (`^3`).
     openFileAtRevision: async (file) => {
       const name = file.filePath.split("/").at(-1) ?? file.filePath;
-      const title = `${name} (${abbrevCommit(file.commit.replace(/\^\d*$/, ""))})`;
+      // Only the stash's `^3` is dropped. Any other parent (`hash^`, `hash^2`)
+      // is a commit of its own, not the one named: it keeps its suffix, as a
+      // diff's title writes `abc1234^`.
+      const [, hash, parent] = /^(.*?)(\^\d*)?$/.exec(file.commit)!;
+      const title = `${name} (${abbrevCommit(hash)}${parent === "^3" ? "" : (parent ?? "")})`;
       let shown: boolean;
       try {
         shown = await showFile({ title, file: { revision: file } });

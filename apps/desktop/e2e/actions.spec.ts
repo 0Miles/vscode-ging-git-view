@@ -512,17 +512,22 @@ test("every message the dispatch handles finishes, and the webview reports no fa
   };
   /** No box saying something failed in the graph's own page. */
   const noErrorDialog = () => expect(page.locator("#dialog.active")).toHaveCount(0);
-  /** A diff — or a file read-only (#405), in the same viewer, drawn by
-   *  `editor` — shown over the graph: nothing outside the app, no error box;
-   *  then closed. */
-  const diffOpened = async (outside: Seen[], title: RegExp, editor = ".monaco-diff-editor") => {
+  /** A diff — or a file read-only (#405), in the same viewer, in one editor
+   *  and no diff — shown over the graph: nothing outside the app, no error
+   *  box; then closed. */
+  const diffOpened = async (outside: Seen[], title: RegExp, kind: "diff" | "file" = "diff") => {
     expect(outside).toEqual([]);
     await noErrorDialog();
     // Its editor made: the first diff loads the editor's code first.
     await diffShown(page);
     const viewer = page.locator("#diffViewer");
     await expect(viewer.locator(".diffViewerTitle")).toHaveText(title);
-    await expect(viewer.locator(editor)).toBeVisible();
+    if (kind === "diff") {
+      await expect(viewer.locator(".monaco-diff-editor")).toBeVisible();
+    } else {
+      await expect(viewer.locator(".monaco-editor")).toBeVisible();
+      await expect(viewer.locator(".monaco-diff-editor")).toHaveCount(0);
+    }
     await viewer.locator(".diffViewerClose").click();
     await expect(viewer).toBeHidden();
   };
@@ -672,7 +677,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
       answer: success("viewFileAtRevision"),
       check: async (answer, outside) => {
         succeeded(answer);
-        await diffOpened(outside, /^file\.txt \([0-9a-f]{8}\)$/, ".monaco-editor");
+        await diffOpened(outside, /^file\.txt \([0-9a-f]{8}\)$/, "file");
       }
     }),
     // No longer a stub (#410): the file would go to the user's merge tool,

@@ -1,7 +1,8 @@
-/* The diff viewer's styles (#404), a file shown read-only in it too (#405). Written into the page by the desktop entry's
- * own bundle rather than added to media/main.css, which ships in the
- * extension too (ADR-0031). Only `--vscode-*` variables the desktop theme
- * gives (`apps/desktop/tests/theme.test.ts`).
+/* The diff viewer's styles (#404), a file shown read-only in it too (#405).
+ * Written into the page by the desktop entry's own bundle rather than added
+ * to media/main.css, which ships in the extension too (ADR-0031). Only
+ * `--vscode-*` variables the desktop theme gives
+ * (`apps/desktop/tests/theme.test.ts`).
  *
  * The viewer covers the graph's area and nothing else: the side-view column
  * (#399) and the working tree column (#403) each say how wide they are in
