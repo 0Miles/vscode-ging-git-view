@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { simpleGit } from "simple-git";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   abortOperation,
@@ -116,6 +116,20 @@ describe("markResolved (real git)", () => {
     // [ab].txt sits at stage 0 with exactly the working tree's content.
     expect(out(["ls-files", "-s", "--", ":(literal)[ab].txt"], repo)).toMatch(/ 0\t\[ab\]\.txt\n$/);
     expect(out(["diff", "--", ":(literal)[ab].txt"], repo)).toBe("");
+  });
+
+  it("names the file on the command line, which git before 2.25 takes too", async () => {
+    // `--pathspec-from-file` is git 2.25+; the banner's mark worked on any git.
+    const repo = makeMergeConflict(["[ab].txt", "a.txt"]);
+    fs.writeFileSync(path.join(repo, "[ab].txt"), "resolved\n");
+    const g = client(repo);
+    const raw = vi.spyOn(g, "raw");
+
+    await markResolved(g, { filePath: "[ab].txt" });
+
+    const argv = raw.mock.calls.flat(2).map(String);
+    expect(argv.filter((a) => a.startsWith("--pathspec-"))).toEqual([]);
+    expect(unmergedEntries(repo)).toEqual(["a.txt", "a.txt", "a.txt"]);
   });
 
   it("resolves a plain file name", async () => {
