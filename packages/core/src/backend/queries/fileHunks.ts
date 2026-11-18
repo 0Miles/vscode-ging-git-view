@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { GitRunOptions } from "@ging/core/backend/gitRun";
-import { spawnGit } from "@ging/core/backend/gitSpawn";
+import { NO_INDEX_REFRESH, spawnGit } from "@ging/core/backend/gitSpawn";
 import type {
   FileHunk,
   FileHunks,
@@ -35,10 +35,13 @@ export type CutDiff =
  * about colour, prefixes, context, external diff drivers or text conversion —
  * none of which a patch git applies can carry. Rename detection is off: one
  * path is asked for, and a rename is two. `--no-optional-locks`: a read,
- * which must not hold the index lock a stage of the user's then meets (#403).
+ * which must not hold the index lock a stage of the user's then meets (#403);
+ * and NO_INDEX_REFRESH, because a `git diff` against the working tree takes
+ * that lock to refresh the index whatever optional locks say (#451).
  */
 function diffArgs(path: string, area: HunkArea): string[] {
   return [
+    ...NO_INDEX_REFRESH,
     "--no-optional-locks",
     "--literal-pathspecs",
     // An unchanged empty line keeps its " ": what git apply reads as context.

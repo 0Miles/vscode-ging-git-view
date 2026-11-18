@@ -26,10 +26,13 @@ export const GIT_CONFIG_OVERRIDES = [
  * writes the index even with GIT_OPTIONAL_LOCKS=0 (see `gitChildEnv`); with
  * this it writes nothing.
  *
- * Per command, never in GIT_CONFIG_OVERRIDES: with it, a diff also lists the
- * files whose content is unchanged but whose timestamps moved, so only a diff
- * whose filter rules those out (`--diff-filter=U`, `=R`) may use it. And `-c`
- * reaches the hooks a write runs, where it would change what they read.
+ * Per command, never in GIT_CONFIG_OVERRIDES: with it, a diff that lists names
+ * (`--name-only`, `--name-status`) also lists the files whose content is
+ * unchanged but whose timestamps moved, so such a diff may use it only when
+ * its filter rules those out (`--diff-filter=U`, `=R`). A patch is unchanged
+ * by it: such a file has no hunk to print (measured on git 2.40.1;
+ * `fileHunks` relies on it). And `-c` reaches the hooks a write runs, where it
+ * would change what they read.
  */
 export const NO_INDEX_REFRESH = ["-c", "diff.autoRefreshIndex=false"];
 

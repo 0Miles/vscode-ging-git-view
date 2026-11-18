@@ -5,6 +5,7 @@ import { simpleGit } from "simple-git";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { readFileDiff } from "@ging/core/backend/queries/fileHunks";
 import { loadCommits } from "@ging/core/backend/queries/loadCommits";
 import { operationState } from "@ging/core/backend/queries/operationState";
 import { getNewPathOfRenamedFile } from "@ging/core/backend/queries/renamedFilePath";
@@ -144,6 +145,26 @@ describe("the reads the graph makes in the background", () => {
     expect(result).toBe("moved");
     expect(locks).toEqual([]);
     // The control, as for the conflict: a plain status takes it in this state.
+    expect((await locksTakenBy(() => simpleGit(repo).status())).locks).toEqual(["index.lock"]);
+  });
+
+  it("read a file's unstaged hunks without taking the index lock", async () => {
+    repo = makeRepo();
+    fs.writeFileSync(path.join(repo, "g"), "y\n");
+    git(["add", "g"], repo);
+    git(["commit", "-qm", "g"], repo);
+    fs.writeFileSync(path.join(repo, "f"), "changed\n");
+    makeStatDirty("g");
+
+    const run = { gitPath: "git", repoPath: repo };
+    const changed = await locksTakenBy(() => readFileDiff(run, "f", "unstaged"));
+    // A file whose timestamp alone moved is the one a diff would refresh the
+    // index for, lock and all; it has no hunk to show either way.
+    const touched = await locksTakenBy(() => readFileDiff(run, "g", "unstaged"));
+
+    expect(changed.result).toMatchObject({ kind: "hunks" });
+    expect(touched.result).toMatchObject({ kind: "none" });
+    expect([...changed.locks, ...touched.locks]).toEqual([]);
     expect((await locksTakenBy(() => simpleGit(repo).status())).locks).toEqual(["index.lock"]);
   });
 });
