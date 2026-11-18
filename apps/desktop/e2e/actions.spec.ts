@@ -269,14 +269,17 @@ type Step = {
 /**
  * How long the walk waits for a step's answer. Chosen for the costliest step,
  * not Playwright's 5s default, which the walk once used by omission (#472).
- * `branchCleanupScan` runs about 20 git commands one after another (the
- * cleanup facts twice, a `merge-tree` per branch), and a git spawn costs
- * 100–250ms on Windows. Measured there: 1.9–5.0s for that step, with every core
- * busy or the machine shared with other test runs, and past 5s in 1 of 10 walks;
- * `branchRedundancy` 0.9–2.9s. About four times the worst of them. CI runs
+ * `branchCleanupScan` runs its git one command after another (the cleanup
+ * facts, the default branch's date, a `merge-tree` per branch, kept in turn
+ * for its progress and its cancel), and a git spawn costs 100–250ms on
+ * Windows. Before #475 the scan also read the facts a second time, which
+ * took it past 5s in 1 of 10 walks (1.9–5.0s). Measured since, on Windows with
+ * every core busy and the machine shared with other test runs, 3 walks:
+ * `branchCleanupScan` 2.0–4.1s, `branchCleanupOpen` 0.9–2.0s,
+ * `branchRedundancy` about 2.0s. About four times the worst of them. CI runs
  * the walk on ubuntu only, where it has stayed under the default.
  */
-const ANSWER_BUDGET_MS = 20_000;
+const ANSWER_BUDGET_MS = 16_000;
 
 function step<C extends Command>(
   command: C,

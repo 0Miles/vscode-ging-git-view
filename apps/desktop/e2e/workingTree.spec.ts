@@ -128,7 +128,11 @@ test("a file changed, staged whole and committed from the working tree panel sho
  * graph's reload. Not Playwright's 5s default, which it once used by
  * omission. Measured on Windows with every core busy: HEAD moved 1.0–2.9s
  * after the click, the graph drew it 3.8–8.5s after (10 runs), and each run
- * did draw it — a slow reload, not a lost one. About twice the worst; the
+ * did draw it — a slow reload, not a lost one. Nor a doubled one (#475): the
+ * page heard exactly one `loadCommits` answer between the click and the
+ * drawing (6 runs, drawn 1.4–2.4s after the click on a less loaded machine;
+ * the answer came at most 0.4s before the drawing), so the time is the amend's
+ * git and one reload's, with nothing to coalesce. About twice the worst; the
  * same reading as the actions walk's ANSWER_BUDGET_MS (#472, #473).
  */
 const AMEND_DRAWN_BUDGET_MS = 20_000;
