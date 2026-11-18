@@ -7,7 +7,7 @@ import type {
 } from "@ging/webview/desktop/workingTree/protocol";
 import type { WorkingTreePanelOptions } from "@ging/webview/desktop/workingTree/workingTreePanel";
 
-import { createVscodeMock } from "./setup";
+import { createVscodeMock, hear } from "./setup";
 
 // The working tree panel on a desktop graph page (#403): opened by the host,
 // drawing the status each answer brings, asking the host to stage, unstage and
@@ -110,10 +110,6 @@ async function load(
 }
 
 afterEach(() => localStorage.clear());
-
-function hear(data: unknown) {
-  window.dispatchEvent(new MessageEvent("message", { data }));
-}
 
 const answer = (
   request: WorkingTreeStatusMessage["request"],

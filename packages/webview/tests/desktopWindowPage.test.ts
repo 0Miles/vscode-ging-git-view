@@ -6,7 +6,7 @@ import type {
   WindowStateMessage
 } from "@ging/webview/desktop/window/protocol";
 
-import { createVscodeMock } from "./setup";
+import { createVscodeMock, hear } from "./setup";
 import { startDesktop } from "./startDesktop";
 
 // The desktop entry on the window's own page (#393): the tab strip, drawn from
@@ -50,10 +50,6 @@ const WELCOME: WelcomeContent = {
     forget: "Remove from Recent"
   }
 };
-
-function hear(data: unknown) {
-  window.dispatchEvent(new MessageEvent("message", { data }));
-}
 
 const strip = () => document.getElementById("tabStrip")!;
 const tabs = () => Array.from(strip().querySelectorAll<HTMLElement>(".tab"));

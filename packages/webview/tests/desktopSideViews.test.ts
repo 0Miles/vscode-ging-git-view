@@ -13,6 +13,7 @@ import {
   clickItem,
   createVscodeMock,
   DEFAULT_REPO,
+  hear,
   hideMenu,
   makeViewState,
   menuItemLabels,
@@ -107,9 +108,6 @@ function state(
   };
 }
 
-const hostSays = (message: unknown) =>
-  window.dispatchEvent(new MessageEvent("message", { data: message }));
-
 /** Open the folder keyed `key`, unless it is open. */
 function openFolder(key: string) {
   const folder = document.querySelector<HTMLElement>(`#branchesView [data-key="${key}"]`);
@@ -161,7 +159,7 @@ describe("the desktop side views", () => {
 
   beforeEach(() => {
     hideMenu();
-    hostSays(state());
+    hear(state());
     mock.clearMessages();
   });
 
@@ -208,28 +206,28 @@ describe("the desktop side views", () => {
   });
 
   it("keeps a click's highlight against a state read before the host took it", async () => {
-    hostSays(state([]));
+    hear(state([]));
     clickElem(row("topic"));
     await vi.waitFor(() => expect(sideViewPosts()).toHaveLength(1));
     const asked = (sideViewPosts()[0] as unknown as { seq: number }).seq;
 
     // Read before the ask landed: the old, empty filter.
-    hostSays(state([], true, asked - 1));
+    hear(state([], true, asked - 1));
     expect(row("topic").getAttribute("aria-selected")).toBe("true");
 
     // Read after it: the host's word again, whatever it says.
-    hostSays(state(["topic"], true, asked));
+    hear(state(["topic"], true, asked));
     expect(row("topic").getAttribute("aria-selected")).toBe("true");
-    hostSays(state([], true, asked));
+    hear(state([], true, asked));
     expect(row("topic").getAttribute("aria-selected")).toBe("false");
   });
 
   it("highlights the filter the host says, whoever wrote it", () => {
-    hostSays(state(["topic"]));
+    hear(state(["topic"]));
     expect(row("topic").classList.contains("selected")).toBe(true);
     expect(row("main").classList.contains("selected")).toBe(false);
 
-    hostSays(state([]));
+    hear(state([]));
     expect(document.querySelectorAll("#branchesView .sideViewRow.selected")).toHaveLength(0);
   });
 
@@ -252,7 +250,7 @@ describe("the desktop side views", () => {
   });
 
   it("copies the selection's names in the tree's order, from the batch menu", () => {
-    hostSays(state(["topic", "remotes/origin/main"]));
+    hear(state(["topic", "remotes/origin/main"]));
     rightClick(row("topic"));
     expect(menuItemLabels()).toContain("<copyNameSelected>");
     clickItem("<copyNameSelected>");
@@ -264,7 +262,7 @@ describe("the desktop side views", () => {
 
   it("asks the host to say so when every selected branch is ruled out", () => {
     // Fast-forward never takes the checked-out branch, nor a remote one.
-    hostSays(state(["main", "remotes/origin/main"]));
+    hear(state(["main", "remotes/origin/main"]));
     rightClick(row("main"));
     clickItem("<fastForwardSelected>");
 
@@ -290,7 +288,7 @@ describe("the desktop side views", () => {
   });
 
   it("clears the filter at once for Show All", () => {
-    hostSays(state(["topic"]));
+    hear(state(["topic"]));
     clickElem(document.querySelector('#branchesView .sideViewActions [data-action="showAll"]')!);
 
     expect(sideViewPosts()).toEqual([
@@ -350,7 +348,7 @@ describe("the desktop side views", () => {
   });
 
   it("says when the repository has no stashes", () => {
-    hostSays(state([], true, Number.MAX_SAFE_INTEGER, { stashes: [] }));
+    hear(state([], true, Number.MAX_SAFE_INTEGER, { stashes: [] }));
     expect(document.querySelector("#stashView .sideViewEmpty")?.textContent).toBe("<noStashes>");
   });
 
@@ -372,7 +370,7 @@ describe("the desktop side views", () => {
   it("hides the stash actions the settings hide, but never Rename, which has no setting", () => {
     const cmv = structuredClone(DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY);
     cmv.stash = { apply: false, pop: false, drop: false, copyName: false };
-    hostSays(state([], true, Number.MAX_SAFE_INTEGER, { cmv }));
+    hear(state([], true, Number.MAX_SAFE_INTEGER, { cmv }));
 
     rightClick(stashRow("aaa111"));
 
@@ -385,7 +383,7 @@ describe("the desktop side views", () => {
     expect(sideViewPosts()).toEqual([{ command: "sideViewStashFiles", id: "aaa111" }]);
     expect(stashRow("aaa111").getAttribute("aria-expanded")).toBe("true");
 
-    hostSays({
+    hear({
       command: "sideViewStashFiles",
       repo: DEFAULT_REPO,
       id: "aaa111",
