@@ -1,5 +1,6 @@
 import type { SimpleGit } from "simple-git";
 
+import { resolveFiles } from "@ging/core/backend/actions/workingTree";
 import { detectOperation, operationState } from "@ging/core/backend/queries/operationState";
 import type { ActionPayload, GitOperation } from "@ging/shared/backend/types";
 
@@ -29,10 +30,13 @@ export async function abortOperation(git: SimpleGit): Promise<void> {
   await git.raw([operationCommand(operation), "--abort"]);
 }
 
-/** Stage a resolved file, marking its conflict as resolved. */
+/** Mark a conflicted file resolved: the graph's conflict banner, the same
+ *  `resolveFiles` the Working Tree panel's is (#410), so the name is taken as
+ *  written rather than as a pathspec pattern (#468), and a file the user
+ *  deleted is recorded as deleted. A path not in conflict is left alone. */
 export async function markResolved(
   git: SimpleGit,
   input: ActionPayload<"markResolved">
 ): Promise<void> {
-  await git.raw(["add", "--", input.filePath]);
+  await resolveFiles(git, [input.filePath]);
 }
