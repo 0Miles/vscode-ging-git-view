@@ -43,6 +43,42 @@ export type WorkingTreeStatus = {
   operation?: GitOperation;
 };
 
+/** The two sides of the working tree a file's diff, and its hunks, are read
+ *  from (#406): HEAD ↔ index (`staged`), or index ↔ working tree
+ *  (`unstaged`). A hunk of an unstaged diff is staged; one of a staged diff,
+ *  unstaged. */
+export type HunkArea = "staged" | "unstaged";
+
+/** Lines of one side of a diff, as a hunk header gives them: the first line,
+ *  from 1, and how many. With `count` 0 the hunk takes nothing from this
+ *  side, and `start` is the line it comes after (0: before the first). */
+export type LineSpan = { start: number; count: number };
+
+/** One hunk of a file's diff, as `git diff` cut it: the lines it spans on
+ *  each side, context included. */
+export type FileHunk = { original: LineSpan; modified: LineSpan };
+
+/** Why a file's diff offers no hunk to stage or unstage on its own (#406):
+ *  nothing differs; it is in conflict (#410's to resolve); it has no text
+ *  lines (binary); the file is new or gone on one side, or renamed, which is
+ *  one change to the whole file; or it is no regular file (a symbolic link, a
+ *  submodule, or a change of mode alone). */
+export type NoHunksReason =
+  | "unchanged"
+  | "conflicted"
+  | "binary"
+  | "added"
+  | "deleted"
+  | "renamed"
+  | "notText";
+
+/** A file's diff in one area, as hunks to stage or unstage one at a time:
+ *  `token` names the very diff they were cut from, and a hunk is applied only
+ *  while the file's diff is still that one. */
+export type FileHunks =
+  | { kind: "hunks"; token: string; hunks: FileHunk[] }
+  | { kind: "none"; reason: NoHunksReason };
+
 /** Why HEAD cannot be amended (#407): there is no commit to amend yet, or an
  *  operation stopped half-way — amending then would fold its work into the
  *  commit before it. */
