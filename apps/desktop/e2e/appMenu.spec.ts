@@ -190,9 +190,7 @@ test("Open in Terminal starts the system's terminal in the focused Tab's reposit
 
   expect(await clickMenu(electronApp, "ging.openTerminal")).toBe(true);
 
-  await expect
-    .poll(() => terminalsStarted(electronApp))
-    .toEqual([{ cwd: realpathSync.native(repo.path) }]);
+  await expect.poll(() => terminalsStarted(electronApp)).toEqual([realpathSync.native(repo.path)]);
   expect(await closeAndReadLog()).not.toMatch(/ERROR:/);
 });
 

@@ -6,6 +6,7 @@ import path from "node:path";
 import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { clickMenu } from "./mainProcess";
 import { focusedTabPage, windowPage } from "./tabPages";
 
 // A question of core's command services, asked through the desktop `Prompts`
@@ -83,9 +84,7 @@ test("a pick of core's fetchRemote is asked in the page, and fetches the remote 
       label: "Fetch a Specific Remote...",
       enabled: true
     });
-    await electronApp.evaluate(({ Menu }, id) => {
-      Menu.getApplicationMenu()?.getMenuItemById(id)?.click();
-    }, FETCH_REMOTE);
+    await clickMenu(electronApp, FETCH_REMOTE);
 
     const overlay = page.locator("#hostPrompt");
     await expect(overlay).toBeVisible();

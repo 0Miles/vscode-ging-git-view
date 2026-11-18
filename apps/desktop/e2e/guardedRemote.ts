@@ -12,18 +12,20 @@ export type GuardedRemote = {
   close(): Promise<void>;
 };
 
-/** One CGI answer of git's, split into what HTTP needs. */
+/** One CGI answer of git's, split into what HTTP needs; `null` when it is
+ *  not one — no blank line ending its headers, as when the backend died. */
 function cgiAnswer(output: Buffer): {
   status: number;
   headers: Record<string, string>;
   body: Buffer;
-} {
+} | null {
   const crlf = output.indexOf("\r\n\r\n");
   const end = crlf === -1 ? output.indexOf("\n\n") : crlf;
+  if (end === -1) return null;
   const bodyStart = end + (crlf === -1 ? 2 : 4);
   const headers: Record<string, string> = {};
   let status = 200;
-  for (const line of output.subarray(0, Math.max(end, 0)).toString("latin1").split(/\r?\n/)) {
+  for (const line of output.subarray(0, end).toString("latin1").split(/\r?\n/)) {
     const colon = line.indexOf(":");
     if (colon === -1) continue;
     const name = line.slice(0, colon).trim();
@@ -31,7 +33,7 @@ function cgiAnswer(output: Buffer): {
     if (name.toLowerCase() === "status") status = Number.parseInt(value, 10);
     else headers[name] = value;
   }
-  return { status, headers, body: end === -1 ? Buffer.alloc(0) : output.subarray(bodyStart) };
+  return { status, headers, body: output.subarray(bodyStart) };
 }
 
 /**
@@ -71,7 +73,27 @@ export async function startGuardedRemote(options: {
       res.end("Unauthorized\n");
       return;
     }
+    /** Answered once: the backend's answer, or 502 when there is none to give. */
+    let answered = false;
+    const answer = (status: number, headers: Record<string, string>, body: Buffer | string) => {
+      if (answered) return;
+      answered = true;
+      res.writeHead(status, headers);
+      res.end(body);
+    };
+    const badGateway = (why: string) => {
+      req.resume();
+      answer(502, { "Content-Type": "text/plain" }, `${why}\n`);
+    };
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    let pathInfo: string;
+    try {
+      pathInfo = decodeURIComponent(url.pathname);
+    } catch {
+      answer(400, { "Content-Type": "text/plain" }, "Malformed path\n");
+      req.resume();
+      return;
+    }
     // What a web server hands a CGI program: the request's line, its body's
     // type and length, and each header as HTTP_<NAME> — among them the
     // body's encoding and the protocol version git asks for.
@@ -89,7 +111,7 @@ export async function startGuardedRemote(options: {
         GATEWAY_INTERFACE: "CGI/1.1",
         SERVER_PROTOCOL: "HTTP/1.1",
         REQUEST_METHOD: req.method ?? "GET",
-        PATH_INFO: decodeURIComponent(url.pathname),
+        PATH_INFO: pathInfo,
         QUERY_STRING: url.search.slice(1),
         CONTENT_TYPE: req.headers["content-type"] ?? "",
         // Left out for a chunked body: http-backend then reads to its end.
@@ -104,12 +126,16 @@ export async function startGuardedRemote(options: {
       stdio: ["pipe", "pipe", "inherit"]
     });
     const output: Buffer[] = [];
+    // git missing, or gone before it read the whole request (EPIPE): no
+    // answer of its to pass on, and the server keeps serving.
+    backend.on("error", (e) => badGateway(`git http-backend did not start: ${e.message}`));
+    backend.stdin.on("error", (e) => badGateway(`git http-backend did not read: ${e.message}`));
     backend.stdout.on("data", (chunk: Buffer) => output.push(chunk));
     req.pipe(backend.stdin);
     backend.on("close", () => {
-      const answer = cgiAnswer(Buffer.concat(output));
-      res.writeHead(answer.status, answer.headers);
-      res.end(answer.body);
+      const cgi = cgiAnswer(Buffer.concat(output));
+      if (cgi === null) badGateway("git http-backend gave no answer");
+      else answer(cgi.status, cgi.headers, cgi.body);
     });
   });
   await new Promise<void>((resolve, reject) => {

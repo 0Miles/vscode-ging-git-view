@@ -18,6 +18,7 @@ import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 import { diffShown, FIRST_DIFF_BUDGET, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { putTerminalOnPath, standInTerminals } from "./mainProcess";
 import { focusedTabPage, windowPage } from "./tabPages";
 
 // Every kind of message the graph's dispatch handles, sent from the page as the
@@ -177,8 +178,8 @@ function userDataWithAvatar(): string {
  * terminal is the one detached process the app starts; git's are not, and
  * still run.
  */
-function standIn(electronApp: ElectronApplication, saveDir: string) {
-  return electronApp.evaluate(({ clipboard, dialog, shell }, dir) => {
+async function standIn(electronApp: ElectronApplication, saveDir: string) {
+  await electronApp.evaluate(({ clipboard, dialog, shell }, dir) => {
     const seen: unknown[] = [];
     (globalThis as Record<string, unknown>).seenOutside = seen;
     const node = process.mainModule!.require.bind(process.mainModule);
@@ -214,23 +215,9 @@ function standIn(electronApp: ElectronApplication, saveDir: string) {
     clipboard.writeText = (async (text: string) => {
       seen.push({ kind: "clipboard", text });
     }) as unknown as typeof clipboard.writeText;
-
-    const childProcess = node("node:child_process") as typeof import("node:child_process");
-    const { EventEmitter } = node("node:events") as typeof import("node:events");
-    const spawn = childProcess.spawn;
-    childProcess.spawn = ((command: string, args: string[], options?: { detached?: boolean }) => {
-      if (options?.detached !== true) return spawn(command, args, options ?? {});
-      seen.push({
-        kind: "terminal",
-        command,
-        args,
-        cwd: (options as { cwd: string }).cwd
-      });
-      const child = Object.assign(new EventEmitter(), { unref: () => {} });
-      queueMicrotask(() => child.emit("spawn"));
-      return child;
-    }) as typeof childProcess.spawn;
   }, saveDir);
+  // In the same list, in the order they happen.
+  await standInTerminals(electronApp, "seenOutside");
 }
 
 /** What the main process was asked to do outside itself so far. */
@@ -451,13 +438,8 @@ test("every message the dispatch handles finishes, and the webview reports no fa
   // On Linux the app looks its terminal up on the PATH's absolute folders: one
   // put first there, so the walk does not depend on what the machine has
   // installed. It is never run — the spawn is stood in for.
-  const bin = path.join(scratch, "bin");
-  const fakeTerminal = path.join(bin, "x-terminal-emulator");
-  if (process.platform === "linux") {
-    mkdirSync(bin);
-    writeFileSync(fakeTerminal, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-    env.PATH = `${bin}:${env.PATH ?? ""}`;
-  }
+  const fakeTerminal =
+    process.platform === "linux" ? putTerminalOnPath(env, scratch).program : null;
 
   userDataWithAvatar();
   const saveDir = path.join(scratch, "saved");

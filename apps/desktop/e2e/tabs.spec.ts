@@ -17,7 +17,7 @@ import {
 import { TAB_STRIP_HEIGHT } from "@ging/webview/desktop/window/protocol";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
-import { clickMenu } from "./mainProcess";
+import { answerMessageBoxes, clickMenu } from "./mainProcess";
 import { focusedTabPage, stripTabs, tabPage, windowPage } from "./tabPages";
 
 // The desktop window's Tabs (#393): a repository per Tab, at most one Tab per
@@ -85,16 +85,6 @@ function spelled(repo: FixtureRepo): string {
   return execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: repo.path, env })
     .toString()
     .trim();
-}
-
-/** Every message box the app shows, answered in its place (ADR-0032). */
-async function answerMessageBoxes(electronApp: ElectronApplication): Promise<void> {
-  await electronApp.evaluate(({ dialog }) => {
-    dialog.showMessageBox = (async () => ({
-      response: 0,
-      checkboxChecked: false
-    })) as typeof dialog.showMessageBox;
-  });
 }
 
 test.beforeEach(() => {
