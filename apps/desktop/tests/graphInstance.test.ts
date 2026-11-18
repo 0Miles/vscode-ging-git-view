@@ -4,6 +4,7 @@ import * as path from "node:path";
 
 import { describe, expect, it, onTestFinished } from "vitest";
 
+import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths";
 import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
@@ -590,6 +591,12 @@ describe("a graph instance", () => {
     await page.instance.sideView({ command: "sideViewReady" });
     const [stash] = page.sideViews.at(-1)!.stashes!;
     expect(stash).toMatchObject({ selector: "stash@{0}", message: "On main: wip" });
+    // Its stash log watch reads once more after it is hung, past the
+    // debounce: let that land before acting, so what follows is the pop's.
+    const sentBefore = page.sideViews.length;
+    await expect
+      .poll(() => page.sideViews.length, { timeout: REPO_CHANGE_DEBOUNCE_MS + 5_000 })
+      .toBeGreaterThan(sentBefore);
     page.answers.choose = shared.l10n.t("dialog.stash.pop");
 
     await page.instance.sideView({ command: "sideViewStash", action: "pop", id: stash.id });

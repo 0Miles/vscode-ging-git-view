@@ -61,16 +61,30 @@ const NO_GIT = { raw: async () => "" } as unknown as SimpleGit;
 const simpleGit = (repo: string) =>
   createRepoGitClients({ gitPath: () => "git" }).gitClientFor(repo);
 
-/** `repo`'s git, and a way to wait for the next `git stash list` it answers. */
+/** A `git stash list` held back: `reached` once it is asked, run once
+ *  released. */
+type HeldList = { reached: Promise<void>; release: () => void };
+
+/** `repo`'s git, a way to wait for the next `git stash list` it answers, and
+ *  a way to hold the next ones back. */
 function stashGit(repo: string) {
   const real = simpleGit(repo);
   let listed: (() => void)[] = [];
+  const holds: { reached: () => void; released: Promise<void> }[] = [];
   const client = new Proxy(real, {
     get: (target, name, receiver) => {
       if (name !== "raw") return Reflect.get(target, name, receiver);
       return async (args: string[]) => {
+        // The view's own read (`listStashes`), not one an action makes.
+        const isList =
+          args[0] === "stash" && args[1] === "list" && args[2]?.startsWith("--format=%H%x09");
+        const hold = isList ? holds.shift() : undefined;
+        if (hold !== undefined) {
+          hold.reached();
+          await hold.released;
+        }
         const out = await target.raw(args);
-        if (args[0] === "stash" && args[1] === "list") {
+        if (isList) {
           const waiting = listed;
           listed = [];
           waiting.forEach((resolve) => resolve());
@@ -82,7 +96,16 @@ function stashGit(repo: string) {
   return {
     client,
     /** Settles once git has answered the next stash list read. */
-    nextStashList: () => new Promise<void>((resolve) => listed.push(resolve))
+    nextStashList: () => new Promise<void>((resolve) => listed.push(resolve)),
+    /** Hold back the next stash list read, until released. */
+    holdNextStashList: (): HeldList => {
+      let reached!: () => void;
+      let release!: () => void;
+      const reachedP = new Promise<void>((resolve) => (reached = resolve));
+      const released = new Promise<void>((resolve) => (release = resolve));
+      holds.push({ reached, released });
+      return { reached: reachedP, release };
+    }
   };
 }
 
@@ -90,12 +113,20 @@ function setUp(
   state: Partial<GitRepoState> = {},
   {
     stashRepo,
-    diffOpens = true
+    diffOpens = true,
+    watchDebounceMs = 60_000
   }: {
     /** A real repository whose stashes the Stash view lists. */
     stashRepo?: string;
     /** What opening a diff answers. */
     diffOpens?: boolean;
+    /** How long the stash log's watch waits out quiet. Long enough by
+     *  default that the read it starts once it is hung never comes during a
+     *  test: a read of its own, landing between a test's steps, would list
+     *  what the test changed outside the app before the step that is about
+     *  it (the moved-stash refusal, say). The watch test itself sets it
+     *  short. */
+    watchDebounceMs?: number;
   } = {}
 ) {
   const { ports, calls: asked, answers } = fakePorts();
@@ -192,7 +223,7 @@ function setUp(
     },
     stashWatch: {
       git: { gitPath: () => "git" },
-      debounceMs: 10,
+      debounceMs: watchDebounceMs,
       // Where git would say it is, without asking: no repository on disk for
       // the branch tests, and nothing to wait out for the stash ones.
       findCommonDir: async (repo) => (stashRepo === undefined ? null : path.join(repo, ".git")),
@@ -209,6 +240,8 @@ function setUp(
     logger: { logError: (line) => told.push(`ERROR: ${line}`) },
     nowMs: () => NOW_SEC * 1000
   });
+  // Its watch's timer goes with it.
+  onTestFinished(() => views.dispose());
   /** The state once both reads have landed. */
   const settled = async () => {
     await vi.waitFor(() => {
@@ -235,7 +268,8 @@ function setUp(
     diffs,
     mutations,
     watched,
-    nextStashList: () => stashClient!.nextStashList()
+    nextStashList: () => stashClient!.nextStashList(),
+    holdNextStashList: () => stashClient!.holdNextStashList()
   };
 }
 
@@ -457,6 +491,40 @@ describe("the desktop Stash view's host half", () => {
     expect(await stashesListed(sent, 1)).toMatchObject([{ id: older, selector: "stash@{0}" }]);
   });
 
+  it("settles a stash action only once the latest list is sent, its own re-read superseded or not", async () => {
+    const { repo, newer, older } = twoStashes();
+    const { views, sent, answers, holdNextStashList, nextStashList } = setUp(
+      {},
+      { stashRepo: repo }
+    );
+    await views.receive({ command: "sideViewReady" });
+    await stashesListed(sent, 2);
+    answers.choose = "dialog.stash.pop";
+    // The action's own re-read, and a newer one started while it runs (a
+    // watch event, a refresh): the newer is the one that is sent.
+    const own = holdNextStashList();
+    const newer_ = holdNextStashList();
+    let settled = false;
+    const done = views.receive({ command: "sideViewStash", action: "pop", id: newer }).then(() => {
+      settled = true;
+    });
+    await own.reached;
+    views.refresh();
+    await newer_.reached;
+
+    const ownAnswered = nextStashList();
+    own.release();
+    await ownAnswered;
+    await new Promise((resolve) => setImmediate(resolve));
+    // Superseded, it sent nothing; the request is still owed the list.
+    expect(settled).toBe(false);
+    expect(sent.at(-1)!.stashes).toHaveLength(2);
+
+    newer_.release();
+    await done;
+    expect(sent.at(-1)!.stashes).toMatchObject([{ id: older, selector: "stash@{0}" }]);
+  });
+
   it("runs nothing for a stash it did not list, nor on a dismissed question", async () => {
     const { repo, newer } = twoStashes();
     const { views, sent, asked, answers, mutations } = setUp({}, { stashRepo: repo });
@@ -530,7 +598,10 @@ describe("the desktop Stash view's host half", () => {
 
   it("watches the stash log while the page listens, and re-reads the list on its change", async () => {
     const { repo } = twoStashes();
-    const { views, sent, watched, nextStashList } = setUp({}, { stashRepo: repo });
+    const { views, sent, watched, nextStashList } = setUp(
+      {},
+      { stashRepo: repo, watchDebounceMs: 10 }
+    );
     await views.receive({ command: "sideViewReady" });
     await stashesListed(sent, 2);
     // Hung once git has said where the common dir is.

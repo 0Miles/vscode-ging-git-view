@@ -311,7 +311,23 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     send();
   };
 
-  const readStashes = async () => {
+  /** The stash read started last: the one whose list is sent, a read started
+   *  before it sending nothing. */
+  let latestStashRead: Promise<void> = Promise.resolve();
+  const readStashes = (): Promise<void> => {
+    latestStashRead = readStashesOnce();
+    return latestStashRead;
+  };
+  /** Settles once the stash list a read sent is the latest: a read that a
+   *  newer one superseded sends nothing, so this waits for that newer one,
+   *  and for any started while it ran. */
+  const stashesSent = async (): Promise<void> => {
+    const read = latestStashRead;
+    await read;
+    if (read !== latestStashRead) await stashesSent();
+  };
+
+  const readStashesOnce = async () => {
     const read = ++stashesRead;
     try {
       const listed = await loadStashList(deps.stash.git);
@@ -328,7 +344,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
   };
 
   const refresh = async (hard = false) => {
-    await Promise.all([readBranches(hard), readRemotes(), readStashes()]);
+    await Promise.all([readBranches(hard), readRemotes(), readStashes().then(stashesSent)]);
   };
 
   // The Stash view keeps itself current while the page listens, as VS Code's
@@ -340,16 +356,8 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
   });
   stashWatch.setRepo(repo);
 
-  /** The read a stash action asked for last: its request settles once that
-   *  read is sent. */
-  let stashActionRead: Promise<void> = Promise.resolve();
   /** What core's stash actions are handed: the list they re-read is this. */
-  const stashHost: ListedStashHost = {
-    ...deps.stash,
-    refresh: () => {
-      stashActionRead = readStashes();
-    }
-  };
+  const stashHost: ListedStashHost = { ...deps.stash, refresh: () => void readStashes() };
 
   /** The stash a request names, as it was listed. */
   const listedStash = (id: string): StashListItem | null =>
@@ -440,8 +448,13 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
         // Bound to the stash as listed: core refuses it once that moved.
         const stash = listedStash(message.id);
         if (stash === null) break;
+        // `cmv.stash.*` is not checked again here: the page leaves a hidden
+        // action off its menu, and VS Code's stash commands do not check it
+        // either — the setting hides an action, it does not forbid it.
         await LISTED_STASH_ACTIONS[message.action](stashHost, stash);
-        await stashActionRead;
+        // Settles once the list the action asked for — or a newer one — is
+        // sent: the page is not left on the list from before it.
+        await stashesSent();
         break;
       }
       case "sideViewStashFiles": {

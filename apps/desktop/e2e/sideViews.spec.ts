@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
+import { diffShown } from "./diffViewerPage";
 import {
   addAheadRemote,
   datedGit,
@@ -221,6 +222,13 @@ test("the Stash view lists every stash as git does, follows one pushed outside t
   expect(readFileSync(path.join(repo.path, "file.txt"), "utf8")).toBe("work in progress\n");
   await expect(stashRows).toHaveCount(1);
   await expect(stashRows.first()).toContainText("stash@{0}");
+
+  // A file of the stash left opens its diff in the app's diff viewer (#404),
+  // through the same `Opener.openCommitDiff` the graph's files use.
+  await expect(files).toHaveCount(1);
+  await files.first().click();
+  await diffShown(page);
+  await expect(page.locator("#diffViewer .diffViewerTitle")).toContainText("other.txt");
 
   const logged = await closeAndReadLog();
   expect(logged).not.toMatch(/ERROR:|"reportError"/);
