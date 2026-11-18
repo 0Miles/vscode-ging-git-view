@@ -218,7 +218,8 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
    * A change's reason stays until the viewer makes the next change: the
    * graph refreshes after every change, failed or not, and the panel reads
    * itself anew then — a read that must not wipe what the viewer has yet to
-   * see. A read's own failure goes once a read succeeds.
+   * see, nor put its own failure in its place. A read's own failure, shown
+   * when no change's is, goes once a read succeeds.
    */
   let error: { text: string; from: "read" | "change" } | null = null;
   /** A request is out: the buttons wait for its answer. */
@@ -592,10 +593,10 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     amendBasis = answer.amend ?? amendBasis;
     if (answer.request !== "workingTreeLoad") {
       error = answer.error === null ? null : { text: answer.error, from: "change" };
-    } else if (answer.error !== null) {
-      error = { text: answer.error, from: "read" };
-    } else if (error?.from === "read") {
-      error = null;
+    } else if (error?.from !== "change") {
+      // A change's failure stays through every read, a failed one included:
+      // it is what the viewer has yet to see.
+      error = answer.error === null ? null : { text: answer.error, from: "read" };
     }
     busy = false;
     const refused = answer.refused;

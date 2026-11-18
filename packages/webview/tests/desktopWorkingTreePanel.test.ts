@@ -304,6 +304,23 @@ describe("the working tree panel", () => {
     expect(alert()).toBe("");
   });
 
+  it("keeps a failed change's reason over a read that fails after it", async () => {
+    await load(true);
+    hear(answer("workingTreeLoad"));
+    const alert = () => panel().querySelector("[role=alert]")!.textContent;
+
+    button("[data-action=stageAll]").click();
+    hear(answer("workingTreeStage", STATUS, "index.lock: File exists."));
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad", null, "not a git repository"));
+    expect(alert()).toBe("index.lock: File exists.");
+
+    // Nor does a read that succeeds after that clear it: the next change does.
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad"));
+    expect(alert()).toBe("index.lock: File exists.");
+  });
+
   it("reads itself anew when the graph refreshes, once the request out is answered", async () => {
     const mock = await load(true);
     hear(answer("workingTreeLoad"));

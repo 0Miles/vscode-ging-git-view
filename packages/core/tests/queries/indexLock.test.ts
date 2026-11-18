@@ -143,5 +143,7 @@ describe("the reads the graph makes in the background", () => {
 
     expect(result).toBe("moved");
     expect(locks).toEqual([]);
+    // The control, as for the conflict: a plain status takes it in this state.
+    expect((await locksTakenBy(() => simpleGit(repo).status())).locks).toEqual(["index.lock"]);
   });
 });

@@ -161,7 +161,7 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 
 **拿掉 #391、#403 為了避開 `index.lock` 而加的等待:walk 的 `settle`(改動 repo 的動作之後等圖形的重新載入)與 [workingTree.spec.ts](../../apps/desktop/e2e/workingTree.spec.ts) 在 commit 前等圖形的重新載入。** 根因修在產品:GING 自己的讀取不再拿 `index.lock`,所以動作與背景重新載入重疊也不會被拒。
 
-- **`GIT_OPTIONAL_LOCKS=0` 給 GING 起的每一個 git**(core `gitChildEnv`,兩個宿主共用)。git 只因此略過「讀取順手刷新 index」這一件事;要寫 index 的命令照樣拿鎖。實測沒有它時,一般的 `git status` 即使沒有東西可刷新也會拿 `index.lock`。
+- **產品端的修正(`gitChildEnv` 的 `GIT_OPTIONAL_LOCKS=0`、`NO_INDEX_REFRESH`)與它的代價記在 ADR-0027 的 2026-11-18 補記**,這裡只記測試端。實測沒有它時,一般的 `git status` 即使沒有東西可刷新也會拿 `index.lock`。
 - **對 working tree 的 `git diff`(`unmergedFiles`、`getNewPathOfRenamedFile`)另帶 `-c diff.autoRefreshIndex=false`(`NO_INDEX_REFRESH`)。** 實測 git 2.40.1:這種 diff 在 `GIT_OPTIONAL_LOCKS=0` 下仍會刷新並寫回 index。這個設定不放進全域的 `GIT_CONFIG_OVERRIDES`:它會讓不帶 filter 的 diff 也列出只有時間戳改變的檔案,而 `-c` 會傳到寫入命令執行的 hook 裡。
 - **vitest 不用「讀寫同時跑、沒有失敗」的壓力測試。** 實測沒有修正時,兩個讀取迴圈加 40 次寫入,只有約 1 次被拒,綠燈證明不了什麼。[indexLock.test.ts](../../packages/core/tests/queries/indexLock.test.ts) 改成監看 `.git` 資料夾,斷言讀取期間沒有出現任何 `.lock` 檔:讀取結束後寫一個哨兵檔,等聽到它,之前的事件就都到了(監看事件依發生順序送達)。對照組是不經 GING 的 client 的 `git status`,在同一個狀態下確實拿了鎖。不帶 `NO_INDEX_REFRESH` 的 diff 在 git 2.40.1(Windows)會拿鎖、拿掉它測試會紅;CI 的 git 2.56.1(ubuntu)在測試的狀態下沒拿,所以 diff 不能當各平台的對照組。
 - **改動失敗的原因不再被之後的 refresh 抹掉(#466)。** 面板只在使用者送出下一個改動時清掉改動的錯誤;讀取的回答不覆蓋它,讀取本身失敗才顯示讀取的錯誤,下一次讀取成功時清掉。jsdom 測試照實際順序:先 `refresh`、再失敗的回答、再 refresh 引起的讀取。

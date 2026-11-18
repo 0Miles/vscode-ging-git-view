@@ -103,10 +103,16 @@ export function gitChildEnv(gitEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // watcher event, refresh and auto-fetch — while the user, or GING itself,
   // writes to it. A plain `git status` takes `.git/index.lock` to refresh the
   // index as a side effect — even with nothing to refresh — so a stage, commit
-  // or graph action landing in that moment fails with "index.lock: File exists" (#451). With
-  // optional locks off git skips that side effect and nothing else: a command
-  // that must write the index still takes the lock. It also keeps GING's own
-  // reads from rewriting the index and waking its file watcher.
+  // or graph action landing in that moment fails with "index.lock: File
+  // exists" (#451). With optional locks off git skips that side effect and
+  // nothing else: a command that must write the index still takes the lock.
+  // It also keeps GING's own reads from rewriting the index and waking its
+  // file watcher. The cost: GING no longer refreshes the index's stat cache,
+  // so a file whose timestamp moved but not its content is hashed again on
+  // each reload until something writes the index (the user's own git, or a
+  // GING write). Every git child of a git client and of spawnGit gets this;
+  // `commitFileContent`'s `git show`, spawned on its own, does not and needs
+  // not: it never touches the index. See ADR-0027's 2026-11-18 addendum.
   // `git diff` against the working tree refreshes the index regardless; see
   // NO_INDEX_REFRESH.
   childEnv["GIT_OPTIONAL_LOCKS"] = "0";

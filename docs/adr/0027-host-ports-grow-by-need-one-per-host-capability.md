@@ -211,7 +211,7 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 
 - **working tree 的 git 邏輯在 core 的 [workingTreeService.ts](../../packages/core/src/extension/workingTreeService.ts),不是 port,也不進 dispatch。** 它是一個命令服務(status、整檔 stage / unstage、commit),依賴的只有 git client、`signCommits()` 與 `RunRepoMutation`,用法跟 fetch 服務一樣。面板的訊息不是 `RequestMessage`(ADR-0031),所以桌面版的 graph instance 在交給 dispatch 之前就把它們攔下,交給這個服務([workingTree.ts](../../apps/desktop/src/workingTree.ts) 做訊息與服務之間的轉換)。`.oxlintrc.json` 的規則因此不必為桌面版開任何白名單:app 只 import 命令服務,不碰 `backend/actions` 或 `queries`。
 - **每個改動都經過 `runRepoMutation`:watcher 在改動期間靜音,做完之後圖形重新整理。** commit 之後新的 commit 出現在圖形上,靠的就是這一次重新整理。graph instance 原本只為 fetch 服務建一個 `runRepoMutation`,現在兩個服務共用同一個。
-- **status 用 `git --no-optional-locks status --porcelain=v2 -z` 讀。** 一般的 `git status` 可能順手刷新並寫回 index,寫的期間握著 `index.lock`,使用者接著按的 stage 或 commit 就會被拒(#451 是圖形自己那一份 `git status` 的同一個競爭);寫回 index 也會叫醒檔案監看,讓面板與圖形再讀一次。
+- **status 用 `git --no-optional-locks status --porcelain=v2 -z` 讀。**(#451 之後,GING 起的 git 全部由 core 的 `gitChildEnv` 帶 `GIT_OPTIONAL_LOCKS=0`,見本 ADR 2026-11-18 的補記;這個旗標留著當雙保險。) 一般的 `git status` 可能順手刷新並寫回 index,寫的期間握著 `index.lock`,使用者接著按的 stage 或 commit 就會被拒(#451 是圖形自己那一份 `git status` 的同一個競爭);寫回 index 也會叫醒檔案監看,讓面板與圖形再讀一次。
 - **簽章規則同 cherry-pick、revert、merge、rebase:`signCommits` 為 true 時加 `-S`,否則不加任何旗標,交給 git 的 `commit.gpgsign`。** 沒有金鑰管理 UI,也沒有 pinentry 整合(#291 的「不做」)。
 - **「有沒有 commit」看 HEAD,不看 git 的結束碼。** 沒有東西可以 commit 時,git 只在 stdout 說一句、stderr 什麼都沒有,而 simple-git 對這種執行一律 resolve。所以 `commitChanges` 比較 commit 前後的 HEAD,沒變就拿 git 說的那句 reject。
 - **衝突檔(unmerged)單獨列成一組,沒有任何按鈕,而且永遠到不了 `add` 或 `reset`。** 整檔 stage 一個衝突檔就是把它標成已解決,那是 #410 的範圍;本票只讓它們不從清單裡消失。所以 stage / unstage 一律點名檔案,沒有「全部」:不帶路徑的 `add -A` 會把衝突檔標成已解決,不帶路徑的 `reset` 會刪掉 `MERGE_HEAD`,整個 merge 就默默消失了。面板的 Stage All / Unstage All 送的是那一組列出的每個檔案(submodule 除外),core 在執行前再讀一次 unmerged 路徑、把它們剔掉,兩道防線各自成立。路徑經 `--pathspec-from-file` 加 `--pathspec-file-nul`(git 2.25+)交給 git,寫在暫存檔裡,不放命令列:Windows 的命令列只有約 32k 字元,而 Stage All 可能點名上千個檔案。
@@ -281,3 +281,13 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **core 的 `getCommitFileBytes` / `getCommitFileContent` 不跑以 `-` 開頭的 revision,直接回答空的,而不是加 `--end-of-options`。** `--end-of-options` 要 git 2.24 以上;這支 query 也是 VS Code 的 `DiffDocProvider` 在用,加上它,較舊的 git 上每個 diff 都會變空,VS Code 的外部行為就變了。不以 `-` 開頭的參數 git 不會當成選項,所以這道檢查擋下的是同一件事。
 - **binary 與過大的檔案不讀成文字。** `readFileAtRevision` / `readWorkingFile` 回答 `FileText`:文字、`binary`(照 git 的判斷,前 8000 bytes 有 NUL)或 `tooLarge`(超過 `FILE_TEXT_LIMIT` = 5 MiB;revision 那一側讀到上限就停掉 git,working tree 那一側先看檔案大小)。diff viewer 因此只送一行說明,不把整個檔案經 IPC 送進頁面。
 - **給之後的呼叫端的接縫:`GraphInstance.showDiff`([diffViewer.ts](../../apps/desktop/src/diffViewer.ts) 的 `ShowDiff`)。** 它收標題與左右兩個 `DiffSource` —— 某個 revision 的檔案(`DiffSide`,`commit` 可以是 `:0`,也就是 index),或 working tree 的檔案 —— 讀好、解好碼,送到該 Tab 的頁面。`Opener` 的兩個 diff 都走它;#403 的 working tree 檢視(index ↔ working tree、HEAD ↔ index)與 #408 的檔案歷史也從這裡開 diff,不必再經過 `Opener`,除非那個呼叫端在 dispatch 裡。
+
+## 補記(2026-11-18,#451)
+
+**GING 的讀取不拿 `index.lock`:core 的 `gitChildEnv` 給每個 git client 與 `spawnGit` 起的 git 設 `GIT_OPTIONAL_LOCKS=0`,兩個宿主共用。** 圖形的背景重新載入(watcher、refresh、auto-fetch 觸發)跑的 `git status`,只要 optional locks 開著就會拿 `index.lock`,即使沒有東西可刷新(git 2.40.1 實測);此時送出的 stage、commit 或圖形動作會被 git 以 `index.lock: File exists` 拒絕。設在 core 一處,VS Code 與桌面版的讀取都涵蓋,之後新增的讀取也不必各自記得。
+
+- **只略過讀取順手刷新 index 這一件事。** 要寫 index 的命令照樣拿鎖;hook 繼承這個環境,影響的也只有 hook 裡讀取的順手刷新。
+- **代價:GING 不再替使用者刷新 index 的 stat 快取。** 內容沒變、只有時間戳變了的檔案,每次重新載入都會被重新雜湊,直到有東西寫回 index(使用者自己的 git,或 GING 的寫入)。換來的是 GING 自己的讀取不再改寫 index、也不再因此叫醒自己的檔案監看。
+- **對 working tree 的 porcelain `git diff` 另帶 `-c diff.autoRefreshIndex=false`(`NO_INDEX_REFRESH`,`unmergedFiles`、`getNewPathOfRenamedFile`)。** git 2.40.1 上這種 diff 在 `GIT_OPTIONAL_LOCKS=0` 下仍會刷新並寫回 index(git 2.56.1 在測試的狀態下不會)。它只能用在 filter 排除了 M 的 diff:不帶 filter 時,只有時間戳變了的檔案也會被列出來;而且 `-c` 會經 `GIT_CONFIG_PARAMETERS` 傳到寫入命令跑的 hook,所以不放進全域的 `GIT_CONFIG_OVERRIDES`。
+- **例外:`commitFileContent` 的 `git show` 自己 spawn,不經 `gitChildEnv`。** 它只讀某個 commit 裡的檔案,不碰 index,所以不需要。
+- 測試:[indexLock.test.ts](../../packages/core/tests/queries/indexLock.test.ts) 監看 `.git` 資料夾,斷言讀取期間沒有任何 `.lock` 檔;對照組是同一狀態下不經 client 的 `git status`。E2E 端拿掉的等待見 ADR-0032 的同日補記。
