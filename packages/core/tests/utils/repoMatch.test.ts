@@ -302,6 +302,46 @@ describe("createRepoLocator", () => {
       filePath: "src/gone.ts"
     });
   });
+
+  it("passes over a known repo that cannot be resolved and finds the one that can", () => {
+    const locate = createRepoLocator(recordingRealpath().realpath);
+
+    expect(locate("/real/app/src/a.ts", ["/gone/repo", "/link/app"])).toEqual({
+      repo: "/link/app",
+      filePath: "src/a.ts"
+    });
+  });
+
+  it("stops walking up a missing file at its drive, not at the drive's current folder", () => {
+    // A bare "C:" names the drive's current folder, which here is a known repo.
+    const realpath = realpathFrom({ "C:": "C:/work/repo", "C:/work/repo": "C:/work/repo" });
+
+    expect(createRepoLocator(realpath)("C:/missing/a.ts", ["C:/work/repo"])).toBeNull();
+  });
+
+  it("resolves each known repo once for as long as the locator lives", () => {
+    const calls: string[] = [];
+    const table = realpathFrom({
+      "/link/app": "/real/app",
+      "/real/app": "/real/app",
+      "/link/app/src": "/real/app/src"
+    });
+    const locate = createRepoLocator((p) => {
+      calls.push(p);
+      return table(p);
+    });
+
+    expect(locate("/link/app/src/a.ts", ["/real/app"])).toEqual({
+      repo: "/real/app",
+      filePath: "src/a.ts"
+    });
+    expect(locate("/link/app/src/b.ts", ["/real/app"])).toEqual({
+      repo: "/real/app",
+      filePath: "src/b.ts"
+    });
+
+    expect(calls.filter((c) => c === "/real/app")).toHaveLength(1);
+  });
 });
 
 // The built-in git extension can report a repository that the workspace search
