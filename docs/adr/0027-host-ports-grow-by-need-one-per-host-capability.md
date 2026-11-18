@@ -281,3 +281,11 @@ kit 也多了不出聲的 `currentRepo`,它和 `currentRepoOrSay` 一樣只認 k
 - **core 的 `getCommitFileBytes` / `getCommitFileContent` 不跑以 `-` 開頭的 revision,直接回答空的,而不是加 `--end-of-options`。** `--end-of-options` 要 git 2.24 以上;這支 query 也是 VS Code 的 `DiffDocProvider` 在用,加上它,較舊的 git 上每個 diff 都會變空,VS Code 的外部行為就變了。不以 `-` 開頭的參數 git 不會當成選項,所以這道檢查擋下的是同一件事。
 - **binary 與過大的檔案不讀成文字。** `readFileAtRevision` / `readWorkingFile` 回答 `FileText`:文字、`binary`(照 git 的判斷,前 8000 bytes 有 NUL)或 `tooLarge`(超過 `FILE_TEXT_LIMIT` = 5 MiB;revision 那一側讀到上限就停掉 git,working tree 那一側先看檔案大小)。diff viewer 因此只送一行說明,不把整個檔案經 IPC 送進頁面。
 - **給之後的呼叫端的接縫:`GraphInstance.showDiff`([diffViewer.ts](../../apps/desktop/src/diffViewer.ts) 的 `ShowDiff`)。** 它收標題與左右兩個 `DiffSource` —— 某個 revision 的檔案(`DiffSide`,`commit` 可以是 `:0`,也就是 index),或 working tree 的檔案 —— 讀好、解好碼,送到該 Tab 的頁面。`Opener` 的兩個 diff 都走它;#403 的 working tree 檢視(index ↔ working tree、HEAD ↔ index)與 #408 的檔案歷史也從這裡開 diff,不必再經過 `Opener`,除非那個呼叫端在 dispatch 裡。
+
+## 補記(2026-11-18,#405)
+
+**桌面版 `Opener` 的 `openFileAtRevision` 不再是 stub:檔案以唯讀方式開在 #404 的 diff viewer 那個面板裡,一個 Monaco editor,不是 diff(畫面見 ADR-0031 的同日補記)。** #391 補記的四個 stub 到此全部取代,所以「先通知『尚未支援』再 resolve」的那個偏離連同 `notSupportedYet` 與 l10n 的 `desktop.notSupportedYet` 一起移除:`openFileAtRevision` 照 port 的契約,開不了就 reject,圖形照它原本的方式說無法開啟。port 本身沒有改,VS Code 的實作也沒有改。
+
+- **讀取與拒絕的規則跟 diff 的一側完全相同,不另寫一份。** [diffViewer.ts](../../apps/desktop/src/diffViewer.ts) 的檢查(只讀該 Tab 的 repository;只跑 hash、`^`/`^N`、`:0`)、讀取(core 的 `readFileAtRevision` / `readWorkingFile`,依 `defaultFileEncoding`)與「binary / 超過 `FILE_TEXT_LIMIT` 只送一行說明」從 `createShowDiff` 裡抽成模組層級的函式,`createShowDiff` 與新的 `createShowFile` 共用。binary 的那一行說法不同(`desktop.file.binary`:沒有可「顯示」的文字,不是可「比較」的),過大的那一行沿用 `desktop.diff.tooLarge`。
+- **標題與 diff 的同一套:檔名加短 hash(`file.txt (abc12345)`),不經 l10n。** 裡面沒有字。stash 的 untracked 檔(`hash^3`)標的是 stash 的 hash,與 `commitDiffView` 標它的 diff 一樣,不標 `^3`。
+- **給之後的呼叫端的接縫:`GraphInstance.showFile`(`ShowFile`)。** 它收標題與一個 `DiffSource` —— 某個 revision 的檔案,或 working tree 的檔案 —— 規則同 `showDiff`。今天的呼叫端只有 `Opener`;收 working tree 的檔案不多花任何程式碼,留給 blame(#409)這類可能要在 working tree 檔案上顯示的呼叫端。

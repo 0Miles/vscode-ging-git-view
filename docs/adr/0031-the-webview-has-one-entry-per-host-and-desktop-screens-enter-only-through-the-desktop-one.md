@@ -192,3 +192,11 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **side-by-side 與 inline 由面板的按鈕切換,選擇存在頁面自己的 `localStorage`(`ging.diffViewer.layout`)。** 這是使用者的便利設定,不是要跨裝置或要讓 main process 讀到的狀態;讀寫都包在 try/catch 裡,讀不到就用 side-by-side。Monaco 的 `useInlineViewWhenSpaceIsLimited` 關掉:視窗窄時它會自己切成 inline,按鈕上的選擇就不再是畫面上的樣子。
 - **`webviewEntries.test.ts` 補上 Monaco 的檢查(「後果」第一條要求的那一項)。** Monaco 不在 `src/desktop/` 底下,所以用名字找:VS Code 的 bundle 不得吃進任何 `monaco-editor/` 底下的模組,文字裡也不得有 Monaco diff editor 的 class 名稱 `monaco-diff-editor`。對照組是用 `apps/desktop/esbuild.js` 匯出的 `editorsBuild` 實際打包的 `monaco.js`,同樣的讀法在那裡找得到兩者。同一支測試也用 `pageBuild` 打包 app 真正出貨的 `src/web/page.ts`(`out/web.js`),斷言 Monaco 不在裡面 —— 「Monaco 不在 `web.js`、第一個 diff 才載入」是上面的設計,只看 `desktop/main.ts` 守不住它。
 - **`apps/desktop` 的 typecheck 拆成兩份。** `src/web/page.ts` 會 import 圖形,而圖形靠 webview 的全域宣告(`viewState`、`l10n`、`GG`…)。那些宣告只在 [tsconfig.web.json](../../apps/desktop/tsconfig.web.json) 裡,main process 的程式碼看不到它們;主 `tsconfig.json` 排除 `page.ts`。
+
+## 補記(2026-11-18,#405)
+
+**某版本的檔案以唯讀方式開在 diff viewer 的同一個面板(`#diffViewer`)裡,不另做一個面板。** 同一時間圖形上只該蓋著一個檢視;鍵盤留在面板、Escape 在 keyup 才關、焦點回到開啟前的元素、`aria-busy`、被下一個取代、建立失敗時的處置,#404 都已經寫在那裡,另做一個面板就是把它們複製一份。檔案取代 diff、diff 取代檔案,與一個 diff 取代另一個相同。
+
+- **工廠多一個 `createFileViewer(container, { document, theme })`,回傳的 `FileViewer` 只有 `setTheme`、`focus`、`dispose`**([editors.ts](../../packages/webview/src/desktop/editors.ts))。#404 的檔頭已預告本票在旁邊加自己的 maker。Monaco 那一側([monacoEditors.ts](../../apps/desktop/src/web/monacoEditors.ts))是 `monaco.editor.create` 加 `readOnly: true`,model 的 URI 帶檔案的路徑(scheme `ging-file`),Monaco 照副檔名決定語言著色,與 diff 的兩個 model 同一招。載入沿用 `lazyEditors.ts`:同一個 `monaco.js`,頁面第一次要 diff 或檔案時才載入,只載入一次。blame(#409)在 `FileViewer` 上長出 gutter 的註記,依「先有呼叫端」不先寫。
+- **協定:宿主送 `showFile`(`ShowFileMessage`,[desktop/diff/protocol.ts](../../packages/webview/src/desktop/diff/protocol.ts)),不是讓 `showDiff` 帶一個空的一側。** 帶標題、一份 `DiffDocument`、`notShown`,以及它自己的字(`close`、`cannotShow`;沒有版面切換,所以沒有那兩個按鈕的字)。`FILE_COMMANDS_STAY_APART` 檢查它不與 `ResponseMessage` 撞名;宿主那一側的 `postDiff` 收兩者的聯集 `ViewerMessage`。
+- **顯示檔案時,面板的 side-by-side / inline 按鈕整組隱藏(`hidden`),關閉鈕的字是「Close File」。** 記住的 diff 版面不受影響,下一個 diff 照舊用它。
