@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 
-import { harnessPage } from "./harness";
+import { harnessPage, harnessRepo, hostSays, pageErrors, posted, sideViewWidth } from "./harness";
 
 // The desktop side views' column (#399) in a real browser: the region ADR-0031
 // drew for it — the window's left edge, full height, fixed, owning `body`'s
@@ -8,13 +8,6 @@ import { harnessPage } from "./harness";
 // on their left; and the Stash view (#400) sharing the column's height with
 // the other two. jsdom lays nothing out, so this is where that is held. The
 // host's half is played here, as in hostPrompt.spec.ts.
-
-/** A message from the host, delivered as the desktop preload delivers one. */
-async function hostSays(page: Page, data: unknown) {
-  await page.evaluate((message) => {
-    globalThis.dispatchEvent(new MessageEvent("message", { data: message }));
-  }, data);
-}
 
 const leaf = (branch: string, isHead = false) => ({
   type: "leaf",
@@ -93,36 +86,10 @@ function sideViewState(page: Page, filter: string[] = [], stashes = stashList(0)
   );
 }
 
-/** What the page posted under `command`, in order. */
-function posted(page: Page, command: string): Promise<Record<string, unknown>[]> {
-  return page.evaluate(
-    (wanted) =>
-      (
-        globalThis as unknown as { harnessRequests: Record<string, unknown>[] }
-      ).harnessRequests.filter((m) => m.command === wanted),
-    command
-  );
-}
-
-/** The column's width, as the page's stylesheet declares it. */
-function columnWidth(page: Page): Promise<number> {
-  return page.evaluate(() =>
-    parseFloat(
-      globalThis
-        .getComputedStyle(globalThis.document.documentElement)
-        .getPropertyValue("--ging-side-view-width")
-    )
-  );
-}
-
 let errors: string[];
 
 test.beforeEach(async ({ page }) => {
-  errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
-  });
+  errors = pageErrors(page);
   await page.setViewportSize({ width: 1200, height: 700 });
   await page.goto(harnessPage("desktop"));
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(3);
@@ -142,7 +109,7 @@ test("the side views are a fixed column down the window's left edge, and the gra
   await expect(column.locator('[data-ref="develop"]')).toBeVisible();
 
   const box = (await column.boundingBox())!;
-  const width = await columnWidth(page);
+  const width = await sideViewWidth(page);
   expect(width).toBeGreaterThan(0);
   expect(box).toEqual({ x: 0, y: 0, width, height: 700 });
   expect(await column.evaluate((el) => globalThis.getComputedStyle(el).position)).toBe("fixed");
@@ -167,7 +134,7 @@ test("the side views are a fixed column down the window's left edge, and the gra
 test("the docked Commit Details View and the scroll shadow give up the column's width on their left", async ({
   page
 }) => {
-  const width = await columnWidth(page);
+  const width = await sideViewWidth(page);
   // The two as the graph shows them: classes it sets, read through the
   // stylesheets the page has.
   const edges = await page.evaluate(() => {
@@ -273,10 +240,7 @@ test("the Stash view is the column's third section, a long list scrolling inside
   await expect
     .poll(() => posted(page, "sideViewStashFiles"))
     .toEqual([{ command: "sideViewStashFiles", id: "stash0" }]);
-  const repo = await page.evaluate(
-    () =>
-      (globalThis as unknown as { viewState: { lastActiveRepo: string } }).viewState.lastActiveRepo
-  );
+  const repo = await harnessRepo(page);
   await hostSays(page, {
     command: "sideViewStashFiles",
     repo,

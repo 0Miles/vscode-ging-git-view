@@ -1,6 +1,6 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-import { harnessPage } from "./harness";
+import { harnessPage, hostSays, pageErrors, sideViewWidth } from "./harness";
 
 // The file history panel of the desktop entry (#408), in a real browser: a
 // column over the left of the graph's area, beside the side views (#399),
@@ -9,12 +9,6 @@ import { harnessPage } from "./harness";
 
 /** FILE_HISTORY_WIDTH in packages/webview/src/desktop/fileHistory/fileHistoryPanel.ts. */
 const WIDTH = 340;
-
-async function hostSays(page: Page, data: unknown) {
-  await page.evaluate((message) => {
-    globalThis.dispatchEvent(new MessageEvent("message", { data: message }));
-  }, data);
-}
 
 const STRINGS = {
   menuItem: "View File History",
@@ -62,11 +56,7 @@ const HISTORY = {
 let errors: string[];
 
 test.beforeEach(async ({ page }) => {
-  errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
-  });
+  errors = pageErrors(page);
   await page.setViewportSize({ width: 1200, height: 700 });
   await page.goto(harnessPage("desktop"));
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(3);
@@ -77,16 +67,6 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(() => {
   expect(errors).toEqual([]);
 });
-
-/** The side views' column's width, as the page's stylesheet declares it. */
-const sideViewWidth = (page: Page) =>
-  page.evaluate(() =>
-    parseFloat(
-      globalThis
-        .getComputedStyle(globalThis.document.documentElement)
-        .getPropertyValue("--ging-side-view-width")
-    )
-  );
 
 test("the panel is a column as tall as the window, at the graph's left edge past the side views", async ({
   page

@@ -1,6 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 
-import { harnessPage } from "./harness";
+import { harnessPage, hostSays, pageErrors, posted } from "./harness";
 
 // The working tree panel of the desktop entry (#403), in a real browser: the
 // right-hand column ADR-0031 lays out, beside the graph rather than over it.
@@ -10,12 +10,6 @@ import { harnessPage } from "./harness";
 const harnessUrl = harnessPage("desktop");
 /** WORKING_TREE_WIDTH in packages/webview/src/desktop/workingTree/workingTreePanel.ts. */
 const WIDTH = 320;
-
-async function hostSays(page: Page, data: unknown) {
-  await page.evaluate((message) => {
-    globalThis.dispatchEvent(new MessageEvent("message", { data: message }));
-  }, data);
-}
 
 const STRINGS = {
   title: "Changes",
@@ -86,11 +80,7 @@ const answer = (request: string, more: Record<string, unknown> = {}) => ({
 let errors: string[];
 
 test.beforeEach(async ({ page }) => {
-  errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
-  });
+  errors = pageErrors(page);
   await page.goto(harnessUrl);
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(3);
   await hostSays(page, { command: "workingTreeShow" });
@@ -140,12 +130,7 @@ test("a pushed commit's amend is asked in the graph's own dialog, the panel out 
   const commit = panel.locator("#wtCommitButton");
   const dialog = page.locator("#dialog.active");
   /** The panel's commit requests, as the page sent them to the host. */
-  const commitsSent = () =>
-    page.evaluate(() =>
-      (
-        (globalThis as unknown as { harnessRequests: { command: string }[] }).harnessRequests ?? []
-      ).filter((m) => m.command === "workingTreeCommit")
-    );
+  const commitsSent = () => posted(page, "workingTreeCommit");
 
   await panel.getByLabel("Amend last commit").check();
   await expect(panel.locator("textarea")).toHaveValue(HEAD_MESSAGE);

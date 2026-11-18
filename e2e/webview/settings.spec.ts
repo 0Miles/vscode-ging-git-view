@@ -3,14 +3,12 @@ import path from "node:path";
 
 import { expect, type Page, test } from "@playwright/test";
 
-import { settingsHarnessPage } from "./harness";
+import { desktopPage, pageErrors, posted, ROOT } from "./harness";
 
 // The desktop entry's settings page (#397), built by the harness from the
 // schema the desktop app ships (built once by globalSetup.ts): a row per
 // setting, markdown links between them, and an `updateSetting` for each
 // change. The host's half is the harness's: it answers every update as saved.
-
-const ROOT = path.resolve(__dirname, "../..");
 
 type SchemaSetting = { key: string; description: { en: string }; descriptionFormat: string };
 /** The settings the desktop app has: the extension's, less the excluded ones. */
@@ -25,12 +23,8 @@ const row = (page: Page, key: string) => page.locator(`[id="${key}"]`);
 
 let errors: string[];
 test.beforeEach(async ({ page }) => {
-  errors = [];
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
-  });
-  page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(settingsHarnessPage());
+  errors = pageErrors(page);
+  await page.goto(desktopPage("settings"));
 });
 test.afterEach(() => expect(errors).toEqual([]));
 
@@ -76,12 +70,7 @@ test("the settings page lists every setting in the schema", async ({ page }) => 
 });
 
 test("the settings page sends an update for each change", async ({ page }) => {
-  const sent = () =>
-    page.evaluate(() =>
-      (globalThis as unknown as { harnessRequests: { command: string }[] }).harnessRequests.filter(
-        (m) => m.command === "updateSetting"
-      )
-    );
+  const sent = () => posted(page, "updateSetting");
 
   // An enum, a number and a boolean, each changed once.
   await row(page, "ging-git-view.dates.format")
