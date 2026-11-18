@@ -7,7 +7,7 @@ import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 import { APP_DIR, launchApp } from "./launch";
-import { answerMessageBoxes, messageBoxes } from "./mainProcess";
+import { answerMessageBoxes, messageBoxes, openSettings, settingRow } from "./mainProcess";
 import { focusedTabPage } from "./tabPages";
 
 // Manage Pull Request Providers on the desktop host (#398): core's flow, run
@@ -144,6 +144,74 @@ test("a provider configured from a failed Create Pull Request is asked in the pa
       message: "Pull request provider for git.example.com saved to User settings.",
       buttons: ["Show Setting", "Cancel"]
     })
+  ]);
+
+  const logged = await closeAndReadLog();
+  expect(logged).not.toMatch(/ERROR:|"reportError"/);
+});
+
+test("a settings window already open shows the provider as soon as it is saved, without Show Setting (#446)", async () => {
+  const repo = makeFixtureRepo(env);
+  cleanUp.push(repo.path);
+  execFileSync("git", ["remote", "add", "origin", "https://git.example.com/owner/repo.git"], {
+    cwd: repo.path,
+    env
+  });
+
+  const electronApp = await launch("--repo", repo.path);
+  const page = await focusedTabPage(electronApp);
+  await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
+
+  // The settings open first, showing no provider; marked, to tell a reload.
+  const settings = await openSettings(electronApp);
+  const row = settingRow(settings, KEY);
+  expect(JSON.parse(await row.locator("textarea").inputValue())).toEqual([]);
+  await settings.evaluate(() => {
+    (globalThis as Record<string, unknown>).notReloaded = true;
+  });
+
+  // "Configure a Provider...", then Cancel where "Show Setting" is offered.
+  await answerMessageBoxes(electronApp, [0, 1]);
+  await page.bringToFront();
+  await page.evaluate((repoPath) => {
+    const vscode = (
+      globalThis as unknown as { acquireVsCodeApi(): { postMessage(m: unknown): void } }
+    ).acquireVsCodeApi();
+    vscode.postMessage({
+      command: "createPullRequest",
+      repo: repoPath,
+      branchName: "main",
+      remote: "origin"
+    });
+  }, repo.path);
+
+  const overlay = page.locator("#hostPrompt");
+  await expect(overlay).toBeVisible();
+  await page.getByPlaceholder("Which forge runs on git.example.com?").fill("custom");
+  await page.keyboard.press("Enter");
+  const input = page.locator("#hostPromptInput");
+  await expect(input).toHaveValue("https://git.example.com/{path}/compare/{branch}");
+  await page.keyboard.press("Enter");
+  await expect(overlay).toBeHidden();
+
+  const saved = [
+    {
+      host: "git.example.com",
+      type: "custom",
+      urlTemplate: "https://git.example.com/{path}/compare/{branch}"
+    }
+  ];
+  await expect
+    .poll(async () => JSON.parse(await row.locator("textarea").inputValue()))
+    .toEqual(saved);
+  expect(await settings.evaluate(() => (globalThis as Record<string, unknown>).notReloaded)).toBe(
+    true
+  );
+  // No other window opened for it: the window's, the Tab's and the settings'.
+  expect(electronApp.windows()).toHaveLength(3);
+  expect(await messageBoxes(electronApp)).toEqual([
+    expect.objectContaining({ buttons: ["Configure a Provider...", "Cancel"] }),
+    expect.objectContaining({ buttons: ["Show Setting", "Cancel"] })
   ]);
 
   const logged = await closeAndReadLog();
