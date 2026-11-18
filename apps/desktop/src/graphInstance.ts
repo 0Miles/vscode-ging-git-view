@@ -1,30 +1,88 @@
 /* One webview instance of the desktop host: a graph on one repository, with a
  * dispatch, ports and git client of its own over the services every instance
- * shares (sharedServices.ts). The main process opens one today; #393's tabs open
- * one each (#388). */
+ * shares (sharedServices.ts). Each Tab opens one (#388, #393). */
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
-import { pickBootRepo } from "@ging/core/backend/utils/repoPath";
+import { isGitRepository } from "@ging/core/backend/utils/git";
+import { createConflictCommands } from "@ging/core/extension/conflictCommands";
 import { createFetchService } from "@ging/core/extension/fetchService";
+import { createFileBlameService } from "@ging/core/extension/fileBlameService";
+import { createFileHistoryService } from "@ging/core/extension/fileHistoryService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
-import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
+import {
+  type MessageHandlerDeps,
+  registerMessageHandlers
+} from "@ging/core/extension/messageHandler";
+import { createReflogCommand } from "@ging/core/extension/reflogCommand";
+import { createRemoteCommands } from "@ging/core/extension/remoteCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/sequenceEditorManager";
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
+import { createWorkingTreeService } from "@ging/core/extension/workingTreeService";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
-import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
-import type { GitGraphViewState } from "@ging/shared/types";
+import { createShowDiff, createShowFile, type ShowFile } from "@ging/desktop/diffViewer";
+import { createDesktopOpener } from "@ging/desktop/ports/opener";
+import { createDesktopWatcher, watchOneOnDisk } from "@ging/desktop/ports/watcher";
+import type {
+  GitGraphViewState,
+  GitRepoSet,
+  RequestMessage,
+  ResponseMessage
+} from "@ging/shared/types";
+import {
+  BLAME_LINKS,
+  type FileBlameHostMessage,
+  isFileBlameRequest
+} from "@ging/webview/desktop/diff/blameProtocol";
+import {
+  type DiffHunkRequest,
+  isDiffHunkRequest,
+  type ViewerMessage
+} from "@ging/webview/desktop/diff/protocol";
+import {
+  type FileHistoryHostMessage,
+  isFileHistoryRequest
+} from "@ging/webview/desktop/fileHistory/protocol";
+import type { SideViewMessage, SideViewRequest } from "@ging/webview/desktop/sideViews/protocol";
+import {
+  isWorkingTreeRequest,
+  type WorkingTreeMessage,
+  type WorkingTreeRequest,
+  type WorkingTreeShowDiffRequest
+} from "@ging/webview/desktop/workingTree/protocol";
 
+import { type AppCommands, createAppCommands } from "./appCommands";
+import { createFileBlame } from "./fileBlame";
+import { createFileHistory } from "./fileHistory";
+import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
+import { createSideViews } from "./sideViews";
+import { answerWorkingTree, workingTreeStrings } from "./workingTree";
+import { createWorkingTreeDiffs } from "./workingTreeDiff";
 
 type GraphInstanceOptions = {
   /** The repository it opens on, already checked (`repoToOpen`). */
   repo: string;
   /** Its page. */
   channel: WebviewChannel;
-  /** Asks in its own window: a prompt git raises comes back here. */
+  /** Asks in its own page: a prompt git raises comes back here. */
   prompts: Prompts;
+  /** Into its page, beside the graph's messages: its side views' (#399,
+   *  #400), which are not the graph's protocol (ADR-0031). */
+  postSideView: (message: SideViewMessage) => void;
+  /** Its Tab's: where its Current repository persists (`TabStates`). */
+  extensionState: MessageHandlerDeps["extensionState"];
+  /** Show setting `key` in the app's settings, as they are now (#397): where
+   *  Manage Pull Request Providers' "show the setting" goes. */
+  revealSetting: (key: string) => void;
+  /** Hand its page a diff (#404) or a file (#405) to show, beside the
+   *  graph's own messages (ADR-0031); false when the page is gone. */
+  postDiff: (message: ViewerMessage) => boolean;
+  /** A file of `repo`, picked in the system's dialog opened on it; null when
+   *  none was: the application menu's File History… (#408) and Blame File…
+   *  (#409), each its own dialog. */
+  pickFile: (repo: string, purpose: "fileHistory" | "blame") => Promise<string | null>;
 };
 
 export type GraphInstance = {
@@ -34,16 +92,92 @@ export type GraphInstance = {
    *  repository, which the dispatch must bind again rather than take as
    *  already bound. */
   pageLoading(): void;
+  /** The host wrote setting `key` (`HostConfig.update`): react as VS Code
+   *  does to a configuration change (settingsPush.ts). */
+  settingChanged(key: string): void;
+  /** What the application menu runs on it (#390, #396). */
+  commands: InstanceCommands;
+  /** What its page's side views asked (#399). */
+  sideView(message: SideViewRequest): Promise<void>;
+  /** Show a file read-only in its page, over its graph (#405), as the
+   *  `Opener`'s File at Revision does, offered to be blamed (#409). */
+  showFile: ShowFile;
   dispose(): void;
+};
+
+/** Core's command services on an instance's current repository, asking in its
+ *  page: the application menu's graph entries, and the app's own as asked
+ *  from there. */
+export type InstanceCommands = AppCommands & {
+  fetch(): Promise<void>;
+  /** Asks which remote when there are several. */
+  fetchRemote(): Promise<void>;
+  manageRemotes(): Promise<void>;
+  toggleRemoteVisibility(): Promise<void>;
+  viewReflog(): Promise<void>;
+  /** The system's terminal in the repository, named after its folder as the
+   *  graph's own Terminal button names it. */
+  openTerminal(): void;
+  /** A file picked, its history shown in the page (#408). */
+  fileHistory(): Promise<void>;
+  /** A file picked, the working tree's copy shown blamed in the page (#409). */
+  blameFile(): Promise<void>;
+};
+
+/** The blame hover's icons, as Monaco's Markdown draws codicons. */
+const BLAME_HOVER_ICONS: Record<"account" | "change" | "commit", string> = {
+  account: "$(account)",
+  change: "$(diff)",
+  commit: "$(git-commit)"
 };
 
 export function createGraphInstance(
   shared: SharedServices,
-  { repo, channel, prompts }: GraphInstanceOptions
+  {
+    repo,
+    channel: page,
+    prompts,
+    postSideView,
+    extensionState,
+    revealSetting,
+    postDiff,
+    pickFile
+  }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
-  /** This instance's current repository; the graph moves it with `selectRepo`. */
-  let current = repo;
+
+  // And should the page still ask for another — it was shown none, but a
+  // page is not to be taken at its word — the dispatch never hears it: the
+  // Tab would end up on a repository another Tab may have open.
+  // The working tree panel's requests are not the graph's: answered here, by
+  // core's working tree service, and never handed to the dispatch (ADR-0031).
+  // The banner's Mark Resolved is the graph's, asked about first (#410).
+  const channel: WebviewChannel = {
+    postMessage: (message) => page.postMessage(message),
+    onDidReceiveMessage: (listener) =>
+      page.onDidReceiveMessage((message) => {
+        // Read as what the page posted, not as the graph's: a request typed
+        // apart from `RequestMessage` would narrow it to nothing.
+        const posted: unknown = message;
+        if (isWorkingTreeRequest(posted)) {
+          return posted.command === "workingTreeShowDiff"
+            ? showFileDiff(posted)
+            : answerPanel(posted);
+        }
+        // The diff viewer's hunks (#406).
+        if (isDiffHunkRequest(posted)) return applyHunk(posted);
+        if (isFileHistoryRequest(message)) return fileHistory.receive(message);
+        if (isFileBlameRequest(posted)) return fileBlame.receive(posted);
+        if (message.command === "markResolved") return markResolvedAsked(message, listener);
+        if (message.command === "selectRepo" && message.repo !== repo) {
+          if (message.repo) {
+            logger.log(`tabs: the Tab on ${repo} stays on it, not ${message.repo}`);
+          }
+          return;
+        }
+        return listener(message);
+      })
+  };
 
   // Its own askpass route, and its own rebase todo: two instances rebasing at
   // once must not run each other's todo, nor read each other's `wasApplied`.
@@ -54,46 +188,274 @@ export function createGraphInstance(
   const gitClients = createRepoGitClients({ gitPath: shared.gitPath, gitEnv });
 
   /** What a change to the repository costs: every cached branch read (they
-   *  are shared, see `SharedServices.branchFacts`), and a redraw of this graph. */
+   *  are shared, see `SharedServices.branchFacts`), and a redraw of this graph
+   *  and its side views. */
   const refresh = () => {
     branchFacts.invalidate();
     void bridge.post({ command: "refresh" });
+    sideViews.refresh();
   };
   const watcher = createDesktopWatcher(refresh, { onError: logger.logError });
-  const bridge = webviewBridgeFactory(channel, watcher, () => branchFacts.invalidate());
+  const bridge = webviewBridgeFactory(channel, watcher, () => {
+    // Every branch mutation lands here, the side views' included (they run in
+    // the graph, #399), and nothing else redraws them afterwards: the watcher
+    // is muted across exactly these.
+    branchFacts.invalidate();
+    sideViews.refresh();
+  });
   avatarManager.registerBridge(bridge.post);
+  /** Its changes made outside the bridge: muted, then refreshed, as the
+   *  bridge's own are. */
+  const runRepoMutation = createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh });
 
-  // Its own auto-fetch timer, on its own current repository, muted and
-  // refreshed around each fetch as the bridge's own changes are.
-  const fetchService = createFetchService({
-    config,
+  // What core's command services need of it: they change its repository
+  // muted and refreshed around each change, as the bridge's own changes are.
+  const kitDeps = {
     prompts,
     l10n,
     gitClientFor: gitClients.gitClientFor,
-    currentRepo: () => current,
+    currentRepo: () => repo,
     repoSource: shared.repoSource,
-    runRepoMutation: createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh })
-  });
+    runRepoMutation
+  };
+  // Its own auto-fetch timer, on its own current repository.
+  const fetchService = createFetchService({ ...kitDeps, config });
   fetchService.restartAutoFetch();
 
-  // The known repositories are shared; which one the graph boots on is this
-  // instance's.
+  // The working tree panel's (#403): its stage, unstage and commit refresh
+  // the graph after them, so a commit shows up there.
+  const workingTree = createWorkingTreeService({
+    git: () => gitClient.getInstance(),
+    diffRun: () => ({ gitPath: shared.gitPath(), repoPath: repo, gitEnv }),
+    repo: () => repo,
+    signCommits: () => config.signCommits(),
+    runRepoMutation
+  });
+  /** What the working tree panel, a file's history and a blame say to the
+   *  host is no `ResponseMessage`: posted past the type, as the host prompts
+   *  are (ADR-0031). */
+  const postPastType = (
+    message: WorkingTreeMessage | FileHistoryHostMessage | FileBlameHostMessage
+  ) => void page.postMessage(message as unknown as ResponseMessage);
+  // A file's history (#408): only read, so no mutation and no refresh.
+  const fileHistoryService = createFileHistoryService({
+    gitPath: shared.gitPath,
+    repo: () => repo
+  });
+  const fileHistory = createFileHistory({
+    // Its own git, read as a stream: none of the client's process slots held
+    // while the panel is open.
+    service: fileHistoryService,
+    repo: () => repo,
+    showDiff: (request) => showDiff(request),
+    post: postPastType,
+    pickFile: (root) => pickFile(root, "fileHistory"),
+    prompts,
+    l10n,
+    logger
+  });
+  // The blame of the file its page shows read-only (#409): only read too.
+  // Its git runs apart from the client's, so a big file's blame holds none
+  // of its process slots; a locate goes to the graph as VS Code's blame
+  // hover sends one, through the graph's wait-for-load queue.
+  let locateSeq = 0;
+  const fileBlame = createFileBlame({
+    service: createFileBlameService({
+      gitPath: shared.gitPath,
+      repo: () => repo,
+      l10n,
+      locale: shared.locale,
+      links: {
+        copyShaCommand: BLAME_LINKS.copySha,
+        openLineChangeCommand: BLAME_LINKS.openLineChange,
+        locateCommitCommand: BLAME_LINKS.locateCommit,
+        icon: (name) => BLAME_HOVER_ICONS[name]
+      }
+    }),
+    repo: () => repo,
+    showDiff: (request) => showDiff(request),
+    showFile: (request) => showFile(request),
+    post: postPastType,
+    locate: (hash) => void bridge.post({ command: "locateCommit", repo, hash, seq: ++locateSeq }),
+    clipboard: shared.clipboard,
+    pickFile: (root) => pickFile(root, "blame"),
+    isTracked: (filePath) => fileHistoryService.isTracked(filePath),
+    prompts,
+    l10n,
+    logger
+  });
+  // A conflict's (#410): the user's merge tool, for the panel and for the
+  // graph's own conflict banner (`Opener.openMergeEditor`), and the question
+  // before a file still holding markers is marked resolved, from either.
+  // Asked and said in this instance's page.
+  const conflicts = createConflictCommands({
+    prompts,
+    l10n,
+    logger,
+    git: () => gitClient.getInstance(),
+    mergeToolRun: () => ({ gitPath: shared.gitPath(), repoPath: repo, gitEnv }),
+    repo: () => repo,
+    runRepoMutation
+  });
+  const panelStrings = workingTreeStrings(l10n, process.platform);
+  const answerPanel = async (request: Exclude<WorkingTreeRequest, WorkingTreeShowDiffRequest>) =>
+    postPastType(await answerWorkingTree(workingTree, conflicts, panelStrings, request));
+  // A file of the panel's, in the diff viewer (#460), and a hunk of it staged
+  // or unstaged there (#406). A diff that cannot be read is said in this
+  // instance's window, as the `Opener`'s are.
+  const workingTreeDiffs = createWorkingTreeDiffs({
+    service: workingTree,
+    showDiff: (request) => showDiff(request),
+    l10n,
+    repo: () => repo
+  });
+  const diffFailed = (e: unknown) => {
+    logger.logError(`diff: ${e instanceof Error ? e.message : String(e)}`);
+    void prompts.showError(l10n.t("error.unableToViewDiff"));
+  };
+  const showFileDiff = (request: WorkingTreeShowDiffRequest) =>
+    workingTreeDiffs.show(request).then(() => {}, diffFailed);
+  const applyHunk = (request: DiffHunkRequest) =>
+    workingTreeDiffs.hunk(request).then(() => {}, diffFailed);
+  /** The graph's conflict banner marks a file resolved through the dispatch,
+   *  as in VS Code; here it is asked about first, as the panel's is, when
+   *  conflict markers remain. Declined, the dispatch never hears of it, and
+   *  the graph is answered as for a mark that changed nothing. */
+  const markResolvedAsked = async (
+    message: Extract<RequestMessage, { command: "markResolved" }>,
+    dispatch: (message: RequestMessage) => void | Promise<void>
+  ): Promise<void> => {
+    if (await conflicts.confirmResolve([message.filePath])) return dispatch(message);
+    void page.postMessage({ command: "markResolved", status: null });
+  };
+
+  // A Tab is one repository, and a repository is open in at most one Tab
+  // (GLOSSARY.md; `branchFilterStore` counts on it). So the graph is shown
+  // its own repository alone out of the known set — no other to boot on when
+  // its own leaves the set, as `pickBootRepo` would fall back to; none in a
+  // repo dropdown; no sub-repository to switch to (#155) — and the known set
+  // itself stays the app's.
+  const own = (repos: GitRepoSet): GitRepoSet =>
+    Object.hasOwn(repos, repo) ? { [repo]: repos[repo] } : {};
+  const known = () => Object.hasOwn(shared.repoSource.getRepos(), repo);
+  // Its side views draw themselves from three fields of its repository's
+  // state, and more than one thing writes them: their own toggles, and the
+  // graph's Repository Settings drawer (#183) through `saveRepoState`.
+  // Listening to the writes themselves keeps them current whichever it was,
+  // as VS Code's `onDidWriteRepoState` does.
+  const written = (target: string, write: () => void) => {
+    const before = shared.repoSource.getRepos()[target];
+    write();
+    const after = shared.repoSource.getRepos()[target];
+    if (target === repo && after !== undefined) sideViews.repoStateWritten(before, after);
+  };
   const repoSource: RepoSource = {
     ...shared.repoSource,
-    getBootRepo: () => pickBootRepo(current, Object.keys(shared.repoSource.getRepos()))
+    getRepos: () => own(shared.repoSource.getRepos()),
+    getBootRepo: () => (known() ? repo : null),
+    // Its own repository alone, as with the rest (#394): the app's check would
+    // drop every known repository git cannot reach now — the recent list's
+    // folders on a disk not mounted at the moment among them — when only this
+    // Tab's graph failed to load. Whether its own should go is #454's.
+    checkReposExist: async () => {
+      if (!known() || (await isGitRepository(repo, shared.gitPath()))) return false;
+      logger.log(`tabs: ${repo} is no Git repository any more, dropped from the known set`);
+      shared.repoSource.dropRepo(repo);
+      return true;
+    },
+    setRepoState: (target, state) =>
+      written(target, () => shared.repoSource.setRepoState(target, state)),
+    updateRepoState: (target, patch) =>
+      written(target, () => shared.repoSource.updateRepoState(target, patch))
   };
   const reposChanged = shared.repoSource.onDidChangeRepos((repos) => {
-    void bridge.post({ command: "loadRepos", repos, lastActiveRepo: repoSource.getBootRepo() });
+    void bridge.post({
+      command: "loadRepos",
+      repos: own(repos),
+      lastActiveRepo: repoSource.getBootRepo()
+    });
   });
 
-  /** What #391 brings; until then said in the log, since nothing else will. */
-  const notYet = (what: string) => logger.logError(`${what} is not available yet (#391)`);
+  // Its own, so what it says is said in this instance's window.
+  const notifier = { prompts, l10n, logger };
+  // Its diffs and files are shown in its own page, read from its Tab's
+  // repository and no other.
+  const viewerDeps = {
+    gitPath: shared.gitPath,
+    fileEncoding: config.fileEncoding,
+    l10n,
+    repoRoot: () => repo,
+    post: postDiff
+  };
+  const showDiff = createShowDiff(viewerDeps);
+  const showFile = createShowFile({
+    ...viewerDeps,
+    offerBlame: (file, shownPath, show) => fileBlame.offer(file, shownPath, show)
+  });
+  const opener = createDesktopOpener({
+    ...notifier,
+    os: shared.os,
+    // Files and terminals are opened from its Tab's repository, and no other.
+    repoRoot: () => repo,
+    showDiff,
+    showFile,
+    platform: process.platform,
+    env: process.env,
+    mergeTool: (filePath) => void conflicts.mergeTool(filePath)
+  });
+  // Asked in this instance's page — Manage Pull Request Providers too, as the
+  // failed Create Pull Request that offers it was.
+  const appCommands = createAppCommands(shared, {
+    prompts,
+    currentRepo: () => repo,
+    gitClientFor: gitClients.gitClientFor,
+    revealSetting
+  });
+  const remoteCommands = createRemoteCommands({
+    ...kitDeps,
+    refreshGraph: () => void bridge.post({ command: "refresh" })
+  });
+  const reflog = createReflogCommand({ ...kitDeps, clipboard: shared.clipboard });
+  // The Remotes view's commands are those (#399), asked in this page as the
+  // menu's are. The Stash view's are core's stash list's (#400), asked there
+  // too; what they change is muted and refreshed around, as core's command
+  // services' changes are.
+  const sideViews = createSideViews({
+    repo,
+    post: postSideView,
+    branchFacts,
+    filterStore: shared.branchFilterStore,
+    repoSource,
+    config,
+    l10n,
+    prompts,
+    clipboard: shared.clipboard,
+    remoteCommands,
+    fetchRemote: (target, remote) => fetchService.fetchOneCommand(target, remote),
+    managePullRequestProviders: () => void appCommands.managePullRequestProviders(),
+    setShowRemoteBranches: (value) => void bridge.post({ command: "setShowRemoteBranches", value }),
+    stash: {
+      git: gitClients.gitClientFor(repo),
+      clipboard: shared.clipboard,
+      prompts,
+      l10n,
+      mutate: (work) => runRepoMutation(repo, work)
+    },
+    stashWatch: {
+      git: { gitPath: shared.gitPath, gitEnv: () => gitEnv },
+      watch: watchOneOnDisk(logger.logError)
+    },
+    openCommitDiff: (request) => opener.openCommitDiff(request),
+    formatDate: (unixSec) => new Date(unixSec * 1000).toLocaleString(),
+    logger,
+    nowMs: () => Date.now()
+  });
   const dispatch = registerMessageHandlers(
     bridge,
     {
       config,
       prompts,
-      opener: shared.opener,
+      opener,
       clipboard: shared.clipboard,
       watcher,
       l10n,
@@ -102,30 +464,70 @@ export function createGraphInstance(
     },
     {
       gitClient,
-      extensionState: shared.extensionState,
+      extensionState,
       avatarManager,
       branchFilterStore: shared.branchFilterStore,
       branchFacts,
       branchCleanup: shared.branchCleanup,
       sequenceEditor,
       fetchService,
-      onSelectRepo: (selected) => {
-        current = selected;
-      },
+      // The five hooks into the host's other surfaces (#391). VS Code's are
+      // its side-views and commands.
+      // Only ever its own repository (see the channel above), which its side
+      // views already show: nothing to follow.
+      onSelectRepo: () => {},
       // The side-view's branch actions are delegated to the graph in VS Code;
-      // here the side-view is in the same page (#399), so nothing is held.
+      // here the side view is in the same page and calls the graph itself
+      // (#399, ADR-0033), so nothing is held for a reload.
       onDelegatedRan: () => {},
-      showAllBranches: async () => notYet("Show All"),
-      configurePullRequestProvider: () => notYet("Configuring a pull request provider"),
-      openScmView: () => notYet("The source control view")
+      // The side view's Show All (#399): the graph's filter chip, and a locate
+      // a filter hides (#310), clear the filter through it as in VS Code.
+      showAllBranches: async (requested) => sideViews.showAll(requested),
+      // Core's own Manage Pull Request Providers (#398), asked in this page.
+      configurePullRequestProvider: (host) => void appCommands.managePullRequestProviders(host),
+      // The host's own source control view is the working tree panel beside
+      // the graph, in the same page (#403).
+      openScmView: () => postPastType({ command: "workingTreeShow" })
     }
   );
 
   return {
     pageViewState: () =>
       buildGraphViewState({ config, repoSource, extensionState: shared.extensionState }),
-    pageLoading: dispatch.onPanelShown,
+    pageLoading: () => {
+      dispatch.onPanelShown();
+      sideViews.pageLoading();
+    },
+    settingChanged: (key) => {
+      pushSettingChange(
+        key,
+        { restartAutoFetch: fetchService.restartAutoFetch, post: (msg) => void bridge.post(msg) },
+        config
+      );
+      // What the side views list, mark and offer is read off the settings
+      // too: the thresholds, "always show", the menus' visibility.
+      sideViews.settingChanged();
+    },
+    showFile,
+    commands: {
+      ...appCommands,
+      fetch: () => fetchService.fetchCommand(),
+      fetchRemote: () => fetchService.fetchRemoteCommand(),
+      manageRemotes: () => remoteCommands.manageRemotes(),
+      toggleRemoteVisibility: () => remoteCommands.toggleRemoteVisibility(),
+      viewReflog: () => reflog.viewReflog(),
+      openTerminal: () => {
+        const name = repo.split("/").findLast((s) => s !== "") ?? repo;
+        opener.openTerminal(repo, `GING: ${name}`);
+      },
+      fileHistory: () => fileHistory.pickAndShow(),
+      blameFile: () => fileBlame.pickAndShow()
+    },
+    sideView: (message) => sideViews.receive(message),
     dispose: () => {
+      sideViews.dispose();
+      fileHistory.dispose();
+      fileBlame.dispose();
       dispatch.dispose();
       reposChanged.dispose();
       fetchService.dispose();

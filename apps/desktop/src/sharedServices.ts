@@ -16,13 +16,15 @@ import {
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { resolveShowRemoteBranches } from "@ging/core/extension/repoSettings";
 import { ExtensionState } from "@ging/core/extensionState";
-import type { Clipboard, HostLogger, L10n, Opener } from "@ging/core/host/ports";
+import type { Clipboard, HostLogger, L10n } from "@ging/core/host/ports";
+import { TabStates } from "@ging/core/tabStates";
 import { createDesktopConfig, type DesktopConfig } from "@ging/desktop/ports/config";
 import { createDesktopL10n } from "@ging/desktop/ports/l10n";
-import { createInterimOpener } from "@ging/desktop/ports/opener";
+import type { OsShell } from "@ging/desktop/ports/opener";
 import { createDesktopRepoSource, type DesktopRepoSource } from "@ging/desktop/ports/repoSource";
-import { openDesktopStorage } from "@ging/desktop/ports/storage";
+import { type DesktopStorage, openDesktopStorage } from "@ging/desktop/ports/storage";
 import { openDesktopSettings } from "@ging/desktop/settings/schema";
+import type { Settings } from "@ging/desktop/settings/settingsFile";
 
 /** There is no `git.path` of VS Code's to follow: the git on the PATH. Known
  *  before the shared services are, so a launch's path can be checked while the app
@@ -38,21 +40,38 @@ type SharedServicesOptions = {
   helperDir: string;
   logger: HostLogger;
   clipboard: Clipboard;
+  os: OsShell;
+  /** What Version Information lists before the OS and git (#396). */
+  hostVersions: readonly { name: string; version: string }[];
 };
 
 export type SharedServices = {
   config: DesktopConfig;
+  /** What `config` reads, by key, for the settings page to show (#397). */
+  settings: Settings;
+  /** What `extensionState` keeps; the desktop host's own state (the theme it
+   *  was left in, #397) goes in its global tier beside core's. */
+  storage: DesktopStorage;
   l10n: L10n;
+  /** The app's language (`app.getLocale()`): what `l10n` reads, and what
+   *  times are written in, as a blame's (#409). */
+  locale: string;
   logger: HostLogger;
   clipboard: Clipboard;
-  opener: Opener;
+  /** What the system opens files, links and terminals with. Each instance
+   *  opens through an `Opener` of its own over it, which says what it has to
+   *  say in that instance's window (#391). */
+  os: OsShell;
   /** The known repositories are the app's, not a Tab's (GLOSSARY.md: on
    *  the desktop host, the recently opened list); each instance boots on its
    *  own current repository among them. */
   repoSource: DesktopRepoSource;
-  /** One for now, so the current repository is the app's; #393 keeps one per
-   *  Tab. */
+  /** The app's: the known repositories, the dialog memory, the avatars. Its
+   *  own Current repository is unused here — each Tab has one (`tabStates`). */
   extensionState: ExtensionState;
+  /** The Tabs as they persist, each with an `ExtensionState` of its own whose
+   *  Current repository is the Tab's (#393). */
+  tabStates: TabStates;
   /** One cache; each instance registers its bridge and gets every avatar. */
   avatarManager: AvatarManager;
   /** Filters are kept per repository, and a repository is open in at most
@@ -74,6 +93,8 @@ export type SharedServices = {
   askpass: Pick<AskpassManager, "route">;
   helperDir: string;
   gitPath: () => string;
+  /** GING's version and the host's, as Version Information lists them. */
+  hostVersions: readonly { name: string; version: string }[];
   dispose(): void;
 };
 
@@ -82,14 +103,14 @@ export function createSharedServices({
   locale,
   helperDir,
   logger,
-  clipboard
+  clipboard,
+  os,
+  hostVersions
 }: SharedServicesOptions): SharedServices {
-  const config = createDesktopConfig(
-    openDesktopSettings(userDataPath, { onError: logger.logError })
-  );
-  const extensionState = new ExtensionState(
-    openDesktopStorage(userDataPath, { onError: logger.logError })
-  );
+  const settings = openDesktopSettings(userDataPath, { onError: logger.logError });
+  const config = createDesktopConfig(settings);
+  const storage = openDesktopStorage(userDataPath, { onError: logger.logError });
+  const extensionState = new ExtensionState(storage);
   const repoSource = createDesktopRepoSource(extensionState, { gitPath: desktopGitPath });
 
   const avatarManager = new AvatarManager(
@@ -138,12 +159,16 @@ export function createSharedServices({
 
   return {
     config,
+    settings,
+    storage,
     l10n: createDesktopL10n(locale),
+    locale,
     logger,
     clipboard,
-    opener: createInterimOpener(logger),
+    os,
     repoSource,
     extensionState,
+    tabStates: new TabStates(storage),
     avatarManager,
     branchFilterStore,
     branchFacts,
@@ -151,6 +176,7 @@ export function createSharedServices({
     askpass,
     helperDir,
     gitPath: desktopGitPath,
+    hostVersions,
     dispose: () => {
       askpass.dispose();
       branchFilterStore.dispose();

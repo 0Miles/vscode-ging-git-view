@@ -1,0 +1,971 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { FileBlameMessage, FileBlameRequest } from "@ging/webview/desktop/diff/blameProtocol";
+import { createDiffPanel, LAYOUT_STORAGE_KEY } from "@ging/webview/desktop/diff/diffPanel";
+import { BLAME_STORAGE_KEY, SAID_MS } from "@ging/webview/desktop/diff/fileBlame";
+import type { ShowDiffMessage, ShowFileMessage } from "@ging/webview/desktop/diff/protocol";
+import type {
+  BlameGutter,
+  DiffLayout,
+  DiffViewer,
+  DiffViewerOptions,
+  EditorFactory,
+  FileViewer,
+  FileViewerOptions,
+  ThemeKind
+} from "@ging/webview/desktop/editors";
+
+// The diff viewer's panel (#404), a file shown read-only in it too (#405),
+// with editors that only record what they are asked: Monaco itself is the
+// Electron E2E's (apps/desktop/e2e/diffViewer.spec.ts, fileAtRevision.spec.ts).
+
+type FakeViewer = DiffViewer & {
+  container: HTMLElement;
+  options: DiffViewerOptions;
+  layouts: DiffLayout[];
+  themes: ThemeKind[];
+  disposed: boolean;
+};
+
+type FakeFileViewer = FileViewer & {
+  container: HTMLElement;
+  options: FileViewerOptions;
+  themes: ThemeKind[];
+  /** Each blame it was given to draw (#409), in order. */
+  blames: (BlameGutter | null)[];
+  disposed: boolean;
+};
+
+function fakeEditors() {
+  const made: FakeViewer[] = [];
+  /** The files it was asked to show read-only (#405). */
+  const files: FakeFileViewer[] = [];
+  /** Set to hold the next viewer back until `release()` is called. */
+  let gate: Promise<void> | null = null;
+  const editors: EditorFactory = {
+    createDiffViewer: async (container, options) => {
+      if (gate !== null) await gate;
+      const viewer: FakeViewer = {
+        container,
+        options,
+        layouts: [],
+        themes: [],
+        disposed: false,
+        setLayout: (layout) => viewer.layouts.push(layout),
+        setTheme: (theme) => viewer.themes.push(theme),
+        focus: () => {
+          const input = document.createElement("textarea");
+          container.append(input);
+          input.focus();
+        },
+        dispose: () => {
+          viewer.disposed = true;
+        }
+      };
+      made.push(viewer);
+      return viewer;
+    },
+    createFileViewer: async (container, options) => {
+      if (gate !== null) await gate;
+      const viewer: FakeFileViewer = {
+        container,
+        options,
+        themes: [],
+        blames: [],
+        disposed: false,
+        setBlame: (blame) => viewer.blames.push(blame),
+        setTheme: (theme) => viewer.themes.push(theme),
+        focus: () => {
+          const input = document.createElement("textarea");
+          container.append(input);
+          input.focus();
+        },
+        dispose: () => {
+          viewer.disposed = true;
+        }
+      };
+      files.push(viewer);
+      return viewer;
+    }
+  };
+  return {
+    editors,
+    made,
+    files,
+    hold: () => {
+      let release!: () => void;
+      gate = new Promise((resolve) => (release = resolve));
+      return () => {
+        gate = null;
+        release();
+      };
+    }
+  };
+}
+
+function memoryStorage(initial: Record<string, string> = {}): Storage {
+  const items = new Map(Object.entries(initial));
+  return {
+    get length() {
+      return items.size;
+    },
+    clear: () => items.clear(),
+    getItem: (key) => items.get(key) ?? null,
+    key: (i) => [...items.keys()][i] ?? null,
+    removeItem: (key) => void items.delete(key),
+    setItem: (key, value) => void items.set(key, value)
+  };
+}
+
+const message = (overrides: Partial<ShowDiffMessage> = {}): ShowDiffMessage => ({
+  command: "showDiff",
+  title: "file.txt (abc1234^ ↔ abc1234)",
+  original: { path: "src/file.txt", content: "before\n" },
+  modified: { path: "src/file.txt", content: "after\n" },
+  revealLine: null,
+  notShown: null,
+  strings: {
+    sideBySide: "Side by Side",
+    inline: "Inline",
+    close: "Close",
+    cannotShow: "No editor"
+  },
+  ...overrides
+});
+
+const panel = () => document.getElementById("diffViewer")!;
+const layoutButton = (layout: DiffLayout) =>
+  panel().querySelector<HTMLButtonElement>(`button[data-layout="${layout}"]`)!;
+const key = (target: Element, type: "keydown" | "keyup", k: string) => {
+  const event = new KeyboardEvent(type, { key: k, bubbles: true, cancelable: true });
+  target.dispatchEvent(event);
+  return event;
+};
+
+beforeEach(() => {
+  document.head.innerHTML = "";
+  document.body.className = "vscode-dark";
+  document.body.innerHTML = '<button id="cdvFile">file.txt</button>';
+});
+afterEach(() => vi.restoreAllMocks());
+
+describe("the diff viewer", () => {
+  it("shows the host's diff over the graph, titled, with the editor given both sides", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await diffs.show(message({ revealLine: 7 }));
+
+    expect(panel().hidden).toBe(false);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe(
+      "file.txt (abc1234^ ↔ abc1234)"
+    );
+    expect(made).toHaveLength(1);
+    expect(made[0].options).toEqual({
+      original: { path: "src/file.txt", content: "before\n" },
+      modified: { path: "src/file.txt", content: "after\n" },
+      layout: "sideBySide",
+      theme: "dark",
+      revealLine: 7
+    });
+    expect(panel().contains(made[0].container)).toBe(true);
+    // The keyboard is in the diff.
+    expect(made[0].container.contains(document.activeElement)).toBe(true);
+  });
+
+  it("labels its controls in the host's words", async () => {
+    const diffs = createDiffPanel(fakeEditors().editors, { storage: memoryStorage() });
+
+    await diffs.show(message());
+
+    expect(layoutButton("sideBySide").textContent).toBe("Side by Side");
+    expect(layoutButton("inline").textContent).toBe("Inline");
+    expect(panel().querySelector(".diffViewerClose")!.getAttribute("aria-label")).toBe("Close");
+  });
+
+  it("switches between side by side and inline, and remembers the choice", async () => {
+    const { editors, made } = fakeEditors();
+    const storage = memoryStorage();
+    const diffs = createDiffPanel(editors, { storage });
+    await diffs.show(message());
+    expect(layoutButton("sideBySide").getAttribute("aria-pressed")).toBe("true");
+
+    layoutButton("inline").click();
+
+    expect(made[0].layouts).toEqual(["inline"]);
+    expect(layoutButton("inline").getAttribute("aria-pressed")).toBe("true");
+    expect(layoutButton("sideBySide").getAttribute("aria-pressed")).toBe("false");
+    expect(storage.getItem(LAYOUT_STORAGE_KEY)).toBe("inline");
+
+    // The next diff, and the next session's, open the way it was left.
+    await diffs.show(message());
+    expect(made[1].options.layout).toBe("inline");
+    document.body.innerHTML = "";
+    document.head.innerHTML = "";
+    const next = fakeEditors();
+    await createDiffPanel(next.editors, { storage }).show(message());
+    expect(next.made[0].options.layout).toBe("inline");
+  });
+
+  it("opens side by side when nothing usable was remembered", async () => {
+    const { editors, made } = fakeEditors();
+    const storage = memoryStorage({ [LAYOUT_STORAGE_KEY]: "sideways" });
+
+    await createDiffPanel(editors, { storage }).show(message());
+
+    expect(made[0].options.layout).toBe("sideBySide");
+  });
+
+  it("works without the page's storage", async () => {
+    const { editors, made } = fakeEditors();
+    const broken = memoryStorage();
+    broken.getItem = () => {
+      throw new Error("denied");
+    };
+    broken.setItem = () => {
+      throw new Error("denied");
+    };
+    const diffs = createDiffPanel(editors, { storage: broken });
+
+    await diffs.show(message());
+    layoutButton("inline").click();
+
+    expect(made[0].layouts).toEqual(["inline"]);
+  });
+
+  it("closes with its close button, done with the editor, the keyboard back where it was", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    document.getElementById("cdvFile")!.focus();
+    await diffs.show(message());
+
+    panel().querySelector<HTMLButtonElement>(".diffViewerClose")!.click();
+
+    expect(panel().hidden).toBe(true);
+    expect(made[0].disposed).toBe(true);
+    expect(panel().querySelector(".diffViewerEditor")!.children).toHaveLength(0);
+    expect(document.activeElement!.id).toBe("cdvFile");
+  });
+
+  it("takes the keyboard out of an editor before it is done with it", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    document.getElementById("cdvFile")!.focus();
+    await diffs.show(message());
+    const focusAtDispose: boolean[] = [];
+    const watch = (viewer: FakeViewer) => {
+      const dispose = viewer.dispose;
+      viewer.dispose = () => {
+        focusAtDispose.push(viewer.container.contains(document.activeElement));
+        dispose();
+      };
+    };
+
+    watch(made[0]);
+    await diffs.show(message());
+    watch(made[1]);
+    diffs.close();
+
+    expect(focusAtDispose).toEqual([false, false]);
+  });
+
+  it("closes when Escape is let go, and the graph hears neither key", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    await diffs.show(message());
+    const graphHeard: string[] = [];
+    const listen = (e: KeyboardEvent) => graphHeard.push(`${e.type} ${e.key}`);
+    document.addEventListener("keydown", listen);
+    document.addEventListener("keyup", listen);
+    const inEditor = document.activeElement!;
+
+    key(inEditor, "keydown", "ArrowDown");
+    key(inEditor, "keyup", "ArrowDown");
+    key(inEditor, "keydown", "Escape");
+    // Still open on the way down: the way up would otherwise reach the graph,
+    // and Escape let go there closes its Commit Details View.
+    expect(panel().hidden).toBe(false);
+    key(inEditor, "keyup", "Escape");
+
+    expect(panel().hidden).toBe(true);
+    expect(made[0].disposed).toBe(true);
+    expect(graphHeard).toEqual([]);
+    document.removeEventListener("keydown", listen);
+    document.removeEventListener("keyup", listen);
+  });
+
+  it("stays open on an Escape the editor took for itself", async () => {
+    // Monaco's find widget closes on Escape, and keeps the key down to itself.
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    await diffs.show(message());
+    const inEditor = document.activeElement!;
+    inEditor.addEventListener("keydown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    key(inEditor, "keydown", "Escape");
+    key(inEditor, "keyup", "Escape");
+
+    expect(panel().hidden).toBe(false);
+    expect(made[0].disposed).toBe(false);
+  });
+
+  it("shows a second diff in place of the first, keeping the keyboard's way back", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    document.getElementById("cdvFile")!.focus();
+    await diffs.show(message());
+
+    await diffs.show(message({ title: "other.txt (def5678)" }));
+
+    expect(made[0].disposed).toBe(true);
+    expect(made[1].disposed).toBe(false);
+    expect(document.querySelectorAll("#diffViewer")).toHaveLength(1);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe("other.txt (def5678)");
+    diffs.close();
+    expect(document.activeElement!.id).toBe("cdvFile");
+  });
+
+  it("does not keep an editor that came after the panel was closed", async () => {
+    const { editors, made, hold } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = diffs.show(message());
+
+    diffs.close();
+    release();
+    await showing;
+
+    expect(panel().hidden).toBe(true);
+    expect(made[0].disposed).toBe(true);
+  });
+
+  it("hands an editor still being made the layout chosen meanwhile", async () => {
+    const { editors, made, hold } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = diffs.show(message());
+
+    layoutButton("inline").click();
+    release();
+    await showing;
+
+    expect(made[0].options.layout).toBe("sideBySide");
+    expect(made[0].layouts).toEqual(["inline"]);
+  });
+
+  it("follows the page's theme", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    await diffs.show(message());
+
+    document.body.classList.replace("vscode-dark", "vscode-light");
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(made[0].themes).toEqual(["light"]);
+  });
+
+  it("is busy while the editor is being made, and not once it is in", async () => {
+    const { editors, hold } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = diffs.show(message());
+
+    expect(panel().getAttribute("aria-busy")).toBe("true");
+    release();
+    await showing;
+
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("is not busy once closed while an editor was being made", async () => {
+    const { editors, hold } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = diffs.show(message());
+
+    diffs.close();
+    release();
+    await showing;
+
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("shows the host's one line in place of an editor when there is no text to compare", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await diffs.show(message({ notShown: "Binary file: there is no text to compare." }));
+
+    const notice = panel().querySelector<HTMLElement>(".diffViewerNotice")!;
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toBe("Binary file: there is no text to compare.");
+    expect(made).toEqual([]);
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+
+    // The next diff with text has its editor, and not the line.
+    await diffs.show(message());
+    expect(notice.hidden).toBe(true);
+    expect(made).toHaveLength(1);
+  });
+
+  it("lets a failure to make an editor for a diff no longer shown go unsaid", async () => {
+    let fail!: (e: Error) => void;
+    const editors: EditorFactory = {
+      createDiffViewer: () => new Promise((_resolve, reject) => (fail = reject)),
+      createFileViewer: () => Promise.reject(new Error("not asked"))
+    };
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+    const showing = diffs.show(message());
+
+    diffs.close();
+    fail(new Error("monaco.js did not load"));
+
+    // Nothing to report: nobody is waiting on that diff any more.
+    await expect(showing).resolves.toBeUndefined();
+    expect(panel().querySelector<HTMLElement>(".diffViewerError")!.hidden).toBe(true);
+  });
+
+  it("says so in the panel when there is no editor to show the diff in, and rejects", async () => {
+    const editors: EditorFactory = {
+      createDiffViewer: () => Promise.reject(new Error("monaco.js did not load")),
+      createFileViewer: () => Promise.reject(new Error("not asked"))
+    };
+    const diffs = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await expect(diffs.show(message())).rejects.toThrow("monaco.js did not load");
+
+    const error = panel().querySelector<HTMLElement>(".diffViewerError")!;
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toBe("No editor");
+    expect(error.getAttribute("role")).toBe("alert");
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+});
+
+const fileMessage = (overrides: Partial<ShowFileMessage> = {}): ShowFileMessage => ({
+  command: "showFile",
+  title: "file.ts (abc1234)",
+  file: { path: "src/file.ts", content: "const a = 1;\n" },
+  notShown: null,
+  strings: { close: "Close File", cannotShow: "No file editor" },
+  ...overrides
+});
+
+describe("a file shown read-only in the diff viewer (#405)", () => {
+  it("shows the host's file over the graph, titled, with no layouts to switch", async () => {
+    const { editors, made, files } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await viewer.showFile(fileMessage());
+
+    expect(panel().hidden).toBe(false);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe("file.ts (abc1234)");
+    expect(made).toEqual([]);
+    expect(files).toHaveLength(1);
+    expect(files[0].options).toEqual({
+      document: { path: "src/file.ts", content: "const a = 1;\n" },
+      theme: "dark"
+    });
+    expect(panel().querySelector<HTMLElement>(".diffViewerLayouts")!.hidden).toBe(true);
+    expect(panel().querySelector(".diffViewerClose")!.getAttribute("aria-label")).toBe(
+      "Close File"
+    );
+    // The keyboard is in the file.
+    expect(files[0].container.contains(document.activeElement)).toBe(true);
+  });
+
+  it("takes a diff's place, and gives its own to the next diff", async () => {
+    const { editors, made, files } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    document.getElementById("cdvFile")!.focus();
+    await viewer.show(message());
+
+    await viewer.showFile(fileMessage());
+    expect(made[0].disposed).toBe(true);
+    expect(files[0].disposed).toBe(false);
+
+    await viewer.show(message());
+    expect(files[0].disposed).toBe(true);
+    expect(panel().querySelector<HTMLElement>(".diffViewerLayouts")!.hidden).toBe(false);
+    expect(layoutButton("inline").textContent).toBe("Inline");
+    expect(document.querySelectorAll("#diffViewer")).toHaveLength(1);
+    viewer.close();
+    expect(document.activeElement!.id).toBe("cdvFile");
+  });
+
+  it("closes when Escape is let go, done with the editor, the keyboard back where it was", async () => {
+    const { editors, files } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    document.getElementById("cdvFile")!.focus();
+    await viewer.showFile(fileMessage());
+    const inEditor = document.activeElement!;
+
+    key(inEditor, "keydown", "Escape");
+    key(inEditor, "keyup", "Escape");
+
+    expect(panel().hidden).toBe(true);
+    expect(files[0].disposed).toBe(true);
+    expect(document.activeElement!.id).toBe("cdvFile");
+  });
+
+  it("is busy while the editor is being made, and follows the page's theme once in", async () => {
+    const { editors, files, hold } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = viewer.showFile(fileMessage());
+
+    expect(panel().getAttribute("aria-busy")).toBe("true");
+    release();
+    await showing;
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+
+    document.body.classList.replace("vscode-dark", "vscode-light");
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(files[0].themes).toEqual(["light"]);
+  });
+
+  it("shows the host's one line in place of an editor when there is no text to show", async () => {
+    const { editors, files } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await viewer.showFile(fileMessage({ notShown: "Binary file: there is no text to show." }));
+
+    const notice = panel().querySelector<HTMLElement>(".diffViewerNotice")!;
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toBe("Binary file: there is no text to show.");
+    expect(files).toEqual([]);
+  });
+
+  it("does not keep a file's editor that came after a diff took its place", async () => {
+    const { editors, made, files, hold } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showingFile = viewer.showFile(fileMessage());
+
+    // The diff is held back too: both are made once released.
+    const showingDiff = viewer.show(message());
+    release();
+    await Promise.all([showingFile, showingDiff]);
+
+    expect(files[0].disposed).toBe(true);
+    expect(made[0].disposed).toBe(false);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe(
+      "file.txt (abc1234^ ↔ abc1234)"
+    );
+    expect(panel().querySelector<HTMLElement>(".diffViewerLayouts")!.hidden).toBe(false);
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("does not keep a file's editor that came after the panel was closed, nor stay busy", async () => {
+    const { editors, files, hold } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = viewer.showFile(fileMessage());
+
+    viewer.close();
+    release();
+    await showing;
+
+    expect(panel().hidden).toBe(true);
+    expect(files[0].disposed).toBe(true);
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("says so in the panel, in its own words, when there is no editor to show it in", async () => {
+    const editors: EditorFactory = {
+      createDiffViewer: () => Promise.reject(new Error("not asked")),
+      createFileViewer: () => Promise.reject(new Error("monaco.js did not load"))
+    };
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await expect(viewer.showFile(fileMessage())).rejects.toThrow("monaco.js did not load");
+
+    const error = panel().querySelector<HTMLElement>(".diffViewerError")!;
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toBe("No file editor");
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+});
+
+describe("a file's blame in the diff viewer (#409)", () => {
+  const STRINGS = {
+    toggle: "Blame",
+    blaming: "Blaming...",
+    failed: "Could not blame.",
+    findInGraph: "Find Commit in Graph"
+  };
+  const offered = (file: number, show = false): ShowFileMessage =>
+    fileMessage({ blame: { file, show, strings: STRINGS } });
+  const SHA_A = "a".repeat(40);
+  const blameOf = (file: number): FileBlameMessage => ({
+    command: "fileBlame",
+    file,
+    blame: {
+      repo: "/repo",
+      commits: [
+        { sha: SHA_A, uncommitted: false, text: "Al, 1 day ago • add" },
+        { sha: "0".repeat(40), uncommitted: true, text: "You • Uncommitted changes" }
+      ],
+      lines: [0, 1]
+    }
+  });
+  const toggle = () => panel().querySelector<HTMLButtonElement>(".diffViewerBlame")!;
+  const status = () => panel().querySelector<HTMLElement>(".diffViewerBlameStatus")!;
+
+  function blamePanel(initial: Record<string, string> = {}) {
+    const asked: FileBlameRequest[] = [];
+    const storage = memoryStorage(initial);
+    const fake = fakeEditors();
+    const viewer = createDiffPanel(fake.editors, {
+      storage,
+      askBlame: (request) => asked.push(request)
+    });
+    return { ...fake, viewer, asked, storage };
+  }
+
+  it("offers no toggle for a file the host offers no blame of, nor for a diff", async () => {
+    const { viewer } = blamePanel();
+
+    await viewer.showFile(fileMessage());
+    expect(toggle().hidden).toBe(true);
+    await viewer.show(message());
+    expect(toggle().hidden).toBe(true);
+  });
+
+  it("asks nothing until the toggle is pressed; then says it is blaming, draws the answer, and remembers", async () => {
+    const { viewer, files, asked, storage } = blamePanel();
+    await viewer.showFile(offered(1));
+
+    expect(toggle().hidden).toBe(false);
+    expect(toggle().textContent).toBe("Blame");
+    expect(toggle().getAttribute("aria-pressed")).toBe("false");
+    expect(asked).toEqual([]);
+
+    toggle().click();
+    expect(asked).toEqual([{ command: "fileBlameOpen", file: 1 }]);
+    expect(toggle().getAttribute("aria-pressed")).toBe("true");
+    expect(status().textContent).toBe("Blaming...");
+    expect(storage.getItem(BLAME_STORAGE_KEY)).toBe("on");
+
+    viewer.blame(blameOf(1));
+    expect(files[0].blames).toEqual([blameOf(1).blame]);
+    expect(status().textContent).toBe("");
+  });
+
+  it("asks at once when the toggle was left on, or the host opened the file to be blamed", async () => {
+    const left = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await left.viewer.showFile(offered(1));
+    expect(left.asked).toEqual([{ command: "fileBlameOpen", file: 1 }]);
+
+    const opened = blamePanel();
+    await opened.viewer.showFile(offered(2, true));
+    expect(opened.asked).toEqual([{ command: "fileBlameOpen", file: 2 }]);
+    expect(toggle().getAttribute("aria-pressed")).toBe("true");
+    expect(opened.storage.getItem(BLAME_STORAGE_KEY)).toBe("on");
+  });
+
+  it("turned off, stops the host's blame and draws none", async () => {
+    const { viewer, files, asked, storage } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+
+    toggle().click();
+
+    expect(asked.at(-1)).toEqual({ command: "fileBlameClose", file: 1 });
+    expect(files[0].blames.at(-1)).toBeNull();
+    expect(storage.getItem(BLAME_STORAGE_KEY)).toBe("off");
+  });
+
+  it("lets the blame go when another file or a diff takes its place, or the panel closes", async () => {
+    const { viewer, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    await viewer.showFile(offered(2));
+    await viewer.show(message());
+    await viewer.showFile(offered(3));
+    viewer.close();
+
+    expect(asked).toEqual([
+      { command: "fileBlameOpen", file: 1 },
+      { command: "fileBlameClose", file: 1 },
+      { command: "fileBlameOpen", file: 2 },
+      { command: "fileBlameClose", file: 2 },
+      { command: "fileBlameOpen", file: 3 },
+      { command: "fileBlameClose", file: 3 }
+    ]);
+  });
+
+  it("asks nothing for a file with no text to blame", async () => {
+    const { viewer, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+
+    await viewer.showFile({ ...offered(1), notShown: "Binary file" });
+
+    expect(toggle().hidden).toBe(true);
+    expect(asked).toEqual([]);
+  });
+
+  it("draws no answer for a file no longer shown", async () => {
+    const { viewer, files } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    await viewer.showFile(offered(2));
+
+    viewer.blame(blameOf(1));
+
+    expect(files[0].blames).toEqual([]);
+    expect(files[1].blames).toEqual([]);
+  });
+
+  it("says when the file could not be blamed", async () => {
+    const { viewer, files } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+
+    viewer.blame({ command: "fileBlame", file: 1, blame: null });
+
+    expect(status().textContent).toBe("Could not blame.");
+    expect(files[0].blames).toEqual([null]);
+  });
+
+  it("hands the viewer a line's hover only once the host has written it in full, asking once", async () => {
+    const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const { events } = files[0].options.blame!;
+    let answered: string | null | undefined;
+
+    const first = events.hover(0).then((md) => (answered = md));
+    const second = events.hover(0);
+    await Promise.resolve();
+    // Waiting on the host: nothing to show yet.
+    expect(answered).toBeUndefined();
+    viewer.blame({ command: "fileBlameHover", file: 1, line: 0, markdown: "**Al**" });
+    await first;
+
+    expect(answered).toBe("**Al**");
+    expect(await second).toBe("**Al**");
+    // Written once, kept: not asked again.
+    expect(await events.hover(0)).toBe("**Al**");
+    expect(await events.hover(5)).toBeNull();
+    expect(asked.filter((r) => r.command === "fileBlameHoverOf")).toEqual([
+      { command: "fileBlameHoverOf", file: 1, line: 0 }
+    ]);
+  });
+
+  it("asks again for a hover the host did not write — asked over — rather than keep it short", async () => {
+    const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const { events } = files[0].options.blame!;
+
+    const overtaken = events.hover(0);
+    viewer.blame({ command: "fileBlameHover", file: 1, line: 0, markdown: null });
+
+    expect(await overtaken).toBeNull();
+    const again = events.hover(0);
+    viewer.blame({ command: "fileBlameHover", file: 1, line: 0, markdown: "**Al**" });
+    expect(await again).toBe("**Al**");
+    expect(asked.filter((r) => r.command === "fileBlameHoverOf")).toHaveLength(2);
+  });
+
+  it("answers a hover still waited for with none once the blame is let go", async () => {
+    const { viewer, files } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const { events } = files[0].options.blame!;
+
+    const waiting = events.hover(0);
+    viewer.close();
+
+    expect(await waiting).toBeNull();
+    expect(await events.hover(0)).toBeNull();
+  });
+
+  it("gives the viewer the words of its Find in Graph", async () => {
+    const { viewer, files } = blamePanel();
+    await viewer.showFile(offered(1));
+    await viewer.showFile(fileMessage());
+
+    expect(files[0].options.blame!.findInGraph).toBe("Find Commit in Graph");
+    // No blame offered: none for the viewer.
+    expect(files[1].options.blame).toBeUndefined();
+  });
+
+  it("locates a committed line's commit when its annotation is clicked, closing over the graph; not a line not committed", async () => {
+    const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const { events } = files[0].options.blame!;
+
+    events.click(1);
+    expect(panel().hidden).toBe(false);
+    expect(asked.some((r) => r.command === "fileBlameRun")).toBe(false);
+
+    events.click(0);
+    expect(asked.slice(-2)).toEqual([
+      {
+        command: "fileBlameRun",
+        file: 1,
+        link: "locateCommit",
+        arg: { repo: "/repo", sha: SHA_A }
+      },
+      { command: "fileBlameClose", file: 1 }
+    ]);
+    expect(panel().hidden).toBe(true);
+  });
+
+  it("runs a hover's links through the host, closing for the one that locates the commit", async () => {
+    const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const { events } = files[0].options.blame!;
+
+    events.link({ link: "copySha", arg: SHA_A });
+    viewer.blame({ command: "fileBlameSaid", file: 1, text: "Copied commit hash aaaaaaaa" });
+    expect(status().textContent).toBe("Copied commit hash aaaaaaaa");
+    events.link({ link: "openLineChange", arg: { line: 1 } });
+    expect(panel().hidden).toBe(false);
+    events.link({ link: "locateCommit", arg: { repo: "/repo", sha: SHA_A } });
+
+    expect(asked.filter((r) => r.command === "fileBlameRun").map((r) => r.link)).toEqual([
+      "copySha",
+      "openLineChange",
+      "locateCommit"
+    ]);
+    expect(panel().hidden).toBe(true);
+  });
+
+  it("says a copied hash only for a moment", async () => {
+    vi.useFakeTimers();
+    try {
+      const { viewer } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+      await viewer.showFile(offered(1));
+      viewer.blame(blameOf(1));
+
+      viewer.blame({ command: "fileBlameSaid", file: 1, text: "Copied" });
+      vi.advanceTimersByTime(SAID_MS);
+
+      expect(status().textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// Hunk staging (#406): the hunks a working tree diff offers, handed to the
+// editor to draw, and one asked of the host at a time.
+describe("the diff viewer's hunks", () => {
+  const offered = {
+    path: "src/file.txt",
+    area: "unstaged" as const,
+    token: "t0k3n",
+    label: "Stage Hunk",
+    name: "{0}: lines {1} to {2}",
+    keyboard: "Press Shift+F10",
+    hunks: [
+      { original: { start: 1, count: 4 }, modified: { start: 1, count: 5 } },
+      { original: { start: 20, count: 6 }, modified: { start: 21, count: 6 } }
+    ]
+  };
+
+  it("hands the editor the hunks to offer, in the host's word, and asks the host for the one chosen", async () => {
+    const { editors, made } = fakeEditors();
+    const asked: unknown[] = [];
+    const diffs = createDiffPanel(editors, {
+      storage: memoryStorage(),
+      askHunk: (request) => asked.push(request)
+    });
+
+    await diffs.show(message({ hunks: offered }));
+    const hunks = made[0].options.hunks!;
+    expect(hunks.label).toBe("Stage Hunk");
+    expect(hunks.hunks).toEqual(offered.hunks);
+    // Each named by its lines on the side its control is on, the modified.
+    expect(hunks.names).toEqual(["Stage Hunk: lines 1 to 5", "Stage Hunk: lines 21 to 26"]);
+    expect(hunks.keyboard).toBe("Press Shift+F10");
+    // The keyboard's way, as the panel's description.
+    const keys = document.getElementById(panel().getAttribute("aria-describedby")!)!;
+    expect(keys.textContent).toBe("Press Shift+F10");
+
+    hunks.choose(1);
+
+    expect(asked).toEqual([
+      {
+        command: "diffHunk",
+        path: "src/file.txt",
+        area: "unstaged",
+        token: "t0k3n",
+        hunk: 1,
+        asked: 1
+      }
+    ]);
+    // Busy until the host shows the diff anew.
+    expect(panel().getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("asks for one hunk at a time: the next choice waits for the diff shown anew", async () => {
+    const { editors, made } = fakeEditors();
+    const asked: unknown[] = [];
+    const diffs = createDiffPanel(editors, {
+      storage: memoryStorage(),
+      askHunk: (request) => asked.push(request)
+    });
+
+    await diffs.show(message({ hunks: offered }));
+    made[0].options.hunks!.choose(0);
+    made[0].options.hunks!.choose(1);
+    await diffs.show(
+      message({ hunks: { ...offered, token: "n3w", hunks: [offered.hunks[1]] }, answers: 1 })
+    );
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+    made[1].options.hunks!.choose(0);
+
+    expect(asked).toEqual([
+      expect.objectContaining({ token: "t0k3n", hunk: 0 }),
+      expect.objectContaining({ token: "n3w", hunk: 0 })
+    ]);
+  });
+
+  it("shows the answer to a hunk only over the diff it was asked from", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage(), askHunk: () => {} });
+    const answer = message({ title: "file.txt (Working Tree), anew", answers: 1 });
+
+    await diffs.show(message({ hunks: offered }));
+    made[0].options.hunks!.choose(0);
+    // Another diff opened meanwhile (a commit's, from the graph).
+    await diffs.show(message({ title: "other.txt (abc1234^ ↔ abc1234)" }));
+    await diffs.show(answer);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe(
+      "other.txt (abc1234^ ↔ abc1234)"
+    );
+    expect(made).toHaveLength(2);
+
+    // And none once the viewer was closed.
+    diffs.close();
+    await diffs.show({ ...answer, answers: 2 });
+    expect(panel().hidden).toBe(true);
+  });
+
+  it("offers no hunk without a host to ask, nor for a diff that has none", async () => {
+    const { editors, made } = fakeEditors();
+    await createDiffPanel(editors, { storage: memoryStorage() }).show(message({ hunks: offered }));
+    await createDiffPanel(editors, { storage: memoryStorage(), askHunk: () => {} }).show(message());
+
+    expect(made.map((viewer) => viewer.options.hunks)).toEqual([undefined, undefined]);
+    expect(panel().hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("says the host's line over the diff, and nothing once a diff comes without one", async () => {
+    const diffs = createDiffPanel(fakeEditors().editors, { storage: memoryStorage() });
+    const said = () => panel().querySelector<HTMLElement>(".diffViewerSaid")!;
+
+    await diffs.show(message({ said: "The file changed since this diff was shown." }));
+    expect(said().hidden).toBe(false);
+    expect(said().textContent).toBe("The file changed since this diff was shown.");
+    expect(said().getAttribute("role")).toBe("status");
+
+    await diffs.show(message());
+    expect(said().hidden).toBe(true);
+  });
+});

@@ -3,14 +3,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
+import { APP_DIR, ELECTRON, launchApp } from "./launch";
+import { answerMessageBoxes, messageBoxes } from "./mainProcess";
+import { focusedTabPage, windowPage } from "./tabPages";
 
 /** A line the webview's failure report leaves in the log (`formatWebviewError`),
  *  or a message the page posted that reached no graph. */
@@ -46,11 +44,7 @@ const appArgs = (...args: string[]) => [
  *  single-instance lock's scope) and with git kept off the developer's own
  *  configuration (ADR-0032). */
 async function launch(...args: string[]): Promise<ElectronApplication> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: appArgs(...args),
-    env: env as Record<string, string>
-  });
+  app = await launchApp(appArgs(...args), env);
   return app;
 }
 
@@ -69,7 +63,7 @@ test("the graph draws the fixture repository opened with --repo", async () => {
   const repo: FixtureRepo = makeFixtureRepo(env);
   test.info().attach("fixture", { body: repo.path });
   try {
-    const page = await (await launch("--repo", repo.path)).firstWindow();
+    const page = await focusedTabPage(await launch("--repo", repo.path));
 
     // Every commit, newest first, as `git log` orders them by date.
     const rows = page.locator("#commitTable tr.commit");
@@ -100,10 +94,14 @@ test("the graph draws the fixture repository opened with --repo", async () => {
 
 test("an invalid --repo shows why, and hands the webview nothing", async () => {
   const missing = path.join(scratch, "not-a-repo");
-  const page = await (await launch("--repo", missing)).firstWindow();
+  // No Tab opened: the Welcome page says why.
+  const page = await windowPage(await launch("--repo", missing));
 
-  await expect(page.locator("h2")).toHaveText("Unable to load GING");
-  await expect(page.locator("p")).toHaveText(`Cannot open ${missing}: it is not a Git repository.`);
+  // The notice heads the page, over what it offers (#394).
+  await expect(page.locator(".welcomeBody > h2")).toHaveText("Unable to load GING");
+  await expect(page.locator(".welcomeBody > p")).toHaveText(
+    `Cannot open ${missing}: it is not a Git repository.`
+  );
   await expect(page.locator("#commitTable")).toHaveCount(0);
   // The desktop entry did load, and started nothing that could fail.
   await expect(page.locator("html")).toHaveAttribute("data-ging-entry", "ging-desktop-entry");
@@ -115,9 +113,11 @@ test("an invalid --repo shows why, and hands the webview nothing", async () => {
 test("a folder that is not a repository shows why too", async () => {
   const folder = path.join(scratch, "plain-folder");
   mkdirSync(folder);
-  const page = await (await launch("--repo", folder)).firstWindow();
+  const page = await windowPage(await launch("--repo", folder));
 
-  await expect(page.locator("p")).toHaveText(`Cannot open ${folder}: it is not a Git repository.`);
+  await expect(page.locator(".welcomeBody > p")).toHaveText(
+    `Cannot open ${folder}: it is not a Git repository.`
+  );
   await expect(page.locator("#commitTable")).toHaveCount(0);
   expect(await closeAndReadLog()).not.toMatch(WEBVIEW_FAILURE);
 });
@@ -126,20 +126,13 @@ test("a later launch naming a path that is no repository leaves the graph open, 
   const repo = makeFixtureRepo(env);
   try {
     const electronApp = await launch("--repo", repo.path);
-    const page = await electronApp.firstWindow();
+    const page = await focusedTabPage(electronApp);
     const rows = page.locator("#commitTable tr.commit");
     await expect(rows).toHaveCount(repo.commits.length);
     // The system's dialog, answered in its place (ADR-0032): every box goes
     // through the app's NativeDialogs, which looks Electron's up when called,
     // so replacing it here answers for them all.
-    await electronApp.evaluate(({ dialog }) => {
-      const asked: unknown[] = [];
-      (globalThis as Record<string, unknown>).askedBoxes = asked;
-      dialog.showMessageBox = (async (...args: unknown[]) => {
-        asked.push(args.at(-1));
-        return { response: 0, checkboxChecked: false };
-      }) as typeof dialog.showMessageBox;
-    });
+    await answerMessageBoxes(electronApp);
 
     const missing = path.join(scratch, "not-a-repo");
     const sandbox = process.platform === "linux" ? ["--no-sandbox"] : [];
@@ -150,7 +143,7 @@ test("a later launch naming a path that is no repository leaves the graph open, 
     expect(await new Promise((resolve) => second.on("exit", resolve))).toBe(0);
 
     await expect
-      .poll(() => electronApp.evaluate(() => (globalThis as Record<string, unknown>).askedBoxes))
+      .poll(() => messageBoxes(electronApp))
       .toEqual([
         expect.objectContaining({
           type: "error",

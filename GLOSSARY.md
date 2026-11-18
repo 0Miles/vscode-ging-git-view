@@ -44,6 +44,32 @@ _Avoid_: window, 視窗, panel
 桌面 host 一個 Tab 都沒有時顯示的頁面,存放庫從這裡開始開啟。對應 VS Code host 的 ADR-0011。中文寫作「歡迎頁」。桌面 host 專屬。
 _Avoid_: start page, empty state
 
+**Host prompt**:
+宿主替 core 向使用者問的一個問題:從清單挑一列或幾列(pick、pickMany)、在幾個按鈕之間選一個(choose)、或輸入一行字(input),都經過 `Prompts` port。問的是 core 的命令服務與 askpass,不是圖形。VS Code host 用原生的 quick pick、輸入框與 modal;桌面 host 畫在 webview 的 **host prompt overlay** 裡 —— 疊在圖形的對話框之上,一次一個,先來先問,不取代、也不關閉圖形的對話框([#390](https://github.com/0Miles/vscode-ging-git-view/issues/390),ADR-0031)。
+圖形自己的對話框(webview 的 `#dialog`)不是 host prompt:那是圖形為自己的動作問的,只有一格。
+_Avoid_: dialog, 對話框(這兩個詞留給 `#dialog`)
+
+**Working tree panel**:
+桌面 host 上每個 **Tab** 的圖形右側那一欄:列出 current repository 已暫存(staged)、未暫存(unstaged,含未追蹤)與衝突中的檔案,整檔 stage / unstage,並 commit 已暫存的內容([#403](https://github.com/0Miles/vscode-ging-git-view/issues/403),ADR-0031),或 amend 上一個 commit,可選擇 sign off([#407](https://github.com/0Miles/vscode-ging-git-view/issues/407))。它是桌面 host 的「原始檔控制檢視」:圖形的 Open Source Control View 在 VS Code host 打開 VS Code 的原始檔控制檢視,在桌面 host 打開它。點 staged 或 unstaged 的檔案列,在 diff viewer 打開它的改變(#460),在那裡一個一個 stage 或 unstage 它的 **hunk**([#406](https://github.com/0Miles/vscode-ging-git-view/issues/406));行級不做。
+衝突中([#410](https://github.com/0Miles/vscode-ging-git-view/issues/410)),衝突檔可以交給 **merge tool**,或直接標記為已解決(整檔 stage,檔案裡還有衝突標記時先問);進行中的 merge、rebase、cherry-pick、revert 可以在這裡 Continue 或 Abort。中文寫作「working tree 面板」。桌面 host 專屬。
+_Avoid_: SCM view, source control panel, 暫存區面板
+
+**Hunk**:
+一個檔案的 diff 裡,git 切出來的一段(`@@` 開頭的那一段):改動的行加上前後各三行 context,兩段相距不到六行時 git 會把它們併成一段。stage / unstage 的最小單位就是它 —— 是 git 的 hunk,不是 diff viewer 自己算出來、畫成色塊的那些「改變」,兩者的邊界不一定相同。一個 hunk 只在檔案的 diff 仍是顯示時那一份的時候才套用;檔案在那之後改過,就拒絕並重新顯示(ADR-0027)。新檔、刪除、rename、binary、衝突中的檔案沒有自己的 hunk,只能整檔。中文照寫 hunk,UI 上是「區塊」(zh-cn「块」)。桌面 host 專屬。
+_Avoid_: block(VS Code 的 Stage Block 指的是 editor 的改變,不是 git 的 hunk), chunk, 片段, 行範圍
+
+**Merge tool**:
+使用者替 git 設定的外部合併程式 —— `merge.guitool`,沒有就 `merge.tool`,也就是 `git mergetool --gui` 會用的那一個。GING 只交出檔案(`git mergetool`),不替使用者挑工具,沒有設定就說怎麼設定;結果看工具結束後檔案還在不在衝突中,不看工具說了什麼(ADR-0030)。它不是 merge editor:那是宿主自己的 3-way 合併畫面(VS Code 的),桌面 host 沒有(內建的在 #411),所以圖形的「在 merge editor 中開啟」在桌面 host 交給 merge tool([#410](https://github.com/0Miles/vscode-ging-git-view/issues/410),ADR-0027)。桌面 host 專屬。
+_Avoid_: merge editor(留給宿主自己的 3-way 畫面), mergetool driver, merge driver(那是 git 的 `merge.<driver>`,另一回事), 合併編輯器
+
+**File history**:
+一個檔案被哪些 commit 改過 —— 從一個起點 commit 往回的 `git log --follow`:從 CDV 的檔案打開的是到那個 commit 為止,從應用程式選單打開的是到 HEAD 為止。每一筆都帶著檔案在**那個 commit** 的路徑:rename 之前是舊名字,點它打開的 diff 讀的也是舊名字。merge 只有在它自己改了檔案時才算一筆 —— 衝突的解法、merge 裡另外做的改動;乾淨合併兩側各自的改動不算,那些改動列在做出它們的 commit 上。它跟的是 git `--follow` 跟得到的:一個路徑,rename 與 copy 往回跟,遇到 rename 之後整次都跟舊名字(ADR-0027 的 #408 補記)。它畫在 Tab 頁面上自己的面板裡,**不是**圖形的路徑篩選:圖形畫什麼、**Navigation** 與 **Loaded commit window** 都不受它影響([#408](https://github.com/0Miles/vscode-ging-git-view/issues/408))。中文寫作「檔案歷史」。桌面 host 專屬。
+_Avoid_: file log, path filter, 路徑篩選, blame(那是 **Blame view**)
+
+**Blame view**:
+桌面 host 上,唯讀顯示的一個檔案(某個 commit 的,或 working tree 的)每一行前面標出最後改了它的 commit —— `作者, 多久以前 • 摘要`,與 inline blame 的註記同一份文字;同一個 commit 連續的幾行只在第一行寫。滑到註記上看那個 commit 的完整訊息與含這一行的變更,點註記到圖形裡的那個 commit。working tree 的檔案裡還沒 commit 的行寫成「尚未提交的變更」。它是使用者打開的、看整個檔案的檢視;inline blame 是 VS Code host 跟著游標、只標一行的那一個,兩者不互相取代([#409](https://github.com/0Miles/vscode-ging-git-view/issues/409))。中文寫作「blame 檢視」。桌面 host 專屬。
+_Avoid_: annotate, file annotations, inline blame(那是 VS Code host 的)
+
 ### 分支的狀態
 
 Default branch 是基準;merged 與 inactive 是兩個彼此獨立的事實,一個分支可以兩者皆是、皆非、或只中其一;hidable 則由前兩者推導而來,是唯一決定淡化與隱藏的集合。Redundant 涵蓋 merged 涵蓋不到的那一半,但它不參與 hidable,也不改變畫面的預設呈現。Cleanup candidate 由三個事實一起推導,決定的卻是另一件事 —— 提議刪除誰;它與 hidable 的豁免規則只差一項,兩者不可互換。以上都是算出來的事實;branch filter 則是使用者自己挑的,兩者一起決定圖形看得到什麼。
@@ -96,7 +122,7 @@ _Avoid_: PR host, git host, remote provider, PR 服務
 
 ### 側檢視的選取
 
-本節整節為 VS Code host 專屬(TreeView 側檢視)。
+本節整節為 VS Code host 專屬(TreeView 側檢視)。**桌面 host**:側檢視畫在 Tab 的頁面裡(#399),頁面畫得出任何選取,所以反白恆等於 branch filter —— 沒有下面說的不對稱,也沒有 **Direct write**;點選只是請宿主寫一個新的 filter。**Action target** 與 **Batch action** 的規則兩個宿主相同(ADR-0033)。
 
 側檢視的選取只有一個集合,卻同時餵給兩件事:圖形要顯示什麼,以及右鍵動作要作用在誰身上。以下三個詞把「使用者選了什麼」「動作實際作用在什麼」「哪些動作能這樣作用」釘開。
 
@@ -148,7 +174,7 @@ _Avoid_: page, 分頁, commit 快取, maxCommits(那是實作名)
 
 ### Stash 的身分
 
-stash 出現在兩個地方。圖形只畫得出 loaded commit window 搆得到的 stash;stash 側檢視(VS Code host 專屬)列出整個堆疊,與圖形載入了什麼無關,所以不在載入範圍內的 stash 一律從側檢視找、從側檢視操作(#102)。兩邊認 stash 的規則是同一套,靠下面兩個值。
+stash 出現在兩個地方。圖形只畫得出 loaded commit window 搆得到的 stash;stash 側檢視(VS Code host 的 TreeView,以及桌面 host Tab 頁面裡的第三段側檢視,#400)列出整個堆疊,與圖形載入了什麼無關,所以不在載入範圍內的 stash 一律從側檢視找、從側檢視操作(#102)。兩邊認 stash 的規則是同一套,靠下面兩個值。
 
 **Stash SHA**:
 stash commit 的 SHA —— stash 的**身分**。git 實際作用的、拿來比對的都是它。

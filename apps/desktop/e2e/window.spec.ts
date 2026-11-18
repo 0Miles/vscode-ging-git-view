@@ -3,12 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
+import { APP_DIR, ELECTRON, launchApp } from "./launch";
+import { windowPage } from "./tabPages";
 
 let userDataDir: string;
 let app: ElectronApplication;
@@ -21,7 +19,7 @@ const appArgs = (...args: string[]) => [APP_DIR, `--user-data-dir=${userDataDir}
 
 test.beforeEach(async () => {
   userDataDir = mkdtempSync(path.join(os.tmpdir(), "ging-e2e-"));
-  app = await _electron.launch({ executablePath: ELECTRON, args: appArgs() });
+  app = await launchApp(appArgs());
   output = "";
   for (const stream of [app.process().stdout, app.process().stderr]) {
     stream?.on("data", (chunk: Buffer) => (output += chunk.toString()));
@@ -34,7 +32,8 @@ test.afterEach(async () => {
 });
 
 test("the desktop window opens on the desktop entry, themed after the system", async () => {
-  const page = await app.firstWindow();
+  // No repository named: the window's own page, the Welcome page in it.
+  const page = await windowPage(app);
 
   await expect(page.locator("html")).toHaveAttribute("data-ging-entry", "ging-desktop-entry");
   expect(

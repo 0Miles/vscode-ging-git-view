@@ -29,9 +29,53 @@ function subject() {
 describe("the desktop HostConfig", () => {
   it("answers every method from a setting the desktop app has", () => {
     const { config } = subject();
-    for (const [name, method] of Object.entries(config)) {
+    // Every read; `update` writes, and has its own tests below.
+    for (const [name, method] of Object.entries(config).filter(([n]) => n !== "update")) {
       expect(() => (method as () => unknown)(), name).not.toThrow();
     }
+  });
+
+  it("writes a setting with update, which the next read answers", async () => {
+    const { config, set } = subject();
+    set({ "show.tags": false });
+
+    await config.update("ging-git-view.autoFetch.intervalMinutes", 1);
+
+    expect(config.autoFetchIntervalMinutes()).toBe(1);
+    expect(config.showTags()).toBe(false);
+  });
+
+  it("refuses with update what the settings file refuses", async () => {
+    const { config } = subject();
+    await expect(config.update("ging-git-view.autoFetch.intervalMinutes", 0)).rejects.toThrow(
+      /intervalMinutes/
+    );
+    await expect(config.update("ging-git-view.keepWebviewAlive", false)).rejects.toThrow(
+      /keepWebviewAlive/
+    );
+    expect(config.autoFetchIntervalMinutes()).toBe(10);
+  });
+
+  it("says with inspect that a setting is the user's once the file holds it, and offers only that tier", async () => {
+    const { config, set } = subject();
+    const key = "ging-git-view.pullRequests.providers";
+    expect(config.inspect(key)).toEqual({ source: null, scopes: ["global"] });
+
+    // A later request: the read above shared one parse of the file.
+    await new Promise((resolve) => setImmediate(resolve));
+    // An entry the schema would not allow is still the user's.
+    set({ "pullRequests.providers": "not a list" });
+    expect(config.inspect(key)).toEqual({ source: "global", scopes: ["global"] });
+  });
+
+  it("writes the one tier it has whichever scope update is given", async () => {
+    const { config } = subject();
+    const key = "ging-git-view.pullRequests.providers";
+
+    await config.update(key, [{ host: "git.example.com", type: "gitea" }], "workspace");
+
+    expect(config.pullRequestProviders()).toEqual([{ host: "git.example.com", type: "gitea" }]);
+    expect(config.inspect(key).source).toBe("global");
   });
 
   // Beyond the port: what the desktop host's own services read (the avatar

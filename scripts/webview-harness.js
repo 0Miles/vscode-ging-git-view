@@ -14,12 +14,18 @@
  * The page loads one of the webview's two entries (ADR-0031):
  *   --entry=vscode   (the default) apps/vscode/out/web.min.js, the bundle the
  *                    extension ships, so `pnpm run compile` has to run first.
- *   --entry=desktop  packages/webview/src/desktop/main.ts, bundled here: no app
- *                    builds it yet (apps/desktop, #386).
+ *   --entry=desktop  packages/webview/src/desktop/main.ts as the desktop app
+ *                    starts it (apps/desktop/src/web/page.ts), bundled here.
+ *
+ * With --entry=desktop, --page=settings writes the desktop entry's settings
+ * page (#397) instead of a graph, to out/webview-harness/desktop-settings/,
+ * and --page=window the desktop window's own page (#393), to
+ * out/webview-harness/desktop-window/.
  *
  * Usage:
  *   pnpm run compile                                  # for --entry=vscode
- *   node scripts/webview-harness.js [--entry=desktop] # writes out/webview-harness/<entry>/
+ *   node scripts/webview-harness.js [--entry=desktop [--page=settings]]
+ *                                                     # writes out/webview-harness/<entry>/
  *   (cd out/webview-harness/vscode && python3 -m http.server 8771)
  *   open http://localhost:8771/                       # or file://, or drive with Playwright
  *
@@ -36,6 +42,7 @@ const esbuild = require("esbuild/lib/main.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const APP = path.join(ROOT, "apps", "vscode");
+const DESKTOP = path.join(ROOT, "apps", "desktop");
 const WEBVIEW = path.join(ROOT, "packages", "webview");
 const OUT = path.join(ROOT, "out", "webview-harness");
 
@@ -88,6 +95,11 @@ const THEME_VARS = {
   "--vscode-selection-background": "#264f78",
   "--vscode-widget-shadow": "#000000"
 };
+
+/** THEME_VARS as the declarations every harness page puts on `:root`. */
+const ROOT_VARS = Object.entries(THEME_VARS)
+  .map(([k, v]) => `${k}:${v};`)
+  .join("");
 
 /** @type {GitCommitNode[]} */
 const SAMPLE_COMMITS = [
@@ -160,9 +172,21 @@ const HOST_ANSWERS = {
  * @returns {typeof import("../packages/webview/tests/viewStateFixture")}
  */
 function loadViewStateFixture(out) {
-  const outfile = path.join(out, "viewStateFixture.cjs");
+  return requireBundled(path.join(WEBVIEW, "tests", "viewStateFixture.ts"), out);
+}
+
+/**
+ * The TypeScript module at `entryPoint`, bundled by esbuild into `out` (as
+ * `<its name>.cjs`) and required from there.
+ *
+ * @param {string} entryPoint
+ * @param {string} out
+ * @returns {any}
+ */
+function requireBundled(entryPoint, out) {
+  const outfile = path.join(out, path.basename(entryPoint, ".ts") + ".cjs");
   esbuild.buildSync({
-    entryPoints: [path.join(WEBVIEW, "tests", "viewStateFixture.ts")],
+    entryPoints: [entryPoint],
     bundle: true,
     format: "cjs",
     platform: "node",
@@ -201,9 +225,12 @@ function placeEntryBundle(entry, out) {
     fs.copyFileSync(bundle, path.join(out, "webview.js"));
     fs.copyFileSync(path.join(APP, "media", "main.css"), path.join(out, "main.css"));
   } else {
-    // The options apps/vscode/esbuild.js builds the VS Code entry with.
+    // The desktop entry as the app starts it (apps/desktop/src/web/page.ts),
+    // with the options apps/vscode/esbuild.js builds the VS Code entry with.
+    // Its editors (Monaco, #404) are a bundle of the app's own that a page
+    // loads on its first diff; no harness page shows one.
     esbuild.buildSync({
-      entryPoints: [path.join(WEBVIEW, "src", "desktop", "main.ts")],
+      entryPoints: [path.join(DESKTOP, "src", "web", "page.ts")],
       bundle: true,
       format: "iife",
       target: "es6",
@@ -235,10 +262,6 @@ function buildWebviewHarness(entry) {
     loadMoreAutomatically: false
   });
 
-  const rootVars = Object.entries(THEME_VARS)
-    .map(([k, v]) => `${k}:${v};`)
-    .join("");
-
   // Mirror buildWebviewHtml: per-column graph colour variables on <body>, plus
   // the [data-color] → --git-graph-color mapping the graph SVG relies on.
   let colorVars = "",
@@ -255,7 +278,7 @@ function buildWebviewHarness(entry) {
 <head>
 <meta charset="UTF-8">
 <link rel="stylesheet" type="text/css" href="./main.css">
-<style>:root{${rootVars}} html,body{height:100%;} ${colorParams}</style>
+<style>:root{${ROOT_VARS}} html,body{height:100%;} ${colorParams}</style>
 </head>
 <body style="${colorVars}">
   <div id="controls">
@@ -282,7 +305,7 @@ function buildWebviewHarness(entry) {
   <div id="findWidget"><input id="findInput" type="text"><span id="findCount"></span><div id="findPrev" class="findBtn"></div><div id="findNext" class="findBtn"></div><div id="findOpenCdv" class="findBtn">&#9776;</div><div id="findClose" class="findBtn"></div></div>
   <ul id="contextMenu" role="menu" tabindex="-1"></ul>
   <div id="dialogBacking"></div>
-  <div id="dialog"></div>
+  <div id="dialog" tabindex="-1"></div>
   <div id="scrollShadow"></div>
   <script>
     window.l10n = new Proxy({}, { get: (_, p) => (typeof p === "string" ? p : "") });
@@ -330,6 +353,147 @@ function buildWebviewHarness(entry) {
 }
 
 /**
+ * What the desktop host boots its settings page with (#397), built by the
+ * desktop app's own code from the schema it ships, as the app would with no
+ * settings file and in English. Bundled from TypeScript, as the viewState
+ * fixture is, so the harness cannot drift from the app.
+ *
+ * @param {string} out
+ * @returns {import("../packages/webview/src/desktop/settings/protocol").SettingsPageState}
+ */
+function loadSettingsPageState(out) {
+  const outfile = path.join(out, "settingsPageState.cjs");
+  esbuild.buildSync({
+    stdin: {
+      contents: [
+        'export { buildSettingsPageState } from "./src/settings/settingsPage";',
+        'export { DESKTOP_SETTINGS_SCHEMA } from "./src/settings/schema";',
+        'export { createL10n } from "./src/ports/l10n";',
+        'export { default as english } from "@ging/shared/l10n/bundle.l10n.json";'
+      ].join("\n"),
+      resolveDir: DESKTOP,
+      sourcefile: "settingsPageState.ts",
+      loader: "ts"
+    },
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    outfile,
+    logLevel: "silent"
+  });
+  // Typed by hand: the desktop app's own modules resolve through its aliases,
+  // which this script's typecheck does not have.
+  /** @type {{
+   *   DESKTOP_SETTINGS_SCHEMA: { settings: { key: string, default: unknown }[] },
+   *   buildSettingsPageState: (options: object) => import("../packages/webview/src/desktop/settings/protocol").SettingsPageState,
+   *   createL10n: (base: Record<string, string>) => unknown,
+   *   english: Record<string, string>
+   * }} */
+  const app = require(outfile);
+  const schema = app.DESKTOP_SETTINGS_SCHEMA;
+  return app.buildSettingsPageState({
+    schema,
+    // No settings file: every setting at its default.
+    settings: {
+      get: (/** @type {string} */ key) => schema.settings.find((s) => s.key === key)?.default
+    },
+    locale: "en",
+    l10n: app.createL10n(app.english),
+    theme: "system"
+  });
+}
+
+/**
+ * Writes one of the desktop entry's own pages to
+ * out/webview-harness/desktop-<page>/index.html: `body`'s markup, then
+ * `globals`, then a host that keeps every message the page posts on
+ * window.harnessRequests and runs `onPost` on it, then the desktop entry.
+ *
+ * @param {string} out The page's folder, made by the caller.
+ * @param {"settings" | "window"} page
+ * @param {{ body: string, globals?: string, onPost?: string }} parts
+ * @returns {string} The page's absolute path.
+ */
+function writeDesktopPage(out, page, { body, globals = "", onPost = "" }) {
+  const html = `<!DOCTYPE html>
+<html lang="en" data-ging-page="${page}">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" type="text/css" href="./main.css">
+<style>:root{${ROOT_VARS}} body{background-color:var(--vscode-editor-background);color:var(--vscode-editor-foreground);}</style>
+</head>
+<body class="vscode-dark">
+  ${body}
+  <script>${globals}
+    window.harnessRequests = [];
+    window.acquireVsCodeApi = () => ({
+      postMessage(msg) {
+        window.harnessRequests.push(msg);${onPost}
+      },
+      getState() { return null; },
+      setState() {}
+    });
+  </script>
+  <script src="./webview.js"></script>
+</body>
+</html>`;
+
+  placeEntryBundle("desktop", out);
+  const index = path.join(out, "index.html");
+  fs.writeFileSync(index, html);
+  return index;
+}
+
+/**
+ * Writes the desktop entry's settings page (#397) to
+ * out/webview-harness/desktop-settings/index.html. The host's half answers each
+ * `updateSetting` as saved, and keeps every message on window.harnessRequests.
+ *
+ * @returns {string} The page's absolute path.
+ */
+function buildSettingsHarness() {
+  const out = path.join(OUT, "desktop-settings");
+  fs.mkdirSync(out, { recursive: true });
+  return writeDesktopPage(out, "settings", {
+    body: '<main id="settings"></main>',
+    globals: `
+    window.settingsPage = ${JSON.stringify(loadSettingsPageState(out))};`,
+    onPost: `
+        if (msg.command !== "updateSetting") return;
+        const data = { command: "settingUpdated", key: msg.key, value: msg.value, error: null };
+        queueMicrotask(() => window.dispatchEvent(new MessageEvent("message", { data })));`
+  });
+}
+
+/**
+ * Writes the desktop window's own page (#393) — the tab strip over the Welcome
+ * page — to out/webview-harness/desktop-window/index.html. Its host sends
+ * nothing by itself: the E2E plays the host, posting the window's state and
+ * prompts to the page, and reads what the page posted off
+ * window.harnessRequests.
+ *
+ * @returns {string} The page's absolute path.
+ */
+function buildWindowHarness() {
+  const out = path.join(OUT, "desktop-window");
+  fs.mkdirSync(out, { recursive: true });
+  // The height the main process lays the Tabs' views out by, taken from the
+  // protocol both sides import and kept on the harness's own global, for the
+  // E2E to hold the strip to.
+  /** @type {{ TAB_STRIP_HEIGHT: number }} */
+  const protocol = requireBundled(
+    path.join(WEBVIEW, "src", "desktop", "window", "protocol.ts"),
+    out
+  );
+  return writeDesktopPage(out, "window", {
+    body: `<div id="tabStrip" hidden></div>
+  <main id="welcome"></main>`,
+    globals: `
+    window.harnessTabStripHeight = ${JSON.stringify(protocol.TAB_STRIP_HEIGHT)};`
+  });
+}
+
+/**
  * @param {string} value
  * @returns {value is HarnessEntry}
  */
@@ -337,12 +501,28 @@ function isHarnessEntry(value) {
   return /** @type {readonly string[]} */ (ENTRIES).includes(value);
 }
 
-const flag = process.argv.slice(2).find((a) => a.startsWith("--entry="));
+const args = process.argv.slice(2);
+const flag = args.find((a) => a.startsWith("--entry="));
 const entry = flag === undefined ? "vscode" : flag.slice("--entry=".length);
 if (!isHarnessEntry(entry)) {
   process.stderr.write(`Unknown --entry "${entry}"; expected one of: ${ENTRIES.join(", ")}.\n`);
   process.exit(1);
 }
-process.stdout.write(
-  "Wrote " + buildWebviewHarness(entry) + " — open it in a browser, as a file or served.\n"
-);
+const pageFlag = args.find((a) => a.startsWith("--page="));
+const pageKind = pageFlag === undefined ? "graph" : pageFlag.slice("--page=".length);
+if (
+  pageKind !== "graph" &&
+  !((pageKind === "settings" || pageKind === "window") && entry === "desktop")
+) {
+  process.stderr.write(
+    `Unknown --page "${pageKind}" for --entry=${entry}; expected graph, or settings or window with --entry=desktop.\n`
+  );
+  process.exit(1);
+}
+const written =
+  pageKind === "settings"
+    ? buildSettingsHarness()
+    : pageKind === "window"
+      ? buildWindowHarness()
+      : buildWebviewHarness(entry);
+process.stdout.write("Wrote " + written + " — open it in a browser, as a file or served.\n");

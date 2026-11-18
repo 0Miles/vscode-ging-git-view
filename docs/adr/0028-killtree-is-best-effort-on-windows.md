@@ -34,3 +34,21 @@ status: accepted
 - **重新評估的觸發條件**,碰到任何一條就重開這個決定(擱置的問題列在 #361):
   1. **有實際傷害**:真實回報、可以用 GING 實際會跑的指令(不是 alias)重現,而且逃掉的行程擋住了使用者的操作(改名、刪除、checkout、`index.lock`),或在該次查詢的期限(`BLAME_TIMEOUT_MS` / `FIND_TIMEOUT_MS`)之後還在跑。
   2. **範圍擴大**:任何 git 的 kill 路徑多了會寫入、會跑 hook 或會走網路的呼叫端,包括替 simple-git 接上 `AbortSignal`。
+
+## 補記(2026-11-17,#395)
+
+**重新評估條件 2 被觸發了:clone 是第一個會寫入、會走網路的 kill 路徑呼叫端(取消 clone = `AbortSignal` → `killTree`)。評估後維持這篇的決定(盡力而為、立刻 settle),另外補上 POSIX 的一個缺口。**
+
+- **取消後先等 git 真的走了,才收拾。** `spawnGit` 照舊在 kill 之後立刻 settle,但 `aborted` 的結果多帶一個 `exited`:child 結束、而且所有共用它輸出的行程(git 的子行程繼承它的 stderr,`index-pack` 也是)都關掉之後才 settle。clone 先等它,最多 5 秒(`CANCELLED_GIT_GRACE_MS`),才開始刪;否則 POSIX 上被 kill 的 git 與 `index-pack` 可能還在寫,刪除列出的清單之後才出現的檔案會漏掉。原本是空資料夾的目的地,清空之後再看一次,有剩就照實回答「還留著」。這不違反「立刻 settle」:等的是呼叫端,`spawnGit` 不等。
+- **逃掉的行程能碰到的只有目的地。** clone 只寫進它自己的目的地資料夾,取消或失敗之後 core 的 [clone.ts](../../packages/core/src/backend/actions/clone.ts) 會把 clone 建的東西刪掉(原本不存在就整個刪,原本是空資料夾就清空)。刪除用 `fs.rm` 的重試(10 次、遞增間隔),吸收「剛被 kill 的 git 還握著檔案、或又寫了一個」的那一段;Windows 上唯讀的物件檔先改成可寫再試一次。刪不掉時不假裝成功:命令服務用 `Prompts.showWarning` 說哪個資料夾還留著。
+- **POSIX 的缺口實測存在:`child.kill()` 只送給 git 本身,而 git 不會收掉它為 HTTP remote 開的 `git-remote-http`**(git 的 `transport-helper.c` 沒有替 helper 設 `clean_on_exit`),helper 會帶著連線一直卡在 server 上。上面「Elsewhere … unmeasured」那句因此改寫。修法是 `spawnGit` 多一個選填的 `ownProcessGroup`:Windows 以外用 `detached` 讓 git 自成一個 process group,kill 時 `process.kill(-pid, "SIGTERM")` 整組送出。只有 clone 用它;其他呼叫端都是唯讀、不走網路,維持原狀。POSIX 上 Node 的 `detached` 是 `setsid`:除了自成 process group,也是自成 session、脫離控制終端機;git 與 helper 從不在終端機上問東西(帳密走 askpass),所以沒有損失。另外,app 本身當掉時 git 會繼續跑完 —— 沒有人在 parent 死掉時送它信號(沒有 pdeathsig),這一點有沒有 `detached` 都一樣。#450 讓 fetch / push 接上 `AbortSignal` 時,也要用它。
+- **量測。** core 的 vitest(`packages/core/tests/actions/clone/clone.test.ts`「kills git, its remote helper with it, and removes the folder it made」)與 Electron E2E(`apps/desktop/e2e/clone.spec.ts`「Cancel stops git…」)都對一個永遠不回應的本機 HTTP server clone,取消後斷言目的地不見、server 上的連線歸零。Windows 上 `taskkill /T` 收得掉整棵(git wrapper、git、`git-remote-https`);ubuntu 上靠 process group。
+- **三個缺口仍在。** clone 等 askpass 時,樹裡有 MSYS 的 `sh`(`askpass.sh`)與它啟動的 helper,缺口 2、3 照樣適用;但 askpass 的提示是 modal,蓋住了 clone 面板的取消鈕,從 UI 取消不到正在問帳密的 clone,只有 app 結束會走到那條路(那時 Welcome page 的 `Prompts` 先把提示答成取消,git 自己結束)。
+- **不重開 Job Object 方案。** 最壞的情況是一個逃掉的行程在目的地被刪的同時又寫了一點東西,而刪除的重試會在它結束後收拾;沒有寫到目的地以外的路。
+
+## 補記(2026-11-18,#484)
+
+**`streamGit`(#408 的檔案歷史用)的 `kill` 先關掉 stdout 的讀取端,再 `killTree`。** 它不是 `killTree` 的缺口(git 確實被殺了),是串流讀者自己的:Node 的 child `close` 要等 stdout 關閉。child 結束時 Node 會把暫停的 stdout 放開一次,但檔案歷史的讀者每拿到一段、手上有一頁就再暫停,git 死前已經寫進 pipe 的其餘部分就永遠讀不到結尾 —— `close` 不來,`ended` 不 settle,pipe 的 handle 也留著。剩下的輸出若剛好一次讀完(連同結尾)就沒事,所以它時紅時綠,Windows 的 pipe 一次讀到的量不同,更常紅:Windows CI 上「stops git when closed」逾時 30 秒就是這個(#484)。在本機以 4 MiB 的 blob 讓 git 卡在滿的 pipe 上再殺,舊的 `kill` 每次都卡住(`packages/core/tests/gitSpawn.test.ts` 的 `streamGit` 一組)。
+
+- **關掉讀取端本身也讓還在寫的 git 結束**(寫入失敗),所以即使 `taskkill /T` 漏掉了真正的 git(本 ADR 的三個缺口),它也不會一直卡在 pipe 上。
+- **不改用 `exit` 判斷結束。** `exit` 在 stdio 還開著時就會來,能讓 `ended` 早一點 settle,但 pipe 的 handle 照樣留著沒人關;關掉讀取端是讓兩者都結束的那一步。

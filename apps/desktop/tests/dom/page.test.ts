@@ -78,6 +78,21 @@ describe("buildDesktopPage for a repository", () => {
     expect([...doc.scripts].at(-1)?.getAttribute("src")).toBe("web.js");
   });
 
+  it("lets the diff viewer load the editor's worker and font from the app, and nothing else (#404)", () => {
+    const csp = graphPage()
+      .querySelector('meta[http-equiv="Content-Security-Policy"]')!
+      .getAttribute("content")!;
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).toContain("font-src 'self'");
+    expect(csp).toContain("worker-src 'self'");
+    // A page with no diff viewer loads neither.
+    const notice = pageFor("dark")
+      .querySelector('meta[http-equiv="Content-Security-Policy"]')!
+      .getAttribute("content")!;
+    expect(notice).not.toContain("font-src");
+    expect(notice).not.toContain("worker-src");
+  });
+
   it("gives each graph colour its variable", () => {
     const doc = graphPage();
     expect(doc.body.style.getPropertyValue("--git-graph-color1")).toBe("#d9008f");
@@ -117,6 +132,38 @@ describe("buildDesktopPage with nothing to show", () => {
     const doc = parse(buildDesktopPage(themeFor("light", "win32"), { notice: null }));
     expect(doc.documentElement.dataset.gingPage).toBe("notice");
     expect(doc.body.textContent?.trim()).toBe("");
+  });
+});
+
+describe("buildDesktopPage for the settings", () => {
+  const state = {
+    settings: [],
+    theme: "dark" as const,
+    strings: { title: "Settings </script><b>x" } as never
+  };
+
+  it("is a settings page, with the element its bundle builds in", () => {
+    const doc = parse(
+      buildDesktopPage(themeFor("light", "win32"), { settings: { state, nonce: "n0nce" } })
+    );
+    expect(doc.documentElement.dataset.gingPage).toBe("settings");
+    expect(doc.getElementById("settings")).not.toBeNull();
+    expect(doc.body.className).toBe("vscode-light");
+  });
+
+  it("hands the bundle its settings in a script only its nonce allows", () => {
+    const html = buildDesktopPage(themeFor("dark", "win32"), {
+      settings: { state, nonce: "n0nce" }
+    });
+    const doc = parse(html);
+    const csp = doc.querySelector('meta[http-equiv="Content-Security-Policy"]')!;
+    expect(csp.getAttribute("content")).toContain("script-src 'self' 'nonce-n0nce'");
+    const inline = [...doc.scripts].filter((s) => !s.hasAttribute("src"));
+    expect(inline.map((s) => s.getAttribute("nonce"))).toEqual(["n0nce"]);
+    const globals: Record<string, unknown> = {};
+    new Function("window", inline[0].text.replace(/^var /, "window."))(globals);
+    expect(globals.settingsPage).toEqual(state);
+    expect(html).not.toContain("</script><b>x");
   });
 });
 

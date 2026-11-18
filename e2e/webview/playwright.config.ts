@@ -10,6 +10,8 @@ export default defineConfig({
   testMatch: "**/*.spec.ts",
   outputDir: path.resolve(__dirname, "../../out/webview-e2e"),
   forbidOnly: Boolean(process.env.CI),
+  // The harness pages, built once for every spec (harness.ts).
+  globalSetup: path.resolve(__dirname, "globalSetup.ts"),
   reporter: "list",
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }]
 });

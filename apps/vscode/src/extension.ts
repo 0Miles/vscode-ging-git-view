@@ -10,6 +10,7 @@ import { createBranchActionDelegate } from "@ging/core/extension/branchActionDel
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
 import { createBranchFilterStore } from "@ging/core/extension/branchFilterStore";
+import { batchNoTargetsMessage, resolveSideViewToggle } from "@ging/core/extension/branchSideView";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { createInfoCommands } from "@ging/core/extension/infoCommands";
 import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
@@ -19,6 +20,7 @@ import { createRemoteCommands, type RemoteTarget } from "@ging/core/extension/re
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import {
+  REPO_SETTING_DEFAULT_KEYS,
   resolveShowRemoteBranches,
   type SideViewField,
   sideViewStateChanged
@@ -27,16 +29,15 @@ import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/seque
 import { type WebviewBridge, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import { ExtensionState } from "@ging/core/extensionState";
 import type { HostPorts } from "@ging/core/host/ports";
-import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
   branchMenuContextKeys,
   CATALOGUE_REF_ACTIONS,
   isBatchAction
 } from "@ging/shared/backend/utils/refActionCatalogue";
-import type { BatchSkipped, RepoSettingField } from "@ging/shared/types";
+import type { RepoSettingField } from "@ging/shared/types";
 
 import { buildExtensionUri, getPathFromUri } from "./backend/utils/uri";
-import { config, REPO_SETTING_DEFAULT_KEYS, SCM_SELECTION_MODE_SETTING } from "./config";
+import { config, SCM_SELECTION_MODE_SETTING } from "./config";
 import { decodeDiffDocUri, DiffDocProvider } from "./diffDocProvider";
 import {
   createBlameController,
@@ -174,12 +175,20 @@ export function activate(context: vscode.ExtensionContext) {
   // global default. Branches idle beyond `inactiveBranchThresholdDays` are
   // hidden unless this is on (or they're exempt — head/selected/always-show).
   const resolveShowInactive = (repo: string): boolean =>
-    repoManager.getRepos()[repo]?.showInactiveBranches ?? config.showInactiveBranchesByDefault();
+    resolveSideViewToggle(
+      repoManager.getRepos()[repo],
+      "showInactiveBranches",
+      config.showInactiveBranchesByDefault()
+    );
   // "Show merged branches" is the second, independent hide toggle: branches
   // already merged into the repo's default branch. Same per-repo shape, same
   // exemptions (head / selected / always-show).
   const resolveShowMerged = (repo: string): boolean =>
-    repoManager.getRepos()[repo]?.showMergedBranches ?? config.showMergedBranchesByDefault();
+    resolveSideViewToggle(
+      repoManager.getRepos()[repo],
+      "showMergedBranches",
+      config.showMergedBranchesByDefault()
+    );
   // The single holder of every branch classification fact (ADR-0013): the
   // side-view builds its tree from it and the graph's loadBranches response
   // carries the merged half of its hidable set, so the two cannot disagree.
@@ -323,7 +332,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (repo === null) return;
       const state = repoManager.getRepos()[repo];
       if (state === undefined) return;
-      const next = !(state[field] ?? globalDefault());
+      const next = !resolveSideViewToggle(state, field, globalDefault());
       // Re-lists the view too, through onDidWriteRepoState. The broadcast also
       // reaches the Repository Settings drawer, which draws from it (#183).
       repoManager.updateRepoState(repo, { [field]: next });
@@ -654,19 +663,6 @@ export function activate(context: vscode.ExtensionContext) {
     void vscode.window.tabGroups.close(restoredGraphTabs.slice(1), true);
   }
 
-  // The same "skipped, because X" lines the batch confirmation dialog shows,
-  // for the case where nothing is left to confirm and there is no dialog.
-  const skippedNotes = (skipped: BatchSkipped[]): string[] =>
-    (
-      [
-        ["checkedOut", "dialog.batch.skippedCheckedOut"],
-        ["remote", "dialog.batch.skippedRemote"]
-      ] as const
-    ).flatMap(([reason, key]) => {
-      const refs = skipped.filter((s) => s.reason === reason).map((s) => displayRef(s.ref));
-      return refs.length === 0 ? [] : [l10n.t(key, refs.join(", "))];
-    });
-
   // Side-view branch actions, single and batch, all go through the one
   // delegate (ADR-0010): it validates against the shared action catalogue,
   // applies the head guard, and delivers graph-bound actions to the webview
@@ -678,10 +674,10 @@ export function activate(context: vscode.ExtensionContext) {
     openGraphView,
     post: (msg) => currentBridge?.post(msg),
     writeClipboard: (text) => void vscode.env.clipboard.writeText(text),
+    // The same "skipped, because X" lines the batch confirmation dialog shows,
+    // for the case where nothing is left to confirm and there is no dialog.
     showNoTargets: (skipped) =>
-      void vscode.window.showInformationMessage(
-        [l10n.t("branchView.batch.noTargets"), ...skippedNotes(skipped)].join(" ")
-      )
+      void vscode.window.showInformationMessage(batchNoTargetsMessage(vscodeL10n, skipped))
   });
 
   // The blame hover's "locate in the graph" (#310), for a commit in the blamed

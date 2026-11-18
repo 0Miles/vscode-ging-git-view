@@ -1,31 +1,331 @@
-/* The desktop `Opener` (`@ging/core/host/ports`) for now (#388): opening
- * files, diffs, terminals and links is #391's. Until then each request is
- * logged and answered as the port's contract answers a failure, so the graph
- * reports that nothing opened rather than waiting on it. */
+/* The desktop `Opener` (`@ging/core/host/ports`), one per webview instance
+ * (#391): what it notifies is said in that instance's window. A file of the
+ * repository opens in the program the system shows its type with, when it is
+ * a type GING knows only to be shown (`opensDirectly`), and is shown in its
+ * folder otherwise; a link opens in the browser, a terminal is the system's
+ * own, a conflicted file goes to the merge tool the user configured for git
+ * (#410), and a diff opens in the diff viewer over the instance's graph
+ * (#404, diffViewer.ts), as does a file read-only at a revision (#405). */
 
-import type { HostLogger, Opener } from "@ging/core/host/ports";
+import fs from "node:fs";
+import path from "node:path";
 
-export function createInterimOpener(logger: Pick<HostLogger, "logError">): Opener {
-  /** Log that `method` was asked for `about`: the whole answer of a method
-   *  that answers nothing. */
-  const say = (method: string, about: string) =>
-    logger.logError(`Opener.${method} is not available yet (#391): ${about}`);
-  /** Log it and fail: a rejection, from the methods that answer a promise. */
-  const fail = (method: string, about: string): never => {
-    say(method, about);
-    throw new Error(`Opener.${method} is not available yet`);
+import { abbrevCommit } from "@ging/core/backend/utils/string";
+import type { HostLogger, L10n, Opener, Prompts } from "@ging/core/host/ports";
+import {
+  type ShowDiff,
+  type ShowFile,
+  commitDiffRequest,
+  isWithin
+} from "@ging/desktop/diffViewer";
+import { windowsVariable } from "@ging/desktop/terminal";
+import { webUrl } from "@ging/shared/webUrl";
+
+/**
+ * What the system opens things with: Electron's `shell`, and a terminal
+ * (terminal.ts). A seam, as `NativeDialogs` is (ADR-0032): no test should
+ * start a program or a browser, so the vitest suite hands over a fake, and
+ * the main process hands over functions that look the real ones up when
+ * called, so the Electron E2E can stand in for them.
+ */
+export type OsShell = {
+  /** Electron's `shell.openPath`: resolves to `""` once the system has opened
+   *  `file`, to why not otherwise. */
+  openPath(file: string): Promise<string>;
+  /** Electron's `shell.showItemInFolder`. */
+  showItemInFolder(file: string): void;
+  /** Electron's `shell.openExternal`. */
+  openExternal(url: string): Promise<void>;
+  /** Start the system's terminal in `cwd`, titled `title` where it can be;
+   *  resolves once it has started. */
+  openTerminal(cwd: string, title: string): Promise<void>;
+};
+
+/**
+ * Open `url` in the browser, when it is a web address: nothing else leaves the
+ * app this way. A webview asks with whatever the user's issue-link setting
+ * built, the settings page with a description's link (#397); neither is an
+ * answer to "run this", which a `file:` or custom-scheme URL handed to the
+ * system can be. A failure has nobody to answer: it is logged.
+ */
+export function openWebUrl(
+  os: Pick<OsShell, "openExternal">,
+  logger: Pick<HostLogger, "log" | "logError">,
+  url: string
+): void {
+  // The address as parsed, not the text that was checked.
+  const href = webUrl(url);
+  if (href === null) {
+    logger.log(`opener: not opening ${url}: not a web address`);
+    return;
+  }
+  os.openExternal(href).catch((e: unknown) =>
+    logger.logError(`opener: could not open ${href}: ${String(e)}`)
+  );
+}
+
+/**
+ * The extensions "Open File" hands to the system's program for them: images,
+ * documents, data and source that every platform shows in a viewer or an
+ * editor. Everything else is shown in its folder instead.
+ *
+ * An allowlist, not a list of what runs: which program the system opens a
+ * file with is the system's — and every installed app's — to register, so a
+ * list of what runs is never complete (shortcuts, installers, script hosts,
+ * settings files the system applies, help files…) and fails open when it
+ * leaks. This one fails closed: an unlisted type costs the user a folder
+ * window, not a program run from somebody's repository. Left out on purpose:
+ * scripts some platform runs when opened (`.js` and `.vbs` on Windows, `.py`
+ * and `.rb` where an interpreter registered them, `.sh`, `.ps1`, `.bat`), and
+ * pages a browser opens with their scripts on (`.html`, `.svg`, `.xml`).
+ */
+const OPENED_DIRECTLY = new Set([
+  // Images.
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".bmp",
+  ".webp",
+  ".ico",
+  ".tif",
+  ".tiff",
+  ".avif",
+  // Documents and plain text.
+  ".pdf",
+  ".txt",
+  ".text",
+  ".md",
+  ".markdown",
+  ".rst",
+  ".adoc",
+  ".csv",
+  ".tsv",
+  ".log",
+  ".diff",
+  ".patch",
+  // Data and configuration.
+  ".json",
+  ".jsonc",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".ini",
+  ".cfg",
+  ".conf",
+  ".properties",
+  // Source a compiler reads, which no platform runs.
+  ".c",
+  ".h",
+  ".cc",
+  ".cpp",
+  ".cxx",
+  ".hpp",
+  ".hh",
+  ".cs",
+  ".java",
+  ".kt",
+  ".scala",
+  ".go",
+  ".rs",
+  ".swift",
+  ".m",
+  ".mm",
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+  ".dart",
+  ".hs",
+  ".vue",
+  ".svelte"
+]);
+const DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
+const EXECUTE_BITS = 0o111;
+
+/**
+ * Whether "Open File" hands `file` — a real path, not a link — to the
+ * system's program for it, rather than showing it in its folder. A repository
+ * is anybody's: opening a file in it must never run it. So the file's type
+ * must be one `OPENED_DIRECTLY` lists; on Windows, not one `PATHEXT` makes a
+ * program; and elsewhere it must not be executable, which macOS (and some
+ * Linux desktops) run in a terminal whatever its name. Windows ignores the
+ * dots and spaces a name ends with, so they are not read as its extension.
+ */
+export function opensDirectly(
+  file: string,
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  mode: number
+): boolean {
+  const name =
+    platform === "win32" ? path.basename(file).replace(/[. ]+$/, "") : path.basename(file);
+  const ext = path.extname(name).toLowerCase();
+  if (!OPENED_DIRECTLY.has(ext)) return false;
+  if (platform === "win32") {
+    return !(windowsVariable(env, "PATHEXT") ?? DEFAULT_PATHEXT)
+      .toLowerCase()
+      .split(";")
+      .includes(ext);
+  }
+  return (mode & EXECUTE_BITS) === 0;
+}
+
+/** What `openFile` reads of the file system: a seam, so the vitest suite can
+ *  hand over links and modes no test machine has to make. */
+export type FileFacts = {
+  /** The path with every link followed; rejects when there is none. */
+  realpath(file: string): Promise<string>;
+  /** Its permission bits. */
+  mode(file: string): Promise<number>;
+};
+
+const systemFiles: FileFacts = {
+  // The native one: on Windows it spells the path as the file system does,
+  // case and all, so two spellings of one folder compare equal.
+  realpath: (file) => realpathNative(file),
+  mode: async (file) => (await fs.promises.stat(file)).mode
+};
+
+function realpathNative(file: string): Promise<string> {
+  return new Promise((resolve, reject) =>
+    fs.realpath.native(file, (e, resolved) => (e ? reject(e) : resolve(resolved)))
+  );
+}
+
+type DesktopOpenerDeps = {
+  os: OsShell;
+  /** The instance's own: what is said goes to its window. */
+  prompts: Pick<Prompts, "showError">;
+  l10n: L10n;
+  logger: Pick<HostLogger, "log" | "logError">;
+  /** The repository the instance shows: the only one it opens files from. */
+  repoRoot: () => string;
+  /** Show a diff in the instance's page (diffViewer.ts). */
+  showDiff: ShowDiff;
+  /** Show a file read-only in the instance's page (diffViewer.ts). */
+  showFile: ShowFile;
+  platform: NodeJS.Platform;
+  env: NodeJS.ProcessEnv;
+  files?: FileFacts;
+  /** Hand a conflicted file, relative to the repository, to the user's merge
+   *  tool (core's `ConflictCommands.mergeTool`), which says what came of it. */
+  mergeTool: (filePath: string) => void;
+};
+
+export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
+  const {
+    os,
+    prompts,
+    l10n,
+    logger,
+    repoRoot,
+    showDiff,
+    showFile,
+    platform,
+    env,
+    files = systemFiles
+  } = deps;
+  const { mergeTool } = deps;
+  /** Log why `file` is not opened, and reject with it. */
+  const refuse = (file: string, why: string): never => {
+    logger.logError(`opener: not opening ${file}: ${why}`);
+    throw new Error(why);
   };
+
   return {
-    openFile: async (file) => fail("openFile", file),
-    openFileAtRevision: async (file) =>
-      fail("openFileAtRevision", `${file.filePath} at ${file.commit}`),
-    diffWithWorking: async (_left, workingPath) => fail("diffWithWorking", workingPath),
-    openCommitDiff: async (request) => {
-      say("openCommitDiff", `${request.newFilePath} at ${request.commitHash}`);
-      return false;
+    openFile: async (file) => {
+      const asked = path.normalize(file);
+      // A colon past the drive letter names a stream of the file, not the
+      // file — `a.bat::$DATA` is `a.bat`, and no extension check sees it.
+      if (platform === "win32" && asked.indexOf(":", 2) !== -1) {
+        refuse(asked, "not a plain file path");
+      }
+      // What the request names is the repository's own working tree; the
+      // webview builds it from a path git gave, so `..`, an absolute path or a
+      // link out of the repository is nothing it should name.
+      const [real, root] = await Promise.all([files.realpath(asked), files.realpath(repoRoot())]);
+      if (!isWithin(root, real)) refuse(asked, "not in the repository");
+      // Judged on what the path leads to: a link named `notes.txt` can lead
+      // to a program.
+      if (!opensDirectly(real, platform, env, await files.mode(real))) {
+        // Shown where it is instead: the user can still open it from there,
+        // knowing what it is.
+        logger.log(`opener: ${real} is no type GING opens; showing it in its folder`);
+        os.showItemInFolder(real);
+        return;
+      }
+      const failure = await os.openPath(real);
+      if (failure !== "") refuse(real, failure);
     },
-    openMergeEditor: (_repo, filePath) => say("openMergeEditor", filePath),
-    openTerminal: (cwd) => say("openTerminal", cwd),
-    openExternalUrl: (url) => say("openExternalUrl", url)
+    openExternalUrl: (url) => openWebUrl(os, logger, url),
+    openTerminal: (cwd, name) => {
+      const asked = path.normalize(cwd);
+      // In the repository of the Tab that asked, as `openFile` opens only
+      // from it: the folder the request names must be in it.
+      void Promise.all([files.realpath(asked), files.realpath(repoRoot())])
+        .then(([real, root]) => {
+          if (!isWithin(root, real)) throw new Error("not in the repository");
+          return os.openTerminal(real, name);
+        })
+        .catch((e: unknown) => {
+          // Nobody else hears of it: the port answers nothing.
+          logger.logError(`opener: could not open a terminal in ${asked}: ${String(e)}`);
+          void prompts.showError(l10n.t("desktop.cannotOpenTerminal", String(e)));
+        });
+    },
+
+    // The diffs, in the diff viewer over the Tab's graph (#404).
+    openCommitDiff: async (request) => {
+      try {
+        return await showDiff(commitDiffRequest(request, l10n));
+      } catch (e) {
+        // The port answers whether it opened; the graph says it did not.
+        logger.logError(`opener: could not show a diff of ${request.newFilePath}: ${String(e)}`);
+        return false;
+      }
+    },
+    diffWithWorking: async (left, workingPath, title) => {
+      const asked = path.resolve(workingPath);
+      // The working tree of the Tab's repository, as `openFile` opens only
+      // from it: the request names its file by a path the page built.
+      if (!isWithin(path.resolve(repoRoot()), asked)) refuse(asked, "not in the repository");
+      const shown = await showDiff({
+        title,
+        original: { revision: left },
+        modified: { workingFile: asked, repo: left.repo }
+      });
+      if (!shown) refuse(asked, "the Tab's page is gone");
+    },
+
+    // A file read-only at a revision (#405), in the same viewer, titled as a
+    // diff of it is: its name, and the commit's short hash — a stash's, for
+    // the untracked file it keeps in its third parent (`^3`).
+    openFileAtRevision: async (file) => {
+      const name = file.filePath.split("/").at(-1) ?? file.filePath;
+      // Only the stash's `^3` is dropped. Any other parent (`hash^`, `hash^2`)
+      // is a commit of its own, not the one named: it keeps its suffix, as a
+      // diff's title writes `abc1234^`.
+      const [, hash, parent] = /^(.*?)(\^\d*)?$/.exec(file.commit)!;
+      const title = `${name} (${abbrevCommit(hash)}${parent === "^3" ? "" : (parent ?? "")})`;
+      let shown: boolean;
+      try {
+        shown = await showFile({ title, file: { revision: file } });
+      } catch (e) {
+        // The port rejects what it could not open; the graph says so.
+        logger.logError(`opener: could not show ${file.filePath} at ${file.commit}: ${String(e)}`);
+        throw e;
+      }
+      if (!shown) refuse(file.filePath, "the Tab's page is gone");
+    },
+    // The desktop app has no 3-way editor of its own (#411's): the file goes
+    // to the merge tool the user configured for git (#410), on the instance's
+    // own repository — the only one its graph is shown, whatever `repo` the
+    // request names.
+    openMergeEditor: (_repo, filePath) => mergeTool(filePath)
   };
 }

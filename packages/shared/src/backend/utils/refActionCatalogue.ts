@@ -279,6 +279,21 @@ export function refActionVisibility(
   return cmvKey.remoteBranch === undefined ? undefined : cmv.remoteBranch[cmvKey.remoteBranch];
 }
 
+/** Whether `action` takes a ref of this kind at all (`refKinds`). The
+ *  `remotes/` prefix of the canonical ref is the fact it is read from. */
+export function refKindsAdmit(action: CatalogueRefAction, isRemote: boolean): boolean {
+  return REF_ACTION_CATALOGUE[action].refKinds !== (isRemote ? "local" : "remote");
+}
+
+/** Whether the head guard rules `action` out on `branch`: the action never
+ *  applies to the checked-out branch, and this is it. One predicate for every
+ *  place that asks — VS Code's delegate before it opens the graph, the desktop
+ *  side view's menu and its run (ADR-0033), and the batch skip below — and
+ *  each of them keeps quiet about it: the menus never offered the action. */
+export function headGuardBlocks(action: CatalogueRefAction, branch: { isHead: boolean }): boolean {
+  return branch.isHead && REF_ACTION_CATALOGUE[action].headGuard;
+}
+
 /** Why a batch action cannot apply to a branch, or null when it can. Derived
  *  from the catalogue rather than declared per action: `remote` is
  *  `refKinds: "local"` seen from a remote ref, `checkedOut` is the head guard
@@ -288,8 +303,7 @@ export function batchSkipReason(
   action: BatchAction,
   branch: { isRemote: boolean; isHead: boolean }
 ): "checkedOut" | "remote" | null {
-  const spec = REF_ACTION_CATALOGUE[action];
-  if (branch.isRemote && spec.refKinds === "local") return "remote";
-  if (branch.isHead && spec.headGuard) return "checkedOut";
+  if (branch.isRemote && REF_ACTION_CATALOGUE[action].refKinds === "local") return "remote";
+  if (headGuardBlocks(action, branch)) return "checkedOut";
   return null;
 }

@@ -19,6 +19,23 @@ export const GIT_CONFIG_OVERRIDES = [
   "log.showSignature=false"
 ];
 
+/**
+ * For a `git diff` that compares with the working tree: keeps it from
+ * rewriting the index while it reads, which takes `.git/index.lock` and makes a
+ * write landing at that moment fail (#451). Measured on git 2.40: such a diff
+ * writes the index even with GIT_OPTIONAL_LOCKS=0 (see `gitChildEnv`); with
+ * this it writes nothing.
+ *
+ * Per command, never in GIT_CONFIG_OVERRIDES: with it, a diff that lists names
+ * (`--name-only`, `--name-status`) also lists the files whose content is
+ * unchanged but whose timestamps moved, so such a diff may use it only when
+ * its filter rules those out (`--diff-filter=U`, `=R`). A patch is unchanged
+ * by it: such a file has no hunk to print (measured on git 2.40.1;
+ * `fileHunks` relies on it). And `-c` reaches the hooks a write runs, where it
+ * would change what they read.
+ */
+export const NO_INDEX_REFRESH = ["-c", "diff.autoRefreshIndex=false"];
+
 // Environment variables that must NOT be forwarded to the git children we spawn.
 // Two groups:
 //   1. Vars that simple-git's "block unsafe operations" guard rejects unless a
@@ -85,6 +102,23 @@ export function gitChildEnv(gitEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // forever. GIT_EDITOR is the portable way to do this (cross-platform,
   // unlike a `core.editor=true` that relies on a `true` binary being on PATH).
   childEnv["GIT_EDITOR"] = "true";
+  // GING reads the repository in the background — the graph's reload on every
+  // watcher event, refresh and auto-fetch — while the user, or GING itself,
+  // writes to it. A plain `git status` takes `.git/index.lock` to refresh the
+  // index as a side effect — even with nothing to refresh — so a stage, commit
+  // or graph action landing in that moment fails with "index.lock: File
+  // exists" (#451). With optional locks off git skips that side effect and
+  // nothing else: a command that must write the index still takes the lock.
+  // It also keeps GING's own reads from rewriting the index and waking its
+  // file watcher. The cost: GING no longer refreshes the index's stat cache,
+  // so a file whose timestamp moved but not its content is hashed again on
+  // each reload until something writes the index (the user's own git, or a
+  // GING write). Every git child of a git client and of spawnGit gets this;
+  // `commitFileContent`'s `git show`, spawned on its own, does not and needs
+  // not: it never touches the index. See ADR-0027's 2026-11-18 addendum.
+  // `git diff` against the working tree refreshes the index regardless; see
+  // NO_INDEX_REFRESH.
+  childEnv["GIT_OPTIONAL_LOCKS"] = "0";
   if (gitEnv !== undefined) {
     for (const [key, value] of Object.entries(gitEnv)) {
       if (value !== undefined) childEnv[key] = value;
@@ -107,6 +141,22 @@ export type GitSpawnOptions = {
   signal?: AbortSignal;
   onCommand?: GitCommandHandler;
   gitEnv?: NodeJS.ProcessEnv;
+  /** Handed each piece of the child's stderr as it comes, decoded, while the
+   *  run has not settled: where git reports its progress (`--progress`).
+   *  The whole of it is still in the `ok` result. */
+  onStderr?: (text: string) => void;
+  /** Outside Windows, run git in a process group of its own, so a kill
+   *  reaches every process in it — the remote helper git starts for an HTTP
+   *  remote (`git-remote-http`) included, which git leaves running when it is
+   *  itself killed (ADR-0028's 補記 of 2026-11-17). For a caller on the
+   *  network; Windows' `taskkill /T` takes the tree already.
+   *
+   *  It is Node's `detached`, which outside Windows is `setsid`: a session of
+   *  its own as well as a process group, away from any controlling terminal.
+   *  Nothing is lost by that: a credential is asked through askpass, never on
+   *  a terminal. Detached or not, git goes on running should the app itself
+   *  crash: nothing sends it a signal when its parent dies. */
+  ownProcessGroup?: boolean;
 };
 
 /**
@@ -119,10 +169,12 @@ export type GitSpawnOptions = {
  *   1. a child born after `taskkill` snapshots the tree;
  *   2. leaves die first, so an MSYS `sh` reads exit 0 and runs its next `&&`;
  *   3. a program an MSYS shell execs has no Windows parent for `/T` to follow.
- * Elsewhere git is expected to clean up the children it started when it is
- * signalled; that is unmeasured.
+ * Elsewhere `child.kill()` signals git alone, which does not take down the
+ * remote helper it runs for an HTTP remote (measured in #395); a child spawned
+ * in a process group of its own (`group`) is killed with all of its group.
+ * What git starts otherwise is unmeasured.
  */
-function killTree(child: cp.ChildProcess) {
+function killTree(child: cp.ChildProcess, group = false) {
   // A child that has already exited may have had its PID handed to an
   // unrelated process; `taskkill /T` on it would take that one's tree down.
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -132,6 +184,12 @@ function killTree(child: cp.ChildProcess) {
       windowsHide: true
     });
     killer.on("error", () => child.kill());
+  } else if (group && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill();
+    }
   } else {
     child.kill();
   }
@@ -140,7 +198,14 @@ function killTree(child: cp.ChildProcess) {
 export type GitSpawnResult =
   | { kind: "ok"; exitCode: number | null; stdout: Buffer; stderr: string }
   | { kind: "timeout" }
-  | { kind: "aborted" }
+  | {
+      kind: "aborted";
+      /** Settles once the child is gone and the last of the processes that
+       *  share its output have closed it: everything git started that could
+       *  still be writing. Not waited for here (ADR-0028); a caller that is to
+       *  clean up after git waits for it, as long as it will. */
+      exited: Promise<void>;
+    }
   | { kind: "error"; error: Error };
 
 /**
@@ -158,25 +223,37 @@ export type GitSpawnResult =
  */
 export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
   const { signal } = options;
-  if (signal?.aborted === true) return Promise.resolve({ kind: "aborted" });
+  if (signal?.aborted === true) {
+    return Promise.resolve({ kind: "aborted", exited: Promise.resolve() });
+  }
   const args = [...GIT_CONFIG_OVERRIDES.flatMap((c) => ["-c", c]), ...options.args];
   options.onCommand?.(options.gitPath, args);
+  // `detached` on Windows is a console of its own, not a process group.
+  const group = options.ownProcessGroup === true && process.platform !== "win32";
   return new Promise((resolve) => {
     const child = cp.spawn(options.gitPath, args, {
       cwd: options.cwd,
       env: gitChildEnv(options.gitEnv),
-      windowsHide: true
+      windowsHide: true,
+      detached: group
+    });
+    // `close` comes once every process holding the child's stdio has let go
+    // of it — git's own children inherit its stderr — or `error` once it never
+    // started.
+    const exited = new Promise<void>((done) => {
+      child.once("close", () => done());
+      child.once("error", () => done());
     });
     const timer =
       options.timeoutMs === undefined
         ? undefined
         : setTimeout(() => {
-            killTree(child);
+            killTree(child, group);
             settle({ kind: "timeout" });
           }, options.timeoutMs);
     const onAbort = () => {
-      killTree(child);
-      settle({ kind: "aborted" });
+      killTree(child, group);
+      settle({ kind: "aborted", exited });
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     let settled = false;
@@ -190,7 +267,15 @@ export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on("data", (c: Buffer) => stdout.push(c));
-    child.stderr.on("data", (c: Buffer) => stderr.push(c));
+    // A multi-byte character split across two chunks is put back together
+    // before it is handed on.
+    const decoder = new TextDecoder();
+    child.stderr.on("data", (c: Buffer) => {
+      stderr.push(c);
+      if (options.onStderr !== undefined && !settled) {
+        options.onStderr(decoder.decode(c, { stream: true }));
+      }
+    });
     // A child that exits before reading all of stdin (or never started) makes
     // the pipe error with EPIPE; the outcome is reported by `close` / `error`.
     child.stdin.on("error", () => {});
@@ -205,4 +290,71 @@ export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
     );
     child.stdin.end(options.stdin);
   });
+}
+
+/** A git command whose output is read as it comes (`streamGit`). */
+export type GitStream = {
+  /** Each piece of stdout, in order, while `resume` lets them flow. */
+  onData(listener: (chunk: Buffer) => void): void;
+  /** Stop reading stdout: git fills the pipe and then waits, writing nothing
+   *  more, until `resume`. Paused from the start. */
+  pause(): void;
+  resume(): void;
+  /** Stop it: its stdout closed, unread, and the child killed (best-effort,
+   *  see `killTree`). `killTree` is a no-op on an exited child; stdout is
+   *  closed either way. `ended` settles after, whatever was left in the pipe. */
+  kill(): void;
+  /** Settles once it has ended — stdout read to its end, or killed: the exit
+   *  code (null when killed by a signal) and all of stderr, or why it never
+   *  started. */
+  ended: Promise<{ exitCode: number | null; stderr: string } | { error: Error }>;
+};
+
+/**
+ * Run one git command whose stdout is read piece by piece, with backpressure:
+ * for output a caller wants only part of now and maybe the rest later, such as
+ * a page of a long `git log` (#408), without git writing — or the caller
+ * holding — the whole of it at once. The same environment, `-c` overrides and
+ * command log as `spawnGit`. A read only: stdin is closed at once.
+ */
+export function streamGit(
+  options: Pick<GitSpawnOptions, "gitPath" | "cwd" | "args" | "onCommand" | "gitEnv">
+): GitStream {
+  const args = [...GIT_CONFIG_OVERRIDES.flatMap((c) => ["-c", c]), ...options.args];
+  options.onCommand?.(options.gitPath, args);
+  const child = cp.spawn(options.gitPath, args, {
+    cwd: options.cwd,
+    env: gitChildEnv(options.gitEnv),
+    windowsHide: true
+  });
+  child.stdout.pause();
+  const stderr: Buffer[] = [];
+  child.stderr.on("data", (c: Buffer) => stderr.push(c));
+  child.stdin.on("error", () => {});
+  child.stdin.end();
+  const ended = new Promise<{ exitCode: number | null; stderr: string } | { error: Error }>(
+    (resolve) => {
+      child.once("error", (error) => resolve({ error }));
+      child.once("close", (exitCode) =>
+        resolve({ exitCode, stderr: Buffer.concat(stderr).toString() })
+      );
+    }
+  );
+  return {
+    onData: (listener) => child.stdout.on("data", listener),
+    pause: () => child.stdout.pause(),
+    resume: () => child.stdout.resume(),
+    kill: () => {
+      // Stop reading too, for good. A child's `close` waits for its stdout to
+      // close. Node resumes it when the child exits, but a reader that pauses
+      // on every piece — the file history's, once it has a page — pauses it
+      // again, and what git wrote before it died is never read to its end:
+      // `ended` never settles and the pipe stays open (#484, ADR-0028).
+      // Dropping the read end also ends a git still writing, should the kill
+      // miss it.
+      child.stdout.destroy();
+      killTree(child);
+    },
+    ended
+  };
 }

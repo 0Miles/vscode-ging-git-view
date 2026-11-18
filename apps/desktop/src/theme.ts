@@ -39,6 +39,8 @@ const COLORS: Record<string, readonly [dark: string, light: string]> = {
   "--vscode-button-secondaryBackground": ["#00000000", "#e5e5e5"],
   "--vscode-button-secondaryForeground": ["#cccccc", "#3b3b3b"],
   "--vscode-button-secondaryHoverBackground": ["#2b2b2b", "#cccccc"],
+  // registry: editorInfo.foreground (the Statistics page's bars, #396)
+  "--vscode-charts-blue": ["#3794ff", "#1a85ff"],
   "--vscode-checkbox-background": ["#313131", "#f8f8f8"],
   "--vscode-checkbox-border": ["#3c3c3c", "#cecece"],
   // registry: dropdown.foreground
@@ -59,6 +61,8 @@ const COLORS: Record<string, readonly [dark: string, light: string]> = {
   // registry
   "--vscode-editor-findMatchHighlightBackground": ["#ea5c0055", "#ea5c0055"],
   "--vscode-editor-foreground": ["#cccccc", "#3b3b3b"],
+  // registry (the base statusBarItem.warningBackground darkens, below)
+  "--vscode-editorWarning-foreground": ["#cca700", "#bf8803"],
   "--vscode-editorWidget-background": ["#202020", "#f8f8f8"],
   // registry: transparent(editorWidget.foreground, 0.2)
   "--vscode-editorWidget-border": ["#cccccc33", "#3b3b3b33"],
@@ -92,6 +96,8 @@ const COLORS: Record<string, readonly [dark: string, light: string]> = {
   "--vscode-list-focusOutline": ["#0078d4", "#005fb8"],
   // dark: registry
   "--vscode-list-hoverBackground": ["#2a2d2e", "#f2f2f2"],
+  // registry
+  "--vscode-list-inactiveSelectionBackground": ["#37373d", "#e4e6f1"],
   // light: registry, dropdown.background
   "--vscode-menu-background": ["#1f1f1f", "#ffffff"],
   "--vscode-menu-border": ["#454545", "#cecece"],
@@ -170,6 +176,14 @@ export function themeFor(kind: ThemeKind, platform: NodeJS.Platform): Theme {
     background: colors["--vscode-editor-background"],
     variables: { ...colors, ...fonts(platform) }
   };
+}
+
+/** `theme`'s variables as an inline `style`, as VS Code sets them on a
+ *  webview's `<html>`. */
+export function themeStyle(theme: Theme): string {
+  return Object.entries(theme.variables)
+    .map(([name, value]) => `${name}: ${value};`)
+    .join(" ");
 }
 
 /** The class VS Code puts on `<body>` for a theme's kind, which `main.css` keys

@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_CONTEXT_MENU_ACTIONS_VISIBILITY } from "@ging/shared/backend/utils/contextMenuVisibility";
 import {
+  STASH_ACTION_CATALOGUE,
+  STASH_ACTIONS_IN_ORDER
+} from "@ging/shared/backend/utils/stashActionCatalogue";
+import {
   STASH_ACTIONS,
   stashActionCommand,
   stashMenuContextKeys,
@@ -112,6 +116,25 @@ describe("stash.* menu rows stay consistent with STASH_ACTIONS", () => {
         declared.includes(cmvContextKey(setting)) ? [cmvContextKey(setting)] : []
       );
     }
+  });
+
+  it("the rows sit in the shared catalogue's order and groups, which the desktop menu draws (#400)", () => {
+    const rows = packageJson.contributes.menus["view/item/context"] as (MenuRow & {
+      group: string;
+    })[];
+    const placed = rows
+      .filter((row) => row.when.includes("view == ging-git-view.stash"))
+      .toSorted((a, b) => a.group.localeCompare(b.group))
+      .map((row) => ({
+        command: row.command,
+        group: row.group.replace(/^\d+_/, "").replace(/@\d+$/, "")
+      }));
+    expect(placed).toEqual(
+      STASH_ACTIONS_IN_ORDER.map((action) => ({
+        command: stashActionCommand(action),
+        group: STASH_ACTION_CATALOGUE[action].group
+      }))
+    );
   });
 
   it("every stash setting is claimed by a stash action, apart from the ones still to come", () => {

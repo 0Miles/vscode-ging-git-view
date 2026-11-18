@@ -33,3 +33,7 @@ _與 ADR-0009 衝突:ADR-0009 說側檢視的單一分支動作一律委派給�
 ## 補記(2026-11-11,#352)
 
 **「後果」第三條說 `Prompts` 長出了 `confirm`,形狀比照 `showError`。#352 把它換成更一般的 `Prompts.choose`(可以有 `detail` 與幾個動作,回答按下那個動作的值);drop 改用 core 架在它上面的 `confirm(prompts, message, confirmLabel)`,行為不變。** 理由見 ADR-0027 的補記:#337 的 apply / pop 要 `detail` 與兩個動作按鈕,一個布林值裝不下。
+
+## 補記(2026-11-18,#400)
+
+**桌面版的 Stash 側檢視也適用本文。** 它和圖形在同一頁,但圖形的 stash 對話框一樣要靠已載入的列,所以它的動作同樣在宿主(main process)執行,跑的是同一份 core 函式,`Prompts` 是該 Tab 的 host prompt overlay;「原生 modal」在桌面版就是 overlay,`Apply` / `Apply & Reinstate Index` 兩顆按鈕的順序與意義不變。細節見 ADR-0033 的補記。

@@ -40,3 +40,9 @@ status: accepted
 - **入口掛在 Remotes 而不是 Branches,雖然按鈕是從分支上按的。** 「建立 pull request」確實是分支的動作,所以第一直覺會把設定入口放在 Branches 側檢視旁邊。但要設定的東西不是分支,是 **host** —— 而 host 只存在於 remote 的 URL 裡,Remotes 側檢視就是使用者心裡放 host 的地方。放進 Branches 會暗示這份設定是 per-branch 或 per-repo 的,那正是這個 ADR 拒絕的模型。
 - **沒有設定頁,而命令面板的入口只有知道它存在的人找得到。** 這是加上側檢視選單那一條的原因。VS Code 的設定編輯器對 `array` of `object` 一律只給「在 settings.json 中編輯」連結,做不出表單,所以「在設定裡找得到」不等於「在設定裡改得動」。
 - **只有 `parseRemoteUrl` 認得的 remote 能走這條路。** 它處理 `https://`、`ssh://`、scp 式的 `git@host:path`、含 port 的 http(s);認不出來(例如本機路徑)就據實回報「這個 remote 不支援」,而不是猜。
+
+## 補記(2026-11-17,#398)
+
+指令的流程搬進 core 的 [pullRequestProviderCommands.ts](../../packages/core/src/extension/pullRequestProviderCommands.ts),經由 host ports 詢問與寫入(port 怎麼長出來的見 ADR-0027 同日的補記)。[pullRequestProviders.ts](../../apps/vscode/src/extension/pullRequestProviders.ts) 只剩 VS Code 的接線;VS Code 的畫面與寫入的 scope 不變。上面「後果」裡的 `activeScope()` 現在讀的是 `HostConfig.inspect`。
+
+桌面版沒有 workspace,設定只有使用者那一層，所以它不問要存到哪裡，訊息一律說「使用者設定」。它的入口目前只有建立 pull request 失敗時錯誤框上的「設定 provider」;Remotes 側檢視的入口等 #399。
