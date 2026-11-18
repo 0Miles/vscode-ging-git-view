@@ -26,8 +26,10 @@ export type FileHistoryAnswer = {
   start: string | null;
   offset: number;
   entries: FileHistoryEntry[];
-  /** There are entries past these. */
-  more: boolean;
+  /** The `offset` the page after this one is read from; null when this one
+   *  ends the history. Not `offset` and the entries' count: a page may hold
+   *  fewer entries than git read for it (fileHistory.ts). */
+  next: number | null;
   /** Why it could not be read; the entries are then empty. */
   error: string | null;
 };
@@ -74,7 +76,7 @@ export function createFileHistoryService(deps: FileHistoryServiceDeps): FileHist
         start: null,
         offset: request.offset,
         entries: [],
-        more: false,
+        next: null,
         error: null,
         ...rest
       });
@@ -101,7 +103,11 @@ export function createFileHistoryService(deps: FileHistoryServiceDeps): FileHist
           offset: request.offset,
           count
         });
-        return answer({ start, ...page });
+        return answer({
+          start,
+          entries: page.entries,
+          next: page.more ? request.offset + count : null
+        });
       } catch (e: unknown) {
         return answer({ start, error: formatGitError(e) });
       }

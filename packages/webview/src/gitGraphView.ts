@@ -7998,6 +7998,13 @@ class GitGraphView {
           }
         });
       }
+      // What the rest of the page adds (`GraphInPage.addCdvFileMenuItems`):
+      // the VS Code entry adds nothing, so its menu is as it was.
+      const extra = cdvFileMenuItems?.({ ...file, oldFilePath, type: <GitFileChangeType>fileType });
+      if (extra !== undefined && extra.length > 0) {
+        if (menu.length > 0) menu.push(null);
+        menu.push(...extra);
+      }
       showContextMenu(<MouseEvent>e, menu, sourceElem);
     });
     this.addCdvListenerToClass("gitFileOpen", "click", (e) => {
@@ -11078,6 +11085,10 @@ function hideContextMenuListener() {
  * the error reporter is armed before anything that can throw, and the view
  * exists before the first message or key can reach it.
  */
+/** Items the rest of the page adds to a CDV file's context menu, after the
+ *  graph's own; none unless it adds some (`GraphInPage.addCdvFileMenuItems`). */
+let cdvFileMenuItems: ((file: CdvFileMenuTarget) => ContextMenuElement[]) | undefined;
+
 export function startGitGraphView(): GraphInPage {
   errorReporter.watchGlobals(window);
 
@@ -11105,9 +11116,20 @@ export function startGitGraphView(): GraphInPage {
     runRefBatchAction: (action, targets, skipped, repo) =>
       view.runSideViewRefBatchAction(action, targets, skipped, repo),
     openCleanup: (repo) => view.openSideViewCleanup(repo),
-    showContextMenu
+    showContextMenu,
+    addCdvFileMenuItems: (items) => {
+      cdvFileMenuItems = items;
+    }
   };
 }
+
+/** A file of the Commit Details View whose context menu is open, as the
+ *  graph's own items name it. */
+export type CdvFileMenuTarget = GG.CommitFileRef & {
+  /** Its path before the change; `filePath` but for a rename. */
+  oldFilePath: string;
+  type: GitFileChangeType;
+};
 
 /**
  * What the rest of a page may do in the graph started on it: the desktop
@@ -11131,4 +11153,8 @@ export type GraphInPage = {
   /** Raise the graph's context menu — one menu in the page, with its keyboard
    *  and its dismissal (ADR-0007) — on `source`. */
   showContextMenu(e: Event, items: ContextMenuElement[], source: HTMLElement): void;
+  /** Add `items(file)` to the end of each CDV file's context menu, in place
+   *  of any added before: the desktop entry's file history (#408). The VS Code
+   *  entry adds none. */
+  addCdvFileMenuItems(items: (file: CdvFileMenuTarget) => ContextMenuElement[]): void;
 };

@@ -1,5 +1,9 @@
 import type { SimpleGit } from "simple-git";
 
+import type { FileHistoryChange, FileHistoryEntry } from "@ging/shared/backend/types";
+
+export type { FileHistoryChange, FileHistoryEntry };
+
 /* A file's history (#408): the commits that changed one path, read with
  * `git log --follow`, each with the path the file had at that commit — a
  * diff of a commit before a rename must read the old path, or it reads a
@@ -38,30 +42,6 @@ import type { SimpleGit } from "simple-git";
  * page past the first reads the history again from the start, `offset` and
  * a page more, and drops what was already read.
  */
-
-/** How the commit changed the file: added, modified, deleted, or brought it
- *  under this path from `oldPath` by a rename or a copy. A merge's is `M`. */
-export type FileHistoryChange = "A" | "M" | "D" | "R" | "C";
-
-export type FileHistoryEntry = {
-  hash: string;
-  /** In order: the first is the one a diff of the commit is against. */
-  parents: string[];
-  author: string;
-  authorEmail: string;
-  /** Author date, in seconds since the epoch. */
-  date: number;
-  subject: string;
-  change: FileHistoryChange;
-  /** The file's path at this commit. */
-  path: string;
-  /** Its path in the commit's first parent: `path`, but for a rename or a
-   *  copy, where it is the path it came from. */
-  oldPath: string;
-  /** A submodule's path: the commits its gitlink moved between, `null` on a
-   *  side without one. Its "contents" are no file of this repository's. */
-  submodule: { from: string | null; to: string | null } | null;
-};
 
 export type FileHistoryPage = {
   entries: FileHistoryEntry[];

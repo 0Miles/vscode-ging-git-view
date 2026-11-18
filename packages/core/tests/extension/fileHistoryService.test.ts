@@ -33,7 +33,7 @@ describe("createFileHistoryService", () => {
   it("reads from HEAD when no commit is named, and says which commit that was", async () => {
     const answer = await service(repo).load({ path: "f", start: null, offset: 0 });
 
-    expect(answer).toMatchObject({ path: "f", start: rev(repo, "HEAD"), offset: 0, more: false });
+    expect(answer).toMatchObject({ path: "f", start: rev(repo, "HEAD"), offset: 0, next: null });
     expect(answer.error).toBeNull();
     expect(answer.entries.map((entry) => entry.subject)).toEqual(["three", "two", "init"]);
   });
@@ -44,8 +44,8 @@ describe("createFileHistoryService", () => {
     const second = await service(repo, 2).load({ path: "f", start, offset: 2 });
 
     expect(first.entries.map((entry) => entry.subject)).toEqual(["three", "two"]);
-    expect(first.more).toBe(true);
-    expect(second).toMatchObject({ start, offset: 2, more: false });
+    expect(first.next).toBe(2);
+    expect(second).toMatchObject({ start, offset: 2, next: null });
     expect(second.entries.map((entry) => entry.subject)).toEqual(["init"]);
   });
 
@@ -63,7 +63,7 @@ describe("createFileHistoryService", () => {
       start: null,
       offset: 0,
       entries: [],
-      more: false,
+      next: null,
       error: null
     });
   });

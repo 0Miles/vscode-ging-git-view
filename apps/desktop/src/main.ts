@@ -356,6 +356,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         });
       },
       openTerminal: onGraph((c) => c.openTerminal()),
+      fileHistory: onGraph((c) => c.fileHistory()),
       setGitUserDetails: asking((c) => c.setGitUserDetails()),
       managePullRequestProviders: asking((c) => c.managePullRequestProviders()),
       // In a system dialog, so it needs no page: the Welcome page's will do
@@ -819,7 +820,18 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         postSideView: sideView,
         extensionState: state,
         revealSetting: (key) => settingsWindow?.reveal(key),
-        postDiff: diff
+        postDiff: diff,
+        // The application menu's File History… (#408): a file of the Tab's
+        // repository, in the system's dialog (`NativeDialogs`, ADR-0032).
+        pickFile: async (root) => {
+          const picked = await dialogsFor(owner).showOpenDialog({
+            title: host.l10n.t("desktop.fileHistory.pickTitle"),
+            buttonLabel: host.l10n.t("desktop.fileHistory.pickButton"),
+            defaultPath: root,
+            properties: ["openFile"]
+          });
+          return picked.canceled ? null : (picked.filePaths[0] ?? null);
+        }
       });
       const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
       const page: TabPage = {

@@ -33,8 +33,7 @@ function commit(args: string[]) {
   });
 }
 
-const write = (name: string, content: string) =>
-  fs.writeFileSync(path.join(repo, name), content);
+const write = (name: string, content: string) => fs.writeFileSync(path.join(repo, name), content);
 
 const LINES = ["one", "two", "three", "four", "five", "six"];
 const text = (lines: string[]) => lines.join("\n") + "\n";
@@ -52,7 +51,14 @@ function blob(content: string): string {
  *  checkout on Windows makes of a name (`:` and `*` cannot be on its disk). */
 function addToIndex(mode: string, object: string, file: string) {
   git(
-    ["-c", "core.protectNTFS=false", "update-index", "--add", "--cacheinfo", `${mode},${object},${file}`],
+    [
+      "-c",
+      "core.protectNTFS=false",
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      `${mode},${object},${file}`
+    ],
     repo
   );
 }
@@ -91,7 +97,10 @@ beforeAll(() => {
   commit(["commit", "-am", "elsewhere change"]);
   git(["checkout", "-q", "main"], repo);
   commit(["merge", "--no-ff", "--no-commit", "elsewhere"]);
-  write("new.txt", text(["ONE", "two", "THREE", "four", "five", "six", "seven", "eight", "merged"]));
+  write(
+    "new.txt",
+    text(["ONE", "two", "THREE", "four", "five", "six", "seven", "eight", "merged"])
+  );
   git(["add", "new.txt"], repo);
   commit(["commit", "-m", "Merge branch 'elsewhere'"]);
 
@@ -183,7 +192,9 @@ describe("loadFileHistory (real git)", () => {
   it("pages through it, every entry once and in order, saying when there are more", async () => {
     const whole = (await history("new.txt")).entries.map((entry) => entry.hash);
 
-    const pages = await Promise.all([0, 3, 6].map((offset) => history("new.txt", "HEAD", offset, 3)));
+    const pages = await Promise.all(
+      [0, 3, 6].map((offset) => history("new.txt", "HEAD", offset, 3))
+    );
 
     // git prints the one-sided merge too, without a diff of the file, and
     // counts it in `--max-count`: nine printed, eight entries. The pages go by
@@ -224,16 +235,16 @@ describe("loadFileHistory (real git)", () => {
   it("names a submodule's entries by the commits its gitlink moved between", async () => {
     const { entries } = await history("sub");
 
-    expect(entries.map(({ subject, change, submodule }) => ({ subject, change, submodule }))).toEqual(
-      [
-        {
-          subject: "move sub",
-          change: "M",
-          submodule: { from: "1".repeat(40), to: "2".repeat(40) }
-        },
-        { subject: "add sub", change: "A", submodule: { from: null, to: "1".repeat(40) } }
-      ]
-    );
+    expect(
+      entries.map(({ subject, change, submodule }) => ({ subject, change, submodule }))
+    ).toEqual([
+      {
+        subject: "move sub",
+        change: "M",
+        submodule: { from: "1".repeat(40), to: "2".repeat(40) }
+      },
+      { subject: "add sub", change: "A", submodule: { from: null, to: "1".repeat(40) } }
+    ]);
   });
 
   it("has nothing for a path no commit changed", async () => {
@@ -241,22 +252,25 @@ describe("loadFileHistory (real git)", () => {
   });
 });
 
+/** One commit as `git log` prints it in the query's format: its fields, then
+ *  its raw diff. */
+const record = (fields: string[], diff: string) => "\x01\x02\x03" + fields.join("\0") + "\0" + diff;
+const sha = (digit: string) => digit.repeat(40);
+
 describe("parseFileHistory", () => {
   it("reads nothing out of nothing", () => {
     expect(parseFileHistory("")).toEqual([]);
   });
 
   it("keeps a path's own spaces, and reads a combined diff's one path", () => {
-    const record = (fields: string[], diff: string) =>
-      "\x01\x02\x03" + fields.join("\0") + "\0" + diff;
     const out =
       record(
-        ["a".repeat(40), "b".repeat(40), "A", "a@x", "1", "s"],
-        "\0\n:100644 100644 " + "1".repeat(40) + " " + "2".repeat(40) + " R087\0 old \0 new \0"
+        [sha("a"), sha("b"), "A", "a@x", "1", "s"],
+        `\0\n:100644 100644 ${sha("1")} ${sha("2")} R087\0 old \0 new \0`
       ) +
       record(
-        ["c".repeat(40), "d".repeat(40) + " " + "e".repeat(40), "C", "c@x", "2", "m"],
-        "\0\0::100644 100644 100644 " + "1".repeat(40) + " 2".repeat(1) + "2".repeat(39) + " " + "3".repeat(40) + " MM\0 both \0"
+        [sha("c"), `${sha("d")} ${sha("e")}`, "C", "c@x", "2", "m"],
+        `\0\0::100644 100644 100644 ${sha("1")} ${sha("2")} ${sha("3")} MM\0 both \0`
       );
 
     expect(summary(parseFileHistory(out))).toEqual([

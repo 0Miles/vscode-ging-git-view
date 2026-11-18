@@ -6,16 +6,18 @@
  * The viewer covers the graph's area and nothing else: the side-view column
  * (#399) and the working tree column (#403) each say how wide they are in
  * the variable named for them, on `<html>` or `<body>`, and the viewer leaves
- * them that much room. Between the graph's floating layers (300) and the
- * graph's dialog backing (400): a dialog the graph raises meanwhile is still
- * seen, over it. */
+ * them that much room. The file history column (#408), over the graph's area
+ * at its left, does the same in its own variable, and the viewer opens to
+ * its right, the list it was opened from still in view. Between the graph's
+ * floating layers (300) and the graph's dialog backing (400): a dialog the
+ * graph raises meanwhile is still seen, over it. */
 
 export const DIFF_PANEL_STYLES = `
 #diffViewer {
   position: fixed;
   top: 0;
   bottom: 0;
-  left: var(--ging-side-view-width, 0px);
+  left: calc(var(--ging-side-view-width, 0px) + var(--ging-file-history-width, 0px));
   right: var(--ging-working-tree-width, 0px);
   z-index: 350;
   display: flex;
