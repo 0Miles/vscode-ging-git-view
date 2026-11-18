@@ -1,7 +1,8 @@
 /* The desktop app's editors (#404): Monaco's, made as the webview's desktop
- * entry asks for them (`EditorFactory`, packages/webview/src/desktop/editors.ts).
- * Its own bundle (out/monaco.js, esbuild.js), loaded by a page on its first
- * diff (lazyEditors.ts), to which it hands the factory on `EDITOR_GLOBAL`.
+ * entry asks for them (`EditorFactory`, packages/webview/src/desktop/editors.ts)
+ * — a read-only diff, or one file read-only (#405). Its own bundle
+ * (out/monaco.js, esbuild.js), loaded by a page on its first diff or file
+ * (lazyEditors.ts), to which it hands the factory on `EDITOR_GLOBAL`.
  *
  * Offline and self-contained: Monaco's ESM build bundled whole, no AMD loader
  * and nothing from a CDN; its worker and font are the app's own files
@@ -32,6 +33,7 @@ import type {
   DiffLayout,
   DiffViewer,
   EditorFactory,
+  FileViewer,
   ThemeKind
 } from "@ging/webview/desktop/editors";
 
@@ -87,6 +89,12 @@ let diffs = 0;
 const modelUri = (diff: number, side: "original" | "modified", path: string) =>
   monaco.Uri.from({ scheme: "ging-diff", authority: `${diff}.${side}`, path: `/${path}` });
 
+/** Each file shown gets a model of its own, coloured by its path as a diff's
+ *  are. */
+let files = 0;
+const fileUri = (file: number, path: string) =>
+  monaco.Uri.from({ scheme: "ging-file", authority: String(file), path: `/${path}` });
+
 const sideBySide = (layout: DiffLayout) => layout === "sideBySide";
 
 const editors: EditorFactory = {
@@ -137,6 +145,31 @@ const editors: EditorFactory = {
         editor.dispose();
         original.dispose();
         modified.dispose();
+      }
+    };
+    return viewer;
+  },
+  createFileViewer: async (container, options) => {
+    applyTheme(options.theme);
+    const model = monaco.editor.createModel(
+      options.document.content,
+      undefined,
+      fileUri(++files, options.document.path)
+    );
+    const editor = monaco.editor.create(container, {
+      ...editorFont(),
+      model,
+      readOnly: true,
+      automaticLayout: true,
+      scrollBeyondLastLine: false,
+      minimap: { enabled: false }
+    });
+    const viewer: FileViewer = {
+      setTheme: applyTheme,
+      focus: () => editor.focus(),
+      dispose: () => {
+        editor.dispose();
+        model.dispose();
       }
     };
     return viewer;

@@ -1,12 +1,12 @@
-/* What the desktop host sends a Tab's page to show a diff (#404): the two
- * sides' text, read by the main process, and the words the diff viewer's own
- * controls carry. Desktop-only, so declared under desktop/ and never part of
- * `ResponseMessage` (ADR-0031). The page answers nothing: once the diff is
- * in the page, it is the page's to show and to close. */
+/* What the desktop host sends a Tab's page to show a diff (#404), or one file
+ * read-only (#405): the text, read by the main process, and the words the
+ * viewer's own controls carry. Desktop-only, so declared under desktop/ and
+ * never part of `ResponseMessage` (ADR-0031). The page answers nothing: once
+ * the diff or the file is in the page, it is the page's to show and to close. */
 
 import type { ResponseMessage } from "@ging/shared/types";
 
-/** One side of a diff: a file's text, decoded by the host. */
+/** One side of a diff, or the file shown: a file's text, decoded by the host. */
 export type DiffDocument = {
   /** The file's path in its repository, `/`-separated: its name tells the
    *  editor what language to colour it as. */
@@ -44,6 +44,30 @@ export type ShowDiffMessage = {
   strings: DiffViewerStrings;
 };
 
+/** The file viewer's own words: it has no layouts to switch between. */
+export type FileViewerStrings = {
+  close: string;
+  /** Said in the viewer when the editor could not be loaded. */
+  cannotShow: string;
+};
+
+/** Host → page: show this file, read-only, over the graph, in place of any
+ *  diff or file shown (#405). */
+export type ShowFileMessage = {
+  command: "showFile";
+  /** What the file is, as a diff of it is titled: `file.txt (abc1234)`. */
+  title: string;
+  file: DiffDocument;
+  /** Why there is no text to show — a binary file, or one too large to send —
+   *  in one line the viewer shows in place of an editor; null when there is
+   *  text. The document is then empty. */
+  notShown: string | null;
+  strings: FileViewerStrings;
+};
+
+/** What the host sends the panel over the graph: a diff, or a file. */
+export type ViewerMessage = ShowDiffMessage | ShowFileMessage;
+
 /** True when `A` and `B` share no command name. */
 type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
   ? true
@@ -54,6 +78,12 @@ type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] exten
  *  (ADR-0031). */
 export const DIFF_COMMANDS_STAY_APART: NoCommandShared<
   ShowDiffMessage["command"],
+  ResponseMessage["command"]
+> = true;
+
+/** As `DIFF_COMMANDS_STAY_APART`, for a file. */
+export const FILE_COMMANDS_STAY_APART: NoCommandShared<
+  ShowFileMessage["command"],
   ResponseMessage["command"]
 > = true;
 
@@ -74,6 +104,18 @@ export function isShowDiffMessage(data: unknown): data is ShowDiffMessage {
     isDiffDocument(data.original) &&
     isDiffDocument(data.modified) &&
     (data.revealLine === null || typeof data.revealLine === "number") &&
+    (data.notShown === null || typeof data.notShown === "string") &&
+    isRecord(data.strings)
+  );
+}
+
+/** Whether `data`, heard on the page's `message` channel, is a file to show. */
+export function isShowFileMessage(data: unknown): data is ShowFileMessage {
+  return (
+    isRecord(data) &&
+    data.command === "showFile" &&
+    typeof data.title === "string" &&
+    isDiffDocument(data.file) &&
     (data.notShown === null || typeof data.notShown === "string") &&
     isRecord(data.strings)
   );

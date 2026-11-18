@@ -19,7 +19,12 @@ import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/seque
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import { createWorkingTreeService } from "@ging/core/extension/workingTreeService";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
-import { createShowDiff, type ShowDiff } from "@ging/desktop/diffViewer";
+import {
+  createShowDiff,
+  createShowFile,
+  type ShowDiff,
+  type ShowFile
+} from "@ging/desktop/diffViewer";
 import { createDesktopOpener } from "@ging/desktop/ports/opener";
 import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
 import type {
@@ -28,7 +33,7 @@ import type {
   RequestMessage,
   ResponseMessage
 } from "@ging/shared/types";
-import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
+import type { ViewerMessage } from "@ging/webview/desktop/diff/protocol";
 import type {
   SideViewRequest,
   SideViewStateMessage
@@ -60,9 +65,9 @@ type GraphInstanceOptions = {
   /** Show setting `key` in the app's settings, as they are now (#397): where
    *  Manage Pull Request Providers' "show the setting" goes. */
   revealSetting: (key: string) => void;
-  /** Hand its page a diff to show (#404), beside the graph's own messages
-   *  (ADR-0031); false when the page is gone. */
-  postDiff: (message: ShowDiffMessage) => boolean;
+  /** Hand its page a diff (#404) or a file (#405) to show, beside the
+   *  graph's own messages (ADR-0031); false when the page is gone. */
+  postDiff: (message: ViewerMessage) => boolean;
 };
 
 export type GraphInstance = {
@@ -86,6 +91,9 @@ export type GraphInstance = {
    *  panel (#403) or a file's history (#408) opens a diff of its repository
    *  with. The `Opener`'s two diffs go the same way. */
   showDiff: ShowDiff;
+  /** Show a file read-only in its page, over its graph (#405), as the
+   *  `Opener`'s File at Revision does: what blame (#409) builds on. */
+  showFile: ShowFile;
   dispose(): void;
 };
 
@@ -274,20 +282,24 @@ export function createGraphInstance(
 
   // Its own, so what it says is said in this instance's window.
   const notifier = { prompts, l10n, logger };
-  // Its diffs are shown in its own page.
-  const showDiff = createShowDiff({
+  // Its diffs and files are shown in its own page, read from its Tab's
+  // repository and no other.
+  const viewerDeps = {
     gitPath: shared.gitPath,
     fileEncoding: config.fileEncoding,
     l10n,
     repoRoot: () => current,
     post: postDiff
-  });
+  };
+  const showDiff = createShowDiff(viewerDeps);
+  const showFile = createShowFile(viewerDeps);
   const opener = createDesktopOpener({
     ...notifier,
     os: shared.os,
     // Files and terminals are opened from its Tab's repository, and no other.
     repoRoot: () => current,
     showDiff,
+    showFile,
     platform: process.platform,
     env: process.env,
     mergeTool: (filePath) => void conflicts.mergeTool(filePath)
@@ -383,6 +395,7 @@ export function createGraphInstance(
       sideViews.refresh();
     },
     showDiff,
+    showFile,
     commands: {
       ...appCommands,
       fetch: () => fetchService.fetchCommand(),

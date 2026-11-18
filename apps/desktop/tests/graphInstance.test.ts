@@ -7,7 +7,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
-import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
+import type { ViewerMessage } from "@ging/webview/desktop/diff/protocol";
 import type { SideViewStateMessage } from "@ging/webview/desktop/sideViews/protocol";
 import type { WorkingTreeRequest } from "@ging/webview/desktop/workingTree/protocol";
 
@@ -92,8 +92,8 @@ function setUp() {
     const state = shared.tabStates.newTab(repo);
     /** What its side views were sent (#399). */
     const sideViews: SideViewStateMessage[] = [];
-    /** The diffs it handed its page (#404). */
-    const diffs: ShowDiffMessage[] = [];
+    /** The diffs (#404) and files (#405) it handed its page. */
+    const diffs: ViewerMessage[] = [];
     const instance = createGraphInstance(shared, {
       repo,
       channel: page.webview,
@@ -270,23 +270,65 @@ describe("a graph instance", () => {
       ]);
   });
 
-  it("says in its own window what the desktop app cannot do yet, and answers as done", async () => {
-    const { repos, open, logged } = setUp();
+  it("shows a file at a commit read-only in its own page, decoded per the setting (#405)", async () => {
+    const { shared, repos, open, logged } = setUp();
     const asking = open(repos[0]);
     const other = open(repos[1]);
     const repo = repos[0];
-    const file = { repo, commitHash: "HEAD", filePath: "f" };
+    // "café\n" in windows-1252: the é is the one byte 0xE9, which is no utf8.
+    fs.mkdirSync(path.join(repo, "src"));
+    fs.writeFileSync(
+      path.join(repo, "src", "legacy.ts"),
+      Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a])
+    );
+    git(["add", "src/legacy.ts"], repo);
+    git(["commit", "-m", "add legacy"], repo);
+    const head = rev(repo, "HEAD");
+    // Changed since: what is shown is the commit's.
+    fs.writeFileSync(path.join(repo, "src", "legacy.ts"), "edited\n");
+    await shared.config.update("ging-git-view.defaultFileEncoding", "win1252");
 
-    await asking.receive({ command: "viewFileAtRevision", ...file });
+    await asking.receive({
+      command: "viewFileAtRevision",
+      repo,
+      commitHash: head,
+      filePath: "src/legacy.ts"
+    });
 
-    const notice = ["showInformation", "This is not available in the GING desktop app yet."];
-    expect(asking.asked).toEqual([notice]);
-    expect(other.asked).toEqual([]);
-    // Answered as done: the graph adds no "Unable to open" box of its own.
     expect(sentOf(asking.posted, "viewFileAtRevision")).toEqual([
       { command: "viewFileAtRevision", success: true }
     ]);
+    expect(asking.diffs).toEqual([
+      {
+        command: "showFile",
+        title: `legacy.ts (${head.slice(0, 8)})`,
+        file: { path: "src/legacy.ts", content: "café\n" },
+        notShown: null,
+        strings: { close: "Close File", cannotShow: "The file viewer could not be loaded." }
+      }
+    ]);
+    expect(other.diffs).toEqual([]);
+    // No notice: the desktop app shows it.
+    expect(asking.asked).toEqual([]);
     expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("answers that a file of no revision it reads could not be opened, and shows nothing (#405)", async () => {
+    const { repos, open } = setUp();
+    const asking = open(repos[0]);
+
+    await asking.receive({
+      command: "viewFileAtRevision",
+      repo: repos[0],
+      commitHash: "--output=x",
+      filePath: "f"
+    });
+
+    // The graph says it itself, as for any file it could not open.
+    expect(sentOf(asking.posted, "viewFileAtRevision")).toEqual([
+      { command: "viewFileAtRevision", success: false }
+    ]);
+    expect(asking.diffs).toEqual([]);
   });
 
   it("shows a commit's change to a file in its own page's diff viewer, decoded per the setting (#404)", async () => {
