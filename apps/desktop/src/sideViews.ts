@@ -115,6 +115,10 @@ export type SideViews = {
   receive(message: SideViewRequest): Promise<void>;
   /** Read both views again, as after anything that may move a ref. */
   refresh(): void;
+  /** A setting was written: redraw what is read off the settings — the
+   *  branches' thresholds and "always show", the menus' visibility — which
+   *  is the branches and the message's own; remotes and stashes read none. */
+  settingChanged(): void;
   /** The repo state was written, by the views' toggles or by the graph's
    *  Repository Settings drawer (#183): redraw if a toggle moved. */
   repoStateWritten(before: GitRepoState | undefined, after: GitRepoState): void;
@@ -181,7 +185,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     };
   };
 
-  const strings = (): SideViewStrings => {
+  const strings: SideViewStrings = (() => {
     const t = (key: string) => l10n.t(key);
     return {
       branches: t("desktop.sideView.branches"),
@@ -212,7 +216,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
       stashes: t("desktop.sideView.stashes"),
       noStashes: t("desktop.sideView.noStashes")
     };
-  };
+  })();
 
   /** A stash's row, as VS Code's TreeItem has it: its message, its selector
    *  beside it, and the two with its date in its tooltip. */
@@ -233,7 +237,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
       stashes: stashes?.map(stashRow) ?? null,
       filterSeq,
       cmv: config.contextMenuActionsVisibility(),
-      strings: strings()
+      strings
     });
   };
 
@@ -489,6 +493,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
   return {
     receive,
     refresh: () => void refresh(),
+    settingChanged: () => void readBranches(),
     repoStateWritten: (before, after) => {
       if (sideViewStateChanged(before, after)) void readBranches();
     },

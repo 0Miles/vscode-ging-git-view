@@ -4,7 +4,7 @@ import { escapeHtml, escapeJsonForHtml } from "@ging/webview/utils/html";
 import type { LocalizedStrings } from "@ging/webview/webviewL10n";
 import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
 
-import { bodyClassOf, type Theme } from "./theme";
+import { bodyClassOf, type Theme, themeStyle } from "./theme";
 
 /** The files the page loads, relative to it; the main process serves exactly
  *  these from the app's `out/` (see `main.ts`). */
@@ -63,9 +63,7 @@ function graphColourStyles(colours: string[]): { variables: string; rules: strin
  * what it shows by it (`desktop/main.ts`).
  */
 export function buildDesktopPage(theme: Theme, content: PageContent): string {
-  const style = Object.entries(theme.variables)
-    .map(([name, value]) => `${name}: ${value};`)
-    .join(" ");
+  const style = themeStyle(theme);
   const bodyClass = bodyClassOf(theme.kind);
   const graph = "graph" in content ? content.graph : null;
   const notice = "notice" in content ? content.notice : null;

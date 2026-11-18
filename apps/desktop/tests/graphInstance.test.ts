@@ -55,7 +55,18 @@ function userDataWithAvatar(): string {
 
 function setUp() {
   const userData = userDataWithAvatar();
-  const repos = [makeRepo(), makeRepo()].map(toRepoPath);
+  /** The test's two repositories, each made when first asked for: most
+   *  tests open only the first. */
+  const made: string[] = [];
+  const madeAt = (i: number) => (made[i] ??= toRepoPath(makeRepo()));
+  const repos = {
+    get 0() {
+      return madeAt(0);
+    },
+    get 1() {
+      return madeAt(1);
+    }
+  };
   const logged: string[] = [];
   /** What the system was asked to open: nothing here starts anything. */
   const opened: unknown[][] = [];
@@ -96,7 +107,8 @@ function setUp() {
   onTestFinished(() => {
     instances.forEach((instance) => instance.dispose());
     shared.dispose();
-    [userData, ...repos].forEach(rmrf);
+    rmrf(userData);
+    made.forEach(rmrf);
   });
 
   /** An instance on `repo`, as the main process opens one; `asked` is what its
@@ -1171,7 +1183,8 @@ describe("a graph instance", () => {
     const { shared, repos, open, logged } = setUp();
     const page = open(repos[0]);
     const other = open(repos[1]);
-    for (const repo of repos) git(["remote", "add", "origin", "https://example.com/r.git"], repo);
+    for (const repo of [repos[0], repos[1]])
+      git(["remote", "add", "origin", "https://example.com/r.git"], repo);
     page.answers.replies = ["origin", shared.l10n.t("remotes.rename"), "upstream"];
 
     await page.instance.commands.manageRemotes();

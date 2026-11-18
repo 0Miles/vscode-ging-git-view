@@ -10,7 +10,11 @@
 
 import path from "node:path";
 
-import type { DiffSide } from "@ging/core/extension/commitDiff";
+import {
+  type CommitDiffRequest,
+  type DiffSide,
+  commitDiffView
+} from "@ging/core/extension/commitDiff";
 import {
   FILE_TEXT_LIMIT,
   type FileText,
@@ -102,9 +106,25 @@ type ViewerDeps<Message> = {
 const REVISION = /^(?:[0-9a-f]{4,64}(?:\^\d*)?|:0)$/i;
 
 /** Whether `inner` is `outer` or inside it; both absolute. */
-function isWithin(outer: string, inner: string): boolean {
+export function isWithin(outer: string, inner: string): boolean {
   const relative = path.relative(path.resolve(outer), path.resolve(inner));
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+/** A commit's change to a file, as the diff viewer shows it: titled and
+ *  labelled as VS Code's diff editor is, its line to reveal (if any) kept. */
+export function commitDiffRequest(diff: CommitDiffRequest, l10n: Pick<L10n, "t">): DiffRequest {
+  const view = commitDiffView(diff, {
+    addedIn: (abbrevHash) => l10n.t("diff.addedIn", abbrevHash),
+    deletedIn: (abbrevHash) => l10n.t("diff.deletedIn", abbrevHash)
+  });
+  return {
+    title: view.title,
+    original: { revision: view.left },
+    modified: { revision: view.right },
+    // The view counts from 0, as an editor does; the page from 1.
+    ...(view.reveal === null ? {} : { revealLine: view.reveal + 1 })
+  };
 }
 
 /** A `/`-separated path within its repository, which the page names the

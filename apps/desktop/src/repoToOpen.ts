@@ -2,7 +2,7 @@
  * points at (#394). */
 
 import { gitFolderPlaceFor, workingTreeRoot } from "@ging/core/backend/utils/git";
-import { resolveCurrentRepo } from "@ging/core/backend/utils/repoPath";
+import { isUsableRepoPathAsync } from "@ging/core/backend/utils/repoPath";
 
 /** Why a path opens no repository: it is not a folder that is there (deleted,
  *  or on a disk not mounted now — nothing tells the two apart); it is one,
@@ -15,7 +15,8 @@ export type RepoToOpen = { repo: string } | { unusable: string; why: Unusable };
 
 /**
  * The repository `requested` names: first held to the test a stored Current
- * repository is held to (`resolveCurrentRepo`: a folder that is there), then
+ * repository is held to (`resolveCurrentRepo`: a folder that is there —
+ * asked without holding the main process, as the recent list asks it), then
  * to git's, which answers with the top of the working tree the folder is in.
  * So a folder inside a repository opens the repository — the graph's paths
  * are relative to its top — and comes back spelled as git spells it, which is
@@ -25,7 +26,7 @@ export type RepoToOpen = { repo: string } | { unusable: string; why: Unusable };
  * repository it cannot load (`selectRepo` would only drop it again).
  */
 export async function repoToOpen(requested: string, gitPath: string): Promise<RepoToOpen> {
-  const folder = resolveCurrentRepo(requested);
+  const folder = requested !== "" && (await isUsableRepoPathAsync(requested)) ? requested : null;
   if (folder === null) return { unusable: requested, why: "missing" };
   const repo = await workingTreeRoot(folder, gitPath);
   if (repo !== null) return { repo };

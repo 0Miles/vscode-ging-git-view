@@ -13,7 +13,7 @@ import type { L10n, Opener } from "@ging/core/host/ports";
 import { renderStatisticsHtml, type StatisticsFigures } from "@ging/webview/statisticsMarkup";
 
 import { keepPageInPlace } from "./pageGuard";
-import type { Theme } from "./theme";
+import { type Theme, themeStyle } from "./theme";
 
 export type StatisticsWindow = {
   /** Show `figures` of `repo`, in a window of their own or the one showing
@@ -66,12 +66,9 @@ export function createStatisticsWindow({
     },
     document(theme) {
       if (shown === null) return null;
-      const style = Object.entries(theme.variables)
-        .map(([name, value]) => `${name}: ${value};`)
-        .join(" ");
       return renderStatisticsHtml(shown, (key, ...args) => l10n.t(key, ...args), {
         lang,
-        htmlStyle: style
+        htmlStyle: themeStyle(theme)
       });
     }
   };

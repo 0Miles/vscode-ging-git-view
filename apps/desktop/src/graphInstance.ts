@@ -21,12 +21,7 @@ import { SequenceEditorManager } from "@ging/core/extension/sequenceEditor/seque
 import { type WebviewChannel, webviewBridgeFactory } from "@ging/core/extension/webviewBridge";
 import { createWorkingTreeService } from "@ging/core/extension/workingTreeService";
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
-import {
-  createShowDiff,
-  createShowFile,
-  type ShowDiff,
-  type ShowFile
-} from "@ging/desktop/diffViewer";
+import { createShowDiff, createShowFile, type ShowFile } from "@ging/desktop/diffViewer";
 import { createDesktopOpener } from "@ging/desktop/ports/opener";
 import { createDesktopWatcher, watchOneOnDisk } from "@ging/desktop/ports/watcher";
 import type {
@@ -104,13 +99,6 @@ export type GraphInstance = {
   commands: InstanceCommands;
   /** What its page's side views asked (#399). */
   sideView(message: SideViewRequest): Promise<void>;
-  /** Open its page's working tree panel (#403), as the graph's Open Source
-   *  Control View does: for the application menu to offer. */
-  showWorkingTree(): void;
-  /** Show a diff in its page, over its graph (#404): what the working tree
-   *  panel (#403) or a file's history (#408) opens a diff of its repository
-   *  with. The `Opener`'s two diffs go the same way. */
-  showDiff: ShowDiff;
   /** Show a file read-only in its page, over its graph (#405), as the
    *  `Opener`'s File at Revision does, offered to be blamed (#409). */
   showFile: ShowFile;
@@ -157,8 +145,6 @@ export function createGraphInstance(
   }: GraphInstanceOptions
 ): GraphInstance {
   const { config, l10n, logger, branchFacts, avatarManager } = shared;
-  /** This instance's current repository, its Tab's, for as long as it lives. */
-  const current = repo;
 
   // And should the page still ask for another — it was shown none, but a
   // page is not to be taken at its word — the dispatch never hears it: the
@@ -228,7 +214,7 @@ export function createGraphInstance(
     prompts,
     l10n,
     gitClientFor: gitClients.gitClientFor,
-    currentRepo: () => current,
+    currentRepo: () => repo,
     repoSource: shared.repoSource,
     runRepoMutation
   };
@@ -240,24 +226,29 @@ export function createGraphInstance(
   // the graph after them, so a commit shows up there.
   const workingTree = createWorkingTreeService({
     git: () => gitClient.getInstance(),
-    diffRun: () => ({ gitPath: shared.gitPath(), repoPath: current, gitEnv }),
-    repo: () => current,
+    diffRun: () => ({ gitPath: shared.gitPath(), repoPath: repo, gitEnv }),
+    repo: () => repo,
     signCommits: () => config.signCommits(),
     runRepoMutation
   });
+  /** What the working tree panel, a file's history and a blame say to the
+   *  host is no `ResponseMessage`: posted past the type, as the host prompts
+   *  are (ADR-0031). */
+  const postPastType = (
+    message: WorkingTreeMessage | FileHistoryHostMessage | FileBlameHostMessage
+  ) => void page.postMessage(message as unknown as ResponseMessage);
   // A file's history (#408): only read, so no mutation and no refresh.
   const fileHistoryService = createFileHistoryService({
     gitPath: shared.gitPath,
-    repo: () => current
+    repo: () => repo
   });
   const fileHistory = createFileHistory({
     // Its own git, read as a stream: none of the client's process slots held
     // while the panel is open.
     service: fileHistoryService,
-    repo: () => current,
+    repo: () => repo,
     showDiff: (request) => showDiff(request),
-    post: (message: FileHistoryHostMessage) =>
-      void page.postMessage(message as unknown as ResponseMessage),
+    post: postPastType,
     pickFile: (root) => pickFile(root, "fileHistory"),
     prompts,
     l10n,
@@ -271,7 +262,7 @@ export function createGraphInstance(
   const fileBlame = createFileBlame({
     service: createFileBlameService({
       gitPath: shared.gitPath,
-      repo: () => current,
+      repo: () => repo,
       l10n,
       locale: shared.locale,
       links: {
@@ -281,13 +272,11 @@ export function createGraphInstance(
         icon: (name) => BLAME_HOVER_ICONS[name]
       }
     }),
-    repo: () => current,
+    repo: () => repo,
     showDiff: (request) => showDiff(request),
     showFile: (request) => showFile(request),
-    post: (message: FileBlameHostMessage) =>
-      void page.postMessage(message as unknown as ResponseMessage),
-    locate: (hash) =>
-      void bridge.post({ command: "locateCommit", repo: current, hash, seq: ++locateSeq }),
+    post: postPastType,
+    locate: (hash) => void bridge.post({ command: "locateCommit", repo, hash, seq: ++locateSeq }),
     clipboard: shared.clipboard,
     pickFile: (root) => pickFile(root, "blame"),
     isTracked: (filePath) => fileHistoryService.isTracked(filePath),
@@ -304,17 +293,13 @@ export function createGraphInstance(
     l10n,
     logger,
     git: () => gitClient.getInstance(),
-    mergeToolRun: () => ({ gitPath: shared.gitPath(), repoPath: current, gitEnv }),
-    repo: () => current,
+    mergeToolRun: () => ({ gitPath: shared.gitPath(), repoPath: repo, gitEnv }),
+    repo: () => repo,
     runRepoMutation
   });
-  /** What the panel and the host say to each other is no `ResponseMessage`:
-   *  posted past the type, as the host prompts are (ADR-0031). */
-  const postToPanel = (message: WorkingTreeMessage) =>
-    void page.postMessage(message as unknown as ResponseMessage);
   const panelStrings = workingTreeStrings(l10n, process.platform);
   const answerPanel = async (request: Exclude<WorkingTreeRequest, WorkingTreeShowDiffRequest>) =>
-    postToPanel(await answerWorkingTree(workingTree, conflicts, panelStrings, request));
+    postPastType(await answerWorkingTree(workingTree, conflicts, panelStrings, request));
   // A file of the panel's, in the diff viewer (#460), and a hunk of it staged
   // or unstaged there (#406). A diff that cannot be read is said in this
   // instance's window, as the `Opener`'s are.
@@ -322,7 +307,7 @@ export function createGraphInstance(
     service: workingTree,
     showDiff: (request) => showDiff(request),
     l10n,
-    repo: () => current
+    repo: () => repo
   });
   const diffFailed = (e: unknown) => {
     logger.logError(`diff: ${e instanceof Error ? e.message : String(e)}`);
@@ -399,7 +384,7 @@ export function createGraphInstance(
     gitPath: shared.gitPath,
     fileEncoding: config.fileEncoding,
     l10n,
-    repoRoot: () => current,
+    repoRoot: () => repo,
     post: postDiff
   };
   const showDiff = createShowDiff(viewerDeps);
@@ -411,7 +396,7 @@ export function createGraphInstance(
     ...notifier,
     os: shared.os,
     // Files and terminals are opened from its Tab's repository, and no other.
-    repoRoot: () => current,
+    repoRoot: () => repo,
     showDiff,
     showFile,
     platform: process.platform,
@@ -422,7 +407,7 @@ export function createGraphInstance(
   // failed Create Pull Request that offers it was.
   const appCommands = createAppCommands(shared, {
     prompts,
-    currentRepo: () => current,
+    currentRepo: () => repo,
     gitClientFor: gitClients.gitClientFor,
     revealSetting
   });
@@ -502,7 +487,7 @@ export function createGraphInstance(
       configurePullRequestProvider: (host) => void appCommands.managePullRequestProviders(host),
       // The host's own source control view is the working tree panel beside
       // the graph, in the same page (#403).
-      openScmView: () => postToPanel({ command: "workingTreeShow" })
+      openScmView: () => postPastType({ command: "workingTreeShow" })
     }
   );
 
@@ -521,9 +506,8 @@ export function createGraphInstance(
       );
       // What the side views list, mark and offer is read off the settings
       // too: the thresholds, "always show", the menus' visibility.
-      sideViews.refresh();
+      sideViews.settingChanged();
     },
-    showDiff,
     showFile,
     commands: {
       ...appCommands,
@@ -533,14 +517,13 @@ export function createGraphInstance(
       toggleRemoteVisibility: () => remoteCommands.toggleRemoteVisibility(),
       viewReflog: () => reflog.viewReflog(),
       openTerminal: () => {
-        const name = current.split("/").findLast((s) => s !== "") ?? current;
-        opener.openTerminal(current, `GING: ${name}`);
+        const name = repo.split("/").findLast((s) => s !== "") ?? repo;
+        opener.openTerminal(repo, `GING: ${name}`);
       },
       fileHistory: () => fileHistory.pickAndShow(),
       blameFile: () => fileBlame.pickAndShow()
     },
     sideView: (message) => sideViews.receive(message),
-    showWorkingTree: () => postToPanel({ command: "workingTreeShow" }),
     dispose: () => {
       sideViews.dispose();
       fileHistory.dispose();

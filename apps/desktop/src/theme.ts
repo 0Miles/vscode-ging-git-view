@@ -178,6 +178,14 @@ export function themeFor(kind: ThemeKind, platform: NodeJS.Platform): Theme {
   };
 }
 
+/** `theme`'s variables as an inline `style`, as VS Code sets them on a
+ *  webview's `<html>`. */
+export function themeStyle(theme: Theme): string {
+  return Object.entries(theme.variables)
+    .map(([name, value]) => `${name}: ${value};`)
+    .join(" ");
+}
+
 /** The class VS Code puts on `<body>` for a theme's kind, which `main.css` keys
  *  some rules on. */
 export function bodyClassOf(kind: ThemeKind): `vscode-${ThemeKind}` {

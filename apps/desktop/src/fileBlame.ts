@@ -9,7 +9,6 @@
 import path from "node:path";
 
 import { abbrevCommit } from "@ging/core/backend/utils/string";
-import { commitDiffView } from "@ging/core/extension/commitDiff";
 import type { FileBlameService, FileBlameTarget } from "@ging/core/extension/fileBlameService";
 import type { Clipboard, HostLogger, L10n, Prompts } from "@ging/core/host/ports";
 import type {
@@ -19,11 +18,11 @@ import type {
   FileBlameStrings
 } from "@ging/webview/desktop/diff/blameProtocol";
 
-import type { DiffSource, ShowDiff, ShowFile } from "./diffViewer";
-import { pathInRepo } from "./fileHistory";
+import { type DiffSource, type ShowDiff, type ShowFile, commitDiffRequest } from "./diffViewer";
+import { pickTrackedFile } from "./fileHistory";
 
 /** The blame view's words, in the app's language. */
-export function fileBlameStrings(l10n: Pick<L10n, "t">): FileBlameStrings {
+function fileBlameStrings(l10n: Pick<L10n, "t">): FileBlameStrings {
   return {
     toggle: l10n.t("desktop.blame.toggle"),
     blaming: l10n.t("desktop.blame.blaming"),
@@ -35,7 +34,7 @@ export function fileBlameStrings(l10n: Pick<L10n, "t">): FileBlameStrings {
 /** What `source` is to blame: a commit's file — not an index stage's (`:0`,
  *  `:1`…, anything named from `:`), which has no commit to blame it in — or
  *  the working tree's, by its path in `repo`. */
-export function blameTargetOf(source: DiffSource, shownPath: string): FileBlameTarget | null {
+function blameTargetOf(source: DiffSource, shownPath: string): FileBlameTarget | null {
   if ("revision" in source) {
     const { commit, filePath } = source.revision;
     return commit.startsWith(":") ? null : { filePath, revision: commit };
@@ -117,21 +116,9 @@ export function createFileBlame(deps: FileBlameDeps): FileBlame {
       }
       case "openLineChange": {
         const diff = service.lineChange(request.arg);
-        const view =
-          diff === null
-            ? null
-            : commitDiffView(diff, {
-                addedIn: (abbrevHash) => l10n.t("diff.addedIn", abbrevHash),
-                deletedIn: (abbrevHash) => l10n.t("diff.deletedIn", abbrevHash)
-              });
         try {
-          if (view === null) throw new Error("not a line's change of this repository");
-          await deps.showDiff({
-            title: view.title,
-            original: { revision: view.left },
-            modified: { revision: view.right },
-            revealLine: diff!.revealLine
-          });
+          if (diff === null) throw new Error("not a line's change of this repository");
+          await deps.showDiff(commitDiffRequest(diff, l10n));
         } catch (e: unknown) {
           logger.logError(`blame: could not show a line's change: ${String(e)}`);
           void deps.prompts.showError(l10n.t("error.unableToViewDiff"));
@@ -185,19 +172,10 @@ export function createFileBlame(deps: FileBlameDeps): FileBlame {
     },
     async pickAndShow() {
       const root = deps.repo();
-      const picked = await deps.pickFile(root);
-      if (picked === null) return;
-      const filePath = await pathInRepo(root, picked, deps.realpath);
-      if (filePath === null) {
-        void deps.prompts.showError(l10n.t("desktop.fileHistory.notInRepository", picked));
-        return;
-      }
       // An untracked or ignored file has no commit to blame its lines on:
       // said, rather than shown with every line not committed yet.
-      if (!(await deps.isTracked(filePath))) {
-        void deps.prompts.showInformation(l10n.t("desktop.blame.untracked", filePath));
-        return;
-      }
+      const filePath = await pickTrackedFile(deps, root, "desktop.blame.untracked");
+      if (filePath === null) return;
       const name = filePath.split("/").at(-1) ?? filePath;
       try {
         await deps.showFile({

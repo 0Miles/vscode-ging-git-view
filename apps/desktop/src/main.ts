@@ -39,7 +39,8 @@ import { type OsShell, openWebUrl } from "@ging/desktop/ports/opener";
 import {
   createDesktopPrompts,
   type DesktopPrompts,
-  type NativeDialogs
+  type NativeDialogs,
+  pickOne
 } from "@ging/desktop/ports/prompts";
 import type { RequestMessage } from "@ging/shared/types";
 import type { ViewerMessage } from "@ging/webview/desktop/diff/protocol";
@@ -222,30 +223,29 @@ function followSystemTheme(repaint: (theme: Theme) => void): void {
   });
 }
 
-/** The page in `contents`, as a webview instance talks to it; `deliver` hands
- *  it what the page posted, `prompt` shows it one of the instance's prompts
- *  and `diff` one of its diffs (#404) or files (#405), on the same channel as the graph's
- *  messages (ADR-0031). */
-function channelTo(contents: WebContents, logger: HostLogger) {
-  let listener: ((message: RequestMessage) => void | Promise<void>) | null = null;
-  const send = (message: unknown): boolean => {
+/** Hand the page in `contents` a host message; false when it is gone. */
+function sendTo(contents: WebContents) {
+  return (message: unknown): boolean => {
     if (contents.isDestroyed()) return false;
     contents.send(CHANNELS.hostMessage, message);
     return true;
   };
+}
+
+/** The page in `contents`, as a webview instance talks to it; `deliver` hands
+ *  it what the page posted, and `post` shows it one of the instance's prompts,
+ *  its side views' state (#399), or one of its diffs (#404) or files (#405),
+ *  on the same channel as the graph's messages (ADR-0031). */
+function channelTo(contents: WebContents, logger: HostLogger) {
+  let listener: ((message: RequestMessage) => void | Promise<void>) | null = null;
+  const send = sendTo(contents);
   const channel: WebviewChannel = {
     onDidReceiveMessage: (l) => {
       listener = l;
     },
     postMessage: (message) => Promise.resolve(send(message))
   };
-  const prompt = (message: HostPromptMessage) => {
-    send(message);
-  };
-  const sideView = (message: SideViewMessage) => {
-    send(message);
-  };
-  const diff = (message: ViewerMessage) => send(message);
+  const post: (message: HostPromptMessage | SideViewMessage | ViewerMessage) => boolean = send;
   const deliver = (message: RequestMessage) => {
     // A handler that throws has no one else to tell: the dispatch answers what
     // it catches, and this is what it did not.
@@ -253,7 +253,16 @@ function channelTo(contents: WebContents, logger: HostLogger) {
       logger.logError(`webview: handling "${message.command}" failed: ${String(e)}`)
     );
   };
-  return { channel, deliver, prompt, diff, sideView };
+  return { channel, deliver, post };
+}
+
+/** What a path that opens no repository shows: on the Welcome page, or in a
+ *  Tab in place of its graph. */
+function cannotOpenNotice({ l10n }: Pick<SharedServices, "l10n">, repo: string): Notice {
+  return {
+    title: l10n.t("error.unableToLoadGitGraph"),
+    detail: l10n.t("desktop.cannotOpenRepo", repo)
+  };
 }
 
 const thisLaunch: LaunchCommandLine = { argv: process.argv, workingDirectory: process.cwd() };
@@ -387,13 +396,16 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   /** The application menu, built anew for what the window shows now: which
    *  entries are enabled is the template's to say (appMenu.ts). Not before the
    *  shared services, whose language it speaks. */
+  /** Whether the menu as last built took a clone to be busy. */
+  let menuShowsCloning = false;
   const syncMenu = () => {
     if (shared === null) return;
+    menuShowsCloning = repoCloning?.busy() ?? false;
     const template = appMenuTemplate(shared.l10n, menuCommands, process.platform, {
       focus: menuFocus(focusedTab()?.content.page ?? null),
       // Open Recent's entries: the Welcome page's list, as it stands.
       recentRepos: recent?.list().map((entry) => entry.path) ?? [],
-      cloning: repoCloning?.busy() ?? false
+      cloning: menuShowsCloning
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   };
@@ -501,10 +513,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     const host = shared;
     if ("unusable" in target) {
       logger.log(`launch: cannot open ${target.unusable}, not a Git repository`);
-      const notice: Notice = {
-        title: host.l10n.t("error.unableToLoadGitGraph"),
-        detail: host.l10n.t("desktop.cannotOpenRepo", target.unusable)
-      };
+      const notice = cannotOpenNotice(host, target.unusable);
       if (tabList().length === 0) {
         welcomeNotice = notice;
         postWindowState();
@@ -779,36 +788,32 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     // every page of the app does.
     keepPageInPlace(owner.webContents, linksOut);
     win = owner;
-    welcomePrompts = createDesktopPrompts({
+    const welcomeAsker = createDesktopPrompts({
       dialogs: dialogsFor(owner),
       l10n: host.l10n,
       logger,
-      page: {
-        post: (message) => {
-          if (!owner.webContents.isDestroyed()) {
-            owner.webContents.send(CHANNELS.hostMessage, message);
-          }
-        }
-      }
+      page: { post: sendTo(owner.webContents) }
     });
+    welcomePrompts = welcomeAsker;
+    const welcomeGitClients = createRepoGitClients({ gitPath: host.gitPath });
     welcomeCommands = createAppCommands(host, {
-      prompts: welcomePrompts,
+      prompts: welcomeAsker,
       // No repository: Set Git User Details offers every repository alone.
       currentRepo: () => null,
-      gitClientFor: createRepoGitClients({ gitPath: host.gitPath }).gitClientFor,
+      gitClientFor: welcomeGitClients.gitClientFor,
       revealSetting: (key) => settingsWindow?.reveal(key)
     });
 
     /** A graph on `repo` in `view`, its Current repository kept in `state`. */
     const graphPage = (view: WebContentsView, repo: string, state: ExtensionState): TabPage => {
-      const { channel, deliver, prompt, diff, sideView } = channelTo(view.webContents, logger);
+      const { channel, deliver, post } = channelTo(view.webContents, logger);
       // Asked in this Tab's page: a prompt git raises for it comes back here
       // through its askpass route, whichever Tab is in front (#393).
       const prompts = createDesktopPrompts({
         dialogs: dialogsFor(owner),
         l10n: host.l10n,
         logger,
-        page: { post: prompt },
+        page: { post },
         onAsking: (asking) => {
           page.asking = asking;
           postWindowState();
@@ -818,10 +823,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         repo,
         channel,
         prompts,
-        postSideView: sideView,
+        postSideView: post,
         extensionState: state,
         revealSetting: (key) => settingsWindow?.reveal(key),
-        postDiff: diff,
+        postDiff: post,
         // The application menu's File History… (#408) and Blame File…
         // (#409): a file of the Tab's repository, in the system's dialog
         // (`NativeDialogs`, ADR-0032).
@@ -833,14 +838,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
                   host.l10n.t("desktop.fileHistory.pickTitle"),
                   host.l10n.t("desktop.fileHistory.pickButton")
                 ];
-          const picked = await dialogsFor(owner).showOpenDialog({
+          return pickOne(dialogsFor(owner), {
             title,
             buttonLabel,
             // The system's spelling of the folder, not the repository's `/` one.
             defaultPath: path.normalize(root),
             properties: ["openFile"]
           });
-          return picked.canceled ? null : (picked.filePaths[0] ?? null);
         }
       });
       const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
@@ -901,10 +905,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       // In place of a graph, why there is none. Nothing on it should post
       // anything; whatever does is said in the log.
       noticePage: (persisted) => {
-        const notice: Notice = {
-          title: host.l10n.t("error.unableToLoadGitGraph"),
-          detail: host.l10n.t("desktop.cannotOpenRepo", persisted)
-        };
+        const notice = cannotOpenNotice(host, persisted);
         return {
           graph: false,
           page: () => ({ notice }),
@@ -937,9 +938,9 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     // Asked in the window it opens in; a failed `git init` is said in a box
     // over it (`Prompts.showError` is a system dialog either way).
     const repoInit = createRepoInitCommand({
-      prompts: welcomePrompts,
+      prompts: welcomeAsker,
       l10n: host.l10n,
-      gitClientFor: createRepoGitClients({ gitPath: desktopGitPath }).gitClientFor
+      gitClientFor: welcomeGitClients.gitClientFor
     });
     repoOpening = createRepoOpening({
       dialogs: dialogsFor(owner),
@@ -950,7 +951,6 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       openRepo: openInTab,
       resolve: (repo) => tabWindow?.resolve(repo) ?? repo
     });
-    const welcomeAsker = welcomePrompts;
     repoCloning = createRepoCloning({
       prompts: welcomeAsker,
       dialogs: dialogsFor(owner),
@@ -967,7 +967,9 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       openRepo: openInTab,
       onChange: () => {
         postWindowState();
-        syncMenu();
+        // The menu shows only whether a clone is busy, not its progress: built
+        // anew when that flips, not on each progress line.
+        if ((repoCloning?.busy() ?? false) !== menuShowsCloning) syncMenu();
         if (!repoCloning?.busy()) openWaitingLaunches();
       }
     });

@@ -122,19 +122,15 @@ export function attachBlame(
   let shown: BlameGutter | null = null;
   /** Each line's decoration, by its 0-based line. */
   let ids: string[] = [];
-  let width = 0;
   /** Where the pointer is: on an annotation (its 0-based line), on the code,
    *  or neither. */
   let pointedAt: number | null = null;
   let pointerOnCode: monaco.IPosition | null = null;
   const shownKey = editor.createContextKey<boolean>(BLAME_SHOWN, false);
 
-  /** Line `line`'s decoration: its annotation. No hover of its own: the
-   *  provider below writes it, waiting for the host. */
-  function decoration(line: number): monaco.editor.IModelDeltaDecoration {
-    const lines = shown!.lines;
-    const commit = shown!.commits[lines[line]];
-    const first = line === 0 || lines[line - 1] !== lines[line];
+  /** Line `line`'s decoration: its annotation, `content`. No hover of its
+   *  own: the provider below writes it, waiting for the host. */
+  function decoration(line: number, content: string): monaco.editor.IModelDeltaDecoration {
     return {
       range: new monaco.Range(line + 1, 1, line + 1, 1),
       options: {
@@ -142,7 +138,7 @@ export function attachBlame(
         // decoration, its injected text with it, unless told to show it.
         showIfCollapsed: true,
         before: {
-          content: (first ? fit(commit.text, width) : " ".repeat(width)) + GAP,
+          content,
           inlineClassName: BLAME_ANNOTATION_CLASS,
           cursorStops: monaco.editor.InjectedTextCursorStops.None
         }
@@ -227,12 +223,20 @@ export function attachBlame(
       const now = editor.getModel();
       const count =
         next === null || now === null ? 0 : Math.min(next.lines.length, now.getLineCount());
-      width = Math.min(
+      const width = Math.min(
         ANNOTATION_COLUMNS,
         Math.max(0, ...(next?.commits.map((c) => widthOf(c.text)) ?? []))
       );
+      // A commit's annotation on the first of its lines in a row, blank on
+      // the rest: each made once, not once per line.
+      const labels = next?.commits.map((c) => fit(c.text, width) + GAP) ?? [];
+      const blank = " ".repeat(width) + GAP;
+      const lines = next?.lines ?? [];
       const decorations: monaco.editor.IModelDeltaDecoration[] = [];
-      for (let line = 0; line < count; line++) decorations.push(decoration(line));
+      for (let line = 0; line < count; line++) {
+        const first = line === 0 || lines[line - 1] !== lines[line];
+        decorations.push(decoration(line, first ? labels[lines[line]] : blank));
+      }
       ids = editor.deltaDecorations(ids, decorations);
     },
     dispose() {

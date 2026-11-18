@@ -11,9 +11,13 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { abbrevCommit } from "@ging/core/backend/utils/string";
-import { commitDiffView } from "@ging/core/extension/commitDiff";
 import type { HostLogger, L10n, Opener, Prompts } from "@ging/core/host/ports";
-import type { ShowDiff, ShowFile } from "@ging/desktop/diffViewer";
+import {
+  type ShowDiff,
+  type ShowFile,
+  commitDiffRequest,
+  isWithin
+} from "@ging/desktop/diffViewer";
 import { windowsVariable } from "@ging/desktop/terminal";
 import { webUrl } from "@ging/shared/webUrl";
 
@@ -193,12 +197,6 @@ function realpathNative(file: string): Promise<string> {
   );
 }
 
-/** Whether `file` is `root` or inside it; both real paths. */
-function isWithin(root: string, file: string): boolean {
-  const relative = path.relative(root, file);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
 type DesktopOpenerDeps = {
   os: OsShell;
   /** The instance's own: what is said goes to its window. */
@@ -283,18 +281,8 @@ export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
 
     // The diffs, in the diff viewer over the Tab's graph (#404).
     openCommitDiff: async (request) => {
-      const view = commitDiffView(request, {
-        addedIn: (abbrevHash) => l10n.t("diff.addedIn", abbrevHash),
-        deletedIn: (abbrevHash) => l10n.t("diff.deletedIn", abbrevHash)
-      });
       try {
-        return await showDiff({
-          title: view.title,
-          original: { revision: view.left },
-          modified: { revision: view.right },
-          // The view counts from 0, as an editor does; the page from 1.
-          ...(view.reveal === null ? {} : { revealLine: view.reveal + 1 })
-        });
+        return await showDiff(commitDiffRequest(request, l10n));
       } catch (e) {
         // The port answers whether it opened; the graph says it did not.
         logger.logError(`opener: could not show a diff of ${request.newFilePath}: ${String(e)}`);

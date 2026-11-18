@@ -7,7 +7,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { commitDiffView } from "@ging/core/extension/commitDiff";
 import { type FileHistoryService, fileHistoryDiff } from "@ging/core/extension/fileHistoryService";
 import type { HostLogger, L10n, Prompts } from "@ging/core/host/ports";
 import type {
@@ -16,7 +15,7 @@ import type {
   FileHistoryStrings
 } from "@ging/webview/desktop/fileHistory/protocol";
 
-import type { ShowDiff } from "./diffViewer";
+import { type ShowDiff, commitDiffRequest } from "./diffViewer";
 
 /** The panel's words, in the app's language; `{0}` and `{1}` left for the
  *  panel to fill in. */
@@ -97,9 +96,36 @@ export async function pathInRepo(
   return relative.split(path.sep).join("/");
 }
 
+/** What the menu's File History… and Blame File… ask for: a file picked in
+ *  the system's dialog, as a `/`-separated path within `root` — or null,
+ *  once whatever kept it from being one is said: a file outside the
+ *  repository, or one git does not track (`untracked`, the key of what is
+ *  said, given the path). */
+export async function pickTrackedFile(
+  deps: Pick<FileHistoryDeps, "pickFile" | "prompts" | "l10n" | "realpath"> & {
+    isTracked: (filePath: string) => Promise<boolean>;
+  },
+  root: string,
+  untracked: string
+): Promise<string | null> {
+  const { prompts, l10n } = deps;
+  const picked = await deps.pickFile(root);
+  if (picked === null) return null;
+  const filePath = await pathInRepo(root, picked, deps.realpath);
+  if (filePath === null) {
+    void prompts.showError(l10n.t("desktop.fileHistory.notInRepository", picked));
+    return null;
+  }
+  if (!(await deps.isTracked(filePath))) {
+    void prompts.showInformation(l10n.t(untracked, filePath));
+    return null;
+  }
+  return filePath;
+}
+
 export function createFileHistory(deps: FileHistoryDeps): FileHistory {
   const { service, repo, showDiff, post, l10n, logger } = deps;
-  const strings = () => fileHistoryStrings(l10n);
+  const strings = fileHistoryStrings(l10n);
   /** The history open: the `fileHistoryOpen` it answers, null for the one
    *  the menu opened; undefined when none is. */
   let open: number | null | undefined;
@@ -109,14 +135,14 @@ export function createFileHistory(deps: FileHistoryDeps): FileHistory {
   const openHistory = async (request: number | null, filePath: string, start: string | null) => {
     open = request;
     const answer = await service.open({ path: filePath, start });
-    if (answer !== null) post({ command: "fileHistory", request, ...answer, strings: strings() });
+    if (answer !== null) post({ command: "fileHistory", request, ...answer, strings });
   };
 
   return {
     async receive(request) {
       switch (request.command) {
         case "fileHistoryReady":
-          post({ command: "fileHistoryStrings", strings: strings() });
+          post({ command: "fileHistoryStrings", strings });
           return;
         case "fileHistoryOpen":
           return openHistory(request.request, request.path, request.start);
@@ -129,7 +155,7 @@ export function createFileHistory(deps: FileHistoryDeps): FileHistory {
               command: "fileHistory",
               request: request.request,
               ...answer,
-              strings: strings()
+              strings
             });
           }
           return;
@@ -142,16 +168,8 @@ export function createFileHistory(deps: FileHistoryDeps): FileHistory {
           const diff = fileHistoryDiff(repo(), request.entry);
           // A submodule's entry: the panel offers it no diff.
           if (diff === null) return;
-          const view = commitDiffView(diff, {
-            addedIn: (abbrevHash) => l10n.t("diff.addedIn", abbrevHash),
-            deletedIn: (abbrevHash) => l10n.t("diff.deletedIn", abbrevHash)
-          });
           try {
-            await showDiff({
-              title: view.title,
-              original: { revision: view.left },
-              modified: { revision: view.right }
-            });
+            await showDiff(commitDiffRequest(diff, l10n));
           } catch (e: unknown) {
             // Refused (a revision that is none: the page is not taken at its
             // word) or unreadable; the page has no one waiting on it.
@@ -164,21 +182,14 @@ export function createFileHistory(deps: FileHistoryDeps): FileHistory {
       }
     },
     async pickAndShow() {
-      const root = repo();
-      const picked = await deps.pickFile(root);
-      if (picked === null) return;
-      const filePath = await pathInRepo(root, picked, deps.realpath);
-      if (filePath === null) {
-        void deps.prompts.showError(l10n.t("desktop.fileHistory.notInRepository", picked));
-        return;
-      }
       // An untracked or ignored file has no history: said, rather than shown
       // as an empty list that reads as "never changed".
-      if (!(await service.isTracked(filePath))) {
-        void deps.prompts.showInformation(l10n.t("desktop.fileHistory.untracked", filePath));
-        return;
-      }
-      await openHistory(null, filePath, null);
+      const filePath = await pickTrackedFile(
+        { ...deps, isTracked: (file) => service.isTracked(file) },
+        repo(),
+        "desktop.fileHistory.untracked"
+      );
+      if (filePath !== null) await openHistory(null, filePath, null);
     },
     dispose() {
       open = undefined;

@@ -39,8 +39,6 @@ export type TabWindowDeps<V, P extends TabPageLike> = {
   disposeView(view: V): void;
   /** After every change to the Tabs, their order or focus, once it is saved. */
   onChange(): void;
-  /** The known spelling of `repo` among `spellings`, if any (R4). */
-  match?: (repo: string, spellings: string[]) => string | null;
 };
 
 export type TabWindow<V, P extends TabPageLike> = {
@@ -80,7 +78,7 @@ export function layoutTabViews<T>(
 export function createTabWindow<V, P extends TabPageLike>(
   deps: TabWindowDeps<V, P>
 ): TabWindow<V, P> {
-  const { tabStates, repoSource, logger, match = resolveToKnownRepo } = deps;
+  const { tabStates, repoSource, logger } = deps;
 
   const tabs: Tabs<TabContent<V, P>> = createTabs<TabContent<V, P>>({
     dispose: ({ view, page }) => {
@@ -101,8 +99,10 @@ export function createTabWindow<V, P extends TabPageLike>(
   });
 
   const resolve = (repo: string) =>
-    match(repo, [...tabs.list().map((tab) => tab.repo), ...Object.keys(repoSource.getRepos())]) ??
-    repo;
+    resolveToKnownRepo(repo, [
+      ...tabs.list().map((tab) => tab.repo),
+      ...Object.keys(repoSource.getRepos())
+    ]) ?? repo;
 
   const openRepo = (repo: string) => {
     repoSource.addRepo(repo);

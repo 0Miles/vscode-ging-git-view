@@ -6,7 +6,7 @@
  * all of it with fakes. */
 
 import type { HostLogger, L10n } from "@ging/core/host/ports";
-import type { NativeDialogs } from "@ging/desktop/ports/prompts";
+import { type NativeDialogs, pickOne } from "@ging/desktop/ports/prompts";
 
 import type { RepoToOpen, Unusable } from "./repoToOpen";
 
@@ -45,20 +45,22 @@ export type RepoOpening = {
   openRecent(repo: string): Promise<void>;
 };
 
+/** The folder the user chose, its dialog's button saying `button`, or `null`
+ *  when they chose none. */
+export function pickFolder(
+  dialogs: Pick<NativeDialogs, "showOpenDialog">,
+  button: string
+): Promise<string | null> {
+  return pickOne(dialogs, {
+    // `createDirectory` is macOS's: Windows' and Linux's dialogs can make a
+    // folder as they are.
+    properties: ["openDirectory", "createDirectory"],
+    buttonLabel: button
+  });
+}
+
 export function createRepoOpening(deps: RepoOpeningDeps): RepoOpening {
   const { dialogs, l10n, logger } = deps;
-
-  /** The folder the user chose, its dialog's button saying `button`, or
-   *  `null` when they chose none. */
-  const pickFolder = async (button: string): Promise<string | null> => {
-    const { canceled, filePaths } = await dialogs.showOpenDialog({
-      // `createDirectory` is macOS's: Windows' and Linux's dialogs can make a
-      // folder as they are.
-      properties: ["openDirectory", "createDirectory"],
-      buttonLabel: button
-    });
-    return canceled || filePaths.length === 0 ? null : filePaths[0];
-  };
 
   const init = async (folder: string): Promise<void> => {
     const made = await deps.initRepo(folder);
@@ -81,7 +83,7 @@ export function createRepoOpening(deps: RepoOpeningDeps): RepoOpening {
 
   return {
     openFolder: async () => {
-      const folder = await pickFolder(l10n.t("desktop.folderDialog.open"));
+      const folder = await pickFolder(dialogs, l10n.t("desktop.folderDialog.open"));
       if (folder === null) return;
       const target = await deps.check(folder);
       if ("repo" in target) {
@@ -107,7 +109,7 @@ export function createRepoOpening(deps: RepoOpeningDeps): RepoOpening {
     },
 
     initRepo: async () => {
-      const folder = await pickFolder(l10n.t("desktop.folderDialog.initialize"));
+      const folder = await pickFolder(dialogs, l10n.t("desktop.folderDialog.initialize"));
       if (folder !== null) await init(folder);
     },
 

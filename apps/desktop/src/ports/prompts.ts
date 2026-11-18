@@ -29,6 +29,16 @@ export type NativeDialogs = {
   showOpenDialog(options: OpenDialogOptions): Promise<{ canceled: boolean; filePaths: string[] }>;
 };
 
+/** The one path the open dialog was answered with; null when it was
+ *  cancelled, or answered with none. */
+export async function pickOne(
+  dialogs: Pick<NativeDialogs, "showOpenDialog">,
+  options: OpenDialogOptions
+): Promise<string | null> {
+  const { canceled, filePaths } = await dialogs.showOpenDialog(options);
+  return canceled ? null : (filePaths[0] ?? null);
+}
+
 /** The page of the instance that asks: where its prompts are shown. */
 export type PromptPage = {
   post(message: HostPromptMessage): void;

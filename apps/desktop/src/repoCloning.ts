@@ -13,6 +13,8 @@ import type { HostLogger, L10n, Prompts } from "@ging/core/host/ports";
 import type { NativeDialogs } from "@ging/desktop/ports/prompts";
 import type { ClonePanel } from "@ging/webview/desktop/window/protocol";
 
+import { pickFolder } from "./repoOpening";
+
 /** How often at most a clone's progress is shown anew: git writes a line for
  *  every object, and each one shown is a message to the window's page. */
 export const PROGRESS_INTERVAL_MS = 100;
@@ -72,13 +74,7 @@ export function createRepoCloning(deps: RepoCloningDeps): RepoCloning {
   let shownAt = -Infinity;
 
   /** The folder the clone goes in, as the user chose it, or `null`. */
-  const pickParent = async (): Promise<string | null> => {
-    const { canceled, filePaths } = await dialogs.showOpenDialog({
-      properties: ["openDirectory", "createDirectory"],
-      buttonLabel: l10n.t("desktop.folderDialog.clone")
-    });
-    return canceled || filePaths.length === 0 ? null : filePaths[0];
-  };
+  const pickParent = () => pickFolder(dialogs, l10n.t("desktop.folderDialog.clone"));
 
   /** Ask what to clone and where: the URL, trimmed, and the folder for it. */
   const ask = async (): Promise<{ url: string; folder: string } | null> => {
