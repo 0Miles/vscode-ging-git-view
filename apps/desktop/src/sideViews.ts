@@ -44,10 +44,11 @@ import type {
   RepoSource
 } from "@ging/core/host/ports";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
-import type { BranchTreeNode } from "@ging/shared/backend/utils/branchTree";
+import type { BranchTreeLeaf, BranchTreeNode } from "@ging/shared/backend/utils/branchTree";
 import type { GitRepoState } from "@ging/shared/types";
 import type {
   SideViewBranches,
+  SideViewLayout,
   SideViewMessage,
   SideViewRemote,
   SideViewRequest,
@@ -70,7 +71,7 @@ export type SideViewsDeps = {
   /** Into the Tab's page. */
   post(message: SideViewMessage): void;
   branchFacts: Pick<BranchFacts, "facts">;
-  filterStore: Pick<BranchFilterStore, "set" | "onDidChangeFilter">;
+  filterStore: Pick<BranchFilterStore, "get" | "set" | "onDidChangeFilter">;
   repoSource: Pick<RepoSource, "getRepos" | "updateRepoState">;
   config: Pick<
     HostConfig,
@@ -80,12 +81,22 @@ export type SideViewsDeps = {
     | "contextMenuActionsVisibility"
   >;
   l10n: L10n;
-  prompts: Pick<Prompts, "showInformation">;
+  /** The Tab's host prompt overlay: Search Branch is asked there (#459). */
+  prompts: Pick<Prompts, "showInformation" | "pickMany">;
   clipboard: Clipboard;
   remoteCommands: Pick<RemoteCommands, "list" | "add" | "editUrl" | "rename" | "remove">;
   /** Fetch one remote, as the Remotes view's Fetch does in VS Code. */
   fetchRemote(repo: string, remote: string): PromiseLike<void>;
   managePullRequestProviders(): void;
+  /** The instance's View Reflog, the application menu's own (#459). */
+  viewReflog(): PromiseLike<void>;
+  /** The column's layout, the app's (sideViewLayout.ts): each Tab's page is
+   *  told it, and tells it the width the user dragged to (#459). */
+  layout: {
+    get(): SideViewLayout;
+    setWidth(width: number): void;
+    onDidChange(listener: (layout: SideViewLayout) => void): { dispose(): void };
+  };
   /** Tell the graph whether the repo's remote branches are shown now: it
    *  decides which refs its `git log` walks. */
   setShowRemoteBranches(value: boolean): void;
@@ -214,7 +225,11 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
       removeRemote: t("desktop.sideView.removeRemote"),
       copyUrl: t("desktop.sideView.copyUrl"),
       stashes: t("desktop.sideView.stashes"),
-      noStashes: t("desktop.sideView.noStashes")
+      noStashes: t("desktop.sideView.noStashes"),
+      search: t("desktop.sideView.search"),
+      // The application menu's words: the same command.
+      viewReflog: t("desktop.menu.viewReflog"),
+      resize: t("desktop.sideView.resize")
     };
   })();
 
@@ -380,12 +395,64 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     return files;
   };
 
-  // A filter written anywhere — this view, the graph's filter chip, a locate —
-  // moves the highlight, and the dimming with it: the filter exempts what it
-  // holds from hiding.
+  // A filter written anywhere — this view, the graph's filter chip, a locate,
+  // Search Branch — moves the highlight, and the dimming with it: the filter
+  // exempts what it holds from hiding.
   const filterSub = deps.filterStore.onDidChangeFilter((change) => {
     if (change.repo === repo) void readBranches();
   });
+
+  // The column's layout is the app's: a width dragged in another Tab, or the
+  // View menu's Side Views, reaches this one's page too.
+  const sendLayout = (layout: SideViewLayout) => {
+    if (listening) deps.post({ command: "sideViewLayout", layout });
+  };
+  const layoutSub = deps.layout.onDidChange(sendLayout);
+
+  /**
+   * VS Code's Search Branch (`searchBranch` in its branchesView.ts), asked in
+   * the Tab's host prompt overlay (`Prompts.pickMany`): every leaf of the tree
+   * as last read — what the toggles let it list — remote ones first, then
+   * local, each group under its name when there are both; the checked-out
+   * branch marked current; the filter in force checked. What is checked
+   * becomes the filter, written as any filter is (ADR-0033: the highlight is
+   * the filter, so there is no tree selection to set besides): none checked
+   * is Show All, and a prompt dismissed writes nothing.
+   */
+  const search = async () => {
+    if (branches === null) return;
+    const leaves: BranchTreeLeaf[] = [];
+    const walk = (nodes: readonly BranchTreeNode[]) => {
+      for (const node of nodes) {
+        if (node.type === "leaf") leaves.push(node);
+        else walk(node.children);
+      }
+    };
+    walk(branches.roots);
+    if (leaves.length === 0) return;
+    const filter = new Set(deps.filterStore.get(repo));
+    const remote = leaves.filter((leaf) => leaf.isRemote);
+    const local = leaves.filter((leaf) => !leaf.isRemote);
+    const named = remote.length > 0 && local.length > 0;
+    const items = [remote, local].flatMap((group, g) =>
+      group.map((leaf, i) => ({
+        label: displayRef(leaf.branch),
+        description: leaf.isHead ? l10n.t("branchView.current") : undefined,
+        picked: filter.has(leaf.branch),
+        ...(named &&
+          i === 0 && {
+            separatorAbove: g === 0 ? strings.groupRemote : strings.groupLocal
+          }),
+        value: leaf.branch
+      }))
+    );
+    const picked = await deps.prompts.pickMany(items, {
+      placeholder: l10n.t("branchView.search.placeholder"),
+      matchOnDescription: true
+    });
+    if (picked === undefined) return;
+    deps.filterStore.set(repo, picked);
+  };
 
   /** The remote a request names, as it was listed: the URL its Edit starts
    *  from is the one the view showed. */
@@ -409,6 +476,8 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     switch (message.command) {
       case "sideViewReady":
         listening = true;
+        // The page booted with the layout (page.ts); it may have moved since.
+        sendLayout(deps.layout.get());
         send();
         stashWatch.setVisible(true);
         await refresh();
@@ -442,6 +511,15 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
         break;
       case "sideViewManagePullRequestProviders":
         deps.managePullRequestProviders();
+        break;
+      case "sideViewSearch":
+        await search();
+        break;
+      case "sideViewViewReflog":
+        await deps.viewReflog();
+        break;
+      case "sideViewResize":
+        deps.layout.setWidth(message.width);
         break;
       case "sideViewRemote": {
         const target = listed(message.name);
@@ -510,6 +588,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
       listening = false;
       stashWatch.dispose();
       filterSub.dispose();
+      layoutSub.dispose();
     }
   };
 }

@@ -11,6 +11,7 @@ import type {
 import {
   clickElem,
   clickItem,
+  contextMenuEntries,
   createVscodeMock,
   DEFAULT_REPO,
   hear,
@@ -59,7 +60,10 @@ const STRINGS = Object.fromEntries(
     "removeRemote",
     "copyUrl",
     "stashes",
-    "noStashes"
+    "noStashes",
+    "search",
+    "viewReflog",
+    "resize"
   ].map((key) => [key, `<${key}>`])
 ) as SideViewStrings;
 
@@ -123,6 +127,34 @@ const row = (ref: string) => {
   expect(elem, ref).not.toBeNull();
   return elem!;
 };
+
+/** A button on the Branches view's heading. */
+const branchesAction = (action: string) =>
+  document.querySelector<HTMLElement>(`#branchesView .sideViewActions [data-action="${action}"]`);
+
+/** The column's edge, its handle (#459). */
+const resizer = () => document.getElementById("sideViewResizer")!;
+const columnWidth = () => document.documentElement.style.getPropertyValue("--ging-side-view-width");
+
+/** How tall the Branches tree shows, as the virtualization tests lay it out,
+ *  and a row's height. */
+const HEIGHT = 440;
+const ROW = 22;
+const body = () => document.querySelector<HTMLElement>("#branchesView .sideViewBody")!;
+/** The Branches tree's rows in the page. */
+const drawn = () =>
+  Array.from(document.querySelectorAll<HTMLElement>("#branchesView .sideViewBody .sideViewRow"));
+/** Scroll the Branches tree, as the user's wheel would. */
+const scrollTo = (top: number) => {
+  body().scrollTop = top;
+  body().dispatchEvent(new Event("scroll"));
+};
+/** Press `k` where the keyboard is. */
+const pressKey = (k: string, init: KeyboardEventInit = {}) =>
+  document.activeElement!.dispatchEvent(
+    new KeyboardEvent("keydown", { key: k, bubbles: true, ...init })
+  );
+const folder = () => document.querySelector<HTMLElement>('#branchesView [data-key="folder:zz"]')!;
 
 describe("the desktop side views", () => {
   let mock: ReturnType<typeof createVscodeMock>;
@@ -422,6 +454,258 @@ describe("the desktop side views", () => {
   it("asks the host to read the stashes again from its heading", () => {
     clickElem(document.querySelector('#stashView .sideViewActions [data-action="refresh"]')!);
     expect(sideViewPosts()).toEqual([{ command: "sideViewRefresh" }]);
+  });
+
+  // --- Search Branch and View Reflog (#459) ---------------------------------
+
+  it("offers Search Branch first on the Branches heading, named, and asks the host for it", () => {
+    const actions = Array.from(
+      document.querySelectorAll<HTMLElement>("#branchesView .sideViewActions button")
+    ).map((b) => b.dataset.action);
+    expect(actions).toEqual(["search", "showAll", "refresh", "more"]);
+    const search = branchesAction("search")!;
+    expect(search.title).toBe("<search>");
+    expect(search.getAttribute("aria-label")).toBe("<search>");
+    // The Remotes view has none.
+    expect(document.querySelector('#remotesView [data-action="search"]')).toBeNull();
+
+    clickElem(search);
+
+    expect(sideViewPosts()).toEqual([{ command: "sideViewSearch" }]);
+  });
+
+  it("writes a click's filter still waiting before it asks for Search Branch", () => {
+    clickElem(row("topic"));
+    clickElem(branchesAction("search")!);
+
+    expect(sideViewPosts()).toEqual([
+      {
+        command: "sideViewSetFilter",
+        repo: DEFAULT_REPO,
+        branches: ["topic"],
+        seq: expect.any(Number)
+      },
+      { command: "sideViewSearch" }
+    ]);
+  });
+
+  it("offers View Reflog in the Branches view's More Actions, before Clean Up and with it, and asks the host to run it", () => {
+    clickElem(branchesAction("more")!);
+    expect(contextMenuEntries()).toEqual([
+      "<showRemoteBranches>",
+      "<showInactive>",
+      "<showMerged>",
+      "",
+      "<collapseAll>",
+      "<viewReflog>",
+      "<cleanup>"
+    ]);
+    clickItem("<viewReflog>");
+    expect(sideViewPosts()).toEqual([{ command: "sideViewViewReflog" }]);
+
+    // The Remotes view's is as it was.
+    hideMenu();
+    clickElem(document.querySelector('#remotesView .sideViewActions [data-action="more"]')!);
+    expect(contextMenuEntries()).toEqual(["<addRemote>", "", "<managePullRequestProviders>"]);
+  });
+
+  // --- The column's layout (#459) ------------------------------------------
+
+  const layoutIs = (width: number, shown: boolean) =>
+    hear({ command: "sideViewLayout", layout: { width, shown } });
+  const press = (key: string) =>
+    resizer().dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+
+  it("puts a handle on the column's edge that the keyboard moves 10 pixels a step, within bounds", () => {
+    layoutIs(260, true);
+    const handle = resizer();
+    expect(handle.getAttribute("role")).toBe("separator");
+    expect(handle.getAttribute("aria-orientation")).toBe("vertical");
+    expect(handle.tabIndex).toBe(0);
+    expect(handle.getAttribute("aria-label")).toBe("<resize>");
+    expect(columnWidth()).toBe("260px");
+
+    press("ArrowRight");
+    press("ArrowRight");
+    press("ArrowLeft");
+    expect(columnWidth()).toBe("270px");
+    expect(handle.getAttribute("aria-valuenow")).toBe("270");
+    // Each step left where it is, for the host to keep.
+    expect(sideViewPosts()).toEqual([
+      { command: "sideViewResize", width: 270 },
+      { command: "sideViewResize", width: 280 },
+      { command: "sideViewResize", width: 270 }
+    ]);
+
+    layoutIs(165, true);
+    press("ArrowLeft");
+    press("ArrowLeft");
+    expect(columnWidth()).toBe("160px");
+    layoutIs(595, true);
+    press("ArrowRight");
+    expect(columnWidth()).toBe("600px");
+    layoutIs(260, true);
+  });
+
+  it("gives up the whole column when the host hides it, and comes back as wide as it was, the filter highlighted", () => {
+    layoutIs(300, true);
+    layoutIs(300, false);
+    const column = document.getElementById("sideViews")!;
+    expect(column.hidden).toBe(true);
+    expect(resizer().hidden).toBe(true);
+    expect(document.body.classList.contains("gingSideViews")).toBe(false);
+    expect(columnWidth()).toBe("0px");
+
+    // The filter moves while it is hidden.
+    hear(state(["topic"]));
+    layoutIs(300, true);
+    expect(column.hidden).toBe(false);
+    expect(resizer().hidden).toBe(false);
+    expect(document.body.classList.contains("gingSideViews")).toBe(true);
+    expect(columnWidth()).toBe("300px");
+    expect(row("topic").getAttribute("aria-selected")).toBe("true");
+    layoutIs(260, true);
+  });
+
+  // --- The Branches tree, drawn a window at a time (#459) -------------------
+
+  describe("with thousands of branches", () => {
+    /** 2000 local branches: 1998 at the top, and two in a folder last. */
+    const MANY = [
+      ...Array.from({ length: 1998 }, (_, n) => `b${String(n).padStart(4, "0")}`),
+      "zz/one",
+      "zz/two"
+    ];
+    const many = (filter: string[] = []): SideViewStateMessage => ({
+      ...state(filter, false),
+      branches: {
+        roots: buildGroupedBranchRoots(MANY, "b0000"),
+        rows: {},
+        filter,
+        toggles: {
+          showRemoteBranches: true,
+          showInactiveBranches: true,
+          showMergedBranches: true
+        }
+      }
+    });
+    beforeEach(() => {
+      // jsdom lays nothing out: the tree shows 20 rows.
+      Object.defineProperty(body(), "clientHeight", { configurable: true, get: () => HEIGHT });
+      body().scrollTop = 0;
+      hear(many());
+      // Every row shown: the folder, last, opened where it is drawn.
+      scrollTo(MANY.length * ROW);
+      openFolder("folder:zz");
+      scrollTo(0);
+      mock.clearMessages();
+    });
+
+    it("puts only the rows in view, and 20 at most past each edge, in the page", () => {
+      const rows = MANY.length + 1;
+      expect(drawn().length).toBeGreaterThan(0);
+      expect(drawn().length).toBeLessThanOrEqual(HEIGHT / ROW + 40);
+      expect(drawn()[0].dataset.ref).toBe("b0000");
+      // As tall as every row would be.
+      expect(body().querySelector<HTMLElement>(".sideViewRows")!.style.height).toBe(
+        `${rows * ROW}px`
+      );
+
+      scrollTo(1000 * ROW + 7);
+      expect(drawn().length).toBeLessThanOrEqual(HEIGHT / ROW + 40);
+      expect(drawn().map((r) => r.dataset.ref)).toContain("b1000");
+      expect(drawn().map((r) => r.dataset.ref)).not.toContain("b0000");
+
+      // Scrolled to the bottom: the last branch is there.
+      scrollTo(rows * ROW - HEIGHT);
+      expect(drawn().at(-1)!.dataset.ref).toBe("zz/two");
+      expect(drawn().length).toBeLessThanOrEqual(HEIGHT / ROW + 40);
+    });
+
+    it("moves the keyboard to rows that were not in the page, scrolling them into view", () => {
+      clickElem(drawn()[0]);
+      drawn()[0].focus();
+      expect(document.activeElement).toBe(row("b0000"));
+
+      pressKey("End");
+      expect(document.activeElement).toBe(row("zz/two"));
+      expect(body().scrollTop).toBe((MANY.length + 1) * ROW - HEIGHT);
+
+      pressKey("ArrowUp");
+      expect(document.activeElement).toBe(row("zz/one"));
+
+      pressKey("Home");
+      expect(document.activeElement).toBe(row("b0000"));
+      expect(body().scrollTop).toBe(0);
+
+      // Down past the bottom of what shows.
+      for (let n = 0; n < 25; n++) pressKey("ArrowDown");
+      expect(document.activeElement).toBe(row("b0025"));
+      expect(body().scrollTop).toBe(26 * ROW - HEIGHT);
+      // The keys stay the tree's, not the graph's.
+      expect(document.activeElement?.closest("#sideViews")).not.toBeNull();
+    });
+
+    it("keeps the keyboard's row when it scrolls out of the page, and moves on from it", () => {
+      row("b0003").focus();
+      clickElem(row("b0003"));
+      mock.clearMessages();
+
+      scrollTo(1500 * ROW);
+      expect(drawn().map((r) => r.dataset.ref)).not.toContain("b0003");
+      // The tree holds the keyboard, and the tab stop, for the row.
+      expect(document.activeElement).toBe(body());
+      expect(body().tabIndex).toBe(0);
+
+      pressKey("ArrowDown");
+      expect(document.activeElement).toBe(row("b0004"));
+      expect(body().scrollTop).toBe(4 * ROW);
+    });
+
+    it("multi-selects, expands, collapses and opens a menu on rows scrolled to", async () => {
+      scrollTo(1990 * ROW);
+      clickElem(row("b1990"));
+      row("b1995").dispatchEvent(new MouseEvent("click", { bubbles: true, ctrlKey: true }));
+      await vi.waitFor(() =>
+        expect(sideViewPosts()).toEqual([
+          {
+            command: "sideViewSetFilter",
+            repo: DEFAULT_REPO,
+            branches: ["b1990", "b1995"],
+            seq: expect.any(Number)
+          }
+        ])
+      );
+      expect(row("b1990").getAttribute("aria-selected")).toBe("true");
+      expect(row("b1995").getAttribute("aria-selected")).toBe("true");
+
+      clickElem(folder());
+      expect(folder().getAttribute("aria-expanded")).toBe("false");
+      expect(document.querySelector('#branchesView [data-ref="zz/one"]')).toBeNull();
+      clickElem(folder());
+      expect(folder().getAttribute("aria-expanded")).toBe("true");
+      expect(row("zz/one")).toBeDefined();
+
+      hear(many(["b1990", "b1995"]));
+      rightClick(row("b1995"));
+      expect(menuItemLabels()).toContain("<copyNameSelected>");
+      clickItem("<copyNameSelected>");
+      expect(mock.sentOf("copyToClipboard")).toEqual([
+        { command: "copyToClipboard", type: "Branch Name", data: "b1990\nb1995" }
+      ]);
+    });
+
+    it("keeps the scroll and the keyboard's row when a new state comes in", () => {
+      scrollTo(700 * ROW);
+      row("b0705").focus();
+      clickElem(row("b0705"));
+
+      hear(many(["b0705"]));
+
+      expect(body().scrollTop).toBe(700 * ROW);
+      expect(document.activeElement).toBe(row("b0705"));
+      expect(drawn().map((r) => r.dataset.ref)).toContain("b0710");
+    });
   });
 });
 

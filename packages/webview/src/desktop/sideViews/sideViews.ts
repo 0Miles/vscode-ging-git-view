@@ -47,20 +47,43 @@ import {
   singleBranchMenu
 } from "./branchMenu";
 import {
+  clampSideViewWidth,
+  DEFAULT_SIDE_VIEW_LAYOUT,
+  isSideViewLayoutMessage,
   isSideViewStashFilesMessage,
   isSideViewStateMessage,
+  SIDE_VIEW_MAX_WIDTH,
+  SIDE_VIEW_MIN_WIDTH,
+  type SideViewLayout,
   type SideViewRemoteAction,
   type SideViewRequest,
   type SideViewStateMessage
 } from "./protocol";
 import { createStashView } from "./stashView";
-import { SIDE_VIEW_STYLES } from "./styles";
-import { isMenuKey, keyboardMenuEvent, redrawTree, rowKeyed, rowOf, treeKeys } from "./tree";
+import { SIDE_VIEW_ROW_HEIGHT, SIDE_VIEW_STYLES } from "./styles";
+import {
+  isMenuKey,
+  isTreeKey,
+  keyboardMenuEvent,
+  redrawTree,
+  rowKeyed,
+  rowOf,
+  treeKeys
+} from "./tree";
 
 /** How long the tree waits after a click before it writes the filter, so a
  *  run of Ctrl/Cmd-clicks reloads the graph once: VS Code's side view waits as
  *  long (`SELECTION_WRITE_DEBOUNCE_MS`). */
 export const FILTER_WRITE_DELAY_MS = 200;
+
+/** Rows the Branches tree draws past each edge of what shows (#459), so a
+ *  scroll finds them there. 19, not 20: what shows can be cut by both edges,
+ *  two rows more than its height holds, so the rows drawn never exceed its
+ *  height's worth and 40. */
+export const BRANCH_ROWS_OVERSCAN = 19;
+
+/** How far a step of the keyboard moves the column's edge (#459). */
+export const SIDE_VIEW_WIDTH_STEP = 10;
 
 const post: (message: SideViewRequest) => void = postToHost;
 
@@ -92,8 +115,14 @@ function setTitle(view: HTMLElement, text: string) {
  *  not, as in VS Code's side view. */
 const expandedByDefault = (node: BranchTreeNode) => node.type === "group";
 
-/** Start the side views in this page, beside `graph`. Once per page. */
-export function startSideViews(graph: GraphInPage): void {
+/** Start the side views in this page, beside `graph`, laid out as `layout`
+ *  says — the app's, which the host served the page with (#459). Once per
+ *  page. */
+export function startSideViews(
+  graph: GraphInPage,
+  initialLayout: SideViewLayout = DEFAULT_SIDE_VIEW_LAYOUT
+): void {
+  let layout = initialLayout;
   const style = document.createElement("style");
   style.textContent = SIDE_VIEW_STYLES;
   document.head.appendChild(style);
@@ -104,9 +133,19 @@ export function startSideViews(graph: GraphInPage): void {
     sectionHtml("branchesView", true) +
     sectionHtml("remotesView", false /* VS Code's too */) +
     sectionHtml("stashView", true);
-  // First in the page, so Tab reaches it before the graph, as it sits.
-  document.body.insertBefore(aside, document.body.firstChild);
-  document.body.classList.add("gingSideViews");
+  // The column's edge, dragged or moved by the arrows to resize it (#459):
+  // beside the column rather than in it, which clips what overflows it.
+  const resizer = document.createElement("div");
+  resizer.id = "sideViewResizer";
+  resizer.setAttribute("role", "separator");
+  resizer.setAttribute("aria-orientation", "vertical");
+  resizer.setAttribute("aria-valuemin", String(SIDE_VIEW_MIN_WIDTH));
+  resizer.setAttribute("aria-valuemax", String(SIDE_VIEW_MAX_WIDTH));
+  resizer.tabIndex = 0;
+  // First in the page, so Tab reaches it before the graph, as it sits; its
+  // edge after it.
+  document.body.insertBefore(resizer, document.body.firstChild);
+  document.body.insertBefore(aside, resizer);
 
   const branchesView = aside.querySelector<HTMLElement>("#branchesView")!;
   const remotesView = aside.querySelector<HTMLElement>("#remotesView")!;
@@ -134,6 +173,71 @@ export function startSideViews(graph: GraphInPage): void {
   /** The words the headings were last drawn in: redrawn only when they change,
    *  so a state arriving does not take the keyboard off a heading's button. */
   let headerWords: string | null = null;
+
+  // --- The column's layout (#459) ----------------------------------------
+
+  /** Lay the column out as `layout` says. Hidden, it gives up its width
+   *  altogether: `--ging-side-view-width` is what the panels beside it (the
+   *  file history, the diff viewer) start from too. */
+  const applyLayout = () => {
+    const { width, shown } = layout;
+    document.documentElement.style.setProperty(
+      "--ging-side-view-width",
+      shown ? `${width}px` : "0px"
+    );
+    aside.hidden = !shown;
+    resizer.hidden = !shown;
+    document.body.classList.toggle("gingSideViews", shown);
+    resizer.setAttribute("aria-valuenow", String(width));
+  };
+  applyLayout();
+
+  /** The column `width` wide, as far as its bounds let it be. */
+  const resizeTo = (width: number) => {
+    layout = { ...layout, width: clampSideViewWidth(width) };
+    applyLayout();
+  };
+  /** The user left the column where it is: the app's from now on, and the
+   *  graph laid out again for the width it has, as after a pane resized. */
+  const resized = () => {
+    post({ command: "sideViewResize", width: layout.width });
+    window.dispatchEvent(new Event("resize"));
+  };
+
+  resizer.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    // Not a text selection, nor the focus taken from where it is.
+    e.preventDefault();
+    const from = { x: e.clientX, width: layout.width };
+    resizer.setPointerCapture(e.pointerId);
+    document.body.classList.add("sideViewResizing");
+    const move = (ev: PointerEvent) => resizeTo(from.width + ev.clientX - from.x);
+    const end = () => {
+      resizer.removeEventListener("pointermove", move);
+      resizer.removeEventListener("pointerup", end);
+      resizer.removeEventListener("pointercancel", end);
+      document.body.classList.remove("sideViewResizing");
+      if (layout.width !== from.width) resized();
+    };
+    resizer.addEventListener("pointermove", move);
+    resizer.addEventListener("pointerup", end);
+    resizer.addEventListener("pointercancel", end);
+  });
+  resizer.addEventListener("keydown", (e) => {
+    const step =
+      e.key === "ArrowLeft"
+        ? -SIDE_VIEW_WIDTH_STEP
+        : e.key === "ArrowRight"
+          ? SIDE_VIEW_WIDTH_STEP
+          : 0;
+    if (step === 0) return;
+    // The graph's arrows move its rows: not these.
+    e.preventDefault();
+    e.stopPropagation();
+    const before = layout.width;
+    resizeTo(before + step);
+    if (layout.width !== before) resized();
+  });
 
   const menuContext = (): BranchMenuContext => ({
     cmv: state!.cmv,
@@ -207,17 +311,81 @@ export function startSideViews(graph: GraphInPage): void {
     }${node.isMerged ? '<span class="sideViewBadge">✓</span>' : ""}</div>`;
   };
 
+  /** The rows of `branchRows` drawn now, `[first, end)`; null when none are. */
+  let drawnBranches: [number, number] | null = null;
+
+  /** The rows that show at the tree's scroll, and `BRANCH_ROWS_OVERSCAN`
+   *  more past each edge. */
+  const branchWindow = (): [number, number] => {
+    const height = branchesBody.clientHeight;
+    // As far as the rows now reach: fewer than before, the scroll is still
+    // where they ended until the page is laid out again.
+    const top = Math.min(
+      branchesBody.scrollTop,
+      Math.max(0, branchRows.length * SIDE_VIEW_ROW_HEIGHT - height)
+    );
+    return [
+      Math.max(0, Math.floor(top / SIDE_VIEW_ROW_HEIGHT) - BRANCH_ROWS_OVERSCAN),
+      Math.min(
+        branchRows.length,
+        Math.ceil((top + height) / SIDE_VIEW_ROW_HEIGHT) + BRANCH_ROWS_OVERSCAN
+      )
+    ];
+  };
+
+  /**
+   * Draw the rows of the Branches tree that are in its window (#459): a
+   * repository with thousands of branches puts tens of rows in the page, not
+   * thousands. The rows sit in a block as tall as every row would be, pushed
+   * down to where the first drawn one sits, so the tree scrolls as if all
+   * were there. Not again for a window already drawn, unless `force`d: what
+   * the rows say has changed.
+   *
+   * The keyboard stays where it was: on the row it was on, or — that row
+   * scrolled out of the window — on the tree itself, which then holds the
+   * tab stop, and whose keys still act on that row (`branchKeys`).
+   */
+  const drawBranchWindow = (force: boolean) => {
+    if (state === null || branchRows.length === 0 || focusKey === null) return;
+    const [first, end] = branchWindow();
+    if (
+      !force &&
+      drawnBranches !== null &&
+      drawnBranches[0] === first &&
+      drawnBranches[1] === end
+    ) {
+      return;
+    }
+    drawnBranches = [first, end];
+    const at = branchRows.findIndex((r) => r.key === focusKey);
+    const focusDrawn = at >= first && at < end;
+    const hadFocus = branchesBody.contains(document.activeElement);
+    branchesBody.innerHTML = `<div class="sideViewRows" style="height:${
+      branchRows.length * SIDE_VIEW_ROW_HEIGHT
+    }px;padding-top:${first * SIDE_VIEW_ROW_HEIGHT}px">${branchRows
+      .slice(first, end)
+      .map((row) => rowHtml(row, row.key === focusKey))
+      .join("")}</div>`;
+    branchesBody.tabIndex = focusDrawn ? -1 : 0;
+    if (hadFocus) {
+      (focusDrawn ? rowKeyed(branchesBody, focusKey)! : branchesBody).focus({
+        preventScroll: true
+      });
+    }
+  };
+
   const renderBranches = () => {
     const strings = state?.strings;
     const branches = state?.branches ?? null;
-    if (strings === undefined || branches === null) {
-      branchRows = [];
-      branchesBody.innerHTML = "";
-      return;
-    }
-    branchRows = visibleRows(branches.roots);
-    if (branchRows.length === 0) {
-      branchesBody.innerHTML = `<div class="sideViewEmpty">${escapeHtml(strings.noBranches)}</div>`;
+    drawnBranches = null;
+    branchRows = branches === null ? [] : visibleRows(branches.roots);
+    if (strings === undefined || branchRows.length === 0) {
+      // No row to hold the tab stop, and none for the tree to stand in for.
+      branchesBody.removeAttribute("tabindex");
+      branchesBody.innerHTML =
+        strings === undefined || branches === null
+          ? ""
+          : `<div class="sideViewEmpty">${escapeHtml(strings.noBranches)}</div>`;
       return;
     }
     if (focusKey === null || !branchRows.some((r) => r.key === focusKey)) {
@@ -226,12 +394,32 @@ export function startSideViews(graph: GraphInPage): void {
         branchRows[0]
       ).key;
     }
-    redrawTree(
-      branchesBody,
-      branchRows.map((row) => rowHtml(row, row.key === focusKey)).join(""),
-      focusKey
-    );
+    drawBranchWindow(true);
   };
+
+  /** Scroll the Branches tree just far enough to show the row at `index`,
+   *  draw it there, and put the keyboard on it. */
+  const focusBranchRow = (index: number): HTMLElement | null => {
+    const top = index * SIDE_VIEW_ROW_HEIGHT;
+    const height = branchesBody.clientHeight;
+    if (top < branchesBody.scrollTop) branchesBody.scrollTop = top;
+    else if (top + SIDE_VIEW_ROW_HEIGHT > branchesBody.scrollTop + height) {
+      branchesBody.scrollTop = Math.max(0, top + SIDE_VIEW_ROW_HEIGHT - height);
+    }
+    focusKey = branchRows[index].key;
+    drawBranchWindow(true);
+    const row = rowKeyed(branchesBody, focusKey);
+    row?.focus({ preventScroll: true });
+    return row;
+  };
+
+  branchesBody.addEventListener("scroll", () => drawBranchWindow(false));
+  // The tree's height moves as the other views open and close, the window
+  // resizes and the column comes back: as many rows again as then show. Not
+  // in jsdom, which lays nothing out.
+  if (typeof ResizeObserver !== "undefined") {
+    new ResizeObserver(() => drawBranchWindow(false)).observe(branchesBody);
+  }
 
   const renderRemotes = () => {
     const strings = state?.strings;
@@ -278,7 +466,9 @@ export function startSideViews(graph: GraphInPage): void {
         )
         .join("");
     };
+    resizer.setAttribute("aria-label", strings.resize);
     actions(branchesView, [
+      ["search", svgIcons.search, strings.search],
       ["showAll", svgIcons.filter, strings.showAll],
       ["refresh", svgIcons.refresh, strings.refresh],
       ["more", svgIcons.chevronDown, strings.more]
@@ -448,6 +638,13 @@ export function startSideViews(graph: GraphInPage): void {
           renderBranches();
         }
       },
+      // VS Code's Branches title has it among its tools (`2_tools`); here it
+      // is the application menu's, run on this Tab's repository.
+      {
+        title: escapeHtml(strings.viewReflog),
+        icon: "history",
+        onClick: () => post({ command: "sideViewViewReflog" })
+      },
       {
         title: escapeHtml(strings.cleanup),
         icon: "trash",
@@ -504,41 +701,64 @@ export function startSideViews(graph: GraphInPage): void {
     graph.showContextMenu(e, remoteMenu(row.dataset.remote), row);
   });
 
-  treeKeys(
-    branchesBody,
-    (row, e) => {
-      const key = row.dataset.key!;
-      const branchRow = branchRows.find((r) => r.key === key);
-      if (branchRow === undefined) return false;
-      if (e.key === "Enter" || e.key === " ") {
-        activateBranchRow(row, e.ctrlKey || e.metaKey);
-        return true;
-      }
-      if (isMenuKey(e)) {
-        if (row.dataset.ref === undefined) return false;
-        openBranchMenu(keyboardMenuEvent(), row);
-        return true;
-      }
-      if (branchRow.node.type === "leaf") {
-        // Left from a leaf goes up to its folder, as in any tree.
-        if (e.key !== "ArrowLeft" || branchRow.parent === null) return false;
-        focusKey = branchRow.parent;
-        renderBranchesFocused();
-        return true;
-      }
-      const open = isExpanded(branchRow);
-      if (e.key === "ArrowRight" && !open) toggleExpanded(key);
-      else if (e.key === "ArrowLeft" && open) toggleExpanded(key);
-      else if (e.key === "ArrowLeft" && branchRow.parent !== null) {
-        focusKey = branchRow.parent;
-        renderBranchesFocused();
-      } else return false;
+  /** What a key other than the moves does to the row with the keyboard;
+   *  whether it took it. */
+  const onBranchRow = (row: HTMLElement, e: KeyboardEvent): boolean => {
+    const key = row.dataset.key!;
+    const branchRow = branchRows.find((r) => r.key === key);
+    if (branchRow === undefined) return false;
+    if (e.key === "Enter" || e.key === " ") {
+      activateBranchRow(row, e.ctrlKey || e.metaKey);
       return true;
-    },
-    (next) => {
-      focusKey = next.dataset.key!;
     }
-  );
+    if (isMenuKey(e)) {
+      if (row.dataset.ref === undefined) return false;
+      openBranchMenu(keyboardMenuEvent(), row);
+      return true;
+    }
+    if (branchRow.node.type === "leaf") {
+      // Left from a leaf goes up to its folder, as in any tree.
+      if (e.key !== "ArrowLeft" || branchRow.parent === null) return false;
+      focusKey = branchRow.parent;
+      renderBranchesFocused();
+      return true;
+    }
+    const open = isExpanded(branchRow);
+    if (e.key === "ArrowRight" && !open) toggleExpanded(key);
+    else if (e.key === "ArrowLeft" && open) toggleExpanded(key);
+    else if (e.key === "ArrowLeft" && branchRow.parent !== null) {
+      focusKey = branchRow.parent;
+      renderBranchesFocused();
+    } else return false;
+    return true;
+  };
+
+  // The Branches tree's keys, on the tree (`treeKeys`' own, but over every row
+  // of the tree, drawn or not, #459): Up, Down, Home and End move the keyboard
+  // to a row, scrolled to and drawn first; every other key acts on the row
+  // the keyboard is on, even one scrolled out of the window since.
+  branchesBody.addEventListener("keydown", (e) => {
+    if (!isTreeKey(e) || state === null) return;
+    const key = rowOf(document.activeElement)?.dataset.key ?? focusKey;
+    if (!branchesBody.contains(document.activeElement)) return;
+    const at = branchRows.findIndex((r) => r.key === key);
+    if (at === -1) return;
+    const moves: Record<string, number> = {
+      ArrowUp: at - 1,
+      ArrowDown: at + 1,
+      Home: 0,
+      End: branchRows.length - 1
+    };
+    const next = Object.hasOwn(moves, e.key) ? moves[e.key] : null;
+    if (next === null) {
+      const row = focusBranchRow(at);
+      if (row === null || !onBranchRow(row, e)) return;
+    } else if (next >= 0 && next < branchRows.length) {
+      focusBranchRow(next);
+    }
+    e.preventDefault();
+    e.stopPropagation();
+  });
   treeKeys(
     remotesBody,
     (row, e) => {
@@ -552,10 +772,12 @@ export function startSideViews(graph: GraphInPage): void {
     }
   );
 
-  /** Draw, with the keyboard on `focusKey` whether or not it was in the tree. */
+  /** Draw, with the keyboard on `focusKey` whether or not it was in the tree,
+   *  scrolled to where it shows. */
   const renderBranchesFocused = () => {
     renderBranches();
-    rowKeyed(branchesBody, focusKey)?.focus();
+    const at = branchRows.findIndex((r) => r.key === focusKey);
+    if (at !== -1) focusBranchRow(at);
   };
 
   for (const [view, name] of [
@@ -572,6 +794,12 @@ export function startSideViews(graph: GraphInPage): void {
       if (button === null || state === null) return;
       e.stopPropagation();
       switch (button.dataset.action) {
+        case "search":
+          // A click's filter still waiting is written first: the search
+          // starts from what the user last chose.
+          if (pendingWrite !== null) writeFilter();
+          post({ command: "sideViewSearch" });
+          break;
         case "showAll":
           showAll();
           break;
@@ -589,6 +817,19 @@ export function startSideViews(graph: GraphInPage): void {
   window.addEventListener("message", (event: MessageEvent) => {
     if (isSideViewStashFilesMessage(event.data)) {
       stashes.receiveFiles(event.data);
+      return;
+    }
+    if (isSideViewLayoutMessage(event.data)) {
+      const { width, shown } = event.data.layout;
+      const moved = width !== layout.width || shown !== layout.shown;
+      layout = { width: clampSideViewWidth(width), shown };
+      applyLayout();
+      if (moved) {
+        // The graph laid out again for the width it has now; the tree's
+        // window drawn for the height it shows at.
+        window.dispatchEvent(new Event("resize"));
+        drawBranchWindow(false);
+      }
       return;
     }
     if (!isSideViewStateMessage(event.data)) return;

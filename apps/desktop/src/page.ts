@@ -1,5 +1,6 @@
 import type { GitGraphViewState } from "@ging/shared/types";
 import type { SettingsPageState } from "@ging/webview/desktop/settings/protocol";
+import type { SideViewLayout } from "@ging/webview/desktop/sideViews/protocol";
 import { escapeHtml, escapeJsonForHtml } from "@ging/webview/utils/html";
 import type { LocalizedStrings } from "@ging/webview/webviewL10n";
 import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
@@ -23,8 +24,11 @@ export type PageContent =
       graph: {
         viewState: GitGraphViewState;
         l10n: LocalizedStrings;
-        /** Allows the two inline scripts that hand the bundle its globals. */
+        /** Allows the inline scripts that hand the bundle its globals. */
         nonce: string;
+        /** How its side views' column opens (#459): the `sideViewLayout`
+         *  global; the column's defaults without one. */
+        sideViewLayout?: SideViewLayout;
       };
     }
   | { notice: Notice | null }
@@ -94,7 +98,12 @@ export function buildDesktopPage(theme: Theme, content: PageContent): string {
     body = `<body class="${bodyClass}" style="${escapeHtml(colours.variables)}">
 ${buildWebviewMarkup(graph.l10n)}
 <script nonce="${graph.nonce}">var viewState = ${escapeJsonForHtml(graph.viewState)};</script>
-<script nonce="${graph.nonce}">var l10n = ${escapeJsonForHtml(graph.l10n)};</script>`;
+<script nonce="${graph.nonce}">var l10n = ${escapeJsonForHtml(graph.l10n)};</script>${
+      graph.sideViewLayout === undefined
+        ? ""
+        : `
+<script nonce="${graph.nonce}">var sideViewLayout = ${escapeJsonForHtml(graph.sideViewLayout)};</script>`
+    }`;
   } else if (notice !== null) {
     body = `<body class="${bodyClass} unableToLoad">
 <h2>${escapeHtml(notice.title)}</h2>

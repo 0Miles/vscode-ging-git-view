@@ -11,6 +11,7 @@ import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
 import type { RemoteTarget } from "@ging/core/extension/remoteCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
 import type { ListedStashHost } from "@ging/core/extension/stashList";
+import { createSideViewLayoutStore } from "@ging/desktop/sideViewLayout";
 import { createSideViews } from "@ging/desktop/sideViews";
 import type { GitRepoSet, GitRepoState } from "@ging/shared/types";
 import type {
@@ -21,6 +22,7 @@ import type {
 
 import {
   fakePorts,
+  fakeStorage,
   git,
   makeRepo,
   pushTwoStashes,
@@ -149,12 +151,15 @@ function setUp(
   const reads = vi.fn(async (_repo: string, _opts?: { hard?: boolean }) =>
     facts(filterStore.get(REPO))
   );
+  /** The app's column layout, over storage kept in memory. */
+  const layoutStorage = fakeStorage();
+  const layout = createSideViewLayoutStore(layoutStorage.open().global);
   const views = createSideViews({
     repo: stashRepo ?? REPO,
     post: (message) => {
       posted.push(message);
       if (message.command === "sideViewState") sent.push(message);
-      else filesSent.push(message);
+      else if (message.command === "sideViewStashFiles") filesSent.push(message);
     },
     branchFacts: { facts: reads },
     filterStore,
@@ -180,7 +185,10 @@ function setUp(
       showInformation: async (message: string) => {
         told.push(message);
         return undefined;
-      }
+      },
+      // Search Branch's: what it shows lands in `asked`, and it answers
+      // `answers.pickMany` (labels checked; `undefined` dismisses).
+      pickMany: ports.prompts.pickMany
     },
     clipboard: {
       writeText: async (text) => {
@@ -202,6 +210,8 @@ function setUp(
     },
     fetchRemote: async (repo, remote) => void remoteCalls.push(["fetch", `${repo} ${remote}`]),
     managePullRequestProviders: () => void remoteCalls.push(["managePullRequestProviders", ""]),
+    viewReflog: async () => void remoteCalls.push(["viewReflog", ""]),
+    layout,
     setShowRemoteBranches: (value) => void showRemote.push(value),
     stash: {
       git: stashClient?.client ?? NO_GIT,
@@ -268,12 +278,18 @@ function setUp(
     diffs,
     mutations,
     watched,
+    layout,
+    layoutStorage,
     nextStashList: () => stashClient!.nextStashList(),
     holdNextStashList: () => stashClient!.holdNextStashList()
   };
 }
 
 const leafRefs = (message: SideViewStateMessage) => Object.keys(message.branches?.rows ?? {});
+
+/** The rows Search Branch last showed, without their values. */
+const searchRows = (asked: unknown[][]) =>
+  asked.findLast((call) => call[0] === "pickMany")?.[1] as Record<string, unknown>[];
 
 describe("the desktop side views' host half", () => {
   it("sends nothing until the page listens, then both views", async () => {
@@ -379,6 +395,141 @@ describe("the desktop side views' host half", () => {
     views.showAll(REPO);
     expect(filterStore.get(REPO)).toEqual([]);
     await vi.waitFor(() => expect(sent.at(-1)!.branches!.filter).toEqual([]));
+  });
+
+  // --- Search Branch (#459) -------------------------------------------------
+
+  it("lists the tree's branches for Search Branch as VS Code's does: remote first, each group named, the filter checked", async () => {
+    const { views, settled, filterStore, asked, answers } = setUp();
+    filterStore.set(REPO, ["old"]);
+    views.receive({ command: "sideViewReady" });
+    await settled();
+    answers.pickMany = undefined;
+
+    await views.receive({ command: "sideViewSearch" });
+
+    expect(searchRows(asked)).toEqual([
+      { label: "origin/main", picked: false, separatorAbove: "branchView.group.remote" },
+      {
+        label: "main",
+        description: "branchView.current",
+        picked: false,
+        separatorAbove: "branchView.group.local"
+      },
+      { label: "done", picked: false },
+      { label: "old", picked: true }
+    ]);
+    expect(asked.find((call) => call[0] === "pickMany")?.[2]).toEqual({
+      placeholder: "branchView.search.placeholder",
+      matchOnDescription: true
+    });
+  });
+
+  it("lists only what the toggles leave in the tree, and no group names with one group", async () => {
+    const { views, settled, sent, asked, answers, reads, filterStore } = setUp();
+    // What branch facts list with the remote branches not shown.
+    reads.mockImplementation(async () => ({
+      ...facts(filterStore.get(REPO)),
+      branches: ["main", "old", "done"]
+    }));
+    views.receive({ command: "sideViewReady" });
+    await settled();
+    views.receive({ command: "sideViewToggle", field: "showMergedBranches" });
+    await vi.waitFor(() => expect(leafRefs(sent.at(-1)!)).not.toContain("done"));
+    answers.pickMany = undefined;
+
+    await views.receive({ command: "sideViewSearch" });
+
+    expect(searchRows(asked)).toEqual([
+      { label: "main", description: "branchView.current", picked: false },
+      { label: "old", picked: false }
+    ]);
+  });
+
+  it("makes what Search Branch checked the filter, the graph reloaded once and the highlight with it", async () => {
+    const { views, settled, sent, filterStore, answers } = setUp();
+    views.receive({ command: "sideViewReady" });
+    await settled();
+    const changes: string[][] = [];
+    filterStore.onDidChangeFilter((change) => changes.push(change.branches));
+    answers.pickMany = ["origin/main", "old"];
+
+    await views.receive({ command: "sideViewSearch" });
+
+    expect(filterStore.get(REPO)).toEqual(["remotes/origin/main", "old"]);
+    // One write, so one reload of the graph, which follows the store.
+    expect(changes).toEqual([["remotes/origin/main", "old"]]);
+    await vi.waitFor(() =>
+      expect(sent.at(-1)!.branches!.filter).toEqual(["remotes/origin/main", "old"])
+    );
+  });
+
+  it("shows all when Search Branch is answered with nothing checked, and writes nothing when dismissed", async () => {
+    const { views, settled, filterStore, answers } = setUp();
+    filterStore.set(REPO, ["old", "done"]);
+    views.receive({ command: "sideViewReady" });
+    await settled();
+    const changes: string[][] = [];
+    filterStore.onDidChangeFilter((change) => changes.push(change.branches));
+
+    answers.pickMany = undefined;
+    await views.receive({ command: "sideViewSearch" });
+    expect(filterStore.get(REPO)).toEqual(["old", "done"]);
+    expect(changes).toEqual([]);
+
+    answers.pickMany = [];
+    await views.receive({ command: "sideViewSearch" });
+    expect(filterStore.get(REPO)).toEqual([]);
+    expect(changes).toEqual([[]]);
+  });
+
+  it("runs the instance's View Reflog from the Branches view's More Actions", async () => {
+    const { views, remoteCalls } = setUp();
+
+    await views.receive({ command: "sideViewViewReflog" });
+
+    expect(remoteCalls).toEqual([["viewReflog", ""]]);
+  });
+
+  // --- The column's layout (#459) -----------------------------------------
+
+  it("tells the page the app's layout once it listens, and every change after, from anywhere", async () => {
+    const { views, posted, layout, settled } = setUp();
+    layout.setShown(false);
+    expect(posted).toEqual([]);
+
+    views.receive({ command: "sideViewReady" });
+    await settled();
+    expect(posted[0]).toEqual({
+      command: "sideViewLayout",
+      layout: { width: 260, shown: false }
+    });
+
+    // The View menu's Side Views, and a width dragged in another Tab.
+    layout.setShown(true);
+    layout.setWidth(400);
+    const layouts = posted.filter((m) => m.command === "sideViewLayout");
+    expect(layouts.slice(1)).toEqual([
+      { command: "sideViewLayout", layout: { width: 260, shown: true } },
+      { command: "sideViewLayout", layout: { width: 400, shown: true } }
+    ]);
+  });
+
+  it("keeps the width the page's column was dragged to, held to its bounds", async () => {
+    const { views, layout, layoutStorage } = setUp();
+
+    await views.receive({ command: "sideViewResize", width: 333.4 });
+    expect(layout.get().width).toBe(333);
+    await views.receive({ command: "sideViewResize", width: 20 });
+    expect(layout.get().width).toBe(160);
+    await views.receive({ command: "sideViewResize", width: 5000 });
+    expect(layout.get().width).toBe(600);
+
+    // What a Tab opened later reads.
+    expect(createSideViewLayoutStore(layoutStorage.open().global).get()).toEqual({
+      width: 600,
+      shown: true
+    });
   });
 
   it("says why a batch action had nothing left to act on", () => {
