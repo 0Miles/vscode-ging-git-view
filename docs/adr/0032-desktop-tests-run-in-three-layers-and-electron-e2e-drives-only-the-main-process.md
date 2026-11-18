@@ -156,3 +156,16 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **頁面的第一個 diff 有自己的時間預算 `FIRST_DIFF_BUDGET`(30 秒,[diffViewerPage.ts](../../apps/desktop/e2e/diffViewerPage.ts)),之後的 diff 沒有。** 第一個 diff 要先載入約 3.4 MB 的 `monaco.js`,parse 時整個頁面卡住,測試對頁面的每一次讀取(包括 walk 讀宿主回答的 `page.evaluate`)都跟著等。重現過:在壓縮前的 commit(a01f92b,`monaco.js` 7.7 MB)把 renderer 的 CPU 降速 6 倍跑 walk,`viewDiffWithWorking` 的回答等不到 5 秒的預設時間就失敗;壓縮後(1ea0781)在同樣的降速下照樣失敗,所以壓縮只是讓它少見,不是修好;4 倍降速兩者都過;改成下面的等法之後,6 倍降速也過。所以等待改成讀產品本身的狀態 —— 面板在 editor 做好之前標 `aria-busy`(ADR-0031 的同日補記),`diffShown` 等它消失 —— 並給這一次明說的預算;walk 的 `Step.budget` 只用在它的第一個 diff。這是頁面在慢機器上第一次 diff 真的要花的時間,不是放寬等待去蓋過一個 bug。
 - **E2E 的結果放在 `apps/desktop/e2e-results/`,不在 `out/` 底下,失敗的測試留下 trace。** `compile` 會先清空 `out/`,原本的 `out/e2e-results` 跟著消失,失敗的那一輪就什麼都查不到(#404 的第一次紅燈就是這樣)。這些測試自己啟動 app,Playwright 的 `use.trace` 只管它自己 fixture 開的頁面,所以 `diffViewer.spec.ts` 與 `actions.spec.ts` 啟動後用 `context().tracing` 錄,失敗時存成 `app-trace.zip`(`keepTraceIfFailed`;`trace.zip` 是 Playwright 自己的 test trace,只有測試端的步驟與時間);config 的 `trace: "retain-on-failure"` 留給之後用 fixture 的測試。
 - **#391 那條「點 CDV 的檔案只看到尚未支援」的測試移到這裡,改成打開 diff。** walk(`actions.spec.ts`)的 `viewDiff` 與 `viewDiffWithWorking` 改為斷言 diff viewer 出現、app 外面什麼都沒發生、沒有錯誤框,然後把它關掉,不讓它蓋住之後的步驟。
+
+## 補記(2026-11-18,#401)
+
+**階段 C 的收尾驗收是一條 Electron E2E([phaseC.spec.ts](../../apps/desktop/e2e/phaseC.spec.ts)):一個使用者、一次 app 工作階段，epic #291 C「完成的意思」的每個子句是一個具名的 step。** 各子句自己的 spec 驗得更深，這一條證明它們串得起來;圖形的每一個動作仍由 `actions.spec.ts` 的 walk 驗。
+
+- **需要認證的遠端改成「帳密對了就放行」的本機 server([guardedRemote.ts](../../apps/desktop/e2e/guardedRemote.ts))。** 帳密不對時照 #392 回 401;對了就把請求交給 git 自己的 `git http-backend`(CGI,`REMOTE_USER` 讓 receive-pack 可用),所以 clone、push、fetch 是真的通過認證並完成，不只是「有問」。只綁 127.0.0.1,網路仍只用本機。backend 起不來、讀到一半斷掉(EPIPE)或沒有 CGI 回答時回 502,路徑解不開回 400,server 不會因此掛掉或留著不回應的請求。
+- **主程序的替身集中在 [mainProcess.ts](../../apps/desktop/e2e/mainProcess.ts)。** 選單的點擊與 `enabled`、資料夾對話框、訊息框、終端機的替身(`standInTerminals`,可寫進呼叫者自己的清單)與 Linux 上 PATH 裡的假 `x-terminal-emulator`、設定頁的開法，原本各 spec 各一份，改成共用。Linux 上 phaseC 不替換 spawn,PATH 上的假終端機真的被啟動並記下 cwd;Windows 的終端機是 `ComSpec`,不查 PATH,所以 Windows / macOS 用替身。
+- **等 git 做完的等待有自己的時間預算 `GIT_WORK`(30 秒),只用在 git 的工作上:clone / push / fetch 完成、askpass 的問題出現(每個問題都要啟動一次 askpass helper,也就是 app 自己的 binary 以 Node 執行)、git 改了存放庫之後圖形的重畫。** Open Folder、init 與 Tab 標題用預設的 5 秒。這照 #404 `FIRST_DIFF_BUDGET` 的前例：等的是產品本身畫出來的狀態，不是放寬等待去蓋過 race。量測：
+  - Windows 本機，負載高(CPU 約 85%,同時有其他 E2E):clone 6–11 秒、建 branch 並 push 7–17 秒、fetch 6–10 秒、改設定 4–7 秒;一個 askpass 問題要約 2 秒才出現、建好的 branch 要 4.2 秒才畫出來。預設 5 秒時 10 次裡 4 次紅，每次停在不同的 git 等待,trace 顯示頁面一直有回應;同 #473 對 `actions.spec.ts` 的判斷。
+  - CI(ubuntu,PR #478):同樣的步驟 clone 0.9 秒、建 branch 並 push 1.3 秒、fetch 0.7 秒、改設定 1.0 秒。
+  - 每個 step 的耗時印在測試輸出(`phaseC step <秒>: <step>`),之後的 run 都能拿來對照。
+- **「沒裝 VS Code」在 E2E 裡是啟動 env 的條件:** 拿掉 `VSCODE_*`、`GIT_ASKPASS` / `SSH_ASKPASS`,以及 PATH 上放著 `code` 的資料夾 —— 但同時放著 git 的資料夾留著(例如 VS Code 的套件把 `code` 連到 `/usr/bin`),並斷言 git 仍在 PATH 上。真正乾淨的機器是安裝包的事(階段 E)。
+- **有 Tab 時不能 clone(#461)是現況，被斷言並加上 annotation。** walk 因此先 clone;#461 做完時這一行要翻過來。

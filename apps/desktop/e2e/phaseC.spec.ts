@@ -57,8 +57,11 @@ const WEBVIEW_FAILURE = /ERROR: webview |"reportError"/;
  * be asked, a branch created 4.2 s to be drawn, a fetch answered over 5 s to
  * be drawn, and the default 5 s ran out at a different one of them in 4 of 10
  * runs, the page answering throughout; the same as #473 found for
- * actions.spec.ts. Each step's time is written to the output (`step`), CI's
- * among them, to measure this against.
+ * actions.spec.ts. The same steps on CI's ubuntu runner, where each prompt's
+ * helper starts fast: clone 0.9 s, create and push 1.3 s, fetch 0.7 s, the
+ * setting 1.0 s — against 6–11 s, 7–17 s, 6–10 s and 4–7 s on that Windows
+ * machine. Each step's time is written to the output (`step`), to measure
+ * this against.
  */
 const GIT_WORK = { timeout: 30_000 };
 const USERNAME = "alice";
