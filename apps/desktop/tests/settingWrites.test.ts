@@ -55,7 +55,9 @@ function fakeWindow() {
 function subject() {
   const dir = makeTempDir("ging-desktop-setting-writes-");
   onTestFinished(() => rmrf(dir));
-  const settings = openDesktopSettings(dir);
+  /** What the settings file reported. */
+  const errors: string[] = [];
+  const settings = openDesktopSettings(dir, { onError: (message) => errors.push(message) });
   const config = createDesktopConfig(settings);
   const l10n = createL10n(english);
   const windows: ReturnType<typeof fakeWindow>[] = [];
@@ -99,7 +101,7 @@ function subject() {
     expect(settingsWindow.deliver(page, message)).toBe(true);
     await Promise.all(handling);
   };
-  return { settings, config, l10n, settingsWindow, windows, told, post };
+  return { settings, config, l10n, settingsWindow, windows, told, errors, post };
 }
 
 describe("a setting written elsewhere, while the settings window is open", () => {
@@ -243,5 +245,7 @@ describe("following setting writes", () => {
 
     expect(s.config.showTags()).toBe(false);
     expect(s.told).toEqual([["ging-git-view.show.tags"], ["ging-git-view.show.tags"]]);
+    // And the throw is reported, naming the setting written.
+    expect(s.errors).toEqual([expect.stringContaining("ging-git-view.show.tags")]);
   });
 });
