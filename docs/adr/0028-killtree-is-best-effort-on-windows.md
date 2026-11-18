@@ -45,3 +45,10 @@ status: accepted
 - **量測。** core 的 vitest(`packages/core/tests/actions/clone/clone.test.ts`「kills git, its remote helper with it, and removes the folder it made」)與 Electron E2E(`apps/desktop/e2e/clone.spec.ts`「Cancel stops git…」)都對一個永遠不回應的本機 HTTP server clone,取消後斷言目的地不見、server 上的連線歸零。Windows 上 `taskkill /T` 收得掉整棵(git wrapper、git、`git-remote-https`);ubuntu 上靠 process group。
 - **三個缺口仍在。** clone 等 askpass 時,樹裡有 MSYS 的 `sh`(`askpass.sh`)與它啟動的 helper,缺口 2、3 照樣適用;但 askpass 的提示是 modal,蓋住了 clone 面板的取消鈕,從 UI 取消不到正在問帳密的 clone,只有 app 結束會走到那條路(那時 Welcome page 的 `Prompts` 先把提示答成取消,git 自己結束)。
 - **不重開 Job Object 方案。** 最壞的情況是一個逃掉的行程在目的地被刪的同時又寫了一點東西,而刪除的重試會在它結束後收拾;沒有寫到目的地以外的路。
+
+## 補記(2026-11-18,#484)
+
+**`streamGit`(#408 的檔案歷史用)的 `kill` 先關掉 stdout 的讀取端,再 `killTree`。** 它不是 `killTree` 的缺口(git 確實被殺了),是串流讀者自己的:Node 的 child `close` 要等 stdout 關閉。child 結束時 Node 會把暫停的 stdout 放開一次,但檔案歷史的讀者每拿到一段、手上有一頁就再暫停,git 死前已經寫進 pipe 的其餘部分就永遠讀不到結尾 —— `close` 不來,`ended` 不 settle,pipe 的 handle 也留著。剩下的輸出若剛好一次讀完(連同結尾)就沒事,所以它時紅時綠,Windows 的 pipe 一次讀到的量不同,更常紅:Windows CI 上「stops git when closed」逾時 30 秒就是這個(#484)。在本機以 4 MiB 的 blob 讓 git 卡在滿的 pipe 上再殺,舊的 `kill` 每次都卡住(`packages/core/tests/gitSpawn.test.ts` 的 `streamGit` 一組)。
+
+- **關掉讀取端本身也讓還在寫的 git 結束**(寫入失敗),所以即使 `taskkill /T` 漏掉了真正的 git(本 ADR 的三個缺口),它也不會一直卡在 pipe 上。
+- **不改用 `exit` 判斷結束。** `exit` 在 stdio 還開著時就會來,能讓 `ended` 早一點 settle,但 pipe 的 handle 照樣留著沒人關;關掉讀取端是讓兩者都結束的那一步。

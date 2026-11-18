@@ -247,7 +247,15 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
 
   let strings: WorkingTreeStrings | null = null;
   let status: WorkingTreeStatus | null = null;
-  let error: string | null = null;
+  /**
+   * Why the last request failed, and whether it was a read or a change (#466).
+   * A change's reason stays until the viewer makes the next change: the
+   * graph refreshes after every change, failed or not, and the panel reads
+   * itself anew then — a read that must not wipe what the viewer has yet to
+   * see, nor put its own failure in its place. A read's own failure, shown
+   * when no change's is, goes once a read succeeds.
+   */
+  let error: { text: string; from: "read" | "change" } | null = null;
   /** A request is out: the buttons wait for its answer. */
   let busy = false;
   /** The graph refreshed while a request was out: read again once it is in. */
@@ -270,7 +278,7 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
 
   const send = (request: WorkingTreeRequest) => {
     busy = true;
-    error = null;
+    if (request.command !== "workingTreeLoad") error = null;
     render();
     post(request);
   };
@@ -484,7 +492,7 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     }</span>${iconButton("close", s.close, svgIcons.close, false)}</div>`;
     commitPart.innerHTML = `${tickBoxes(s)}<button class="wtCommitButton" id="wtCommitButton" type="button" data-action="commit"${
       cannotCommit() ? ' aria-disabled="true"' : ""
-    }>${escapeHtml(amend ? s.amendCommit : s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error ?? "")}</div>`;
+    }>${escapeHtml(amend ? s.amendCommit : s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error?.text ?? "")}</div>`;
     body.innerHTML = `${operationBar(s)}<div class="wtLists">${lists}</div>`;
     // Only what the draw took away is given the keyboard back: the message
     // box, never taken away, keeps it, its caret and selection untouched.
@@ -637,7 +645,13 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     status = answer.status ?? status;
     // Unreadable this time: what was last read stands, as for the status.
     amendBasis = answer.amend ?? amendBasis;
-    error = answer.error;
+    if (answer.request !== "workingTreeLoad") {
+      error = answer.error === null ? null : { text: answer.error, from: "change" };
+    } else if (error?.from !== "change") {
+      // A change's failure stays through every read, a failed one included:
+      // it is what the viewer has yet to see.
+      error = answer.error === null ? null : { text: answer.error, from: "read" };
+    }
     busy = false;
     const refused = answer.refused;
     if (answer.request === "workingTreeCommit" && error === null && refused === undefined) {
@@ -664,7 +678,7 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     const pushed = refused?.kind === "pushed" ? refused : null;
     // Said in the panel, unless it is a question to ask, and there is a way to.
     if (refused !== undefined && (pushed === null || options.confirm === undefined)) {
-      error = refusalText(refused, s);
+      error = { text: refusalText(refused, s), from: "change" };
     }
     render();
     // Asked after the redraw, so the dialog takes the keyboard from where it

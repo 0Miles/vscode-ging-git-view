@@ -256,15 +256,26 @@ type Step = {
   /** What else it must have done, read once it finished; for a command that
    *  answers nothing, how to tell it finished at all. */
   check?: (answer: ResponseMessage | undefined, outside: Seen[]) => void | Promise<void>;
-  /** Wait, once it has finished, for the graph's own reload after it: a user
-   *  acts on the graph that reload draws. That reload reads the working tree
-   *  (`git status`), which holds the index lock for a moment, and the next
-   *  change to the repository sent while it does would be refused. */
-  settle?: boolean;
-  /** How long its answer and its check may take, past the usual: only for
-   *  what a page does slowly the first time (`FIRST_DIFF_BUDGET`). */
+  /** How long its answer and its check may take, past the usual
+   *  (`ANSWER_BUDGET_MS` for the answer, 10s for the check): only for what a
+   *  page does slowly the first time (`FIRST_DIFF_BUDGET`). */
   budget?: number;
 };
+
+/**
+ * How long the walk waits for a step's answer. Chosen for the costliest step,
+ * not Playwright's 5s default, which the walk once used by omission (#472).
+ * `branchCleanupScan` runs its git one command after another (the cleanup
+ * facts, the default branch's date, a `merge-tree` per branch, kept in turn
+ * for its progress and its cancel), and a git spawn costs 100–250ms on
+ * Windows. Before #475 the scan also read the facts a second time, which
+ * took it past 5s in 1 of 10 walks (1.9–5.0s). Measured since, on Windows with
+ * every core busy and the machine shared with other test runs, 3 walks:
+ * `branchCleanupScan` 2.0–4.1s, `branchCleanupOpen` 0.9–2.0s,
+ * `branchRedundancy` about 2.0s. About four times the worst of them. CI runs
+ * the walk on ubuntu only, where it has stayed under the default.
+ */
+const ANSWER_BUDGET_MS = 16_000;
 
 function step<C extends Command>(
   command: C,
@@ -293,8 +304,7 @@ function actionsOn(repo: string) {
     ): Step =>
       step(command, () => ({ repo, ...request() }) as Omit<Request<C>, "command">, {
         answer: answered(command as ResponseMessage["command"]),
-        check: (answer) => expect(answer, command).toMatchObject({ status: null }),
-        settle: true
+        check: (answer) => expect(answer, command).toMatchObject({ status: null })
       }),
     /** A batch action's answer, and that git did it for every ref. */
     batch: <C extends BatchCommand>(
@@ -302,8 +312,6 @@ function actionsOn(repo: string) {
       request: () => Omit<Request<C>, "command" | "repo">
     ): Step =>
       step(command, () => ({ repo, ...request() }) as Omit<Request<C>, "command">, {
-        // No reload follows: the graph started no batch run of its own, so it
-        // has none to finish.
         answer: answered(command),
         check: (answer) => {
           const results = (answer as { results: { status: string | null }[] }).results;
@@ -424,10 +432,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
   const pick = branchOff("pick", "pick.txt");
   const more = branchOff("more", "more.txt");
   git("checkout", "--quiet", "main");
-  /** A stash of a change to file.txt, and its hash. Made before the app
-   *  starts: once it runs, its own reads of the repository (a refresh's
-   *  `git status`) hold the index lock now and then, and a write of the test's
-   *  own would race them. */
+  /** A stash of a change to file.txt, and its hash. */
   const stash = (content: string) => {
     writeFileSync(path.join(fixture.path, "file.txt"), `${content}\n`);
     git("stash", "push", "--quiet", "-m", content);
@@ -747,8 +752,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     // What writes: files out of the repository, then the repository itself.
     step("fetch", () => ({ repo }), {
       answer: answered("fetch"),
-      check: (answer) => expect(answer).toMatchObject({ status: null }),
-      settle: true
+      check: (answer) => expect(answer).toMatchObject({ status: null })
     }),
     step("createArchive", () => ({ repo, ref: "main" }), {
       answer: success("createArchive"),
@@ -862,7 +866,6 @@ test("every message the dispatch handles finishes, and the webview reports no fa
       },
       {
         answer: answered("cleanUntrackedFiles"),
-        settle: true,
         check: (answer) => {
           expect(answer).toMatchObject({ status: null });
           expect(existsSync(path.join(fixture.path, "untracked.txt"))).toBe(false);
@@ -908,7 +911,7 @@ test("every message the dispatch handles finishes, and the webview reports no fa
 
   const sent = new Set<Command>();
   /** Send one message of the walk, and wait until it has finished. */
-  const run = async ({ command, request, answer, check, settle, budget }: Step) => {
+  const run = async ({ command, request, answer, check, budget }: Step) => {
     const asked = request();
     const answersBefore = (await answersSoFar(page)).length;
     const outsideBefore = (await seenOutside(electronApp)).length;
@@ -920,18 +923,14 @@ test("every message the dispatch handles finishes, and the webview reports no fa
     sent.add(command);
 
     let got: ResponseMessage | undefined;
-    /** Where its answer is among everything the host has posted. */
-    let answeredAt = -1;
     if (answer !== undefined) {
       await expect
         .poll(
           async () => {
-            const all = await answersSoFar(page);
-            answeredAt = all.findIndex((msg, at) => at >= answersBefore && answer(msg));
-            got = all[answeredAt];
+            got = (await answersSoFar(page)).find((msg, at) => at >= answersBefore && answer(msg));
             return got !== undefined;
           },
-          { message: `an answer to ${command}`, timeout: budget }
+          { message: `an answer to ${command}`, timeout: budget ?? ANSWER_BUDGET_MS }
         )
         .toBe(true);
     }
@@ -941,17 +940,6 @@ test("every message the dispatch handles finishes, and the webview reports no fa
       await expect(async () =>
         check(got, (await seenOutside(electronApp)).slice(outsideBefore))
       ).toPass({ timeout: budget ?? 10_000 });
-    }
-    if (settle === true) {
-      await expect
-        .poll(
-          async () =>
-            (await answersSoFar(page))
-              .slice(answeredAt + 1)
-              .some((msg) => msg.command === "loadCommits" && msg.token !== -1),
-          { message: `the graph's reload after ${command}` }
-        )
-        .toBe(true);
     }
   };
   // One after another: each changes what the next one acts on.
