@@ -193,6 +193,40 @@ test("a pickMany answers the rows checked, whether the filter shows them or not"
   expect(await answers(page)).toEqual([{ command: "hostPromptAnswer", id: 4, answer: [0, 2] }]);
 });
 
+test("a pick list writes each named group's name over its rows, while one of them shows (#459)", async ({
+  page
+}) => {
+  await hostSays(
+    page,
+    prompt(7, {
+      kind: "pickMany",
+      items: [
+        { label: "origin/dev", separatorAbove: "Remote" },
+        { label: "origin/topic" },
+        { label: "main", separatorAbove: "Local", picked: true },
+        { label: "topic" }
+      ],
+      matchOnDescription: false
+    })
+  );
+  const overlay = page.locator("#hostPrompt");
+  const names = overlay.locator(".hostPromptGroup");
+  await expect(names).toHaveText(["Remote", "Local"]);
+  // Not rows: neither is an option, nor answers anything.
+  await expect(overlay.locator('[role="option"], li:has(input)')).toHaveCount(4);
+
+  // Each name follows its group: none of Remote's rows match.
+  await page.keyboard.type("ma");
+  await expect(names.filter({ visible: true })).toHaveText(["Local"]);
+  await page.keyboard.press("Control+A");
+  await page.keyboard.type("topic");
+  await expect(names.filter({ visible: true })).toHaveText(["Remote", "Local"]);
+
+  await overlay.getByText("origin/topic").click();
+  await overlay.getByRole("button", { name: "OK" }).click();
+  expect(await answers(page)).toEqual([{ command: "hostPromptAnswer", id: 7, answer: [1, 2] }]);
+});
+
 test("an input masks what is typed when asked for a password, and only then", async ({ page }) => {
   await hostSays(page, prompt(5, { kind: "input", prompt: "Username", password: false }));
   await hostSays(
