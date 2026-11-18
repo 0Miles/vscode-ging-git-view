@@ -232,6 +232,43 @@ describe("a graph instance", () => {
     );
   });
 
+  it("drops its own repository no second time once it has left the known set", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    const other = open(repos[1]);
+    fs.rmSync(path.join(repos[0], ".git"), { recursive: true, force: true });
+    await page.receive({ command: "loadRepos", check: true });
+    const before = sentOf(page.posted, "loadRepos").length;
+    const otherBefore = sentOf(other.posted, "loadRepos").length;
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    // Nothing of its own left to check: answered as an unchecked loadRepos is,
+    // and the set not written, so no other Tab is told of it again.
+    expect(sentOf(page.posted, "loadRepos").slice(before)).toEqual([
+      { command: "loadRepos", repos: {}, lastActiveRepo: null }
+    ]);
+    expect(sentOf(other.posted, "loadRepos")).toHaveLength(otherBefore);
+    expect(Object.keys(shared.repoSource.getRepos())).toEqual([repos[1]]);
+    expect(logged.filter((line) => line.includes("dropped from the known set"))).toHaveLength(1);
+  });
+
+  it("says nothing kept of its own repository once it has left the known set, its folder gone", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    shared.repoSource.dropRepo(repos[0]);
+    rmrf(repos[0]);
+    expect(fs.existsSync(repos[0])).toBe(false);
+    const before = sentOf(page.posted, "loadRepos").length;
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    expect(sentOf(page.posted, "loadRepos").slice(before)).toEqual([
+      { command: "loadRepos", repos: {}, lastActiveRepo: null }
+    ]);
+    expect(logged.filter((line) => line.includes("kept in the known set"))).toEqual([]);
+  });
+
   it("keeps its own repository, its folder not there now, on the recent list (#454)", async () => {
     const { shared, repos, open, logged } = setUp();
     const unmounted = repos[0];
