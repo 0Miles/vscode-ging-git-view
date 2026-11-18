@@ -232,7 +232,10 @@ describe("createRepoLocator", () => {
     const locate = createRepoLocator(realpath);
     const known = ["/link/app", "/work/other"];
 
-    expect(locate("/real/app/src/a.ts", known)).toEqual({ repo: "/link/app", filePath: "src/a.ts" });
+    expect(locate("/real/app/src/a.ts", known)).toEqual({
+      repo: "/link/app",
+      filePath: "src/a.ts"
+    });
     const firstLookupCalls = calls.length;
     for (let i = 0; i < 5; i++) {
       expect(locate("/real/app/src/a.ts", [...known])).toEqual({
@@ -403,8 +406,6 @@ describe("reposNotYetKnown (real file system)", () => {
     const other = path.join(parent, "other");
     fs.mkdirSync(other);
 
-    expect(reposNotYetKnown([toRepoPath(other)], [toRepoPath(repo)])).toEqual([
-      toRepoPath(other)
-    ]);
+    expect(reposNotYetKnown([toRepoPath(other)], [toRepoPath(repo)])).toEqual([toRepoPath(other)]);
   });
 });
