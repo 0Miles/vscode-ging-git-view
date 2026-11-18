@@ -171,13 +171,19 @@ test("a hunk staged through the editor's context menu, opened from the keyboard 
   // The cursor on the first hunk's changed line, then the context menu.
   await modified.locator(".view-line", { hasText: "three" }).click();
   await page.keyboard.press("Shift+F10");
-  await page.getByRole("menuitem", { name: "Stage Hunk" }).click();
-  await diffShown(page, 5_000);
+  const item = page.getByRole("menuitem", { name: "Stage Hunk" });
+  await expect(item).toBeVisible();
+  // Chosen from the keyboard: it is the menu's first item.
+  await page.keyboard.press("ArrowDown");
+  await expect(item).toBeFocused();
+  await page.keyboard.press("Enter");
 
+  // The menu runs its action once it has closed: the index tells when.
+  await expect
+    .poll(() => git("show", ":0:numbers.txt") + "\n")
+    .toBe(numbered((n) => (n === 3 ? "three" : String(n))));
+  await diffShown(page, 5_000);
   await expect(hunkButtons(page)).toHaveCount(1);
-  expect(git("show", ":0:numbers.txt") + "\n").toBe(
-    numbered((n) => (n === 3 ? "three" : String(n)))
-  );
 });
 
 test("a hunk is staged on no line once the file changed on disk after its diff was shown", async () => {
