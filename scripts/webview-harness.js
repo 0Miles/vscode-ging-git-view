@@ -176,6 +176,29 @@ function loadViewStateFixture(out) {
 }
 
 /**
+ * The graph page's markup as both hosts send it: buildWebviewMarkup, the one
+ * source of everything inside <body> before the bootstrap scripts (#442).
+ * Bundled and called rather than copied, as the viewState fixture is, so the
+ * page the E2E drives cannot drift from the real one. Its strings are English,
+ * built as the webview suites build them (packages/webview/tests/setup.ts):
+ * each key looked up in the base bundle, the key itself where it has nothing.
+ *
+ * @param {string} out
+ * @returns {string}
+ */
+function loadGraphMarkup(out) {
+  /** @type {typeof import("../packages/webview/src/webviewMarkup")} */
+  const markup = requireBundled(path.join(WEBVIEW, "src", "webviewMarkup.ts"), out);
+  /** @type {typeof import("../packages/webview/src/webviewL10n")} */
+  const l10n = requireBundled(path.join(WEBVIEW, "src", "webviewL10n.ts"), out);
+  /** @type {Record<string, string>} */
+  const english = JSON.parse(
+    fs.readFileSync(path.join(ROOT, "packages", "shared", "l10n", "bundle.l10n.json"), "utf8")
+  );
+  return markup.buildWebviewMarkup(l10n.getWebviewLocalizedStrings((key) => english[key] || key));
+}
+
+/**
  * The TypeScript module at `entryPoint`, bundled by esbuild into `out` (as
  * `<its name>.cjs`) and required from there.
  *
@@ -281,32 +304,7 @@ function buildWebviewHarness(entry) {
 <style>:root{${ROOT_VARS}} html,body{height:100%;} ${colorParams}</style>
 </head>
 <body style="${colorVars}">
-  <div id="controls">
-    <div id="controlsLeft">
-      <div id="repoTitle">
-        <span id="repoTitleName"></span>
-        <span id="repoTitleBranch"></span>
-      </div>
-      <div id="branchFilterChip">
-        <span id="branchFilterIcon"></span>
-        <span id="branchFilterText"></span>
-        <div id="branchFilterClear" title="Show All"></div>
-      </div>
-    </div>
-    <div id="findBtn" class="iconBtn" title="Find"></div>
-    <div id="terminalBtn" class="iconBtn" title="Terminal"></div>
-    <div id="blinkHeadBtn" class="iconBtn" title="Locate HEAD"></div>
-    <div id="fetchBtn" class="iconBtn" title="Fetch"></div>
-    <div id="refreshBtn" class="iconBtn" title="Refresh"></div>
-  </div>
-  <div id="conflictBanner"></div>
-  <div id="content"><div id="commitGraph"></div><div id="commitTable"></div></div>
-  <div id="footer"></div>
-  <div id="findWidget"><input id="findInput" type="text"><span id="findCount"></span><div id="findPrev" class="findBtn"></div><div id="findNext" class="findBtn"></div><div id="findOpenCdv" class="findBtn">&#9776;</div><div id="findClose" class="findBtn"></div></div>
-  <ul id="contextMenu" role="menu" tabindex="-1"></ul>
-  <div id="dialogBacking"></div>
-  <div id="dialog" tabindex="-1"></div>
-  <div id="scrollShadow"></div>
+  ${loadGraphMarkup(out)}
   <script>
     window.l10n = new Proxy({}, { get: (_, p) => (typeof p === "string" ? p : "") });
     window.viewState = ${JSON.stringify(viewState)};
