@@ -2,11 +2,19 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { isGitRepository } from "@ging/core/backend/utils/git";
 import { searchDirectoryForRepos } from "@ging/core/backend/utils/repoSearch";
 
 import { git, rmrf, toRepoPath } from "@ging/core/tests/helpers";
+
+// The real `isGitRepository`, wrapped so a test can count how many times the
+// search asks git — each call is a spawn.
+vi.mock("@ging/core/backend/utils/git", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@ging/core/backend/utils/git")>();
+  return { ...actual, isGitRepository: vi.fn(actual.isGitRepository) };
+});
 
 // `searchDirectoryForRepos` is only ever handed forward-slash paths in production
 // (its callers go through `getPathFromUri`) and builds child paths the same way,
@@ -140,5 +148,59 @@ describe("searchDirectoryForRepos", () => {
     } finally {
       rmrf(superRoot);
     }
+  });
+
+  describe("asking git", () => {
+    beforeEach(() => {
+      vi.mocked(isGitRepository).mockClear();
+    });
+
+    it("finds the repo it starts in when it starts in a subfolder of one", async () => {
+      const sub = `${repoA}/deeper/sub`;
+      fs.mkdirSync(sub, { recursive: true });
+      try {
+        const result = await searchDirectoryForRepos(sub, 2, "git", []);
+        expect(result).toEqual([sub]);
+      } finally {
+        rmrf(`${repoA}/deeper`);
+      }
+    });
+
+    it("asks git once for the start and once per folder with a .git entry", async () => {
+      // root/          (not a repo)
+      //   a/ a/x/ a/x/p/   b/ b/y/   c/   — six plain folders
+      //   a/r1/        repo (depth 2)
+      //   b/y/r2/      repo (depth 3)
+      const root = toRepoPath(fs.mkdtempSync(path.join(os.tmpdir(), "ngg-count-")));
+      try {
+        for (const d of ["a/x/p", "b/y", "c"]) fs.mkdirSync(`${root}/${d}`, { recursive: true });
+        initRepo(`${root}/a/r1`);
+        initRepo(`${root}/b/y/r2`);
+        vi.mocked(isGitRepository).mockClear();
+
+        const result = await searchDirectoryForRepos(root, 3, "git", []);
+
+        expect(result.toSorted()).toEqual([`${root}/a/r1`, `${root}/b/y/r2`].toSorted());
+        expect(vi.mocked(isGitRepository)).toHaveBeenCalledTimes(3);
+      } finally {
+        rmrf(root);
+      }
+    });
+
+    it("walks past a .git entry git does not recognise, and finds the repo below it", async () => {
+      // root/broken/.git/   empty: not a repository
+      // root/broken/inner/  repo
+      const root = toRepoPath(fs.mkdtempSync(path.join(os.tmpdir(), "ngg-broken-")));
+      try {
+        fs.mkdirSync(`${root}/broken/.git`, { recursive: true });
+        initRepo(`${root}/broken/inner`);
+
+        const result = await searchDirectoryForRepos(root, 2, "git", []);
+
+        expect(result).toEqual([`${root}/broken/inner`]);
+      } finally {
+        rmrf(root);
+      }
+    });
   });
 });
