@@ -215,3 +215,10 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **工廠多一個 `createFileViewer(container, { document, theme })`,回傳的 `FileViewer` 只有 `setTheme`、`focus`、`dispose`**([editors.ts](../../packages/webview/src/desktop/editors.ts))。#404 的檔頭已預告本票在旁邊加自己的 maker。Monaco 那一側([monacoEditors.ts](../../apps/desktop/src/web/monacoEditors.ts))是 `monaco.editor.create` 加 `readOnly: true`,model 的 URI 帶檔案的路徑(scheme `ging-file`),Monaco 照副檔名決定語言著色,與 diff 的兩個 model 同一招。載入沿用 `lazyEditors.ts`:同一個 `monaco.js`,頁面第一次要 diff 或檔案時才載入,只載入一次。blame(#409)在 `FileViewer` 上長出 gutter 的註記,依「先有呼叫端」不先寫。
 - **協定:宿主送 `showFile`(`ShowFileMessage`,[desktop/diff/protocol.ts](../../packages/webview/src/desktop/diff/protocol.ts)),不是讓 `showDiff` 帶一個空的一側。** 帶標題、一份 `DiffDocument`、`notShown`,以及它自己的字(`close`、`cannotShow`;沒有版面切換,所以沒有那兩個按鈕的字)。`FILE_COMMANDS_STAY_APART` 檢查它不與 `ResponseMessage` 撞名;宿主那一側的 `postDiff` 收兩者的聯集 `ViewerMessage`。
 - **顯示檔案時,面板的 side-by-side / inline 按鈕整組隱藏(`hidden`),關閉鈕的字是「Close File」。** 記住的 diff 版面不受影響,下一個 diff 照舊用它。
+
+## 補記(2026-11-18,#479)
+
+**working tree 面板的訊息框不再隨重繪離開頁面。** 上面 #403 補記說「面板每次收到回答都整個重繪」;訊息框原本是重繪後再 prepend 回去,移出頁面的那一刻它就失去焦點(連同進行中的 IME 組字),而 `refocus` 認不得沒有 `data-action` 的訊息框,焦點落到清單的第一個按鈕。使用者打字時剛好來一則回答(例如檔案監看觸發的重讀),之後打的字就不進訊息框。
+
+- 面板建立時就建好固定的骨架(commit 區在第一次繪製前隱藏):標題、commit 區(訊息框加上每次重寫的那一段)、清單區。每次重繪只寫骨架裡那幾段的 `innerHTML`,訊息框從頭到尾留在原處,焦點、游標與選取範圍都不受影響。那幾段的外層是 `display: contents`,版面與原本面板的子元素相同。
+- 重繪後只有「被拿走的」焦點才放回去:焦點仍在面板裡(訊息框)就不動它。按鈕與檔案列的焦點規則不變。
