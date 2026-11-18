@@ -37,17 +37,40 @@ async function submoduleRepos(repo: string): Promise<string[]> {
   return checks.filter((d): d is string => d !== null);
 }
 
-export async function searchDirectoryForRepos(
+/**
+ * The repositories in `directory` and up to `maxDepth` folders below it, each
+ * with the initialised submodules its `.gitmodules` declares. Folders in or
+ * under `knownRepoPaths` are skipped.
+ *
+ * Git is asked about `directory` itself, so a search that starts anywhere
+ * inside a working tree finds it. Below a start that is in none, a folder can
+ * only be in one by being its top, which has a `.git` entry; so only those
+ * folders are put to git, a spawn apiece, rather than every folder walked.
+ */
+export function searchDirectoryForRepos(
   directory: string,
   maxDepth: number,
   gitPath: string,
   knownRepoPaths: string[]
 ): Promise<string[]> {
+  return search(directory, maxDepth, gitPath, knownRepoPaths, true);
+}
+
+async function search(
+  directory: string,
+  maxDepth: number,
+  gitPath: string,
+  knownRepoPaths: string[],
+  isStart: boolean
+): Promise<string[]> {
   if (knownRepoPaths.some((r) => directory === r || directory.startsWith(r + "/"))) {
     return [];
   }
 
-  const isRepo = await isGitRepository(directory, gitPath);
+  // A `.git` entry git does not take for a repository (an empty folder, say)
+  // is not one, and the walk goes on below it.
+  const isRepo =
+    (isStart || (await hasGitEntry(directory))) && (await isGitRepository(directory, gitPath));
   if (isRepo) {
     // Also surface any git submodules declared in the repo's .gitmodules.
     return [directory, ...(await submoduleRepos(directory))];
@@ -70,7 +93,7 @@ export async function searchDirectoryForRepos(
   }
 
   const results = await evalPromises(dirs, 2, (dir) =>
-    searchDirectoryForRepos(dir, maxDepth - 1, gitPath, knownRepoPaths)
+    search(dir, maxDepth - 1, gitPath, knownRepoPaths, false)
   );
   return results.flat();
 }
