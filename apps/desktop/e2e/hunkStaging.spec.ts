@@ -186,6 +186,37 @@ test("a hunk staged through the editor's context menu, opened from the keyboard 
   await expect(hunkButtons(page)).toHaveCount(1);
 });
 
+test("a hunk staged from the editor's context menu with the mouse, listed only in a hunk", async () => {
+  const { path: dir, git } = repoWithTwoHunks();
+  const page = await launch(dir);
+  await row(page, "unstaged").click();
+  await diffShown(page);
+  const modified = page.locator("#diffViewer .editor.modified");
+  const item = page.getByRole("menuitem", { name: "Stage Hunk" });
+
+  // Outside every hunk (line 10), the menu has no hunk to offer.
+  await modified.locator(".view-line", { hasText: /^10$/ }).click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "Copy" })).toBeVisible();
+  await expect(item).toHaveCount(0);
+
+  // On the first hunk's changed line, it does.
+  await modified.locator(".view-line", { hasText: "three" }).click({ button: "right" });
+  // Pressed as a person presses it, the button held a moment: Monaco's menu
+  // takes an item's mouseup only from 100 ms after it draws the menu
+  // (`runOnceToEnableMouseUp` in its menu.js, so the click that opened a
+  // menu cannot also run an item), and a click Playwright sends the moment
+  // the item shows can be sooner. Measured: such a click is dropped and the
+  // menu stays open; one at 112 ms or later runs the item, the target under
+  // the pointer being the item itself (#406's status record).
+  await item.click({ delay: 150 });
+
+  await expect
+    .poll(() => git("show", ":0:numbers.txt") + "\n")
+    .toBe(numbered((n) => (n === 3 ? "three" : String(n))));
+  await diffShown(page, 5_000);
+  await expect(hunkButtons(page)).toHaveCount(1);
+});
+
 test("a hunk is staged on no line once the file changed on disk after its diff was shown", async () => {
   const { path: dir, git } = repoWithTwoHunks();
   const page = await launch(dir);
