@@ -6,10 +6,20 @@
  *
  * Today the one caller is the diff viewer (diff/diffPanel.ts), so a diff
  * viewer is all the factory makes. A file read-only at a revision (#405) adds
- * its own maker beside it; hunk staging (#406) grows what a `DiffViewer` can
- * do. Each when it has a caller (ADR-0027). */
+ * its own maker beside it, when it has a caller (ADR-0027). Hunk staging
+ * (#406) is a choice the viewer offers on each hunk it is given. */
+
+import type { FileHunk } from "@ging/shared/backend/types";
 
 import type { DiffDocument } from "./diff/protocol";
+
+/** Hunks of the diff for the user to act on one at a time (#406): a control
+ *  at each, `label` its word, `choose` called with the hunk's index. */
+export type HunkActions = {
+  label: string;
+  hunks: FileHunk[];
+  choose(index: number): void;
+};
 
 /** The page's theme, as `<body>`'s `vscode-dark` / `vscode-light` says. */
 export type ThemeKind = "dark" | "light";
@@ -25,6 +35,9 @@ export type DiffViewerOptions = {
   theme: ThemeKind;
   /** A 1-based line of `modified` to reveal and put the cursor on. */
   revealLine: number | null;
+  /** Hunks to offer an action on, each above its first line in `modified`;
+   *  none offered when absent. */
+  hunks?: HunkActions;
 };
 
 /** A read-only diff of two documents, drawn in the element it was made in. */

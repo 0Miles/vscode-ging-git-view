@@ -15,7 +15,7 @@ import { askInGraphDialog, startGitGraphView } from "@ging/webview/gitGraphView"
 import { sendMessage, vscode } from "@ging/webview/utils/vscode";
 
 import { createDiffPanel } from "./diff/diffPanel";
-import { isShowDiffMessage } from "./diff/protocol";
+import { type DiffHunkRequest, isShowDiffMessage } from "./diff/protocol";
 import type { EditorFactory } from "./editors";
 import { type HostPromptReply, isHostPromptMessage } from "./hostPrompt";
 import { createHostPromptOverlay } from "./hostPromptOverlay";
@@ -23,6 +23,7 @@ import type { SettingsPageState } from "./settings/protocol";
 import { startSettingsPage } from "./settings/settingsPage";
 import { startSideViews } from "./sideViews/sideViews";
 import { startWindowPage } from "./window/windowPage";
+import type { WorkingTreeShowDiffRequest } from "./workingTree/protocol";
 import { startWorkingTreePanel } from "./workingTree/workingTreePanel";
 
 /** Which entry the page loaded, for the desktop host's E2E to read (#386).
@@ -52,12 +53,19 @@ function listenForHostPrompts() {
   replyToHost({ command: "hostPromptReady" });
 }
 
+/** Not `RequestMessage`s either: a working tree file's diff asked for (#460)
+ *  and a hunk staged from it (#406). Cast as `replyToHost`'s replies are. */
+function askHost(request: WorkingTreeShowDiffRequest | DiffHunkRequest) {
+  vscode.postMessage(request as unknown as RequestMessage);
+}
+
 /** Show the diffs the host sends (#404) in the diff viewer. Like the prompts'
  *  listener, this one drops everything else; the graph's drops these. A diff
  *  that cannot be shown is said in the viewer, and, uncaught, reaches the
- *  graph's error reporter (ADR-0016). */
+ *  graph's error reporter (ADR-0016). A hunk staged or unstaged in it (#406)
+ *  is the host's to apply. */
 function listenForDiffs(editors: EditorFactory) {
-  const panel = createDiffPanel(editors);
+  const panel = createDiffPanel(editors, { askHunk: askHost });
   window.addEventListener("message", (event: MessageEvent) => {
     if (isShowDiffMessage(event.data)) void panel.show(event.data);
   });
@@ -103,7 +111,17 @@ export function startDesktopEntry({ editors }: DesktopEntryDeps): void {
         listenForHostPrompts();
         // Beside the graph, on its repository (#403), asking in the graph's own
         // dialog before it rewrites pushed history (#407).
-        startWorkingTreePanel({ confirm: askInGraphDialog });
+        // Its files' diffs open in the diff viewer, by the host (#460).
+        startWorkingTreePanel({
+          confirm: askInGraphDialog,
+          showDiff: (file, area) =>
+            askHost({
+              command: "workingTreeShowDiff",
+              path: file.path,
+              ...(file.oldPath !== undefined && { oldPath: file.oldPath }),
+              area
+            })
+        });
         // And what it opens a diff in (#404): over the graph it is of.
         listenForDiffs(editors);
       }

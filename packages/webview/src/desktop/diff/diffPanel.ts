@@ -14,11 +14,12 @@ import type {
   DiffLayout,
   DiffViewer,
   EditorFactory,
+  HunkActions,
   ThemeKind
 } from "@ging/webview/desktop/editors";
 
 import { DIFF_PANEL_STYLES } from "./diffPanelStyles";
-import type { ShowDiffMessage } from "./protocol";
+import type { DiffHunkRequest, ShowDiffMessage } from "./protocol";
 
 /** Where the layout last chosen is kept: the page's own origin, for this
  *  user, across sessions. A convenience — lost, the viewer opens side by side. */
@@ -67,10 +68,15 @@ function themeOf(doc: Document): ThemeKind {
 const CLOSE_ICON =
   '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"/></svg>';
 
-export function createDiffPanel(
-  editors: EditorFactory,
-  options: { storage?: Storage | null } = {}
-): DiffPanel {
+export type DiffPanelOptions = {
+  /** Where the layout is remembered; the page's own storage when not given. */
+  storage?: Storage | null;
+  /** Ask the host to stage or unstage a hunk (#406). Without it, no diff
+   *  offers any. */
+  askHunk?: (request: DiffHunkRequest) => void;
+};
+
+export function createDiffPanel(editors: EditorFactory, options: DiffPanelOptions = {}): DiffPanel {
   const storage = options.storage === undefined ? pageStorage() : options.storage;
   let parts: ReturnType<typeof build> | null = null;
   let viewer: DiffViewer | null = null;
@@ -127,9 +133,15 @@ export function createDiffPanel(
     const notice = document.createElement("p");
     notice.className = "diffViewerNotice";
     notice.hidden = true;
+    // Over the editor: why the diff offers no hunk, or what became of the
+    // last one asked for (#406).
+    const said = document.createElement("p");
+    said.className = "diffViewerSaid";
+    said.setAttribute("role", "status");
+    said.hidden = true;
     const editorArea = document.createElement("div");
     editorArea.className = "diffViewerEditor";
-    panel.append(bar, error, notice, editorArea);
+    panel.append(bar, error, notice, said, editorArea);
 
     panel.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
@@ -153,7 +165,7 @@ export function createDiffPanel(
     });
 
     document.body.append(panel);
-    return { panel, title, layoutButtons, close, error, notice, editorArea };
+    return { panel, title, layoutButtons, close, error, notice, said, editorArea };
   }
 
   function showLayout(p: NonNullable<typeof parts>) {
@@ -175,6 +187,36 @@ export function createDiffPanel(
   function disposeViewer() {
     viewer?.dispose();
     viewer = null;
+  }
+
+  /** The hunks `message` offers, for the diff shown as `generation` `mine`.
+   *  One hunk is asked for at a time: the host answers with the file's diff
+   *  shown anew, and a second click on this one would name a hunk of a diff
+   *  that is no longer there. */
+  function hunkActions(message: ShowDiffMessage, mine: number): HunkActions | undefined {
+    const offered = message.hunks;
+    const askHunk = options.askHunk;
+    if (offered === undefined || askHunk === undefined || offered.hunks.length === 0) {
+      return undefined;
+    }
+    let asked = false;
+    return {
+      label: offered.label,
+      hunks: offered.hunks,
+      choose: (index) => {
+        if (asked || mine !== generation || parts === null) return;
+        asked = true;
+        // Busy until the diff comes back, as while an editor is made.
+        parts.panel.setAttribute("aria-busy", "true");
+        askHunk({
+          command: "diffHunk",
+          path: offered.path,
+          area: offered.area,
+          token: offered.token,
+          hunk: index
+        });
+      }
+    };
   }
 
   function closePanel() {
@@ -216,6 +258,8 @@ export function createDiffPanel(
       showLayout(p);
       p.error.hidden = true;
       p.notice.hidden = true;
+      p.said.textContent = message.said ?? "";
+      p.said.hidden = message.said === undefined;
       p.editorArea.replaceChildren();
       if (message.notShown !== null) {
         // No text to compare: said in one line, and no editor made.
@@ -234,13 +278,15 @@ export function createDiffPanel(
       p.panel.setAttribute("aria-busy", "true");
 
       const asked = { layout, theme: themeOf(document) };
+      const hunks = hunkActions(message, mine);
       let made: DiffViewer;
       try {
         made = await editors.createDiffViewer(container, {
           original: message.original,
           modified: message.modified,
           ...asked,
-          revealLine: message.revealLine
+          revealLine: message.revealLine,
+          ...(hunks !== undefined && { hunks })
         });
       } catch (e) {
         // A diff closed or replaced meanwhile has nobody to tell: no failure
