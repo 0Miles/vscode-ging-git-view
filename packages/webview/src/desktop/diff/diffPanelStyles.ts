@@ -1,21 +1,24 @@
-/* The diff viewer's styles (#404). Written into the page by the desktop entry's
- * own bundle rather than added to media/main.css, which ships in the
- * extension too (ADR-0031). Only `--vscode-*` variables the desktop theme
- * gives (`apps/desktop/tests/theme.test.ts`).
+/* The diff viewer's styles (#404), a file shown read-only in it too (#405).
+ * Written into the page by the desktop entry's own bundle rather than added
+ * to media/main.css, which ships in the extension too (ADR-0031). Only
+ * `--vscode-*` variables the desktop theme gives
+ * (`apps/desktop/tests/theme.test.ts`).
  *
  * The viewer covers the graph's area and nothing else: the side-view column
  * (#399) and the working tree column (#403) each say how wide they are in
  * the variable named for them, on `<html>` or `<body>`, and the viewer leaves
- * them that much room. Between the graph's floating layers (300) and the
- * graph's dialog backing (400): a dialog the graph raises meanwhile is still
- * seen, over it. */
+ * them that much room. The file history column (#408), over the graph's area
+ * at its left, does the same in its own variable, and the viewer opens to
+ * its right, the list it was opened from still in view. Between the graph's
+ * floating layers (300) and the graph's dialog backing (400): a dialog the
+ * graph raises meanwhile is still seen, over it. */
 
 export const DIFF_PANEL_STYLES = `
 #diffViewer {
   position: fixed;
   top: 0;
   bottom: 0;
-  left: var(--ging-side-view-width, 0px);
+  left: calc(var(--ging-side-view-width, 0px) + var(--ging-file-history-width, 0px));
   right: var(--ging-working-tree-width, 0px);
   z-index: 350;
   display: flex;
@@ -52,6 +55,9 @@ export const DIFF_PANEL_STYLES = `
 #diffViewer .diffViewerLayouts {
   display: flex;
   flex: none;
+}
+#diffViewer .diffViewerLayouts[hidden] {
+  display: none;
 }
 #diffViewer button {
   padding: 2px 8px;
@@ -106,5 +112,50 @@ export const DIFF_PANEL_STYLES = `
 #diffViewer .diffViewerNotice {
   margin: 16px;
   color: var(--vscode-descriptionForeground);
+}
+#diffViewer .diffViewerSaid {
+  flex: none;
+  margin: 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+}
+#diffViewer .diffViewerKeys {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+#diffViewer .diffViewerHunkWidget {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+}
+#diffViewer .diffViewerHunk {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding-left: 4px;
+  white-space: nowrap;
+}
+#diffViewer .diffViewerHunk button {
+  padding: 0 6px;
+  border-radius: 2px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--vscode-button-secondaryForeground);
+  background-color: var(--vscode-button-secondaryBackground);
+  border-color: var(--vscode-button-border, transparent);
+}
+#diffViewer .diffViewerHunk button:hover {
+  background-color: var(--vscode-button-secondaryHoverBackground);
 }
 `;

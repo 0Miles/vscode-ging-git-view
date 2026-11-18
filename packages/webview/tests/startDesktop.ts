@@ -1,8 +1,10 @@
 import type { EditorFactory } from "@ging/webview/desktop/editors";
 
-/** Editors that make nothing: no suite but the diff viewer's draws a diff. */
+/** Editors that make nothing: no suite but the diff viewer's draws a diff
+ *  or a file. */
 export const NO_EDITORS: EditorFactory = {
-  createDiffViewer: () => Promise.reject(new Error("no editors in this suite"))
+  createDiffViewer: () => Promise.reject(new Error("no editors in this suite")),
+  createFileViewer: () => Promise.reject(new Error("no editors in this suite"))
 };
 
 /** Load the desktop entry and start it, as the app's page does

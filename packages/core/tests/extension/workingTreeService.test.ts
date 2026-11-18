@@ -15,6 +15,10 @@ afterEach(() => {
   cleanUp.splice(0).forEach(rmrf);
 });
 
+/** Twenty numbered lines, `change` making some of them something else. */
+const numbered = (change: (n: number) => string = String) =>
+  Array.from({ length: 20 }, (_, i) => change(i + 1)).join("\n") + "\n";
+
 function setUp(signCommits = false) {
   const repo = makeRepo();
   cleanUp.push(repo);
@@ -25,6 +29,7 @@ function setUp(signCommits = false) {
     // A client as the host makes one: its no-op editor is what lets
     // `merge --continue` finish instead of waiting on one (gitSpawn.ts).
     git: () => client.getInstance(),
+    diffRun: () => ({ gitPath: "git", repoPath: repo }),
     repo: () => repo,
     signCommits: () => signCommits,
     runRepoMutation: async (on, work) => {
@@ -215,6 +220,78 @@ describe("the working tree service", () => {
       expect(aborted.error).toBeNull();
       expect(aborted.status).toEqual({ branch: "main", staged: [], unstaged: [], conflicted: [] });
       expect((await simpleGit(repo).raw(["rev-parse", "HEAD"])).trim()).toBe(before);
+    });
+  });
+
+  describe("one hunk at a time (#406)", () => {
+    function twoHunks() {
+      const set = setUp();
+      fs.writeFileSync(path.join(set.repo, "f"), numbered());
+      git(["commit", "-qam", "numbered"], set.repo);
+      fs.writeFileSync(
+        path.join(set.repo, "f"),
+        numbered((n) => (n === 2 ? "two" : n === 19 ? "nineteen" : String(n)))
+      );
+      return set;
+    }
+
+    it("stages a hunk as a change of the repository: muted, then refreshed", async () => {
+      const { repo, calls, service } = twoHunks();
+      const hunks = await service.hunks("f", "unstaged");
+      if (hunks.kind !== "hunks") throw new Error("no hunks");
+      expect(hunks.hunks).toHaveLength(2);
+      expect(calls).toEqual([]);
+
+      const outcome = await service.applyHunk({
+        path: "f",
+        area: "unstaged",
+        token: hunks.token,
+        hunk: 1
+      });
+
+      expect(outcome).toEqual({ kind: "applied", hunk: hunks.hunks[1] });
+      expect(calls).toEqual(["mute repo", "refresh"]);
+      expect(cp.execFileSync("git", ["show", ":0:f"], { cwd: repo }).toString()).toBe(
+        numbered((n) => (n === 19 ? "nineteen" : String(n)))
+      );
+    });
+
+    it("answers a stale hunk as such, and makes no change of it", async () => {
+      const { repo, calls, service } = twoHunks();
+      const hunks = await service.hunks("f", "unstaged");
+      if (hunks.kind !== "hunks") throw new Error("no hunks");
+      fs.writeFileSync(
+        path.join(repo, "f"),
+        "zero\n" + numbered((n) => (n === 2 ? "two" : String(n)))
+      );
+
+      const outcome = await service.applyHunk({
+        path: "f",
+        area: "unstaged",
+        token: hunks.token,
+        hunk: 0
+      });
+
+      expect(outcome).toEqual({ kind: "stale" });
+      expect(calls).toEqual([]);
+    });
+
+    it("answers a file with no hunk of its own as such", async () => {
+      const { repo, calls, service } = setUp();
+      fs.writeFileSync(path.join(repo, "new"), "new\n");
+      git(["add", "new"], repo);
+
+      expect(await service.hunks("new", "staged")).toEqual({ kind: "none", reason: "added" });
+      const outcome = await service.applyHunk({ path: "new", area: "staged", token: "x", hunk: 0 });
+      expect(outcome).toEqual({ kind: "none", reason: "added" });
+      expect(calls).toEqual([]);
+    });
+
+    it("answers HEAD's commit, or none on a branch without one", async () => {
+      const { repo, service } = setUp();
+      expect(await service.head()).toBe(rev(repo, "HEAD"));
+      git(["checkout", "-q", "--orphan", "fresh"], repo);
+      expect(await service.head()).toBeNull();
     });
   });
 });

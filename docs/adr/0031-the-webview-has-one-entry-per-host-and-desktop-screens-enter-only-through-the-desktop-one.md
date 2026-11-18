@@ -192,3 +192,45 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **side-by-side 與 inline 由面板的按鈕切換,選擇存在頁面自己的 `localStorage`(`ging.diffViewer.layout`)。** 這是使用者的便利設定,不是要跨裝置或要讓 main process 讀到的狀態;讀寫都包在 try/catch 裡,讀不到就用 side-by-side。Monaco 的 `useInlineViewWhenSpaceIsLimited` 關掉:視窗窄時它會自己切成 inline,按鈕上的選擇就不再是畫面上的樣子。
 - **`webviewEntries.test.ts` 補上 Monaco 的檢查(「後果」第一條要求的那一項)。** Monaco 不在 `src/desktop/` 底下,所以用名字找:VS Code 的 bundle 不得吃進任何 `monaco-editor/` 底下的模組,文字裡也不得有 Monaco diff editor 的 class 名稱 `monaco-diff-editor`。對照組是用 `apps/desktop/esbuild.js` 匯出的 `editorsBuild` 實際打包的 `monaco.js`,同樣的讀法在那裡找得到兩者。同一支測試也用 `pageBuild` 打包 app 真正出貨的 `src/web/page.ts`(`out/web.js`),斷言 Monaco 不在裡面 —— 「Monaco 不在 `web.js`、第一個 diff 才載入」是上面的設計,只看 `desktop/main.ts` 守不住它。
 - **`apps/desktop` 的 typecheck 拆成兩份。** `src/web/page.ts` 會 import 圖形,而圖形靠 webview 的全域宣告(`viewState`、`l10n`、`GG`…)。那些宣告只在 [tsconfig.web.json](../../apps/desktop/tsconfig.web.json) 裡,main process 的程式碼看不到它們;主 `tsconfig.json` 排除 `page.ts`。
+
+## 補記(2026-11-18,#408)
+
+**檔案歷史面板:`<section id="fileHistory">`,圖形區左緣(側檢視右邊)一條寬 `FILE_HISTORY_WIDTH`(340px)、與視窗等高的 `position: fixed` 直欄,蓋在圖形上,與 diff viewer 同層(`z-index: 350`)。** 它在 [fileHistoryPanel.ts](../../packages/webview/src/desktop/fileHistory/fileHistoryPanel.ts),只從桌面入口的 `graph` 頁啟動。
+
+- **它是圖形區之上的浮層,不是第三欄。** 上面「版面骨架」只有左右兩欄,而且 working tree 擁有右側。檔案歷史是「看一陣子就關掉」的工具,讓它擁有 `body` 的 padding,每次開關都會讓整張圖形重排;所以它像 diff viewer 一樣蓋在圖形區上,不動任何 padding。開著時 `body` 帶 `fileHistoryOpen`,在 `--ging-file-history-width` 寫上自己的寬度,diff viewer 的左緣改成 `calc(--ging-side-view-width + --ging-file-history-width)`([diffPanelStyles.ts](../../packages/webview/src/desktop/diff/diffPanelStyles.ts) 唯一的改動):點一筆 entry 打開的 diff 開在清單右邊,清單留在畫面上,可以一筆一筆往下看。兩欄的位置都沒有變,符合骨架對 diff viewer 的約束。[fileHistory.spec.ts](../../e2e/webview/fileHistory.spec.ts)(webview E2E)驗直欄的位置與尺寸、長字串截斷、以及 diff viewer 的左緣在面板開關前後的位置。
+- **入口之一是 CDV 檔案列的右鍵選單,經由 `GraphInPage.addCdvFileMenuItems` 接進來。** CDV 的選單在兩個宿主共用的 `gitGraphView.ts` 裡,桌面版要在那裡多一項,只能由共用檔案開一個接縫;它和 #399 的 `GraphInPage`、#407 的 `askInGraphDialog` 是同一種:共用檔案只多一個「頁面上的其他東西可以在選單尾端加項目」的掛點,不 import 任何 `desktop/` 的東西,也不認得檔案歷史。VS Code 入口不呼叫它,選單與原本一模一樣([cdvFileMenuItemsVscode.test.ts](../../packages/webview/tests/cdvFileMenuItemsVscode.test.ts) 守住:最後一項仍是 Copy File Path,沒有多出的分隔線)。項目前面加一條分隔線。stash 的 untracked 檔(`origin: "untracked"`)不提供:它的內容在 stash 的第三個 parent,不在任何一條歷史裡。未提交變更那一列(`*`)的檔案從 HEAD 讀。
+- **選單項目的字要在任何歷史之前就有,所以多一次握手:頁面載入後送 `fileHistoryReady`,宿主回 `fileHistoryStrings`。** 其他字照「補記(#390)」跟著每個 `fileHistory` 回答來,`webviewL10n` 不為桌面多帶字串。字還沒到時選單不出現這一項,而不是出現一個沒有字的項目。
+- **協定:頁面送 `fileHistoryReady`、`fileHistoryOpen`(遞增的 `request`、`path`、`start`)、`fileHistoryMore`(`request`)、`fileHistoryClose`、`fileHistoryDiff`(一筆 entry 的 hash、change、path、oldPath、submodule);宿主送 `fileHistoryStrings` 與 `fileHistory`(回答哪個 `request`、是不是第一頁 `first`、一頁 entries、還有沒有 `more`、`error`、字)。** 型別在 [protocol.ts](../../packages/webview/src/desktop/fileHistory/protocol.ts),`FILE_HISTORY_COMMANDS_STAY_APART` 檢查兩個方向都不與 `RequestMessage` / `ResponseMessage` 撞名;graph instance 在 channel 上用 `isFileHistoryRequest` 攔下,dispatch 聽不到。
+  - **先開 A 再開 B,A 的 git 比較慢時,面板停在 B。** 第一頁只有在它回答的是面板最後送出的 `fileHistoryOpen` 時才顯示;應用程式選單的 File History… 由宿主自己開,`request` 是 null,它取代面板之前問過的每一個,所以之後才到的舊回答一律丟掉。宿主那一側也一樣:開新的就殺掉舊的 git,舊的那頁不送(ADR-0027 的同日補記)。兩道各自成立。
+  - 之後的頁只有在它屬於畫面上那個歷史(`request` 相同)、面板正在等它、而且沒有新的歷史正在開時才接在後面。頁數與「還有沒有」由宿主說,頁面不數。面板關掉時送 `fileHistoryClose`,宿主殺掉那個 git。
+- **鍵盤留在面板裡,Escape 在 keyup 才關**,理由同 diff viewer 與 host prompt overlay:圖形的快捷鍵聽在 `document`,keydown 就關的話接著的 keyup 會讓圖形關掉 CDV。清單是 `role="listbox"`,一個 tab stop,方向鍵 / Home / End 移動,Enter / Space / 點擊開 diff;關掉後焦點回到開啟前的元素。打開 diff 時焦點交給 diff viewer(它自己會 focus editor),diff 關掉後回到那一筆。submodule 的 entry 標 `aria-disabled`,不開 diff,改在第三行寫出 gitlink 在哪兩個 commit 之間移動。
+- **日期照圖形的 `dates.customFormat`(`viewState.dateCustomFormat`)寫**,由桌面入口把格式化函式交給面板;面板本身不讀 `viewState`,jsdom 測試([desktopFileHistory.test.ts](../../packages/webview/tests/desktopFileHistory.test.ts))注入假的。
+- **樣式由模組自己插進一個 `<style>`**,理由同 #397、#403 的補記;只用 `theme.ts` 已提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。
+- **working tree 面板的檔案列這次不放入口。** 那裡列的都是改過的檔案,應用程式選單的 File History… 選得到任何一個;而同時進行的 #406 正在改那一列的按鈕與點擊(hunk stage、面板 → diff),兩邊同時動同一列容易互相蓋掉。要加時,由那一列送一則 `fileHistoryOpen`(`start: null`)就好,協定不必改。
+
+## 補記(2026-11-18,#405)
+
+**某版本的檔案以唯讀方式開在 diff viewer 的同一個面板(`#diffViewer`)裡,不另做一個面板。** 同一時間圖形上只該蓋著一個檢視;鍵盤留在面板、Escape 在 keyup 才關、焦點回到開啟前的元素、`aria-busy`、被下一個取代、建立失敗時的處置,#404 都已經寫在那裡,另做一個面板就是把它們複製一份。檔案取代 diff、diff 取代檔案,與一個 diff 取代另一個相同。
+
+- **工廠多一個 `createFileViewer(container, { document, theme })`,回傳的 `FileViewer` 只有 `setTheme`、`focus`、`dispose`**([editors.ts](../../packages/webview/src/desktop/editors.ts))。#404 的檔頭已預告本票在旁邊加自己的 maker。Monaco 那一側([monacoEditors.ts](../../apps/desktop/src/web/monacoEditors.ts))是 `monaco.editor.create` 加 `readOnly: true`,model 的 URI 帶檔案的路徑(scheme `ging-file`),Monaco 照副檔名決定語言著色,與 diff 的兩個 model 同一招。載入沿用 `lazyEditors.ts`:同一個 `monaco.js`,頁面第一次要 diff 或檔案時才載入,只載入一次。blame(#409)在 `FileViewer` 上長出 gutter 的註記,依「先有呼叫端」不先寫。
+- **協定:宿主送 `showFile`(`ShowFileMessage`,[desktop/diff/protocol.ts](../../packages/webview/src/desktop/diff/protocol.ts)),不是讓 `showDiff` 帶一個空的一側。** 帶標題、一份 `DiffDocument`、`notShown`,以及它自己的字(`close`、`cannotShow`;沒有版面切換,所以沒有那兩個按鈕的字)。`FILE_COMMANDS_STAY_APART` 檢查它不與 `ResponseMessage` 撞名;宿主那一側的 `postDiff` 收兩者的聯集 `ViewerMessage`。
+- **顯示檔案時,面板的 side-by-side / inline 按鈕整組隱藏(`hidden`),關閉鈕的字是「Close File」。** 記住的 diff 版面不受影響,下一個 diff 照舊用它。
+
+## 補記(2026-11-18,#479)
+
+**working tree 面板的訊息框不再隨重繪離開頁面。** 上面 #403 補記說「面板每次收到回答都整個重繪」;訊息框原本是重繪後再 prepend 回去,移出頁面的那一刻它就失去焦點(連同進行中的 IME 組字),而 `refocus` 認不得沒有 `data-action` 的訊息框,焦點落到清單的第一個按鈕。使用者打字時剛好來一則回答(例如檔案監看觸發的重讀),之後打的字就不進訊息框。
+
+- 面板建立時就建好固定的骨架(commit 區在第一次繪製前隱藏):標題、commit 區(訊息框加上每次重寫的那一段)、清單區。每次重繪只寫骨架裡那幾段的 `innerHTML`,訊息框從頭到尾留在原處,焦點、游標與選取範圍都不受影響。那幾段的外層是 `display: contents`,版面與原本面板的子元素相同。
+- 重繪後只有「被拿走的」焦點才放回去:焦點仍在面板裡(訊息框)就不動它。按鈕與檔案列的焦點規則不變。
+
+## 補記(2026-11-18,#460、#406)
+
+**working tree 面板的檔案列打開 diff viewer(#460),hunk 在 diff viewer 裡一個一個 stage / unstage(#406)。** 「補記(#403)」最後一條留下的接縫 `startWorkingTreePanel({ showDiff })` 由桌面入口接上;git 的部分見 ADR-0027 的同日補記。
+
+- **哪些列打得開。** staged 與 unstaged 兩組的檔案列可以點、可以 Tab 到,Enter 或 Space 也打開(按在列上的按鈕不算,那是按鈕自己的)。衝突檔不打開:它在 #410 是交給 merge tool 的,一邊是 index 的哪一個 stage 也說不清;submodule 不打開:沒有文字可比。面板送 `workingTreeShowDiff { path, oldPath?, area }`,這是 `WorkingTreeRequest` 的一種,但**不回答 `workingTreeStatus`**:宿主的回答是一則 `showDiff`。graph instance 在交給面板服務之前就把它分出來。
+- **兩側照 VS Code 原始檔控制檢視的 diff。** unstaged 是 index(`:0`)↔ working tree 的檔案,標題「`<路徑>` (Working Tree)」;staged 是 HEAD ↔ index,標題「`<路徑>` (Index)」。HEAD 先由 core 解成 hash(diff viewer 只跑 hash,「補記(#404)」);還沒有 commit 的 branch 上左邊是空的,為此 `DiffSource` 多了 `{ empty: <路徑> }`。staged rename 的左邊讀 HEAD 的舊路徑,標題寫「舊 → 新」。未追蹤檔左邊是空的(index 沒有它)。
+- **hunk 的協定。** `ShowDiffMessage` 多兩個選填欄位:`hunks`(檔案、area、`token`、每個 hunk 在兩側的行範圍、按鈕的字 Stage Hunk / Unstage Hunk)與 `said`(蓋在 diff 上方的一行字,`role="status"`:為什麼沒有 hunk 可按,或上一個 hunk 怎麼了)。頁面送 `diffHunk { path, area, token, hunk }`;`DIFF_COMMANDS_STAY_APART` 多檢查它不與 `RequestMessage` 撞名。宿主不另外回答,而是把同一個檔案的 diff 重新顯示一次,捲到剛才那個 hunk 的位置。頁面在送出後標 `aria-busy`,在新的 diff 到之前不再送第二個:第二次點的是一個已經不存在的 diff 上的 hunk。CDV 的 diff(`Opener` 的兩個)沒有 `hunks`,所以沒有按鈕。
+- **按鈕不放在 Monaco 的 gutter menu。** 「補記(#404)」說 #406 要用 gutter 前得先重驗 Monaco 0.57.0 的 bug;這裡不用它,`renderGutterMenu` 照舊關著。理由不只是那個 bug:gutter menu 的 hunk 是 Monaco 自己算的 diff,邊界與 git 的不同,而 patch 只能用 git 切出來的 hunk 做。所以每個 git hunk 在 modified 那一側的第一行上方佔一列 view zone(diff editor 會在另一側補同樣高的空白,兩邊照舊對齊;inline 時只顯示 modified 那一側),按鈕是 overlay widget,在 view zone 每次畫出來時(`onDomNodeTop`)移到它的位置 —— 直接放在 view zone 裡的按鈕點不到,editor 的行畫在 view zone 上面,把點擊吃掉了(E2E 實測)。按鈕的字都一樣,所以各自的 accessible name 帶上行範圍(「Stage Hunk:第 25 到 30 行」,`hunks.name` 由頁面填)。鍵盤:overlay widget 不在 editor 的 Tab 順序裡,所以同一個動作放在兩側 editor 的右鍵選單(Shift+F10),只在游標落在某個 hunk 的行上時列出(各自的 context key,`precondition`),作用在那個 hunk;original 那一側依 hunk 在左邊的行判斷。這條路寫在 diff viewer 的 `aria-describedby`(一段不顯示的說明,`hunks.keyboard`),進入面板時就讀出來;editor 的 `ariaLabel` 也設成同一句,但 Monaco 只在 screen reader 模式開著時才用它,所以不能只靠它。工廠介面因此只多了 `DiffViewerOptions.hunks`(`HunkActions`),`DiffViewer` 本身沒有長。
+- **套用後的重新顯示只蓋在原來那個 diff 上。** `diffHunk` 帶著頁面當時那個 diff 的編號(`asked`),宿主的回答 `showDiff` 帶回 `answers`;那段時間裡使用者若打開了別的 diff(例如 CDV 的)或關掉了 viewer,頁面就丟掉這則回答,不把它蓋上去。
+- **hunk 只放在畫得對的地方。** 宿主在讀兩側文字之前與之後各讀一次 hunk,兩次的 `token` 相同才送(檔案在讀的中間變了,就說「讀取期間檔案有變動」);文字裡有不在 `\r\n` 裡的 `\r` 時不送 —— editor 把它當成換行,git 不會,hunk 就會畫在錯的行上。binary 與過大的檔案本來就沒有 editor,也沒有 hunk。
+- **樣式**(`.diffViewerSaid`、`.diffViewerHunk`)照舊在 [diffPanelStyles.ts](../../packages/webview/src/desktop/diff/diffPanelStyles.ts),只用 `theme.ts` 有的變數;overlay widget 的 DOM 由 `apps/desktop` 的 Monaco 實作建立,但 class 的樣式在這裡,所以 `theme.test.ts` 守得到。

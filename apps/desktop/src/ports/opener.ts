@@ -5,16 +5,15 @@
  * folder otherwise; a link opens in the browser, a terminal is the system's
  * own, a conflicted file goes to the merge tool the user configured for git
  * (#410), and a diff opens in the diff viewer over the instance's graph
- * (#404, diffViewer.ts). What the desktop app has no screen for yet — a file
- * at a revision — is said to be so, and answered as done: see
- * `notSupportedYet`. */
+ * (#404, diffViewer.ts), as does a file read-only at a revision (#405). */
 
 import fs from "node:fs";
 import path from "node:path";
 
+import { abbrevCommit } from "@ging/core/backend/utils/string";
 import { commitDiffView } from "@ging/core/extension/commitDiff";
 import type { HostLogger, L10n, Opener, Prompts } from "@ging/core/host/ports";
-import type { ShowDiff } from "@ging/desktop/diffViewer";
+import type { ShowDiff, ShowFile } from "@ging/desktop/diffViewer";
 import { windowsVariable } from "@ging/desktop/terminal";
 import { webUrl } from "@ging/shared/webUrl";
 
@@ -37,22 +36,6 @@ export type OsShell = {
    *  resolves once it has started. */
   openTerminal(cwd: string, title: string): Promise<void>;
 };
-
-type Notifier = {
-  prompts: Pick<Prompts, "showInformation">;
-  l10n: L10n;
-  logger: Pick<HostLogger, "log">;
-};
-
-/**
- * Tell the user that `what` is not in the desktop app yet, and say in the log
- * which ticket brings it. Not awaited: the notice needs no answer, and what
- * asked for it goes on as if done. That is the point — see the stubs below.
- */
-export function notSupportedYet({ prompts, l10n, logger }: Notifier, what: string): void {
-  logger.log(`desktop: ${what} is not supported yet`);
-  void prompts.showInformation(l10n.t("desktop.notSupportedYet"));
-}
 
 /**
  * Open `url` in the browser, when it is a web address: nothing else leaves the
@@ -219,13 +202,15 @@ function isWithin(root: string, file: string): boolean {
 type DesktopOpenerDeps = {
   os: OsShell;
   /** The instance's own: what is said goes to its window. */
-  prompts: Pick<Prompts, "showInformation" | "showError">;
+  prompts: Pick<Prompts, "showError">;
   l10n: L10n;
   logger: Pick<HostLogger, "log" | "logError">;
   /** The repository the instance shows: the only one it opens files from. */
   repoRoot: () => string;
   /** Show a diff in the instance's page (diffViewer.ts). */
   showDiff: ShowDiff;
+  /** Show a file read-only in the instance's page (diffViewer.ts). */
+  showFile: ShowFile;
   platform: NodeJS.Platform;
   env: NodeJS.ProcessEnv;
   files?: FileFacts;
@@ -242,12 +227,12 @@ export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
     logger,
     repoRoot,
     showDiff,
+    showFile,
     platform,
     env,
     files = systemFiles
   } = deps;
   const { mergeTool } = deps;
-  const notYet = (what: string) => notSupportedYet(deps, what);
   /** Log why `file` is not opened, and reject with it. */
   const refuse = (file: string, why: string): never => {
     logger.logError(`opener: not opening ${file}: ${why}`);
@@ -329,13 +314,26 @@ export function createDesktopOpener(deps: DesktopOpenerDeps): Opener {
       if (!shown) refuse(asked, "the Tab's page is gone");
     },
 
-    // The stubs. The port's contract is to reject what could not be opened,
-    // and the graph answers a rejection with an error box of its own ("Unable
-    // to open…"). These are not failures: the desktop app has no such screen
-    // yet, which the notice says, so they resolve and the graph says nothing
-    // more. Each goes when the ticket named on it brings the screen.
-    /** #405: a file read-only at a revision. */
-    openFileAtRevision: async (file) => notYet(`viewing ${file.filePath} at ${file.commit} (#405)`),
+    // A file read-only at a revision (#405), in the same viewer, titled as a
+    // diff of it is: its name, and the commit's short hash — a stash's, for
+    // the untracked file it keeps in its third parent (`^3`).
+    openFileAtRevision: async (file) => {
+      const name = file.filePath.split("/").at(-1) ?? file.filePath;
+      // Only the stash's `^3` is dropped. Any other parent (`hash^`, `hash^2`)
+      // is a commit of its own, not the one named: it keeps its suffix, as a
+      // diff's title writes `abc1234^`.
+      const [, hash, parent] = /^(.*?)(\^\d*)?$/.exec(file.commit)!;
+      const title = `${name} (${abbrevCommit(hash)}${parent === "^3" ? "" : (parent ?? "")})`;
+      let shown: boolean;
+      try {
+        shown = await showFile({ title, file: { revision: file } });
+      } catch (e) {
+        // The port rejects what it could not open; the graph says so.
+        logger.logError(`opener: could not show ${file.filePath} at ${file.commit}: ${String(e)}`);
+        throw e;
+      }
+      if (!shown) refuse(file.filePath, "the Tab's page is gone");
+    },
     // The desktop app has no 3-way editor of its own (#411's): the file goes
     // to the merge tool the user configured for git (#410), on the instance's
     // own repository — the only one its graph is shown, whatever `repo` the

@@ -9,6 +9,7 @@ import type {
   AmendRefusal,
   CommitRefusal,
   GitOperation,
+  HunkArea,
   WorkingTreeChange,
   WorkingTreeStatus
 } from "@ging/shared/backend/types";
@@ -92,7 +93,20 @@ export type WorkingTreeRequest =
   | { command: "workingTreeResolve"; paths: string[] }
   /** The operation in progress continued, or aborted. */
   | { command: "workingTreeContinue" }
-  | { command: "workingTreeAbort" };
+  | { command: "workingTreeAbort" }
+  /** A file's change opened in the diff viewer (#460), where its hunks are
+   *  staged or unstaged (#406). Not answered with a status: the host shows
+   *  the diff. */
+  | WorkingTreeShowDiffRequest;
+
+/** A file of the staged or unstaged list, by its path — and a staged
+ *  rename's old one — whose change the host shows in the diff viewer. */
+export type WorkingTreeShowDiffRequest = {
+  command: "workingTreeShowDiff";
+  path: string;
+  oldPath?: string;
+  area: HunkArea;
+};
 
 /** Host → page. */
 export type WorkingTreeMessage =
@@ -154,6 +168,12 @@ export function isWorkingTreeRequest(data: unknown): data is WorkingTreeRequest 
       return isPaths(data.paths);
     case "workingTreeMergeTool":
       return typeof data.path === "string";
+    case "workingTreeShowDiff":
+      return (
+        typeof data.path === "string" &&
+        (data.oldPath === undefined || typeof data.oldPath === "string") &&
+        (data.area === "staged" || data.area === "unstaged")
+      );
     case "workingTreeCommit":
       return (
         typeof data.message === "string" &&

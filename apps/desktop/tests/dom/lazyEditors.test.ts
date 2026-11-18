@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { EDITOR_ASSETS, EDITOR_GLOBAL } from "@ging/desktop/editorAssets";
 import { lazyEditors } from "@ging/desktop/web/lazyEditors";
-import type { DiffViewer, EditorFactory } from "@ging/webview/desktop/editors";
+import type { DiffViewer, EditorFactory, FileViewer } from "@ging/webview/desktop/editors";
 
 // The editors as a page's bundle has them (#404): Monaco's bundle is put in
 // the page the first time a diff asks, and only then. jsdom loads neither
@@ -21,7 +21,11 @@ const viewer: DiffViewer = {
   focus: () => {},
   dispose: () => {}
 };
-const monaco: EditorFactory = { createDiffViewer: async () => viewer };
+const fileViewer: FileViewer = { setTheme: () => {}, focus: () => {}, dispose: () => {} };
+const monaco: EditorFactory = {
+  createDiffViewer: async () => viewer,
+  createFileViewer: async () => fileViewer
+};
 
 const script = () =>
   document.head.querySelector<HTMLScriptElement>(`script[src="${EDITOR_ASSETS.script}"]`);
@@ -69,6 +73,23 @@ describe("the page's editors", () => {
 
     expect(document.head.querySelectorAll("script")).toHaveLength(1);
     expect(document.head.querySelectorAll("link")).toHaveLength(1);
+  });
+
+  it("load the same bundle, once, for a file shown read-only (#405)", async () => {
+    const editors = lazyEditors(document);
+    const file = editors.createFileViewer(document.createElement("div"), {
+      document: { path: "a.ts", content: "a\n" },
+      theme: "dark"
+    });
+    evaluate();
+    style()!.dispatchEvent(new Event("load"));
+    script()!.dispatchEvent(new Event("load"));
+    await expect(file).resolves.toBe(fileViewer);
+
+    await expect(editors.createDiffViewer(document.createElement("div"), options)).resolves.toBe(
+      viewer
+    );
+    expect(document.head.querySelectorAll("script")).toHaveLength(1);
   });
 
   it("reject when the bundle does not load, and try afresh on the next diff", async () => {
