@@ -38,23 +38,29 @@ const desktopBuild = require(join(__dirname, "..", "..", "..", "desktop", "esbui
   editorsBuild: () => BuildOptions;
 };
 
-/** options' script, built as the desktop app builds it, read in memory: its
- *  text and the modules it took in. */
+type Built = BuildResult<{ write: false; metafile: true }>;
+
+/** The output of `built` whose name ends in `name`: its text and the modules
+ *  it took in. outputFiles carry absolute paths, the metafile relative ones;
+ *  both end in the name. */
+function bundleOf(built: Built, name: string): Bundle {
+  const isIt = (path: string) => path.endsWith(name);
+  return {
+    text: built.outputFiles.find((f) => isIt(f.path))!.text,
+    inputs: Object.keys(Object.entries(built.metafile.outputs).find(([p]) => isIt(p))![1].inputs)
+  };
+}
+
+/** options' script, built as the desktop app builds it, read in memory. */
 async function buildScript(options: BuildOptions, name: string): Promise<Bundle> {
-  const built: BuildResult<{ write: false; metafile: true }> = await build({
+  const built: Built = await build({
     ...options,
     write: false,
     metafile: true,
     logLevel: "silent"
   });
   // Its script, not the stylesheet or font beside it.
-  const isScript = (file: string) => file.endsWith(name);
-  return {
-    text: built.outputFiles.find((f) => isScript(f.path))!.text,
-    inputs: Object.keys(
-      Object.entries(built.metafile.outputs).find(([p]) => isScript(p))![1].inputs
-    )
-  };
+  return bundleOf(built, name);
 }
 
 beforeAll(async () => {
@@ -66,7 +72,7 @@ beforeAll(async () => {
 }, 120_000);
 
 beforeAll(async () => {
-  const result: BuildResult<{ write: false; metafile: true }> = await build({
+  const result: Built = await build({
     entryPoints: {
       vscode: require.resolve("@ging/webview/main"),
       desktop: require.resolve("@ging/webview/desktop/main")
@@ -80,15 +86,7 @@ beforeAll(async () => {
     metafile: true,
     logLevel: "silent"
   });
-  const bundleOf = (name: "vscode" | "desktop"): Bundle => {
-    // outputFiles carry absolute paths, the metafile relative ones; both end
-    // in the entry's name.
-    const isIt = (path: string) => path.endsWith(`${name}.js`);
-    const file = result.outputFiles.find((f) => isIt(f.path))!;
-    const output = Object.entries(result.metafile.outputs).find(([p]) => isIt(p))![1];
-    return { text: file.text, inputs: Object.keys(output.inputs) };
-  };
-  bundles = { vscode: bundleOf("vscode"), desktop: bundleOf("desktop") };
+  bundles = { vscode: bundleOf(result, "vscode.js"), desktop: bundleOf(result, "desktop.js") };
 });
 
 describe("the webview entries' bundles", () => {

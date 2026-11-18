@@ -1,26 +1,12 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-import { windowHarnessPage } from "./harness";
+import { desktopPage, hostSays, pageErrors, posted } from "./harness";
 
 // The desktop window's own page (#393) in a real browser: the tab strip the
 // main process lays the Tabs' views out below — so it must be exactly
 // TAB_STRIP_HEIGHT tall, whatever it holds — and the Welcome page under it,
 // whose prompts come up in the host prompt overlay. The host's half is played
 // here, as in hostPrompt.spec.ts.
-
-/** A message from the host, delivered as the desktop preload delivers one. */
-async function hostSays(page: Page, data: unknown) {
-  await page.evaluate((message) => {
-    globalThis.dispatchEvent(new MessageEvent("message", { data: message }));
-  }, data);
-}
-
-/** What the page posted, in order. */
-function posted(page: Page): Promise<Record<string, unknown>[]> {
-  return page.evaluate(
-    () => (globalThis as unknown as { harnessRequests: Record<string, unknown>[] }).harnessRequests
-  );
-}
 
 function tab(id: number, title: string, focused = false) {
   return { id, title, tooltip: `/repos/${title}`, focused, asking: false };
@@ -45,12 +31,8 @@ function windowState(
 let errors: string[];
 
 test.beforeEach(async ({ page }) => {
-  errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  page.on("console", (m) => {
-    if (m.type() === "error") errors.push(m.text());
-  });
-  await page.goto(windowHarnessPage());
+  errors = pageErrors(page);
+  await page.goto(desktopPage("window"));
   await expect(page.locator("html")).toHaveAttribute("data-ging-entry", "ging-desktop-entry");
 });
 
@@ -208,7 +190,7 @@ test("with no Tab, the Welcome page fills the window, and asks in the host promp
   await page.keyboard.press("Enter");
   await expect(overlay).toBeHidden();
 
-  expect((await posted(page)).filter((m) => m.command === "hostPromptAnswer")).toEqual([
+  expect(await posted(page, "hostPromptAnswer")).toEqual([
     { command: "hostPromptAnswer", id: 1, answer: "s3cret" }
   ]);
 });
