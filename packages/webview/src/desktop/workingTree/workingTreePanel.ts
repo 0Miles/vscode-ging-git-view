@@ -54,6 +54,7 @@ body.workingTreeOpen #findWidget { right: ${WORKING_TREE_WIDTH + 14}px; }
 }
 #workingTree[hidden] { display: none; }
 #workingTree .wtPart { display: contents; }
+#workingTree .wtCommit[hidden] { display: none; }
 #workingTree .wtHeader {
   display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; flex: 0 0 auto;
   font-weight: 600; text-transform: uppercase; font-size: 11px;
@@ -218,6 +219,24 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
   const panel = document.createElement("aside");
   panel.id = "workingTree";
   panel.hidden = true;
+  /** The panel's frame: the message box, which is never taken out of the
+   *  page, and around it the parts each draw writes anew. Taking the box out
+   *  would blur it (the keyboard lost mid-sentence, an IME composition cut
+   *  short) whenever an answer or a refresh redraws the panel while the user
+   *  types (#479). The parts' wrappers are `display: contents`, so the layout
+   *  is the panel's children as before. The commit area stays hidden until
+   *  the first draw brings the box its words. */
+  const frame = {
+    header: part(),
+    commitArea: document.createElement("div"),
+    box: document.createElement("textarea"),
+    commitPart: part(),
+    body: part()
+  };
+  frame.commitArea.className = "wtCommit";
+  frame.commitArea.hidden = true;
+  frame.commitArea.append(frame.box, frame.commitPart);
+  panel.append(frame.header, frame.commitArea, frame.body);
   document.body.appendChild(panel);
 
   let strings: WorkingTreeStrings | null = null;
@@ -413,38 +432,12 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     target?.focus();
   };
 
-  /** The panel's frame, built on the first draw: the message box, which is
-   *  never taken out of the page, and around it the parts each draw writes
-   *  anew. Taking the box out would blur it (the keyboard lost mid-sentence,
-   *  an IME composition cut short) whenever an answer or a refresh redraws
-   *  the panel while the user types (#479). The parts' wrappers are
-   *  `display: contents`, so the layout is the panel's children as before. */
-  let frame: {
-    header: HTMLElement;
-    box: HTMLTextAreaElement;
-    commit: HTMLElement;
-    body: HTMLElement;
-  } | null = null;
-  const frameOf = () => {
-    if (frame !== null) return frame;
-    const area = document.createElement("div");
-    area.className = "wtCommit";
-    frame = {
-      header: part(),
-      box: document.createElement("textarea"),
-      commit: part(),
-      body: part()
-    };
-    area.append(frame.box, frame.commit);
-    panel.append(frame.header, area, frame.body);
-    return frame;
-  };
-
   function render(): void {
     const s = strings;
     if (s === null) return;
     const at = focusAt();
-    const { header, box, commit: commitPart, body } = frameOf();
+    const { header, box, commitArea, commitPart, body } = frame;
+    commitArea.hidden = false;
     box.placeholder = s.message;
     box.setAttribute("aria-label", s.message);
     if (box.value !== message) box.value = message;

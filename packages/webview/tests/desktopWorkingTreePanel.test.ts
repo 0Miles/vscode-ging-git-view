@@ -689,5 +689,14 @@ describe("the working tree panel's amend and sign-off", () => {
 
     expect(document.activeElement).toBe(tickBox("signOff"));
     expect(tickBox("signOff").checked).toBe(true);
+
+    // Amend rewrites the message box as well as the part around the tick
+    // boxes (#479): the keyboard stays on the tick box, not on the box.
+    tickBox("amend").focus();
+    tick("amend");
+
+    expect(document.activeElement).toBe(tickBox("amend"));
+    expect(tickBox("amend").checked).toBe(true);
+    expect(box().value).toBe(HEAD_MESSAGE);
   });
 });
