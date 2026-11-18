@@ -257,3 +257,58 @@ export function spawnGit(options: GitSpawnOptions): Promise<GitSpawnResult> {
     child.stdin.end(options.stdin);
   });
 }
+
+/** A git command whose output is read as it comes (`streamGit`). */
+export type GitStream = {
+  /** Each piece of stdout, in order, while `resume` lets them flow. */
+  onData(listener: (chunk: Buffer) => void): void;
+  /** Stop reading stdout: git fills the pipe and then waits, writing nothing
+   *  more, until `resume`. Paused from the start. */
+  pause(): void;
+  resume(): void;
+  /** Kill it (best-effort, see `killTree`); a no-op once it has ended. */
+  kill(): void;
+  /** Settles once it has ended — stdout read to its end, or killed: the exit
+   *  code (null when killed by a signal) and all of stderr, or why it never
+   *  started. */
+  ended: Promise<{ exitCode: number | null; stderr: string } | { error: Error }>;
+};
+
+/**
+ * Run one git command whose stdout is read piece by piece, with backpressure:
+ * for output a caller wants only part of now and maybe the rest later, such as
+ * a page of a long `git log` (#408), without git writing — or the caller
+ * holding — the whole of it at once. The same environment, `-c` overrides and
+ * command log as `spawnGit`. A read only: stdin is closed at once.
+ */
+export function streamGit(
+  options: Pick<GitSpawnOptions, "gitPath" | "cwd" | "args" | "onCommand" | "gitEnv">
+): GitStream {
+  const args = [...GIT_CONFIG_OVERRIDES.flatMap((c) => ["-c", c]), ...options.args];
+  options.onCommand?.(options.gitPath, args);
+  const child = cp.spawn(options.gitPath, args, {
+    cwd: options.cwd,
+    env: gitChildEnv(options.gitEnv),
+    windowsHide: true
+  });
+  child.stdout.pause();
+  const stderr: Buffer[] = [];
+  child.stderr.on("data", (c: Buffer) => stderr.push(c));
+  child.stdin.on("error", () => {});
+  child.stdin.end();
+  const ended = new Promise<{ exitCode: number | null; stderr: string } | { error: Error }>(
+    (resolve) => {
+      child.once("error", (error) => resolve({ error }));
+      child.once("close", (exitCode) =>
+        resolve({ exitCode, stderr: Buffer.concat(stderr).toString() })
+      );
+    }
+  );
+  return {
+    onData: (listener) => child.stdout.on("data", listener),
+    pause: () => child.stdout.pause(),
+    resume: () => child.stdout.resume(),
+    kill: () => killTree(child),
+    ended
+  };
+}

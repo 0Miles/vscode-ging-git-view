@@ -33,6 +33,8 @@ export const MENU_IDS = {
   managePullRequestProviders: "ging.managePullRequestProviders",
   viewReflog: "ging.viewReflog",
   showStatistics: "ging.showStatistics",
+  /** #408's: a file picked, its history shown. */
+  fileHistory: "ging.fileHistory",
   setGitUserDetails: "ging.setGitUserDetails",
   openTerminal: "ging.openTerminal",
   viewMenu: "ging.viewMenu",
@@ -62,6 +64,8 @@ export type AppMenuCommands = {
   toggleRemoteVisibility(): void;
   viewReflog(): void;
   showStatistics(): void;
+  /** A file of the repository picked, its history shown (#408). */
+  fileHistory(): void;
   /** The system's terminal, in the repository (`Opener.openTerminal`). */
   openTerminal(): void;
   // The app's: asked on the focused Tab's page, or the Welcome page.
@@ -261,6 +265,7 @@ export function appMenuTemplate(
         separator,
         onGraph(MENU_IDS.viewReflog, "desktop.menu.viewReflog", commands.viewReflog),
         onGraph(MENU_IDS.showStatistics, "desktop.menu.showStatistics", commands.showStatistics),
+        onGraph(MENU_IDS.fileHistory, "desktop.menu.fileHistory", commands.fileHistory),
         separator,
         item(
           MENU_IDS.setGitUserDetails,
