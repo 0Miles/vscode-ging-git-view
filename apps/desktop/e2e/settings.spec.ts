@@ -104,7 +104,9 @@ test("a change to the auto-fetch interval takes effect without a restart", async
 test("a description's link to the web opens in the browser, not in the app", async () => {
   const repo = fixtureRepo();
   const electronApp = await launch("--repo", repo.path);
-  await electronApp.firstWindow();
+  // Every page the app opens on its own is there before they are counted
+  // below: the window's, and the Tab's, which comes after it.
+  await focusedTabPage(electronApp);
   const settings = await openSettings(electronApp);
   // The browser, stood in for as graph.spec.ts stands in for a dialog: the
   // desktop Opener looks `shell.openExternal` up when called (#391).
