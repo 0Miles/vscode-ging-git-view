@@ -2,8 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { spawnGit } from "@ging/core/backend/gitSpawn";
-import { type DiffRun, readFileDiff } from "@ging/core/backend/queries/fileHunks";
+import { type DiffRun, gitOut, readFileDiff } from "@ging/core/backend/queries/fileHunks";
 import type { FileHunk, HunkArea, NoHunksReason } from "@ging/shared/backend/types";
 
 /** One hunk of a file's diff, as the user was shown it (#406). */
@@ -88,26 +87,15 @@ export async function applyHunkPatch(run: DiffRun, patch: HunkPatch): Promise<vo
   const file = path.join(dir, "hunk.patch");
   try {
     await fs.writeFile(file, patch.bytes);
-    const result = await spawnGit({
-      gitPath: run.gitPath,
-      cwd: run.repoPath,
-      args: [
-        "-c",
-        "apply.ignoreWhitespace=no",
-        "apply",
-        "--cached",
-        "--whitespace=nowarn",
-        ...(patch.reverse ? ["--reverse"] : []),
-        file
-      ],
-      onCommand: run.onCommand,
-      gitEnv: run.gitEnv
-    });
-    if (result.kind === "error") throw result.error;
-    if (result.kind !== "ok") throw new Error(`git apply did not finish (${result.kind})`);
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr.trim() || `git apply exited with ${result.exitCode}`);
-    }
+    await gitOut(run, "apply", [
+      "-c",
+      "apply.ignoreWhitespace=no",
+      "apply",
+      "--cached",
+      "--whitespace=nowarn",
+      ...(patch.reverse ? ["--reverse"] : []),
+      file
+    ]);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

@@ -199,11 +199,10 @@ export function createWorkingTreeService(deps: WorkingTreeServiceDeps): WorkingT
         // one the patch goes to.
         const run = deps.diffRun();
         try {
-          const checked = await hunkPatch(run, choice);
+          let applied = await hunkPatch(run, choice);
           // Checked again inside, just before git writes: the diff may have
           // moved since, and `git apply` could find the hunk's context at
           // an offset rather than refuse it.
-          let applied = checked;
           await deps.runRepoMutation(deps.repo(), async () => {
             applied = await hunkPatch(run, choice);
             await applyHunkPatch(run, applied);

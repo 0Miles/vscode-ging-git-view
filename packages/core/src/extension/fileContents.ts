@@ -13,6 +13,7 @@ import {
   getCommitFileBytes,
   TOO_LARGE
 } from "@ging/core/backend/queries/commitFileContent";
+import { looksBinary } from "@ging/core/backend/utils/binary";
 
 import type { DiffSide } from "./commitDiff";
 
@@ -24,15 +25,11 @@ export type FileText = { kind: "text"; text: string } | { kind: "binary" } | { k
  *  crawl long before files this size anyway. */
 export const FILE_TEXT_LIMIT = 5 * 1024 * 1024;
 
-/** How far into a file git looks for a NUL byte to call it binary
- *  (`buffer_is_binary`, xdiff-interface.c). */
-const BINARY_PEEK = 8000;
-
 /** `bytes` as text, unless git would call them binary: a NUL in the first
  *  8000 bytes. A UTF-16 file has them too, and git does not diff it as text
  *  either. */
 function asText(bytes: Buffer, encoding: string): FileText {
-  if (bytes.subarray(0, BINARY_PEEK).includes(0)) return { kind: "binary" };
+  if (looksBinary(bytes)) return { kind: "binary" };
   return { kind: "text", text: decodeFileBytes(bytes, encoding) };
 }
 

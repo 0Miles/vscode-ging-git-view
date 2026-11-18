@@ -80,10 +80,14 @@ const HASH = /^[0-9a-f]{4,64}$/i;
 /** How long resolving the start commit may take. */
 const RESOLVE_MS = 10_000;
 
+/** Whether `path`, from a page, names a file at all. */
+const isFilePath = (path: unknown): path is string =>
+  typeof path === "string" && path !== "" && !path.includes("\0");
+
 /** Why `request` is not one to run; null when it is. A request comes from a
  *  page, which is not to be taken at its word. */
 function refusal({ path, start }: FileHistoryRequest): string | null {
-  if (typeof path !== "string" || path === "" || path.includes("\0")) return "No file is named.";
+  if (!isFilePath(path)) return "No file is named.";
   if (start !== null && (typeof start !== "string" || !HASH.test(start))) {
     return `${String(start)} is not a commit.`;
   }
@@ -153,11 +157,7 @@ export function createFileHistoryService(deps: FileHistoryServiceDeps): FileHist
   };
   /** Wait for the next page, then stop git if nobody asks for it. */
   const idleAfter = (open: Open) => {
-    open.idle = setTimeout(() => {
-      open.idle = null;
-      open.reader?.close();
-      open.reader = null;
-    }, idleMs);
+    open.idle = setTimeout(() => stop(open), idleMs);
   };
   /** Read the next page of `open`: an answer, or null once it is not the one
    *  open any more. */
@@ -258,7 +258,7 @@ export function createFileHistoryService(deps: FileHistoryServiceDeps): FileHist
       current = null;
     },
     async isTracked(path) {
-      if (typeof path !== "string" || path === "" || path.includes("\0")) return false;
+      if (!isFilePath(path)) return false;
       const result = await spawnGit({
         gitPath: deps.gitPath(),
         cwd: deps.repo(),
