@@ -26,6 +26,8 @@ const viewState = makeViewState();
 const diffsAsked: DiffViewerOptions[] = [];
 /** And the files it asked them to show read-only (#405). */
 const filesAsked: FileViewerOptions[] = [];
+/** And the blames it had them draw beside a file (#409). */
+const blamesDrawn: unknown[] = [];
 const editors: EditorFactory = {
   createDiffViewer: async (_container, options) => {
     diffsAsked.push(options);
@@ -33,7 +35,13 @@ const editors: EditorFactory = {
   },
   createFileViewer: async (_container, options) => {
     filesAsked.push(options);
-    return { setTheme: () => {}, focus: () => {}, dispose: () => {} };
+    return {
+      setBlame: (blame) => blamesDrawn.push(blame),
+      setBlameHover: () => {},
+      setTheme: () => {},
+      focus: () => {},
+      dispose: () => {}
+    };
   }
 };
 
@@ -144,9 +152,52 @@ describe("the desktop entry", () => {
 
     expect(filesAsked[0]).toEqual({
       document: { path: "file.txt", content: "then\n" },
-      theme: expect.any(String)
+      theme: expect.any(String),
+      // What the user does with its blame's annotations (#409).
+      blame: {
+        hover: expect.any(Function),
+        click: expect.any(Function),
+        link: expect.any(Function)
+      }
     });
     expect(document.getElementById("diffViewer")!.hidden).toBe(false);
+    expect(mock.sentOf("reportError")).toEqual([]);
+  });
+
+  it("asks the host for the blame of a file it offers, past the graph, and draws the answer (#409)", async () => {
+    mock.clearMessages();
+    receive({
+      command: "showFile",
+      title: "file.txt (bbb222)",
+      file: { path: "file.txt", content: "one\n" },
+      notShown: null,
+      strings: { close: "Close File", cannotShow: "-" },
+      blame: { file: 7, show: true, strings: { toggle: "Blame", blaming: "…", failed: "-" } }
+    } as unknown as GG.ResponseMessage);
+    await vi.waitFor(() => expect(filesAsked).toHaveLength(2));
+    await vi.waitFor(() =>
+      expect(mock.sentOf("fileBlameOpen" as GG.RequestMessage["command"])).toEqual([
+        { command: "fileBlameOpen", file: 7 }
+      ])
+    );
+
+    receive({
+      command: "fileBlame",
+      file: 7,
+      blame: {
+        repo: "/repo",
+        commits: [{ sha: "a".repeat(40), uncommitted: false, text: "Al • add" }],
+        lines: [0]
+      }
+    } as unknown as GG.ResponseMessage);
+
+    expect(blamesDrawn).toEqual([
+      {
+        repo: "/repo",
+        commits: [{ sha: "a".repeat(40), uncommitted: false, text: "Al • add" }],
+        lines: [0]
+      }
+    ]);
     expect(mock.sentOf("reportError")).toEqual([]);
   });
 });

@@ -7,7 +7,8 @@
  * The one caller is the panel over the graph (diff/diffPanel.ts), which shows
  * a diff (#404) or one file read-only (#405), so the factory makes those two.
  * Hunk staging (#406) grows what a `DiffViewer` can do, blame (#409) what a
- * `FileViewer` can. Each when it has a caller (ADR-0027). */
+ * `FileViewer` can: annotations beside its lines, each with a hover. Each
+ * when it has a caller (ADR-0027). */
 
 import type { DiffDocument } from "./diff/protocol";
 
@@ -44,10 +45,54 @@ export type FileViewerOptions = {
    *  colour it as. */
   document: DiffDocument;
   theme: ThemeKind;
+  /** What the user does with its blame's annotations, once it shows them
+   *  (`setBlame`, #409). */
+  blame?: BlameGutterEvents;
 };
+
+/** A file's blame as a viewer draws it beside the lines (#409): the words of
+ *  each commit's annotation, and each line's commit. */
+export type BlameGutter = {
+  /** Each commit's annotation, as the host wrote it. */
+  commits: { text: string; uncommitted: boolean }[];
+  /** Each line of the file, in order: its commit's index in `commits`. */
+  lines: number[];
+};
+
+/** A hover link of a blamed line: which one (`BLAME_LINKS`), and the argument
+ *  its Markdown gave it. */
+export type BlameLinkClick = { link: BlameLink; arg: unknown };
+
+export type BlameGutterEvents = {
+  /** The pointer is on line `line`'s annotation (0-based): its hover is
+   *  wanted, in full (`setBlameHover`). */
+  hover(line: number): void;
+  /** Line `line`'s annotation was clicked. */
+  click(line: number): void;
+  /** A link in a hover was clicked. */
+  link(click: BlameLinkClick): void;
+};
+
+/** The commands a blamed line's hover links to, as the host writes them into
+ *  its Markdown (`command:<id>?<args>`) and the viewer runs them. */
+export const BLAME_LINKS = {
+  copySha: "ging.blame.copySha",
+  openLineChange: "ging.blame.openLineChange",
+  locateCommit: "ging.blame.locateCommit"
+} as const;
+export type BlameLink = keyof typeof BLAME_LINKS;
+
+/** The class of the text a viewer draws a line's annotation in, for the
+ *  panel's styles (diffPanelStyles.ts). */
+export const BLAME_ANNOTATION_CLASS = "gingBlameAnnotation";
 
 /** One file, read-only, drawn in the element it was made in. */
 export interface FileViewer {
+  /** Draw `blame` beside the lines, in place of any drawn; none for null. */
+  setBlame(blame: BlameGutter | null): void;
+  /** Line `line`'s hover (0-based), as Markdown with codicons and the
+   *  `BLAME_LINKS` commands. */
+  setBlameHover(line: number, markdown: string): void;
   /** As `DiffViewer.setTheme`. */
   setTheme(theme: ThemeKind): void;
   /** Give it the keyboard. */

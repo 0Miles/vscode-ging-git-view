@@ -8,7 +8,11 @@ import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths
 import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
-import type { ViewerMessage } from "@ging/webview/desktop/diff/protocol";
+import type {
+  FileBlameHostMessage,
+  FileBlameRequest
+} from "@ging/webview/desktop/diff/blameProtocol";
+import type { ShowFileMessage, ViewerMessage } from "@ging/webview/desktop/diff/protocol";
 import type { FileHistoryRequest } from "@ging/webview/desktop/fileHistory/protocol";
 import type { SideViewStateMessage } from "@ging/webview/desktop/sideViews/protocol";
 import type { WorkingTreeRequest } from "@ging/webview/desktop/workingTree/protocol";
@@ -51,6 +55,8 @@ function setUp() {
   const logged: string[] = [];
   /** What the system was asked to open: nothing here starts anything. */
   const opened: unknown[][] = [];
+  /** What was put on the clipboard. */
+  const copied: string[] = [];
   const shared = createSharedServices({
     userDataPath: userData,
     locale: "en",
@@ -60,7 +66,11 @@ function setUp() {
       logError: (line) => logged.push(`ERROR: ${line}`),
       reveal: () => {}
     },
-    clipboard: { writeText: async () => {} },
+    clipboard: {
+      writeText: async (text) => {
+        copied.push(text);
+      }
+    },
     os: {
       openPath: async (file) => {
         opened.push(["openPath", file]);
@@ -114,7 +124,7 @@ function setUp() {
     instances.push(instance);
     return { instance, answers, state, asked: calls, diffs, sideViews, ...page };
   };
-  return { shared, repos, open, logged, opened, revealed };
+  return { shared, repos, open, logged, opened, revealed, copied };
 }
 
 /** A known repository's path whose folder is not there. */
@@ -320,7 +330,17 @@ describe("a graph instance", () => {
         title: `legacy.ts (${head.slice(0, 8)})`,
         file: { path: "src/legacy.ts", content: "café\n" },
         notShown: null,
-        strings: { close: "Close File", cannotShow: "The file viewer could not be loaded." }
+        strings: { close: "Close File", cannotShow: "The file viewer could not be loaded." },
+        // And offered to be blamed (#409), the toggle left as it is.
+        blame: {
+          file: 1,
+          show: false,
+          strings: {
+            toggle: "Blame",
+            blaming: "Blaming...",
+            failed: "Git could not blame this file."
+          }
+        }
       }
     ]);
     expect(other.diffs).toEqual([]);
@@ -575,6 +595,227 @@ describe("a graph instance", () => {
 
       expect(page.posted).toEqual([]);
       expect(page.asked).toEqual([]);
+    });
+  });
+
+  describe("a file's blame (#409)", () => {
+    /** `repo` with "a.txt" committed by Bea, then its second line changed by
+     *  the user; the commits' hashes. */
+    function twoCommits(repo: string) {
+      fs.writeFileSync(path.join(repo, "a.txt"), "one\ntwo\n");
+      git(["add", "a.txt"], repo);
+      git(["commit", "-qm", "add a", "--author=Bea <bea@example.com>"], repo);
+      const first = rev(repo, "HEAD");
+      fs.writeFileSync(path.join(repo, "a.txt"), "one\nTWO\n");
+      git(["commit", "-qam", "shout two"], repo);
+      return { first, second: rev(repo, "HEAD") };
+    }
+    /** The blame view's messages handed to the page: past the graph's types. */
+    const blameMessages = (posted: ResponseMessage[]) =>
+      posted.filter((msg) =>
+        (msg.command as string).startsWith("fileBlame")
+      ) as unknown as FileBlameHostMessage[];
+    const fromPage = (page: { receive(m: RequestMessage): Promise<void> }, r: FileBlameRequest) =>
+      page.receive(r as unknown as RequestMessage);
+
+    /** The file at `commit`, opened as the CDV's View File at this Revision
+     *  opens it; the number it is offered to be blamed by. */
+    async function viewAt(
+      page: Awaited<ReturnType<ReturnType<typeof setUp>["open"]>>,
+      repo: string,
+      commit: string
+    ) {
+      await page.receive({
+        command: "viewFileAtRevision",
+        repo,
+        commitHash: commit,
+        filePath: "a.txt"
+      });
+      const shown = page.diffs.at(-1) as ShowFileMessage;
+      return shown.blame!.file;
+    }
+
+    it("blames the file its page shows as the commit has it, past the dispatch", async () => {
+      const { repos, open, logged } = setUp();
+      const page = open(repos[0]);
+      const { first, second } = twoCommits(repos[0]);
+      const file = await viewAt(page, repos[0], second);
+
+      await fromPage(page, { command: "fileBlameOpen", file });
+
+      expect(blameMessages(page.posted)).toEqual([
+        {
+          command: "fileBlame",
+          file,
+          blame: {
+            repo: repos[0],
+            commits: [
+              { sha: first, uncommitted: false, text: expect.stringMatching(/^Bea, .* • add a$/) },
+              {
+                sha: second,
+                uncommitted: false,
+                text: expect.stringMatching(/^You, .* • shout two$/)
+              }
+            ],
+            lines: [0, 1]
+          }
+        }
+      ]);
+      // Only read: nothing refreshed, nothing asked.
+      expect(sentOf(page.posted, "refresh")).toEqual([]);
+      expect(page.asked).toEqual([]);
+      expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+    });
+
+    it("blames nothing but the file offered last", async () => {
+      const { repos, open } = setUp();
+      const page = open(repos[0]);
+      const { first, second } = twoCommits(repos[0]);
+      const before = await viewAt(page, repos[0], first);
+      await viewAt(page, repos[0], second);
+
+      await fromPage(page, { command: "fileBlameOpen", file: before });
+      await fromPage(page, { command: "fileBlameOpen", file: 99 });
+
+      expect(blameMessages(page.posted)).toEqual([]);
+    });
+
+    it("offers no blame of the index's copy of a file", async () => {
+      const { repos, open } = setUp();
+      const page = open(repos[0]);
+      twoCommits(repos[0]);
+
+      await page.instance.showFile({
+        title: "a.txt (index)",
+        file: { revision: { repo: repos[0], filePath: "a.txt", commit: ":0" } }
+      });
+
+      expect((page.diffs[0] as ShowFileMessage).blame).toBeUndefined();
+    });
+
+    it("writes a line's hover in full, and runs its links: a hash copied, the line's change shown, the commit located", async () => {
+      const { repos, open, copied } = setUp();
+      const page = open(repos[0]);
+      const { first, second } = twoCommits(repos[0]);
+      const file = await viewAt(page, repos[0], second);
+      await fromPage(page, { command: "fileBlameOpen", file });
+
+      await fromPage(page, { command: "fileBlameHoverOf", file, line: 1 });
+      const [, hover] = blameMessages(page.posted);
+      expect(hover).toMatchObject({ command: "fileBlameHover", file, line: 1 });
+      expect((hover as { markdown: string }).markdown).toContain("-two\n+TWO");
+      expect((hover as { markdown: string }).markdown).toContain(
+        "(command:ging.blame.locateCommit?"
+      );
+
+      await fromPage(page, { command: "fileBlameRun", file, link: "copySha", arg: second });
+      expect(copied).toEqual([second]);
+      expect(blameMessages(page.posted).at(-1)).toEqual({
+        command: "fileBlameSaid",
+        file,
+        text: `Copied commit hash ${second.slice(0, 8)}`
+      });
+
+      const change = { repo: repos[0], sha: second, filename: "a.txt", line: 2 };
+      await fromPage(page, {
+        command: "fileBlameRun",
+        file,
+        link: "openLineChange",
+        arg: { ...change, previous: { sha: first, filename: "a.txt" } }
+      });
+      expect(page.diffs.at(-1)).toMatchObject({
+        command: "showDiff",
+        original: { path: "a.txt", content: "one\ntwo\n" },
+        modified: { path: "a.txt", content: "one\nTWO\n" },
+        revealLine: 2
+      });
+
+      await fromPage(page, {
+        command: "fileBlameRun",
+        file,
+        link: "locateCommit",
+        arg: { repo: repos[0], sha: first }
+      });
+      expect(sentOf(page.posted, "locateCommit")).toEqual([
+        { command: "locateCommit", repo: repos[0], hash: first, seq: 1 }
+      ]);
+      expect(page.asked).toEqual([]);
+    });
+
+    it("runs no link whose argument is not of its repository, saying so for a locate", async () => {
+      const { repos, open, copied } = setUp();
+      const page = open(repos[0]);
+      const { second } = twoCommits(repos[0]);
+      const file = await viewAt(page, repos[0], second);
+
+      await fromPage(page, { command: "fileBlameRun", file, link: "copySha", arg: "HEAD" });
+      await fromPage(page, {
+        command: "fileBlameRun",
+        file,
+        link: "locateCommit",
+        arg: { repo: repos[1], sha: second }
+      });
+
+      expect(copied).toEqual([]);
+      expect(sentOf(page.posted, "locateCommit")).toEqual([]);
+      expect(page.asked).toEqual([["showError", "Unable to locate the commit in the GING graph"]]);
+    });
+
+    it("shows the menu's Blame File… pick as the working tree has it, blamed at once, its lines not committed said so", async () => {
+      const { repos, open } = setUp();
+      twoCommits(repos[0]);
+      fs.writeFileSync(path.join(repos[0], "a.txt"), "one\nTWO\nnot yet\n");
+      const page = open(repos[0], (root) => path.join(root, "a.txt"));
+
+      await page.instance.commands.blameFile();
+
+      const [shown] = page.diffs as ShowFileMessage[];
+      expect(shown).toMatchObject({
+        command: "showFile",
+        title: "a.txt (Working Tree)",
+        file: { path: "a.txt", content: "one\nTWO\nnot yet\n" },
+        blame: { show: true }
+      });
+      await fromPage(page, { command: "fileBlameOpen", file: shown.blame!.file });
+      const [answer] = blameMessages(page.posted) as {
+        blame: { commits: unknown[]; lines: number[] };
+      }[];
+      expect(answer.blame.lines).toEqual([0, 1, 2]);
+      expect(answer.blame.commits[2]).toEqual({
+        sha: "0".repeat(40),
+        uncommitted: true,
+        text: "You • Uncommitted changes"
+      });
+    });
+
+    it("says so in its own window when the file picked is one git does not track", async () => {
+      const { repos, open } = setUp();
+      fs.writeFileSync(path.join(repos[0], "scratch.txt"), "never added");
+      const page = open(repos[0], () => path.join(repos[0], "scratch.txt"));
+
+      await page.instance.commands.blameFile();
+
+      expect(page.diffs).toEqual([]);
+      expect(page.asked).toEqual([
+        [
+          "showInformation",
+          "scratch.txt is not tracked by Git (untracked or ignored): no commit has its lines."
+        ]
+      ]);
+    });
+
+    it("stops blaming once its page lets the file go, and answers nothing after", async () => {
+      const { repos, open } = setUp();
+      const page = open(repos[0]);
+      const { second } = twoCommits(repos[0]);
+      const file = await viewAt(page, repos[0], second);
+
+      const blaming = fromPage(page, { command: "fileBlameOpen", file });
+      await fromPage(page, { command: "fileBlameClose", file });
+      await blaming;
+      await fromPage(page, { command: "fileBlameHoverOf", file, line: 0 });
+
+      expect(blameMessages(page.posted)).toEqual([]);
     });
   });
 

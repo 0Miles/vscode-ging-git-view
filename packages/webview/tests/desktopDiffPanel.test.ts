@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { FileBlameMessage, FileBlameRequest } from "@ging/webview/desktop/diff/blameProtocol";
 import { createDiffPanel, LAYOUT_STORAGE_KEY } from "@ging/webview/desktop/diff/diffPanel";
+import { BLAME_STORAGE_KEY, SAID_MS } from "@ging/webview/desktop/diff/fileBlame";
 import type { ShowDiffMessage, ShowFileMessage } from "@ging/webview/desktop/diff/protocol";
 import type {
+  BlameGutter,
   DiffLayout,
   DiffViewer,
   DiffViewerOptions,
@@ -28,6 +31,10 @@ type FakeFileViewer = FileViewer & {
   container: HTMLElement;
   options: FileViewerOptions;
   themes: ThemeKind[];
+  /** Each blame it was given to draw (#409), in order. */
+  blames: (BlameGutter | null)[];
+  /** Each line's hover it was given, in order. */
+  hovers: [number, string][];
   disposed: boolean;
 };
 
@@ -66,7 +73,11 @@ function fakeEditors() {
         container,
         options,
         themes: [],
+        blames: [],
+        hovers: [],
         disposed: false,
+        setBlame: (blame) => viewer.blames.push(blame),
+        setBlameHover: (line, markdown) => viewer.hovers.push([line, markdown]),
         setTheme: (theme) => viewer.themes.push(theme),
         focus: () => {
           const input = document.createElement("textarea");
@@ -580,5 +591,215 @@ describe("a file shown read-only in the diff viewer (#405)", () => {
     expect(error.hidden).toBe(false);
     expect(error.textContent).toBe("No file editor");
     expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+});
+
+describe("a file's blame in the diff viewer (#409)", () => {
+  const STRINGS = { toggle: "Blame", blaming: "Blaming...", failed: "Could not blame." };
+  const offered = (file: number, show = false): ShowFileMessage =>
+    fileMessage({ blame: { file, show, strings: STRINGS } });
+  const SHA_A = "a".repeat(40);
+  const blameOf = (file: number): FileBlameMessage => ({
+    command: "fileBlame",
+    file,
+    blame: {
+      repo: "/repo",
+      commits: [
+        { sha: SHA_A, uncommitted: false, text: "Al, 1 day ago • add" },
+        { sha: "0".repeat(40), uncommitted: true, text: "You • Uncommitted changes" }
+      ],
+      lines: [0, 1]
+    }
+  });
+  const toggle = () => panel().querySelector<HTMLButtonElement>(".diffViewerBlame")!;
+  const status = () => panel().querySelector<HTMLElement>(".diffViewerBlameStatus")!;
+
+  function blamePanel(initial: Record<string, string> = {}) {
+    const asked: FileBlameRequest[] = [];
+    const storage = memoryStorage(initial);
+    const fake = fakeEditors();
+    const viewer = createDiffPanel(fake.editors, {
+      storage,
+      askBlame: (request) => asked.push(request)
+    });
+    return { ...fake, viewer, asked, storage };
+  }
+
+  it("offers no toggle for a file the host offers no blame of, nor for a diff", async () => {
+    const { viewer } = blamePanel();
+
+    await viewer.showFile(fileMessage());
+    expect(toggle().hidden).toBe(true);
+    await viewer.show(message());
+    expect(toggle().hidden).toBe(true);
+  });
+
+  it("asks nothing until the toggle is pressed; then says it is blaming, draws the answer, and remembers", async () => {
+    const { viewer, files, asked, storage } = blamePanel();
+    await viewer.showFile(offered(1));
+
+    expect(toggle().hidden).toBe(false);
+    expect(toggle().textContent).toBe("Blame");
+    expect(toggle().getAttribute("aria-pressed")).toBe("false");
+    expect(asked).toEqual([]);
+
+    toggle().click();
+    expect(asked).toEqual([{ command: "fileBlameOpen", file: 1 }]);
+    expect(toggle().getAttribute("aria-pressed")).toBe("true");
+    expect(status().textContent).toBe("Blaming...");
+    expect(storage.getItem(BLAME_STORAGE_KEY)).toBe("on");
+
+    viewer.blame(blameOf(1));
+    expect(files[0].blames).toEqual([blameOf(1).blame]);
+    expect(status().textContent).toBe("");
+  });
+
+  it("asks at once when the toggle was left on, or the host opened the file to be blamed", async () => {
+    const left = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await left.viewer.showFile(offered(1));
+    expect(left.asked).toEqual([{ command: "fileBlameOpen", file: 1 }]);
+
+    const opened = blamePanel();
+    await opened.viewer.showFile(offered(2, true));
+    expect(opened.asked).toEqual([{ command: "fileBlameOpen", file: 2 }]);
+    expect(toggle().getAttribute("aria-pressed")).toBe("true");
+    expect(opened.storage.getItem(BLAME_STORAGE_KEY)).toBe("on");
+  });
+
+  it("turned off, stops the host's blame and draws none", async () => {
+    const { viewer, files, asked, storage } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+
+    toggle().click();
+
+    expect(asked.at(-1)).toEqual({ command: "fileBlameClose", file: 1 });
+    expect(files[0].blames.at(-1)).toBeNull();
+    expect(storage.getItem(BLAME_STORAGE_KEY)).toBe("off");
+  });
+
+  it("lets the blame go when another file or a diff takes its place, or the panel closes", async () => {
+    const { viewer, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    await viewer.showFile(offered(2));
+    await viewer.show(message());
+    await viewer.showFile(offered(3));
+    viewer.close();
+
+    expect(asked).toEqual([
+      { command: "fileBlameOpen", file: 1 },
+      { command: "fileBlameClose", file: 1 },
+      { command: "fileBlameOpen", file: 2 },
+      { command: "fileBlameClose", file: 2 },
+      { command: "fileBlameOpen", file: 3 },
+      { command: "fileBlameClose", file: 3 }
+    ]);
+  });
+
+  it("asks nothing for a file with no text to blame", async () => {
+    const { viewer, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+
+    await viewer.showFile({ ...offered(1), notShown: "Binary file" });
+
+    expect(toggle().hidden).toBe(true);
+    expect(asked).toEqual([]);
+  });
+
+  it("draws no answer for a file no longer shown", async () => {
+    const { viewer, files } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    await viewer.showFile(offered(2));
+
+    viewer.blame(blameOf(1));
+
+    expect(files[0].blames).toEqual([]);
+    expect(files[1].blames).toEqual([]);
+  });
+
+  it("says when the file could not be blamed", async () => {
+    const { viewer, files } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+
+    viewer.blame({ command: "fileBlame", file: 1, blame: null });
+
+    expect(status().textContent).toBe("Could not blame.");
+    expect(files[0].blames).toEqual([null]);
+  });
+
+  it("asks for a line's hover once, and hands the viewer what the host wrote", async () => {
+    const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const events = files[0].options.blame!;
+
+    events.hover(0);
+    events.hover(0);
+    events.hover(5);
+    viewer.blame({ command: "fileBlameHover", file: 1, line: 0, markdown: "**Al**" });
+
+    expect(asked.filter((r) => r.command === "fileBlameHoverOf")).toEqual([
+      { command: "fileBlameHoverOf", file: 1, line: 0 }
+    ]);
+    expect(files[0].hovers).toEqual([[0, "**Al**"]]);
+  });
+
+  it("locates a committed line's commit when its annotation is clicked, closing over the graph; not a line not committed", async () => {
+    const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const events = files[0].options.blame!;
+
+    events.click(1);
+    expect(panel().hidden).toBe(false);
+    expect(asked.some((r) => r.command === "fileBlameRun")).toBe(false);
+
+    events.click(0);
+    expect(asked.slice(-2)).toEqual([
+      {
+        command: "fileBlameRun",
+        file: 1,
+        link: "locateCommit",
+        arg: { repo: "/repo", sha: SHA_A }
+      },
+      { command: "fileBlameClose", file: 1 }
+    ]);
+    expect(panel().hidden).toBe(true);
+  });
+
+  it("runs a hover's links through the host, closing for the one that locates the commit", async () => {
+    const { viewer, files, asked } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+    await viewer.showFile(offered(1));
+    viewer.blame(blameOf(1));
+    const events = files[0].options.blame!;
+
+    events.link({ link: "copySha", arg: SHA_A });
+    viewer.blame({ command: "fileBlameSaid", file: 1, text: "Copied commit hash aaaaaaaa" });
+    expect(status().textContent).toBe("Copied commit hash aaaaaaaa");
+    events.link({ link: "openLineChange", arg: { line: 1 } });
+    expect(panel().hidden).toBe(false);
+    events.link({ link: "locateCommit", arg: { repo: "/repo", sha: SHA_A } });
+
+    expect(asked.filter((r) => r.command === "fileBlameRun").map((r) => r.link)).toEqual([
+      "copySha",
+      "openLineChange",
+      "locateCommit"
+    ]);
+    expect(panel().hidden).toBe(true);
+  });
+
+  it("says a copied hash only for a moment", async () => {
+    vi.useFakeTimers();
+    try {
+      const { viewer } = blamePanel({ [BLAME_STORAGE_KEY]: "on" });
+      await viewer.showFile(offered(1));
+      viewer.blame(blameOf(1));
+
+      viewer.blame({ command: "fileBlameSaid", file: 1, text: "Copied" });
+      vi.advanceTimersByTime(SAID_MS);
+
+      expect(status().textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

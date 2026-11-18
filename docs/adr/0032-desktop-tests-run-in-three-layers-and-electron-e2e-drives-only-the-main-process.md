@@ -169,3 +169,10 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 
 - **「照副檔名著色」讀的是 Monaco 自己的 DOM:那一行被畫成好幾個 token(`mtk*` class 不只一種)。** 純文字的 model 整行只有一個 token。Monaco 0.57.0 的 editor 根元素沒有 `data-mode-id`,不能直接讀語言 id。
 - **walk(`actions.spec.ts`)的 `viewFileAtRevision` 從 stub 那一段移到兩個 diff 之後**,斷言同 diff:面板出現、app 外面什麼都沒發生、沒有錯誤框,然後關掉。排在後面,頁面的第一個 editor 仍是 `viewDiffWithWorking` 的,`FIRST_DIFF_BUDGET` 留在原處。stub 已經一個都不剩,walk 的 `stub` 與「尚未支援」的通知文字一併移除。
+
+## 補記(2026-11-18,#409)
+
+**blame 的 Electron E2E 兩條在 [fileBlame.spec.ts](../../apps/desktop/e2e/fileBlame.spec.ts),fixture 是測試自己建的兩個 commit(Alice 新增、Bob 改第二行)。** 驗的是只有真的 app 才證明得了的事:Monaco 真的把註記畫在每一行前面(讀 `.view-line` 裡的 `.gingBlameAnnotation`;Monaco 把空白畫成 no-break space,讀之前換回來);hover 先出現、再被宿主寫完整(commit 訊息的 body、hunk 的 `+SECOND`),Markdown 的 `command:` 連結真的經 main process 打開這一行的 diff;再次打開檔案時切換鈕記得是開的;點註記之後面板關掉、圖形停在那個 commit(CDV 打開或焦點在那一列)。另一條從應用程式選單的 `ging.blameFile` 觸發(先讀 `enabled`,再 `click()`),開檔對話框照 #394 的做法換掉,斷言它被問的標題與按鈕、標題寫 working tree,以及還沒 commit 的那一行寫「You • Uncommitted changes」。兩條都斷言 console 沒有 error、log 沒有 `ERROR:`。
+
+- **blame 的語意在 vitest 用真的 git 驗,不在 E2E 重複**:某個 commit 的檔案、`^`、rename 前的檔名、shallow clone 的 boundary、非 UTF-8 檔逐行、特殊字元的路徑、`-` 開頭的 revision、大小上限、abort([atRevision.test.ts](../../packages/core/tests/queries/blameFile/atRevision.test.ts));一次一個檔案、被取代或關掉時回答 null、hover 的內容與連結參數的檢查([fileBlameService.test.ts](../../packages/core/tests/extension/fileBlameService.test.ts));宿主端的訊息往返、選單的 Blame File…、未追蹤的檔案([graphInstance.test.ts](../../apps/desktop/tests/graphInstance.test.ts))。面板的切換、記住、取代與關閉時放掉、過期的回答、點擊與連結在 jsdom 用假的 editors 驗([desktopDiffPanel.test.ts](../../packages/webview/tests/desktopDiffPanel.test.ts))。
+- **本機只各跑一次。** quiet-E2E 修正落地前,依協調者指示,本機只跑本票新增的 spec 一次,重複交給 CI;沒有改 `actions.spec.ts`。

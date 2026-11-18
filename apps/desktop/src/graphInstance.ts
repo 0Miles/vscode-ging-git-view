@@ -6,6 +6,7 @@ import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { createConflictCommands } from "@ging/core/extension/conflictCommands";
 import { createFetchService } from "@ging/core/extension/fetchService";
+import { createFileBlameService } from "@ging/core/extension/fileBlameService";
 import { createFileHistoryService } from "@ging/core/extension/fileHistoryService";
 import { buildGraphViewState } from "@ging/core/extension/graphViewState";
 import {
@@ -34,7 +35,12 @@ import type {
   RequestMessage,
   ResponseMessage
 } from "@ging/shared/types";
+import {
+  type FileBlameHostMessage,
+  isFileBlameRequest
+} from "@ging/webview/desktop/diff/blameProtocol";
 import type { ViewerMessage } from "@ging/webview/desktop/diff/protocol";
+import { BLAME_LINKS } from "@ging/webview/desktop/editors";
 import {
   type FileHistoryHostMessage,
   isFileHistoryRequest
@@ -47,6 +53,7 @@ import {
 } from "@ging/webview/desktop/workingTree/protocol";
 
 import { type AppCommands, createAppCommands } from "./appCommands";
+import { createFileBlame } from "./fileBlame";
 import { createFileHistory } from "./fileHistory";
 import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
@@ -72,8 +79,9 @@ type GraphInstanceOptions = {
    *  graph's own messages (ADR-0031); false when the page is gone. */
   postDiff: (message: ViewerMessage) => boolean;
   /** A file of `repo`, picked in the system's dialog opened on it; null when
-   *  none was: the application menu's File History… (#408). */
-  pickFile: (repo: string) => Promise<string | null>;
+   *  none was: the application menu's File History… (#408) and Blame File…
+   *  (#409), each its own dialog. */
+  pickFile: (repo: string, purpose: "fileHistory" | "blame") => Promise<string | null>;
 };
 
 export type GraphInstance = {
@@ -98,7 +106,7 @@ export type GraphInstance = {
    *  with. The `Opener`'s two diffs go the same way. */
   showDiff: ShowDiff;
   /** Show a file read-only in its page, over its graph (#405), as the
-   *  `Opener`'s File at Revision does: what blame (#409) builds on. */
+   *  `Opener`'s File at Revision does, offered to be blamed (#409). */
   showFile: ShowFile;
   dispose(): void;
 };
@@ -118,6 +126,15 @@ export type InstanceCommands = AppCommands & {
   openTerminal(): void;
   /** A file picked, its history shown in the page (#408). */
   fileHistory(): Promise<void>;
+  /** A file picked, the working tree's copy shown blamed in the page (#409). */
+  blameFile(): Promise<void>;
+};
+
+/** The blame hover's icons, as Monaco's Markdown draws codicons. */
+const BLAME_HOVER_ICONS: Record<"account" | "change" | "commit", string> = {
+  account: "$(account)",
+  change: "$(diff)",
+  commit: "$(git-commit)"
 };
 
 export function createGraphInstance(
@@ -149,6 +166,7 @@ export function createGraphInstance(
       page.onDidReceiveMessage((message) => {
         if (isWorkingTreeRequest(message)) return answerPanel(message);
         if (isFileHistoryRequest(message)) return fileHistory.receive(message);
+        if (isFileBlameRequest(message)) return fileBlame.receive(message);
         if (message.command === "markResolved") return markResolvedAsked(message, listener);
         if (message.command === "selectRepo" && message.repo !== repo) {
           if (message.repo) {
@@ -212,15 +230,51 @@ export function createGraphInstance(
     runRepoMutation
   });
   // A file's history (#408): only read, so no mutation and no refresh.
+  const fileHistoryService = createFileHistoryService({
+    gitPath: shared.gitPath,
+    repo: () => current
+  });
   const fileHistory = createFileHistory({
     // Its own git, read as a stream: none of the client's process slots held
     // while the panel is open.
-    service: createFileHistoryService({ gitPath: shared.gitPath, repo: () => current }),
+    service: fileHistoryService,
     repo: () => current,
     showDiff: (request) => showDiff(request),
     post: (message: FileHistoryHostMessage) =>
       void page.postMessage(message as unknown as ResponseMessage),
-    pickFile,
+    pickFile: (root) => pickFile(root, "fileHistory"),
+    prompts,
+    l10n,
+    logger
+  });
+  // The blame of the file its page shows read-only (#409): only read too.
+  // Its git runs apart from the client's, so a big file's blame holds none
+  // of its process slots; a locate goes to the graph as VS Code's blame
+  // hover sends one, through the graph's wait-for-load queue.
+  let locateSeq = 0;
+  const fileBlame = createFileBlame({
+    service: createFileBlameService({
+      gitPath: shared.gitPath,
+      repo: () => current,
+      l10n,
+      locale: shared.locale,
+      links: {
+        copyShaCommand: BLAME_LINKS.copySha,
+        openLineChangeCommand: BLAME_LINKS.openLineChange,
+        locateCommitCommand: BLAME_LINKS.locateCommit,
+        icon: (name) => BLAME_HOVER_ICONS[name]
+      }
+    }),
+    repo: () => current,
+    showDiff: (request) => showDiff(request),
+    showFile: (request) => showFile(request),
+    post: (message: FileBlameHostMessage) =>
+      void page.postMessage(message as unknown as ResponseMessage),
+    locate: (hash) =>
+      void bridge.post({ command: "locateCommit", repo: current, hash, seq: ++locateSeq }),
+    clipboard: shared.clipboard,
+    pickFile: (root) => pickFile(root, "blame"),
+    isTracked: (filePath) => fileHistoryService.isTracked(filePath),
     prompts,
     l10n,
     logger
@@ -316,7 +370,10 @@ export function createGraphInstance(
     post: postDiff
   };
   const showDiff = createShowDiff(viewerDeps);
-  const showFile = createShowFile(viewerDeps);
+  const showFile = createShowFile({
+    ...viewerDeps,
+    offerBlame: (file, shownPath, show) => fileBlame.offer(file, shownPath, show)
+  });
   const opener = createDesktopOpener({
     ...notifier,
     os: shared.os,
@@ -446,13 +503,15 @@ export function createGraphInstance(
         const name = current.split("/").findLast((s) => s !== "") ?? current;
         opener.openTerminal(current, `GING: ${name}`);
       },
-      fileHistory: () => fileHistory.pickAndShow()
+      fileHistory: () => fileHistory.pickAndShow(),
+      blameFile: () => fileBlame.pickAndShow()
     },
     sideView: (message) => sideViews.receive(message),
     showWorkingTree: () => postToPanel({ command: "workingTreeShow" }),
     dispose: () => {
       sideViews.dispose();
       fileHistory.dispose();
+      fileBlame.dispose();
       dispatch.dispose();
       reposChanged.dispose();
       fetchService.dispose();

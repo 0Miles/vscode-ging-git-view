@@ -60,7 +60,11 @@ _Avoid_: merge editor(留給宿主自己的 3-way 畫面), mergetool driver, mer
 
 **File history**:
 一個檔案被哪些 commit 改過 —— 從一個起點 commit 往回的 `git log --follow`:從 CDV 的檔案打開的是到那個 commit 為止,從應用程式選單打開的是到 HEAD 為止。每一筆都帶著檔案在**那個 commit** 的路徑:rename 之前是舊名字,點它打開的 diff 讀的也是舊名字。merge 只有在它自己改了檔案時才算一筆 —— 衝突的解法、merge 裡另外做的改動;乾淨合併兩側各自的改動不算,那些改動列在做出它們的 commit 上。它跟的是 git `--follow` 跟得到的:一個路徑,rename 與 copy 往回跟,遇到 rename 之後整次都跟舊名字(ADR-0027 的 #408 補記)。它畫在 Tab 頁面上自己的面板裡,**不是**圖形的路徑篩選:圖形畫什麼、**Navigation** 與 **Loaded commit window** 都不受它影響([#408](https://github.com/0Miles/vscode-ging-git-view/issues/408))。中文寫作「檔案歷史」。桌面 host 專屬。
-_Avoid_: file log, path filter, 路徑篩選, blame(那是 #409)
+_Avoid_: file log, path filter, 路徑篩選, blame(那是 **Blame view**)
+
+**Blame view**:
+桌面 host 上,唯讀顯示的一個檔案(某個 commit 的,或 working tree 的)每一行前面標出最後改了它的 commit —— `作者, 多久以前 • 摘要`,與 inline blame 的註記同一份文字;同一個 commit 連續的幾行只在第一行寫。滑到註記上看那個 commit 的完整訊息與含這一行的變更,點註記到圖形裡的那個 commit。working tree 的檔案裡還沒 commit 的行寫成「尚未提交的變更」。它是使用者打開的、看整個檔案的檢視;inline blame 是 VS Code host 跟著游標、只標一行的那一個,兩者不互相取代([#409](https://github.com/0Miles/vscode-ging-git-view/issues/409))。中文寫作「blame 檢視」。桌面 host 專屬。
+_Avoid_: annotate, file annotations, inline blame(那是 VS Code host 的)
 
 ### 分支的狀態
 

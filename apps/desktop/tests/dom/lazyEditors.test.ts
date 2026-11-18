@@ -21,7 +21,13 @@ const viewer: DiffViewer = {
   focus: () => {},
   dispose: () => {}
 };
-const fileViewer: FileViewer = { setTheme: () => {}, focus: () => {}, dispose: () => {} };
+const fileViewer: FileViewer = {
+  setBlame: () => {},
+  setBlameHover: () => {},
+  setTheme: () => {},
+  focus: () => {},
+  dispose: () => {}
+};
 const monaco: EditorFactory = {
   createDiffViewer: async () => viewer,
   createFileViewer: async () => fileViewer

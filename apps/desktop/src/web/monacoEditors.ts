@@ -1,6 +1,7 @@
 /* The desktop app's editors (#404): Monaco's, made as the webview's desktop
  * entry asks for them (`EditorFactory`, packages/webview/src/desktop/editors.ts)
- * — a read-only diff, or one file read-only (#405). Its own bundle
+ * — a read-only diff, or one file read-only (#405), with its blame
+ * (#409, monacoBlame.ts). Its own bundle
  * (out/monaco.js, esbuild.js), loaded by a page on its first diff or file
  * (lazyEditors.ts), to which it hands the factory on `EDITOR_GLOBAL`.
  *
@@ -20,6 +21,8 @@ import * as monaco from "monaco-editor/editor/editor.api";
 import "monaco-editor/editor/browser/widget/diffEditor/diffEditor.contribution";
 import "monaco-editor/editor/contrib/clipboard/browser/clipboard";
 import "monaco-editor/editor/contrib/contextmenu/browser/contextmenu";
+// The hovers of a file's blame (#409), and the Markdown they are written in.
+import "monaco-editor/editor/contrib/hover/browser/hoverContribution";
 import "monaco-editor/features/find/register";
 import "monaco-editor/languages/definitions/register.all";
 // The codicon font, which `editor.main` imports and the package's exports do
@@ -29,6 +32,7 @@ import "monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon-modifiers.
 /* oxlint-enable import/no-unassigned-import */
 
 import { EDITOR_ASSETS, EDITOR_GLOBAL } from "@ging/desktop/editorAssets";
+import { attachBlame } from "@ging/desktop/web/monacoBlame";
 import type {
   DiffLayout,
   DiffViewer,
@@ -164,10 +168,15 @@ const editors: EditorFactory = {
       scrollBeyondLastLine: false,
       minimap: { enabled: false }
     });
+    // Its blame (#409), when the user turns it on.
+    const blame = attachBlame(editor, options.blame);
     const viewer: FileViewer = {
+      setBlame: (lines) => blame.set(lines),
+      setBlameHover: (line, markdown) => blame.setHover(line, markdown),
       setTheme: applyTheme,
       focus: () => editor.focus(),
       dispose: () => {
+        blame.dispose();
         editor.dispose();
         model.dispose();
       }
