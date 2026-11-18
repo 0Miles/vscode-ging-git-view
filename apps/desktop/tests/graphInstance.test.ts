@@ -8,7 +8,7 @@ import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths
 import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
-import type { ViewerMessage } from "@ging/webview/desktop/diff/protocol";
+import type { ShowDiffMessage, ViewerMessage } from "@ging/webview/desktop/diff/protocol";
 import type { FileHistoryRequest } from "@ging/webview/desktop/fileHistory/protocol";
 import type { SideViewStateMessage } from "@ging/webview/desktop/sideViews/protocol";
 import type { WorkingTreeRequest } from "@ging/webview/desktop/workingTree/protocol";
@@ -123,6 +123,10 @@ function goneFolder(): string {
   onTestFinished(() => rmrf(parent));
   return toRepoPath(path.join(parent, "repo"));
 }
+
+/** Twenty numbered lines, `edit` making some of them something else. */
+const lines = (edit: (n: number) => string) =>
+  Array.from({ length: 20 }, (_, i) => edit(i + 1)).join("\n") + "\n";
 
 const sentOf = (posted: ResponseMessage[], command: ResponseMessage["command"]) =>
   posted.filter((msg) => msg.command === command);
@@ -624,6 +628,47 @@ describe("a graph instance", () => {
     ).toBe("From the panel");
     // The graph redrawn after each change, not after the read.
     expect(sentOf(page.posted, "refresh")).toHaveLength(2);
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+  });
+
+  it("opens its working tree panel's file in its page's diff viewer, and stages a hunk of it there, past the dispatch (#460, #406)", async () => {
+    const { repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    const repo = repos[0];
+    fs.writeFileSync(path.join(repo, "n.txt"), lines(String));
+    git(["add", "n.txt"], repo);
+    git(["commit", "-m", "numbered"], repo);
+    fs.writeFileSync(
+      path.join(repo, "n.txt"),
+      lines((n) => (n === 2 || n === 19 ? "x" : String(n)))
+    );
+    const posted = (request: unknown) => page.receive(request as RequestMessage);
+
+    await posted({ command: "workingTreeShowDiff", path: "n.txt", area: "unstaged" });
+    expect(page.diffs).toEqual([
+      expect.objectContaining({
+        title: "n.txt (Working Tree)",
+        hunks: expect.objectContaining({ area: "unstaged", label: "Stage Hunk" })
+      })
+    ]);
+    const refreshesBefore = sentOf(page.posted, "refresh").length;
+
+    await posted({
+      command: "diffHunk",
+      path: "n.txt",
+      area: "unstaged",
+      token: (page.diffs[0] as ShowDiffMessage).hunks!.token,
+      hunk: 0,
+      asked: 1
+    });
+
+    expect(
+      cp.execFileSync("git", ["diff", "--cached", "--numstat"], { cwd: repo }).toString()
+    ).toBe("1\t1\tn.txt\n");
+    expect(page.diffs).toHaveLength(2);
+    expect((page.diffs[1] as ShowDiffMessage).hunks?.hunks).toHaveLength(1);
+    // The graph, and the panel with it, redrawn after the change.
+    expect(sentOf(page.posted, "refresh")).toHaveLength(refreshesBefore + 1);
     expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
   });
 

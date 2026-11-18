@@ -34,7 +34,11 @@ import type {
   RequestMessage,
   ResponseMessage
 } from "@ging/shared/types";
-import type { ViewerMessage } from "@ging/webview/desktop/diff/protocol";
+import {
+  type DiffHunkRequest,
+  isDiffHunkRequest,
+  type ViewerMessage
+} from "@ging/webview/desktop/diff/protocol";
 import {
   type FileHistoryHostMessage,
   isFileHistoryRequest
@@ -43,7 +47,8 @@ import type { SideViewMessage, SideViewRequest } from "@ging/webview/desktop/sid
 import {
   isWorkingTreeRequest,
   type WorkingTreeMessage,
-  type WorkingTreeRequest
+  type WorkingTreeRequest,
+  type WorkingTreeShowDiffRequest
 } from "@ging/webview/desktop/workingTree/protocol";
 
 import { type AppCommands, createAppCommands } from "./appCommands";
@@ -52,6 +57,7 @@ import { pushSettingChange } from "./settingsPush";
 import type { SharedServices } from "./sharedServices";
 import { createSideViews } from "./sideViews";
 import { answerWorkingTree, workingTreeStrings } from "./workingTree";
+import { createWorkingTreeDiffs } from "./workingTreeDiff";
 
 type GraphInstanceOptions = {
   /** The repository it opens on, already checked (`repoToOpen`). */
@@ -147,7 +153,16 @@ export function createGraphInstance(
     postMessage: (message) => page.postMessage(message),
     onDidReceiveMessage: (listener) =>
       page.onDidReceiveMessage((message) => {
-        if (isWorkingTreeRequest(message)) return answerPanel(message);
+        // Read as what the page posted, not as the graph's: a request typed
+        // apart from `RequestMessage` would narrow it to nothing.
+        const posted: unknown = message;
+        if (isWorkingTreeRequest(posted)) {
+          return posted.command === "workingTreeShowDiff"
+            ? showFileDiff(posted)
+            : answerPanel(posted);
+        }
+        // The diff viewer's hunks (#406).
+        if (isDiffHunkRequest(posted)) return applyHunk(posted);
         if (isFileHistoryRequest(message)) return fileHistory.receive(message);
         if (message.command === "markResolved") return markResolvedAsked(message, listener);
         if (message.command === "selectRepo" && message.repo !== repo) {
@@ -207,6 +222,7 @@ export function createGraphInstance(
   // the graph after them, so a commit shows up there.
   const workingTree = createWorkingTreeService({
     git: () => gitClient.getInstance(),
+    diffRun: () => ({ gitPath: shared.gitPath(), repoPath: current, gitEnv }),
     repo: () => current,
     signCommits: () => config.signCommits(),
     runRepoMutation
@@ -243,8 +259,25 @@ export function createGraphInstance(
   const postToPanel = (message: WorkingTreeMessage) =>
     void page.postMessage(message as unknown as ResponseMessage);
   const panelStrings = workingTreeStrings(l10n, process.platform);
-  const answerPanel = async (request: WorkingTreeRequest) =>
+  const answerPanel = async (request: Exclude<WorkingTreeRequest, WorkingTreeShowDiffRequest>) =>
     postToPanel(await answerWorkingTree(workingTree, conflicts, panelStrings, request));
+  // A file of the panel's, in the diff viewer (#460), and a hunk of it staged
+  // or unstaged there (#406). A diff that cannot be read is said in this
+  // instance's window, as the `Opener`'s are.
+  const workingTreeDiffs = createWorkingTreeDiffs({
+    service: workingTree,
+    showDiff: (request) => showDiff(request),
+    l10n,
+    repo: () => current
+  });
+  const diffFailed = (e: unknown) => {
+    logger.logError(`diff: ${e instanceof Error ? e.message : String(e)}`);
+    void prompts.showError(l10n.t("error.unableToViewDiff"));
+  };
+  const showFileDiff = (request: WorkingTreeShowDiffRequest) =>
+    workingTreeDiffs.show(request).then(() => {}, diffFailed);
+  const applyHunk = (request: DiffHunkRequest) =>
+    workingTreeDiffs.hunk(request).then(() => {}, diffFailed);
   /** The graph's conflict banner marks a file resolved through the dispatch,
    *  as in VS Code; here it is asked about first, as the panel's is, when
    *  conflict markers remain. Declined, the dispatch never hears of it, and

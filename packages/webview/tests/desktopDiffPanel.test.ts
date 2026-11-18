@@ -582,3 +582,121 @@ describe("a file shown read-only in the diff viewer (#405)", () => {
     expect(panel().hasAttribute("aria-busy")).toBe(false);
   });
 });
+
+// Hunk staging (#406): the hunks a working tree diff offers, handed to the
+// editor to draw, and one asked of the host at a time.
+describe("the diff viewer's hunks", () => {
+  const offered = {
+    path: "src/file.txt",
+    area: "unstaged" as const,
+    token: "t0k3n",
+    label: "Stage Hunk",
+    name: "{0}: lines {1} to {2}",
+    keyboard: "Press Shift+F10",
+    hunks: [
+      { original: { start: 1, count: 4 }, modified: { start: 1, count: 5 } },
+      { original: { start: 20, count: 6 }, modified: { start: 21, count: 6 } }
+    ]
+  };
+
+  it("hands the editor the hunks to offer, in the host's word, and asks the host for the one chosen", async () => {
+    const { editors, made } = fakeEditors();
+    const asked: unknown[] = [];
+    const diffs = createDiffPanel(editors, {
+      storage: memoryStorage(),
+      askHunk: (request) => asked.push(request)
+    });
+
+    await diffs.show(message({ hunks: offered }));
+    const hunks = made[0].options.hunks!;
+    expect(hunks.label).toBe("Stage Hunk");
+    expect(hunks.hunks).toEqual(offered.hunks);
+    // Each named by its lines on the side its control is on, the modified.
+    expect(hunks.names).toEqual(["Stage Hunk: lines 1 to 5", "Stage Hunk: lines 21 to 26"]);
+    expect(hunks.keyboard).toBe("Press Shift+F10");
+    // The keyboard's way, as the panel's description.
+    const keys = document.getElementById(panel().getAttribute("aria-describedby")!)!;
+    expect(keys.textContent).toBe("Press Shift+F10");
+
+    hunks.choose(1);
+
+    expect(asked).toEqual([
+      {
+        command: "diffHunk",
+        path: "src/file.txt",
+        area: "unstaged",
+        token: "t0k3n",
+        hunk: 1,
+        asked: 1
+      }
+    ]);
+    // Busy until the host shows the diff anew.
+    expect(panel().getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("asks for one hunk at a time: the next choice waits for the diff shown anew", async () => {
+    const { editors, made } = fakeEditors();
+    const asked: unknown[] = [];
+    const diffs = createDiffPanel(editors, {
+      storage: memoryStorage(),
+      askHunk: (request) => asked.push(request)
+    });
+
+    await diffs.show(message({ hunks: offered }));
+    made[0].options.hunks!.choose(0);
+    made[0].options.hunks!.choose(1);
+    await diffs.show(
+      message({ hunks: { ...offered, token: "n3w", hunks: [offered.hunks[1]] }, answers: 1 })
+    );
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+    made[1].options.hunks!.choose(0);
+
+    expect(asked).toEqual([
+      expect.objectContaining({ token: "t0k3n", hunk: 0 }),
+      expect.objectContaining({ token: "n3w", hunk: 0 })
+    ]);
+  });
+
+  it("shows the answer to a hunk only over the diff it was asked from", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage(), askHunk: () => {} });
+    const answer = message({ title: "file.txt (Working Tree), anew", answers: 1 });
+
+    await diffs.show(message({ hunks: offered }));
+    made[0].options.hunks!.choose(0);
+    // Another diff opened meanwhile (a commit's, from the graph).
+    await diffs.show(message({ title: "other.txt (abc1234^ ↔ abc1234)" }));
+    await diffs.show(answer);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe(
+      "other.txt (abc1234^ ↔ abc1234)"
+    );
+    expect(made).toHaveLength(2);
+
+    // And none once the viewer was closed.
+    diffs.close();
+    await diffs.show({ ...answer, answers: 2 });
+    expect(panel().hidden).toBe(true);
+  });
+
+  it("offers no hunk without a host to ask, nor for a diff that has none", async () => {
+    const { editors, made } = fakeEditors();
+    await createDiffPanel(editors, { storage: memoryStorage() }).show(message({ hunks: offered }));
+    await createDiffPanel(editors, { storage: memoryStorage(), askHunk: () => {} }).show(message());
+
+    expect(made.map((viewer) => viewer.options.hunks)).toEqual([undefined, undefined]);
+    expect(panel().hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("says the host's line over the diff, and nothing once a diff comes without one", async () => {
+    const diffs = createDiffPanel(fakeEditors().editors, { storage: memoryStorage() });
+    const said = () => panel().querySelector<HTMLElement>(".diffViewerSaid")!;
+
+    await diffs.show(message({ said: "The file changed since this diff was shown." }));
+    expect(said().hidden).toBe(false);
+    expect(said().textContent).toBe("The file changed since this diff was shown.");
+    expect(said().getAttribute("role")).toBe("status");
+
+    await diffs.show(message());
+    expect(said().hidden).toBe(true);
+  });
+});

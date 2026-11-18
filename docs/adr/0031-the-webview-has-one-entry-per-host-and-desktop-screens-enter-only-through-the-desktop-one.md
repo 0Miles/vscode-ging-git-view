@@ -222,3 +222,15 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 
 - 面板建立時就建好固定的骨架(commit 區在第一次繪製前隱藏):標題、commit 區(訊息框加上每次重寫的那一段)、清單區。每次重繪只寫骨架裡那幾段的 `innerHTML`,訊息框從頭到尾留在原處,焦點、游標與選取範圍都不受影響。那幾段的外層是 `display: contents`,版面與原本面板的子元素相同。
 - 重繪後只有「被拿走的」焦點才放回去:焦點仍在面板裡(訊息框)就不動它。按鈕與檔案列的焦點規則不變。
+
+## 補記(2026-11-18,#460、#406)
+
+**working tree 面板的檔案列打開 diff viewer(#460),hunk 在 diff viewer 裡一個一個 stage / unstage(#406)。** 「補記(#403)」最後一條留下的接縫 `startWorkingTreePanel({ showDiff })` 由桌面入口接上;git 的部分見 ADR-0027 的同日補記。
+
+- **哪些列打得開。** staged 與 unstaged 兩組的檔案列可以點、可以 Tab 到,Enter 或 Space 也打開(按在列上的按鈕不算,那是按鈕自己的)。衝突檔不打開:它在 #410 是交給 merge tool 的,一邊是 index 的哪一個 stage 也說不清;submodule 不打開:沒有文字可比。面板送 `workingTreeShowDiff { path, oldPath?, area }`,這是 `WorkingTreeRequest` 的一種,但**不回答 `workingTreeStatus`**:宿主的回答是一則 `showDiff`。graph instance 在交給面板服務之前就把它分出來。
+- **兩側照 VS Code 原始檔控制檢視的 diff。** unstaged 是 index(`:0`)↔ working tree 的檔案,標題「`<路徑>` (Working Tree)」;staged 是 HEAD ↔ index,標題「`<路徑>` (Index)」。HEAD 先由 core 解成 hash(diff viewer 只跑 hash,「補記(#404)」);還沒有 commit 的 branch 上左邊是空的,為此 `DiffSource` 多了 `{ empty: <路徑> }`。staged rename 的左邊讀 HEAD 的舊路徑,標題寫「舊 → 新」。未追蹤檔左邊是空的(index 沒有它)。
+- **hunk 的協定。** `ShowDiffMessage` 多兩個選填欄位:`hunks`(檔案、area、`token`、每個 hunk 在兩側的行範圍、按鈕的字 Stage Hunk / Unstage Hunk)與 `said`(蓋在 diff 上方的一行字,`role="status"`:為什麼沒有 hunk 可按,或上一個 hunk 怎麼了)。頁面送 `diffHunk { path, area, token, hunk }`;`DIFF_COMMANDS_STAY_APART` 多檢查它不與 `RequestMessage` 撞名。宿主不另外回答,而是把同一個檔案的 diff 重新顯示一次,捲到剛才那個 hunk 的位置。頁面在送出後標 `aria-busy`,在新的 diff 到之前不再送第二個:第二次點的是一個已經不存在的 diff 上的 hunk。CDV 的 diff(`Opener` 的兩個)沒有 `hunks`,所以沒有按鈕。
+- **按鈕不放在 Monaco 的 gutter menu。** 「補記(#404)」說 #406 要用 gutter 前得先重驗 Monaco 0.57.0 的 bug;這裡不用它,`renderGutterMenu` 照舊關著。理由不只是那個 bug:gutter menu 的 hunk 是 Monaco 自己算的 diff,邊界與 git 的不同,而 patch 只能用 git 切出來的 hunk 做。所以每個 git hunk 在 modified 那一側的第一行上方佔一列 view zone(diff editor 會在另一側補同樣高的空白,兩邊照舊對齊;inline 時只顯示 modified 那一側),按鈕是 overlay widget,在 view zone 每次畫出來時(`onDomNodeTop`)移到它的位置 —— 直接放在 view zone 裡的按鈕點不到,editor 的行畫在 view zone 上面,把點擊吃掉了(E2E 實測)。按鈕的字都一樣,所以各自的 accessible name 帶上行範圍(「Stage Hunk:第 25 到 30 行」,`hunks.name` 由頁面填)。鍵盤:overlay widget 不在 editor 的 Tab 順序裡,所以同一個動作放在兩側 editor 的右鍵選單(Shift+F10),只在游標落在某個 hunk 的行上時列出(各自的 context key,`precondition`),作用在那個 hunk;original 那一側依 hunk 在左邊的行判斷。這條路寫在 diff viewer 的 `aria-describedby`(一段不顯示的說明,`hunks.keyboard`),進入面板時就讀出來;editor 的 `ariaLabel` 也設成同一句,但 Monaco 只在 screen reader 模式開著時才用它,所以不能只靠它。工廠介面因此只多了 `DiffViewerOptions.hunks`(`HunkActions`),`DiffViewer` 本身沒有長。
+- **套用後的重新顯示只蓋在原來那個 diff 上。** `diffHunk` 帶著頁面當時那個 diff 的編號(`asked`),宿主的回答 `showDiff` 帶回 `answers`;那段時間裡使用者若打開了別的 diff(例如 CDV 的)或關掉了 viewer,頁面就丟掉這則回答,不把它蓋上去。
+- **hunk 只放在畫得對的地方。** 宿主在讀兩側文字之前與之後各讀一次 hunk,兩次的 `token` 相同才送(檔案在讀的中間變了,就說「讀取期間檔案有變動」);文字裡有不在 `\r\n` 裡的 `\r` 時不送 —— editor 把它當成換行,git 不會,hunk 就會畫在錯的行上。binary 與過大的檔案本來就沒有 editor,也沒有 hunk。
+- **樣式**(`.diffViewerSaid`、`.diffViewerHunk`)照舊在 [diffPanelStyles.ts](../../packages/webview/src/desktop/diff/diffPanelStyles.ts),只用 `theme.ts` 有的變數;overlay widget 的 DOM 由 `apps/desktop` 的 Monaco 實作建立,但 class 的樣式在這裡,所以 `theme.test.ts` 守得到。
