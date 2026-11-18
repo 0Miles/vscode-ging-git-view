@@ -178,6 +178,17 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **檔案在 app 啟動前就改好,stale 那條只改 working tree 的檔案。** 理由同 `workingTree.spec.ts`:app 讀 repo 時會不時握著 index 的 lock,測試自己寫 index 會跟它搶。改 working tree 的檔案不碰 index。
 - **失敗時留下 app 的 log**(`main.log`,與 `app-trace.zip` 放在一起):main process 那一側做了什麼,只有它看得到。
 
+## 補記(2026-11-18,本機 E2E 不占用使用者的畫面)
+
+**Electron E2E 一律經 [launch.ts](../../apps/desktop/e2e/launch.ts) 的 `launchApp` 啟動,它在 app 的 main 之前用 Electron 的 `-r` 載入測試端的 [quietWindows.js](../../apps/desktop/e2e/quietWindows.js):app 開的每個視窗都看不見、不搶鍵盤、不擋滑鼠。** 本機跑 E2E 時,視窗一個個跳出來搶走焦點,使用者沒辦法同時做別的事。產品碼不動,也沒有給測試用的全域(本 ADR 的原則):app 照常 `new BrowserWindow(...)`,拿到的是測試端換過的一個。`GING_E2E_SHOW=1` 時不載入它,視窗照 app 本來的樣子出現,方便看著跑。
+
+- **視窗照樣「顯示」,只是使用者看不到:`showInactive()`、`opacity: 0`、`focusable: false`、`skipTaskbar`、`setIgnoreMouseEvents(true)`,`show()` 一律改成 `showInactive()`,`focus()` / `moveTop()` 不做事。** 不選 `show: false`:沒顯示的視窗 Chromium 不畫,requestAnimationFrame 不跑,`document.visibilityState` 是 `hidden`,而 Monaco 的版面與圖形的繪製都靠這些;這個做法下實測頁面仍是 `visible`、rAF 照跑、`document.hasFocus()` 為真(Playwright 的輸入不經作業系統的焦點)。也不選移到螢幕外:視窗的位置與大小維持 app 要的樣子,讀版面的測試不受影響。
+- **關掉 Windows 的遮蔽偵測(`--disable-features=CalculateNativeWinOcclusion`)。** 被其他視窗蓋住的視窗會被 Chromium 當成 hidden 而停止繪製;測試的視窗本來就在使用者的視窗後面。
+- **類別名稱必須是 `BrowserWindow`。** Electron 用 `constructor.name` 認自己的視窗(`getAllWindows`、`getFocusedWindow`),子類別換了名字就從這些清單裡消失。`require("electron")` 的 export 是不能重新定義的 getter,所以 app 拿到的是包了一層 Proxy 的模組,只有 `BrowserWindow` 換掉(`Module._load` 攔 `"electron"`)。
+- **`-r <檔案>` 會被 app 當成自己的路徑。** app 照 `electron [switches] <app> [args]` 讀命令列(`launchArgs.ts`),第一個不是 switch 的參數就當 app 路徑;所以 quietWindows.js 先把 `-r` 與自己的路徑從 `process.argv` 拿掉,app 讀到的命令列與沒有它時相同。實測沒拿掉時每個 `--repo` 都被當成「忽略的參數」,幾乎全部 E2E 紅。
+- **驗證方式:** 跑全部 desktop E2E 時,另一個行程每 200ms 讀一次前景視窗(`GetForegroundWindow`)所屬的行程與執行檔路徑;不顯示的整輪(50/50)這個 worktree 的 electron 從未出現在前景(同一段時間其他 worktree 的 E2E 有);`GING_E2E_SHOW=1` 的整輪,它搶到前景 53 次。Tab 頁面在兩種模式下都是 `visible`、rAF 照跑;從啟動到圖形畫出,實測不顯示 2.0–3.7 秒、顯示 2.0–2.8 秒(各 6 次,機器同時被其他測試佔用)。
+- **webview E2E 本來就是 headless**(Playwright 預設,CI 只裝 `chromium --only-shell`),不受影響。**`pnpm run test:ext` 會開一個真的 VS Code 視窗,沒有支援的方式讓它不出現或不搶焦點:** `@vscode/test-electron` 啟動的是打包好的 VS Code,沒有 `-r`、也不讀 `NODE_OPTIONS`,VS Code 的命令列沒有隱藏或最小化視窗的選項。要在本機跑又不被打擾,只能放到另一個虛擬桌面或交給 CI。
+
 ## 補記(2026-11-18,#451、#466、#472、#473)
 
 **拿掉 #391、#403 為了避開 `index.lock` 而加的等待:walk 的 `settle`(改動 repo 的動作之後等圖形的重新載入)與 [workingTree.spec.ts](../../apps/desktop/e2e/workingTree.spec.ts) 在 commit 前等圖形的重新載入。** 根因修在產品:GING 自己的讀取不再拿 `index.lock`,所以動作與背景重新載入重疊也不會被拒。

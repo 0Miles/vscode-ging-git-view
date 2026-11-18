@@ -3,9 +3,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage } from "./tabPages";
 
 // The working tree panel (#403), the tracer bullet of phase D: a file changed,
@@ -13,11 +14,6 @@ import { focusedTabPage } from "./tabPages";
 // drawn in the graph; and the last commit amended and signed off there (#407).
 // Real git under the real main process, read through the page, the repository
 // and the app's log (ADR-0032).
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 let scratch: string;
 let env: NodeJS.ProcessEnv;
@@ -56,17 +52,16 @@ test("a file changed, staged whole and committed from the working tree panel sho
   writeFileSync(path.join(repo.path, "file.txt"), "Changed in the working tree\n");
   writeFileSync(path.join(repo.path, "left out.txt"), "Not to be committed\n");
 
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [
+  app = await launchApp(
+    [
       "--lang=en-US",
       APP_DIR,
       `--user-data-dir=${path.join(scratch, "userData")}`,
       "--repo",
       repo.path
     ],
-    env: env as Record<string, string>
-  });
+    env
+  );
   const page = await focusedTabPage(app);
   const rows = page.locator("#commitTable tr.commit");
   await expect(rows).toHaveCount(repo.commits.length);
@@ -157,17 +152,16 @@ test("the last commit, already pushed, amended with a sign-off from the working 
   // the panel; never staged, so the amend changes the message alone.
   writeFileSync(path.join(repo.path, "file.txt"), "Not to be committed\n");
 
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [
+  app = await launchApp(
+    [
       "--lang=en-US",
       APP_DIR,
       `--user-data-dir=${path.join(scratch, "userData")}`,
       "--repo",
       repo.path
     ],
-    env: env as Record<string, string>
-  });
+    env
+  );
   const page = await focusedTabPage(app);
   const rows = page.locator("#commitTable tr.commit");
   await expect(rows).toHaveCount(repo.commits.length);

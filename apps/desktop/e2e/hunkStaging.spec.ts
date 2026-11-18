@@ -10,10 +10,11 @@ import {
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { diffShown, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { datedGit, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage } from "./tabPages";
 
 // Hunk staging (#406): a file opened from the working tree panel in the diff
@@ -21,11 +22,6 @@ import { focusedTabPage } from "./tabPages";
 // refused once the file changed on disk after its diff was shown. Real git
 // under the real main process, Monaco drawing the hunks' buttons; read
 // through the page, the repository and the app's log (ADR-0032).
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 let scratch: string;
 let env: NodeJS.ProcessEnv;
@@ -76,17 +72,16 @@ function repoWithTwoHunks() {
 }
 
 async function launch(repoPath: string): Promise<Page> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [
+  app = await launchApp(
+    [
       "--lang=en-US",
       APP_DIR,
       `--user-data-dir=${path.join(scratch, "userData")}`,
       "--repo",
       repoPath
     ],
-    env: env as Record<string, string>
-  });
+    env
+  );
   await startTrace(app);
   const page = await focusedTabPage(app);
   await expect(page.locator("#commitTable tr.commit").first()).toBeVisible();

@@ -3,10 +3,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { diffShown, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage } from "./tabPages";
 
 // A file at a revision, read-only (#405): opened from the Commit Details View
@@ -15,11 +16,6 @@ import { focusedTabPage } from "./tabPages";
 // process at the commit, per `defaultFileEncoding`; one editor, coloured by
 // the file's type, that takes no typing. Read through the page and the app's
 // log (ADR-0032).
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 let scratch: string;
 let env: NodeJS.ProcessEnv;
@@ -83,11 +79,10 @@ test("a file viewed at a revision opens read-only over the graph, coloured by it
     path.join(userData(), "settings.json"),
     JSON.stringify({ "ging-git-view.defaultFileEncoding": "win1252" })
   );
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${userData()}`, "--repo", fixture.path],
-    env: env as Record<string, string>
-  });
+  app = await launchApp(
+    ["--lang=en-US", APP_DIR, `--user-data-dir=${userData()}`, "--repo", fixture.path],
+    env
+  );
   const electronApp = app;
   await startTrace(electronApp);
   const page = await focusedTabPage(electronApp);

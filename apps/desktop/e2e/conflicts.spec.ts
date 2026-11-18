@@ -3,9 +3,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage } from "./tabPages";
 
 // A merge stopped on a conflict, worked from the desktop app (#410): the
@@ -14,11 +15,6 @@ import { focusedTabPage } from "./tabPages";
 // graph's own conflict banner. Real git under the real main process. The
 // "merge tool" is a command in the fixture repository's config: it takes the
 // other side's version, and no program with a window ever starts.
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 /** `git mergetool` is a shell script of git's: it takes seconds, on Windows,
  *  before the tool so much as starts. */
@@ -74,17 +70,16 @@ function conflictedMerge(withTool: boolean): FixtureRepo {
 }
 
 async function launch(fixture: FixtureRepo): Promise<Page> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [
+  app = await launchApp(
+    [
       "--lang=en-US",
       APP_DIR,
       `--user-data-dir=${path.join(scratch, "userData")}`,
       "--repo",
       fixture.path
     ],
-    env: env as Record<string, string>
-  });
+    env
+  );
   const page = await focusedTabPage(app);
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(fixture.commits.length);
   return page;
