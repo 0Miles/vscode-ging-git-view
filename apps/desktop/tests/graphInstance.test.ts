@@ -6,6 +6,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 
 import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths";
 import { createGraphInstance } from "@ging/desktop/graphInstance";
+import { createRecentRepos } from "@ging/desktop/recentRepos";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import type {
@@ -229,6 +230,48 @@ describe("a graph instance", () => {
     expect(logged).toContain(
       `tabs: ${repos[0]} is no Git repository any more, dropped from the known set`
     );
+  });
+
+  it("keeps its own repository, its folder not there now, on the recent list (#454)", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const unmounted = repos[0];
+    const page = open(unmounted);
+    // Its folder gone from under the open Tab, as `goneFolder` names one: a
+    // disk not mounted at the moment, which no look at the disk tells from a
+    // folder deleted. (A Tab is opened on a folder that is there only.)
+    rmrf(unmounted);
+    expect(fs.existsSync(unmounted)).toBe(false);
+    /** Told when a look at the list's folders found one otherwise. */
+    let lookedAt: () => void = Function.prototype as () => void;
+    const recent = createRecentRepos({
+      store: shared.storage.workspace,
+      repoSource: shared.repoSource,
+      onChange: () => lookedAt()
+    });
+    onTestFinished(() => recent.dispose());
+    recent.opened(unmounted);
+    const current = page.state.getLastActiveRepo();
+    const before = sentOf(page.posted, "loadRepos").length;
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    expect(Object.keys(shared.repoSource.getRepos())).toEqual([unmounted]);
+    // Nothing dropped, so answered as an unchecked loadRepos is, once.
+    expect(sentOf(page.posted, "loadRepos").slice(before)).toEqual([
+      { command: "loadRepos", repos: { [unmounted]: expect.anything() }, lastActiveRepo: unmounted }
+    ]);
+    expect(page.state.getLastActiveRepo()).toBe(current);
+    expect(logged).toContain(`tabs: ${unmounted}'s folder is not there now, kept in the known set`);
+    expect(logged.filter((line) => line.includes("dropped from the known set"))).toEqual([]);
+
+    // Still listed, and marked as not there once looked at.
+    expect(recent.list().map((entry) => entry.path)).toEqual([unmounted]);
+    const looked = new Promise<void>((resolve) => {
+      lookedAt = resolve;
+    });
+    recent.check();
+    await looked;
+    expect(recent.list()).toEqual([expect.objectContaining({ path: unmounted, missing: true })]);
   });
 
   it("answers the graph's requests from its repository", async () => {
