@@ -19,6 +19,23 @@ export const GIT_CONFIG_OVERRIDES = [
   "log.showSignature=false"
 ];
 
+/**
+ * For a `git diff` that compares with the working tree: keeps it from
+ * rewriting the index while it reads, which takes `.git/index.lock` and makes a
+ * write landing at that moment fail (#451). Measured on git 2.40: such a diff
+ * writes the index even with GIT_OPTIONAL_LOCKS=0 (see `gitChildEnv`); with
+ * this it writes nothing.
+ *
+ * Per command, never in GIT_CONFIG_OVERRIDES: with it, a diff that lists names
+ * (`--name-only`, `--name-status`) also lists the files whose content is
+ * unchanged but whose timestamps moved, so such a diff may use it only when
+ * its filter rules those out (`--diff-filter=U`, `=R`). A patch is unchanged
+ * by it: such a file has no hunk to print (measured on git 2.40.1;
+ * `fileHunks` relies on it). And `-c` reaches the hooks a write runs, where it
+ * would change what they read.
+ */
+export const NO_INDEX_REFRESH = ["-c", "diff.autoRefreshIndex=false"];
+
 // Environment variables that must NOT be forwarded to the git children we spawn.
 // Two groups:
 //   1. Vars that simple-git's "block unsafe operations" guard rejects unless a
@@ -85,6 +102,23 @@ export function gitChildEnv(gitEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // forever. GIT_EDITOR is the portable way to do this (cross-platform,
   // unlike a `core.editor=true` that relies on a `true` binary being on PATH).
   childEnv["GIT_EDITOR"] = "true";
+  // GING reads the repository in the background — the graph's reload on every
+  // watcher event, refresh and auto-fetch — while the user, or GING itself,
+  // writes to it. A plain `git status` takes `.git/index.lock` to refresh the
+  // index as a side effect — even with nothing to refresh — so a stage, commit
+  // or graph action landing in that moment fails with "index.lock: File
+  // exists" (#451). With optional locks off git skips that side effect and
+  // nothing else: a command that must write the index still takes the lock.
+  // It also keeps GING's own reads from rewriting the index and waking its
+  // file watcher. The cost: GING no longer refreshes the index's stat cache,
+  // so a file whose timestamp moved but not its content is hashed again on
+  // each reload until something writes the index (the user's own git, or a
+  // GING write). Every git child of a git client and of spawnGit gets this;
+  // `commitFileContent`'s `git show`, spawned on its own, does not and needs
+  // not: it never touches the index. See ADR-0027's 2026-11-18 addendum.
+  // `git diff` against the working tree refreshes the index regardless; see
+  // NO_INDEX_REFRESH.
+  childEnv["GIT_OPTIONAL_LOCKS"] = "0";
   if (gitEnv !== undefined) {
     for (const [key, value] of Object.entries(gitEnv)) {
       if (value !== undefined) childEnv[key] = value;

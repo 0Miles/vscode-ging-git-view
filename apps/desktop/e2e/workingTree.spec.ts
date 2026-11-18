@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 import { APP_DIR, launchApp } from "./launch";
@@ -37,22 +37,6 @@ test.afterEach(async () => {
   remote = undefined;
 });
 
-/** Count, in the page, the graph's commit loads the host answers: a change to
- *  the repository is followed by one, which reads the working tree. */
-function countGraphLoads(page: Page) {
-  return page.evaluate(() => {
-    const seen = { loads: 0 };
-    (globalThis as Record<string, unknown>).graphLoads = seen;
-    window.addEventListener("message", (event) => {
-      if ((event.data as { command?: unknown } | null)?.command === "loadCommits") seen.loads++;
-    });
-  });
-}
-const graphLoads = (page: Page) =>
-  page.evaluate(
-    () => ((globalThis as Record<string, unknown>).graphLoads as { loads: number }).loads
-  );
-
 test("a file changed, staged whole and committed from the working tree panel shows up in the graph", async () => {
   repo = makeFixtureRepo(env);
   const git = (...args: string[]) =>
@@ -62,9 +46,9 @@ test("a file changed, staged whole and committed from the working tree panel sho
   // The app's git commits as whom.
   git("config", "user.name", "Alice");
   git("config", "user.email", "alice@example.com");
-  // Changed before the app starts: once it runs, its reads of the repository
-  // hold the index lock now and then, and a write of the test's own would race
-  // them. The panel's own writes go the user's way, one after another.
+  // One file to stage and commit, one to leave out. The panel's writes then go
+  // the user's way, with no wait for the graph's reloads: those reads take no
+  // index lock (#451).
   writeFileSync(path.join(repo.path, "file.txt"), "Changed in the working tree\n");
   writeFileSync(path.join(repo.path, "left out.txt"), "Not to be committed\n");
 
@@ -81,7 +65,6 @@ test("a file changed, staged whole and committed from the working tree panel sho
   const page = await focusedTabPage(app);
   const rows = page.locator("#commitTable tr.commit");
   await expect(rows).toHaveCount(repo.commits.length);
-  await countGraphLoads(page);
 
   // The graph's Open Source Control View, on its uncommitted changes row.
   const panel = page.locator("#workingTree");
@@ -101,16 +84,13 @@ test("a file changed, staged whole and committed from the working tree panel sho
   await expect(commitButton).toBeDisabled();
 
   // Staged whole; its button shows on the row the pointer is over.
-  const loadsBeforeStage = await graphLoads(page);
   await changed.hover();
   await changed.getByRole("button", { name: "Stage" }).click();
   await expect(staged).toHaveCount(1);
   await expect(staged.locator(".wtName")).toHaveText("file.txt");
   await expect(unstaged).toHaveCount(1);
   expect(git("diff", "--cached", "--name-only")).toBe("file.txt");
-  // The user commits on the graph that the stage's refresh redrew: that
-  // redraw reads the working tree, holding the index lock for a moment.
-  await expect.poll(() => graphLoads(page)).toBeGreaterThan(loadsBeforeStage);
+  await expect(panel.locator("[role=alert]")).toBeEmpty();
 
   const message = "Committed from the working tree panel";
   await panel.locator("textarea").fill(message);
@@ -136,6 +116,21 @@ test("a file changed, staged whole and committed from the working tree panel sho
   const logged = readFileSync(path.join(scratch, "userData", "logs", "main.log"), "utf8");
   expect(logged).not.toContain("ERROR:");
 });
+
+/**
+ * How long the amend may take to show in the graph once the warning is
+ * answered: the amend's own git (the pushed check, the commit), then the
+ * graph's reload. Not Playwright's 5s default, which it once used by
+ * omission. Measured on Windows with every core busy: HEAD moved 1.0–2.9s
+ * after the click, the graph drew it 3.8–8.5s after (10 runs), and each run
+ * did draw it — a slow reload, not a lost one. Nor a doubled one (#475): the
+ * page heard exactly one `loadCommits` answer between the click and the
+ * drawing (6 runs, drawn 1.4–2.4s after the click on a less loaded machine;
+ * the answer came at most 0.4s before the drawing), so the time is the amend's
+ * git and one reload's, with nothing to coalesce. About twice the worst; the
+ * same reading as the actions walk's ANSWER_BUDGET_MS (#472, #473).
+ */
+const AMEND_DRAWN_BUDGET_MS = 20_000;
 
 // Amend and sign-off (#407): the last commit, already on the remote, reworded
 // and signed off from the panel; the warning about rewriting pushed history
@@ -196,7 +191,9 @@ test("the last commit, already pushed, amended with a sign-off from the working 
   // The commit replaced on top of the graph: the same parent, the new
   // message, signed off by the committer. The one it replaced stays drawn,
   // where origin/main still points.
-  await expect(rows.first()).toContainText("Third commit, reworded");
+  await expect(rows.first()).toContainText("Third commit, reworded", {
+    timeout: AMEND_DRAWN_BUDGET_MS
+  });
   await expect(rows).toHaveCount(repo.commits.length + 1);
   await expect(page.locator(`#commitTable tr.commit[data-hash="${pushed}"]`)).toHaveCount(1);
   const amended = git("rev-parse", "HEAD");

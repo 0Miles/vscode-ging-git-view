@@ -267,6 +267,66 @@ describe("the working tree panel", () => {
     expect(panel().querySelector("[role=alert]")!.textContent).toBe("pre-commit hook refused it");
   });
 
+  // #466: the host refreshes the graph after every change, failed or not, and
+  // that refresh reaches the page before the change's answer. The read it sets
+  // off must not wipe the reason the change failed.
+  it("keeps a failed change's reason across the refresh that follows it, until the next change", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad"));
+    const alert = () => panel().querySelector("[role=alert]")!.textContent;
+    mock.sentMessages.length = 0;
+
+    button("[data-action=stageAll]").click();
+    hear({ command: "refresh" });
+    hear(answer("workingTreeStage", STATUS, "index.lock: File exists."));
+    expect(alert()).toBe("index.lock: File exists.");
+
+    // The read the refresh asked for, out and back.
+    expect(mock.sentMessages.at(-1)).toEqual({ command: "workingTreeLoad" });
+    expect(alert()).toBe("index.lock: File exists.");
+    hear(answer("workingTreeLoad"));
+    expect(alert()).toBe("index.lock: File exists.");
+    // A later refresh, from the file watcher.
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad"));
+    expect(alert()).toBe("index.lock: File exists.");
+
+    // The viewer's next change starts afresh.
+    button("[data-action=stageAll]").click();
+    expect(alert()).toBe("");
+    hear(answer("workingTreeStage"));
+    expect(alert()).toBe("");
+  });
+
+  it("says why a read failed, until a read succeeds", async () => {
+    await load(true);
+    const alert = () => panel().querySelector("[role=alert]")!.textContent;
+
+    hear(answer("workingTreeLoad", null, "not a git repository"));
+    expect(alert()).toBe("not a git repository");
+
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad"));
+    expect(alert()).toBe("");
+  });
+
+  it("keeps a failed change's reason over a read that fails after it", async () => {
+    await load(true);
+    hear(answer("workingTreeLoad"));
+    const alert = () => panel().querySelector("[role=alert]")!.textContent;
+
+    button("[data-action=stageAll]").click();
+    hear(answer("workingTreeStage", STATUS, "index.lock: File exists."));
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad", null, "not a git repository"));
+    expect(alert()).toBe("index.lock: File exists.");
+
+    // Nor does a read that succeeds after that clear it: the next change does.
+    hear({ command: "refresh" });
+    hear(answer("workingTreeLoad"));
+    expect(alert()).toBe("index.lock: File exists.");
+  });
+
   it("reads itself anew when the graph refreshes, once the request out is answered", async () => {
     const mock = await load(true);
     hear(answer("workingTreeLoad"));
