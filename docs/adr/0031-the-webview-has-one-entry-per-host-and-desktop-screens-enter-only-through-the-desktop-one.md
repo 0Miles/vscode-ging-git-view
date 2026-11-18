@@ -192,3 +192,10 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **side-by-side 與 inline 由面板的按鈕切換,選擇存在頁面自己的 `localStorage`(`ging.diffViewer.layout`)。** 這是使用者的便利設定,不是要跨裝置或要讓 main process 讀到的狀態;讀寫都包在 try/catch 裡,讀不到就用 side-by-side。Monaco 的 `useInlineViewWhenSpaceIsLimited` 關掉:視窗窄時它會自己切成 inline,按鈕上的選擇就不再是畫面上的樣子。
 - **`webviewEntries.test.ts` 補上 Monaco 的檢查(「後果」第一條要求的那一項)。** Monaco 不在 `src/desktop/` 底下,所以用名字找:VS Code 的 bundle 不得吃進任何 `monaco-editor/` 底下的模組,文字裡也不得有 Monaco diff editor 的 class 名稱 `monaco-diff-editor`。對照組是用 `apps/desktop/esbuild.js` 匯出的 `editorsBuild` 實際打包的 `monaco.js`,同樣的讀法在那裡找得到兩者。同一支測試也用 `pageBuild` 打包 app 真正出貨的 `src/web/page.ts`(`out/web.js`),斷言 Monaco 不在裡面 —— 「Monaco 不在 `web.js`、第一個 diff 才載入」是上面的設計,只看 `desktop/main.ts` 守不住它。
 - **`apps/desktop` 的 typecheck 拆成兩份。** `src/web/page.ts` 會 import 圖形,而圖形靠 webview 的全域宣告(`viewState`、`l10n`、`GG`…)。那些宣告只在 [tsconfig.web.json](../../apps/desktop/tsconfig.web.json) 裡,main process 的程式碼看不到它們;主 `tsconfig.json` 排除 `page.ts`。
+
+## 補記(2026-11-18,#479)
+
+**working tree 面板的訊息框不再隨重繪離開頁面。** 上面 #403 補記說「面板每次收到回答都整個重繪」;訊息框原本是重繪後再 prepend 回去,移出頁面的那一刻它就失去焦點(連同進行中的 IME 組字),而 `refocus` 認不得沒有 `data-action` 的訊息框,焦點落到清單的第一個按鈕。使用者打字時剛好來一則回答(例如檔案監看觸發的重讀),之後打的字就不進訊息框。
+
+- 面板第一次繪製時建好固定的骨架:標題、commit 區(訊息框加上每次重寫的那一段)、清單區。每次重繪只寫骨架裡那幾段的 `innerHTML`,訊息框從頭到尾留在原處,焦點、游標與選取範圍都不受影響。那幾段的外層是 `display: contents`,版面與原本面板的子元素相同。
+- 重繪後只有「被拿走的」焦點才放回去:焦點仍在面板裡(訊息框)就不動它。按鈕與檔案列的焦點規則不變。
