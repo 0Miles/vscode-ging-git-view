@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { diffShown } from "./diffViewerPage";
 import {
@@ -13,6 +13,7 @@ import {
   isolatedGitEnv,
   makeFixtureRepo
 } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage } from "./tabPages";
 
 // The Branches and Remotes side views (#399), beside the graph in each Tab's
@@ -25,11 +26,6 @@ import { focusedTabPage } from "./tabPages";
 // action runs core's command service, asked in the host prompt overlay; the
 // Stash view (#400) lists what git lists, keeps up through its own watch of
 // the stash log, and runs core's stash action, asked in the overlay too.
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 let scratch: string;
 let env: NodeJS.ProcessEnv;
@@ -48,17 +44,16 @@ async function closeAndReadLog(): Promise<string> {
  *  ready once the graph shows `rows` rows — the fixture's commits, and a row
  *  for each stash the test made. */
 async function launchOnRepo(rows = repo.commits.length): Promise<Page> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [
+  app = await launchApp(
+    [
       "--lang=en-US",
       APP_DIR,
       `--user-data-dir=${path.join(scratch, "userData")}`,
       "--repo",
       repo.path
     ],
-    env: env as Record<string, string>
-  });
+    env
+  );
   const page = await focusedTabPage(app);
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(rows);
   return page;

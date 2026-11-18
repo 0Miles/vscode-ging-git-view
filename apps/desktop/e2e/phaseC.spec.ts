@@ -11,11 +11,12 @@ import {
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { datedGit, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 import { type GuardedRemote, startGuardedRemote } from "./guardedRemote";
+import { APP_DIR, launchApp } from "./launch";
 import {
   answerFolderDialog,
   clickMenu,
@@ -42,9 +43,6 @@ import { focusedTabPage, stripTabs, windowPage } from "./tabPages";
 // Each clause's own spec goes deeper; this one proves they hold together.
 // Every one of the graph's actions is walked by actions.spec.ts.
 
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 /** What the page's failure report leaves in the log (graph.spec.ts). */
 const WEBVIEW_FAILURE = /ERROR: webview |"reportError"/;
 /**
@@ -202,11 +200,10 @@ test("phase C: open, clone and init repositories, act on the graph through a rem
   const terminalRecord =
     process.platform === "linux" ? putTerminalOnPath(env, scratch).startedIn : null;
 
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`],
-    env: env as Record<string, string>
-  });
+  app = await launchApp(
+    ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`],
+    env
+  );
   const electronApp = app;
   await startTrace(electronApp);
   const window = await windowPage(electronApp);

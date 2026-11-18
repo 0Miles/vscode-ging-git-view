@@ -4,12 +4,29 @@
  * through `startDesktopEntry` (ADR-0031). The VS Code entry imports none of
  * this: VS Code opens its own editors.
  *
- * Today the one caller is the diff viewer (diff/diffPanel.ts), so a diff
- * viewer is all the factory makes. A file read-only at a revision (#405) adds
- * its own maker beside it; hunk staging (#406) grows what a `DiffViewer` can
- * do. Each when it has a caller (ADR-0027). */
+ * The one caller is the panel over the graph (diff/diffPanel.ts), which shows
+ * a diff (#404) or one file read-only (#405), so the factory makes those two.
+ * Hunk staging (#406) is a choice a `DiffViewer` offers on each hunk it is
+ * given; blame (#409) grows what a `FileViewer` can, when it has a caller
+ * (ADR-0027). */
+
+import type { FileHunk } from "@ging/shared/backend/types";
 
 import type { DiffDocument } from "./diff/protocol";
+
+/** Hunks of the diff for the user to act on one at a time (#406): a control
+ *  at each, `label` its word, `choose` called with the hunk's index. */
+export type HunkActions = {
+  label: string;
+  hunks: FileHunk[];
+  /** Each hunk's control's name for assistive technology, in `hunks`'
+   *  order: its word and its lines. */
+  names: string[];
+  /** How the keyboard reaches the action — the controls sit outside the
+   *  editor's own keyboard order — said as the editors' accessible name. */
+  keyboard: string;
+  choose(index: number): void;
+};
 
 /** The page's theme, as `<body>`'s `vscode-dark` / `vscode-light` says. */
 export type ThemeKind = "dark" | "light";
@@ -25,6 +42,9 @@ export type DiffViewerOptions = {
   theme: ThemeKind;
   /** A 1-based line of `modified` to reveal and put the cursor on. */
   revealLine: number | null;
+  /** Hunks to offer an action on, each above its first line in `modified`;
+   *  none offered when absent. */
+  hunks?: HunkActions;
 };
 
 /** A read-only diff of two documents, drawn in the element it was made in. */
@@ -39,9 +59,29 @@ export interface DiffViewer {
   dispose(): void;
 }
 
+export type FileViewerOptions = {
+  /** The file: its path, `/`-separated, tells the editor what language to
+   *  colour it as. */
+  document: DiffDocument;
+  theme: ThemeKind;
+};
+
+/** One file, read-only, drawn in the element it was made in. */
+export interface FileViewer {
+  /** As `DiffViewer.setTheme`. */
+  setTheme(theme: ThemeKind): void;
+  /** Give it the keyboard. */
+  focus(): void;
+  /** Take it out of the page; done with for good. */
+  dispose(): void;
+}
+
 export interface EditorFactory {
   /** A diff viewer filling `container`, and keeping to its size as that
    *  changes. Rejects when there is no editor to make one with — its code
    *  could not be loaded. */
   createDiffViewer(container: HTMLElement, options: DiffViewerOptions): Promise<DiffViewer>;
+  /** A read-only view of one file filling `container`, as `createDiffViewer`
+   *  makes a diff's. */
+  createFileViewer(container: HTMLElement, options: FileViewerOptions): Promise<FileViewer>;
 }

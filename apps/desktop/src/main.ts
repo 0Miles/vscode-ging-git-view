@@ -42,7 +42,7 @@ import {
   type NativeDialogs
 } from "@ging/desktop/ports/prompts";
 import type { RequestMessage } from "@ging/shared/types";
-import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
+import type { ViewerMessage } from "@ging/webview/desktop/diff/protocol";
 import {
   type HostPromptMessage,
   type HostPromptReply,
@@ -224,7 +224,7 @@ function followSystemTheme(repaint: (theme: Theme) => void): void {
 
 /** The page in `contents`, as a webview instance talks to it; `deliver` hands
  *  it what the page posted, `prompt` shows it one of the instance's prompts
- *  and `diff` one of its diffs (#404), on the same channel as the graph's
+ *  and `diff` one of its diffs (#404) or files (#405), on the same channel as the graph's
  *  messages (ADR-0031). */
 function channelTo(contents: WebContents, logger: HostLogger) {
   let listener: ((message: RequestMessage) => void | Promise<void>) | null = null;
@@ -245,7 +245,7 @@ function channelTo(contents: WebContents, logger: HostLogger) {
   const sideView = (message: SideViewMessage) => {
     send(message);
   };
-  const diff = (message: ShowDiffMessage) => send(message);
+  const diff = (message: ViewerMessage) => send(message);
   const deliver = (message: RequestMessage) => {
     // A handler that throws has no one else to tell: the dispatch answers what
     // it catches, and this is what it did not.
@@ -356,6 +356,7 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         });
       },
       openTerminal: onGraph((c) => c.openTerminal()),
+      fileHistory: onGraph((c) => c.fileHistory()),
       setGitUserDetails: asking((c) => c.setGitUserDetails()),
       managePullRequestProviders: asking((c) => c.managePullRequestProviders()),
       // In a system dialog, so it needs no page: the Welcome page's will do
@@ -819,7 +820,19 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         postSideView: sideView,
         extensionState: state,
         revealSetting: (key) => settingsWindow?.reveal(key),
-        postDiff: diff
+        postDiff: diff,
+        // The application menu's File History… (#408): a file of the Tab's
+        // repository, in the system's dialog (`NativeDialogs`, ADR-0032).
+        pickFile: async (root) => {
+          const picked = await dialogsFor(owner).showOpenDialog({
+            title: host.l10n.t("desktop.fileHistory.pickTitle"),
+            buttonLabel: host.l10n.t("desktop.fileHistory.pickButton"),
+            // The system's spelling of the folder, not the repository's `/` one.
+            defaultPath: path.normalize(root),
+            properties: ["openFile"]
+          });
+          return picked.canceled ? null : (picked.filePaths[0] ?? null);
+        }
       });
       const strings = getWebviewLocalizedStrings((key) => host.l10n.t(key));
       const page: TabPage = {

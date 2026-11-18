@@ -8,6 +8,7 @@ import type { WorkingTreeService } from "@ging/core/extension/workingTreeService
 import type { L10n } from "@ging/core/host/ports";
 import type {
   WorkingTreeRequest,
+  WorkingTreeShowDiffRequest,
   WorkingTreeStatusMessage,
   WorkingTreeStrings
 } from "@ging/webview/desktop/workingTree/protocol";
@@ -85,7 +86,7 @@ export async function answerWorkingTree(
   service: WorkingTreeService,
   conflicts: Pick<ConflictCommands, "mergeTool" | "confirmResolve">,
   strings: WorkingTreeStrings,
-  request: WorkingTreeRequest
+  request: Exclude<WorkingTreeRequest, WorkingTreeShowDiffRequest>
 ): Promise<WorkingTreeStatusMessage> {
   const answer = await (async () => {
     switch (request.command) {

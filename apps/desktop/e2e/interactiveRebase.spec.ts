@@ -2,9 +2,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { datedGit, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage } from "./tabPages";
 
 // An interactive rebase through Electron, end to end (#392): the rebase dialog
@@ -19,9 +20,6 @@ import { focusedTabPage } from "./tabPages";
 // not a RunAsNode fuse turned off, until phase E points `executablePath` at the
 // packaged app (ADR-0032).
 
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 /** What the page's failure report leaves in the log (graph.spec.ts). */
 const WEBVIEW_FAILURE = /ERROR: webview |"reportError"/;
 
@@ -32,12 +30,11 @@ let app: ElectronApplication | null = null;
 let repoPath: string | null = null;
 
 async function launch(...args: string[]): Promise<ElectronApplication> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
+  app = await launchApp(
     // English whatever the machine's locale, so the page's words can be read.
-    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`, ...args],
-    env: env as Record<string, string>
-  });
+    ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`, ...args],
+    env
+  );
   return app;
 }
 

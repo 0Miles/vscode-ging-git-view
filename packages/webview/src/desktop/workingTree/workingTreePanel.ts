@@ -10,6 +10,7 @@
 import type {
   AmendBasis,
   CommitRefusal,
+  HunkArea,
   WorkingTreeFile,
   WorkingTreeStatus
 } from "@ging/shared/backend/types";
@@ -53,6 +54,8 @@ body.workingTreeOpen #findWidget { right: ${WORKING_TREE_WIDTH + 14}px; }
   font-family: var(--vscode-font-family); font-size: var(--vscode-font-size);
 }
 #workingTree[hidden] { display: none; }
+#workingTree .wtPart { display: contents; }
+#workingTree .wtCommit[hidden] { display: none; }
 #workingTree .wtHeader {
   display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; flex: 0 0 auto;
   font-weight: 600; text-transform: uppercase; font-size: 11px;
@@ -96,6 +99,8 @@ body.workingTreeOpen #findWidget { right: ${WORKING_TREE_WIDTH + 14}px; }
 #workingTree .wtCount { color: var(--vscode-descriptionForeground); font-weight: normal; }
 #workingTree .wtFile { display: flex; align-items: center; gap: 6px; padding: 1px 6px 1px 20px; line-height: 22px; }
 #workingTree .wtFile:hover { background: var(--vscode-list-hoverBackground); }
+#workingTree .wtFile.opensDiff { cursor: pointer; }
+#workingTree .wtFile:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 #workingTree .wtName { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #workingTree .wtDir { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
 #workingTree .wtFile .wtIconButton { opacity: 0; }
@@ -161,10 +166,13 @@ type Area = "staged" | "unstaged" | "conflicted";
 
 export type WorkingTreePanelOptions = {
   /**
-   * Show the change to `file` in `area` (#404's diff viewer, which is not
-   * here yet). The panel's file rows are clickable only once it is given.
+   * Show the change to `file` in `area` in the diff viewer (#460), where its
+   * hunks are staged or unstaged (#406). The panel's file rows open it, by
+   * click, Enter or Space, only once it is given — and never a conflicted
+   * file's (#410's merge tool is how one is worked on) nor a submodule's,
+   * which has no text to compare.
    */
-  showDiff?: (file: WorkingTreeFile, area: Area) => void;
+  showDiff?: (file: WorkingTreeFile, area: HunkArea) => void;
   /**
    * Ask whether to go on, in the page's own dialog (#407): `html` is markup,
    * `actionName` the button that goes on, `confirmed` what it does. The
@@ -177,6 +185,14 @@ export type WorkingTreePanelOptions = {
 /** A tick box under the message, `action` naming it. */
 const tickBox = (action: string, on: boolean, off: boolean) =>
   `<input type="checkbox" data-action="${action}"${on ? " checked" : ""}${off ? " disabled" : ""}>`;
+
+/** A part of the panel's frame that each draw writes anew; no box of its own
+ *  in the layout (`display: contents`). */
+function part(): HTMLElement {
+  const div = document.createElement("div");
+  div.className = "wtPart";
+  return div;
+}
 
 /** How many of the remote branches a pushed HEAD is on the warning names. */
 const NAMED_BRANCHES = 3;
@@ -209,6 +225,24 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
   const panel = document.createElement("aside");
   panel.id = "workingTree";
   panel.hidden = true;
+  /** The panel's frame: the message box, which is never taken out of the
+   *  page, and around it the parts each draw writes anew. Taking the box out
+   *  would blur it (the keyboard lost mid-sentence, an IME composition cut
+   *  short) whenever an answer or a refresh redraws the panel while the user
+   *  types (#479). The parts' wrappers are `display: contents`, so the layout
+   *  is the panel's children as before. The commit area stays hidden until
+   *  the first draw brings the box its words. */
+  const frame = {
+    header: part(),
+    commitArea: document.createElement("div"),
+    box: document.createElement("textarea"),
+    commitPart: part(),
+    body: part()
+  };
+  frame.commitArea.className = "wtCommit";
+  frame.commitArea.hidden = true;
+  frame.commitArea.append(frame.box, frame.commitPart);
+  panel.append(frame.header, frame.commitArea, frame.body);
   document.body.appendChild(panel);
 
   let strings: WorkingTreeStrings | null = null;
@@ -257,6 +291,17 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
   const allPathsOf = (files: WorkingTreeFile[]) =>
     files.filter((file) => file.submodule !== true).flatMap(pathsOf);
 
+  /** Whether `file`'s row opens its diff (`WorkingTreePanelOptions.showDiff`). */
+  const opensDiff = (file: WorkingTreeFile, area: Area): area is HunkArea =>
+    options.showDiff !== undefined && area !== "conflicted" && file.submodule !== true;
+
+  /** Open the diff of the file `row` lists, if it opens one. */
+  const openRow = (row: HTMLElement) => {
+    const file = fileOf(row);
+    const area = row.dataset.area as Area;
+    if (file !== null && opensDiff(file, area)) options.showDiff?.(file, area);
+  };
+
   /** A button; `aria-disabled` rather than `disabled`, which would drop the
    *  keyboard's focus off it while a request is out. */
   const iconButton = (action: string, label: string, text: string, off: boolean) =>
@@ -283,7 +328,8 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
                   iconButton("resolve", s.markResolved, svgIcons.check, busy);
         const where = file.oldPath === undefined ? file.path : `${file.oldPath} → ${file.path}`;
         const tooltip = file.submodule === true ? `${where}\n${s.submodule}` : where;
-        return `<div class="wtFile${file.submodule === true ? " submodule" : ""}" role="listitem" data-area="${area}" data-index="${index}" data-path="${escapeHtml(file.path)}" title="${escapeHtml(tooltip)}"${options.showDiff ? ' tabindex="0"' : ""}><span class="wtName">${escapeHtml(name)}</span><span class="wtDir">${escapeHtml(dir)}</span>${action}<span class="wtLetter ${file.change}" title="${escapeHtml(s.changes[file.change])}">${LETTERS[file.change]}</span></div>`;
+        const opens = opensDiff(file, area);
+        return `<div class="wtFile${file.submodule === true ? " submodule" : ""}${opens ? " opensDiff" : ""}" role="listitem" data-area="${area}" data-index="${index}" data-path="${escapeHtml(file.path)}" title="${escapeHtml(tooltip)}"${opens ? ' tabindex="0"' : ""}><span class="wtName">${escapeHtml(name)}</span><span class="wtDir">${escapeHtml(dir)}</span>${action}<span class="wtLetter ${file.change}" title="${escapeHtml(s.changes[file.change])}">${LETTERS[file.change]}</span></div>`;
       })
       .join("") +
     (files.length > MAX_ROWS
@@ -408,10 +454,8 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     const s = strings;
     if (s === null) return;
     const at = focusAt();
-    // The box keeps its text and caret across redraws: it is built once and
-    // only moved back in.
-    const box =
-      panel.querySelector<HTMLTextAreaElement>("textarea") ?? document.createElement("textarea");
+    const { header, box, commitArea, commitPart, body } = frame;
+    commitArea.hidden = false;
     box.placeholder = s.message;
     box.setAttribute("aria-label", s.message);
     if (box.value !== message) box.value = message;
@@ -435,13 +479,16 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
               { action: "stageAll", label: s.stageAll, text: "+" },
               s
             );
-    panel.innerHTML = `<div class="wtHeader"><span class="wtTitle">${escapeHtml(s.title)}${
+    header.innerHTML = `<div class="wtHeader"><span class="wtTitle">${escapeHtml(s.title)}${
       status?.branch ? ` <span class="wtBranch">${escapeHtml(status.branch)}</span>` : ""
-    }</span>${iconButton("close", s.close, svgIcons.close, false)}</div><div class="wtCommit">${tickBoxes(s)}<button class="wtCommitButton" id="wtCommitButton" type="button" data-action="commit"${
+    }</span>${iconButton("close", s.close, svgIcons.close, false)}</div>`;
+    commitPart.innerHTML = `${tickBoxes(s)}<button class="wtCommitButton" id="wtCommitButton" type="button" data-action="commit"${
       cannotCommit() ? ' aria-disabled="true"' : ""
-    }>${escapeHtml(amend ? s.amendCommit : s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error ?? "")}</div></div>${operationBar(s)}<div class="wtLists">${lists}</div>`;
-    panel.querySelector(".wtCommit")!.prepend(box);
-    if (at !== null) refocus(at);
+    }>${escapeHtml(amend ? s.amendCommit : s.commit)}</button><div class="wtError" role="alert">${escapeHtml(error ?? "")}</div>`;
+    body.innerHTML = `${operationBar(s)}<div class="wtLists">${lists}</div>`;
+    // Only what the draw took away is given the keyboard back: the message
+    // box, never taken away, keeps it, its caret and selection untouched.
+    if (at !== null && !panel.contains(document.activeElement)) refocus(at);
   }
 
   const commit = () => {
@@ -532,8 +579,7 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
       return;
     }
     const row = target?.closest<HTMLElement>(".wtFile") ?? null;
-    const file = row === null ? null : fileOf(row);
-    if (row !== null && file !== null) options.showDiff?.(file, row.dataset.area as Area);
+    if (row !== null) openRow(row);
   });
   panel.addEventListener("change", (event) => {
     const box = event.target;
@@ -558,6 +604,14 @@ export function startWorkingTreePanel(options: WorkingTreePanelOptions = {}): vo
     if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.isComposing) {
       event.preventDefault();
       commit();
+      return;
+    }
+    // A row with the keyboard on it opens as a click does; not on keys
+    // pressed on its buttons, which are theirs.
+    const row = event.target instanceof HTMLElement ? event.target : null;
+    if ((event.key === "Enter" || event.key === " ") && row?.classList.contains("opensDiff")) {
+      event.preventDefault();
+      openRow(row);
     }
   });
 

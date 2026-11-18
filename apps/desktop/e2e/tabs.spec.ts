@@ -5,18 +5,12 @@ import type { AddressInfo, Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  _electron,
-  type ElectronApplication,
-  expect,
-  type Locator,
-  type Page,
-  test
-} from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 
 import { TAB_STRIP_HEIGHT } from "@ging/webview/desktop/window/protocol";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, ELECTRON, launchApp } from "./launch";
 import { answerMessageBoxes, clickMenu } from "./mainProcess";
 import { focusedTabPage, stripTabs, tabPage, windowPage } from "./tabPages";
 
@@ -25,10 +19,6 @@ import { focusedTabPage, stripTabs, tabPage, windowPage } from "./tabPages";
 // its own page. Read through the pages, Electron's own API and the app's log
 // (ADR-0032).
 
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 const FETCH_REMOTE = "ging.fetchRemote";
 
 let scratch: string;
@@ -47,11 +37,7 @@ const appArgs = (...args: string[]) => [
 ];
 
 async function launch(...args: string[]): Promise<ElectronApplication> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: appArgs(...args),
-    env: env as Record<string, string>
-  });
+  app = await launchApp(appArgs(...args), env);
   return app;
 }
 

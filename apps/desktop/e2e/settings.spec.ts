@@ -3,9 +3,10 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { openSettings, settingRow } from "./mainProcess";
 import { focusedTabPage } from "./tabPages";
 
@@ -13,11 +14,6 @@ import { focusedTabPage } from "./tabPages";
 // through HostConfig.update, and the main process doing what VS Code does on
 // a configuration change. Read through the pages, Electron's own API and the
 // app's log (ADR-0032).
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 let scratch: string;
 let env: NodeJS.ProcessEnv;
@@ -28,11 +24,10 @@ let cleanUp: string[] = [];
  *  off the developer's own configuration (ADR-0032). The same folder for
  *  every launch in a test, so a later one is a restart. */
 async function launch(...args: string[]): Promise<ElectronApplication> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`, ...args],
-    env: env as Record<string, string>
-  });
+  app = await launchApp(
+    ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`, ...args],
+    env
+  );
   return app;
 }
 

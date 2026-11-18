@@ -1,17 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createDiffPanel, LAYOUT_STORAGE_KEY } from "@ging/webview/desktop/diff/diffPanel";
-import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
+import type { ShowDiffMessage, ShowFileMessage } from "@ging/webview/desktop/diff/protocol";
 import type {
   DiffLayout,
   DiffViewer,
   DiffViewerOptions,
   EditorFactory,
+  FileViewer,
+  FileViewerOptions,
   ThemeKind
 } from "@ging/webview/desktop/editors";
 
-// The diff viewer's panel (#404), with editors that only record what they are
-// asked: Monaco itself is the Electron E2E's (apps/desktop/e2e/diffViewer.spec.ts).
+// The diff viewer's panel (#404), a file shown read-only in it too (#405),
+// with editors that only record what they are asked: Monaco itself is the
+// Electron E2E's (apps/desktop/e2e/diffViewer.spec.ts, fileAtRevision.spec.ts).
 
 type FakeViewer = DiffViewer & {
   container: HTMLElement;
@@ -21,8 +24,17 @@ type FakeViewer = DiffViewer & {
   disposed: boolean;
 };
 
+type FakeFileViewer = FileViewer & {
+  container: HTMLElement;
+  options: FileViewerOptions;
+  themes: ThemeKind[];
+  disposed: boolean;
+};
+
 function fakeEditors() {
   const made: FakeViewer[] = [];
+  /** The files it was asked to show read-only (#405). */
+  const files: FakeFileViewer[] = [];
   /** Set to hold the next viewer back until `release()` is called. */
   let gate: Promise<void> | null = null;
   const editors: EditorFactory = {
@@ -47,11 +59,32 @@ function fakeEditors() {
       };
       made.push(viewer);
       return viewer;
+    },
+    createFileViewer: async (container, options) => {
+      if (gate !== null) await gate;
+      const viewer: FakeFileViewer = {
+        container,
+        options,
+        themes: [],
+        disposed: false,
+        setTheme: (theme) => viewer.themes.push(theme),
+        focus: () => {
+          const input = document.createElement("textarea");
+          container.append(input);
+          input.focus();
+        },
+        dispose: () => {
+          viewer.disposed = true;
+        }
+      };
+      files.push(viewer);
+      return viewer;
     }
   };
   return {
     editors,
     made,
+    files,
     hold: () => {
       let release!: () => void;
       gate = new Promise((resolve) => (release = resolve));
@@ -374,7 +407,8 @@ describe("the diff viewer", () => {
   it("lets a failure to make an editor for a diff no longer shown go unsaid", async () => {
     let fail!: (e: Error) => void;
     const editors: EditorFactory = {
-      createDiffViewer: () => new Promise((_resolve, reject) => (fail = reject))
+      createDiffViewer: () => new Promise((_resolve, reject) => (fail = reject)),
+      createFileViewer: () => Promise.reject(new Error("not asked"))
     };
     const diffs = createDiffPanel(editors, { storage: memoryStorage() });
     const showing = diffs.show(message());
@@ -389,7 +423,8 @@ describe("the diff viewer", () => {
 
   it("says so in the panel when there is no editor to show the diff in, and rejects", async () => {
     const editors: EditorFactory = {
-      createDiffViewer: () => Promise.reject(new Error("monaco.js did not load"))
+      createDiffViewer: () => Promise.reject(new Error("monaco.js did not load")),
+      createFileViewer: () => Promise.reject(new Error("not asked"))
     };
     const diffs = createDiffPanel(editors, { storage: memoryStorage() });
 
@@ -400,5 +435,268 @@ describe("the diff viewer", () => {
     expect(error.textContent).toBe("No editor");
     expect(error.getAttribute("role")).toBe("alert");
     expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+});
+
+const fileMessage = (overrides: Partial<ShowFileMessage> = {}): ShowFileMessage => ({
+  command: "showFile",
+  title: "file.ts (abc1234)",
+  file: { path: "src/file.ts", content: "const a = 1;\n" },
+  notShown: null,
+  strings: { close: "Close File", cannotShow: "No file editor" },
+  ...overrides
+});
+
+describe("a file shown read-only in the diff viewer (#405)", () => {
+  it("shows the host's file over the graph, titled, with no layouts to switch", async () => {
+    const { editors, made, files } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await viewer.showFile(fileMessage());
+
+    expect(panel().hidden).toBe(false);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe("file.ts (abc1234)");
+    expect(made).toEqual([]);
+    expect(files).toHaveLength(1);
+    expect(files[0].options).toEqual({
+      document: { path: "src/file.ts", content: "const a = 1;\n" },
+      theme: "dark"
+    });
+    expect(panel().querySelector<HTMLElement>(".diffViewerLayouts")!.hidden).toBe(true);
+    expect(panel().querySelector(".diffViewerClose")!.getAttribute("aria-label")).toBe(
+      "Close File"
+    );
+    // The keyboard is in the file.
+    expect(files[0].container.contains(document.activeElement)).toBe(true);
+  });
+
+  it("takes a diff's place, and gives its own to the next diff", async () => {
+    const { editors, made, files } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    document.getElementById("cdvFile")!.focus();
+    await viewer.show(message());
+
+    await viewer.showFile(fileMessage());
+    expect(made[0].disposed).toBe(true);
+    expect(files[0].disposed).toBe(false);
+
+    await viewer.show(message());
+    expect(files[0].disposed).toBe(true);
+    expect(panel().querySelector<HTMLElement>(".diffViewerLayouts")!.hidden).toBe(false);
+    expect(layoutButton("inline").textContent).toBe("Inline");
+    expect(document.querySelectorAll("#diffViewer")).toHaveLength(1);
+    viewer.close();
+    expect(document.activeElement!.id).toBe("cdvFile");
+  });
+
+  it("closes when Escape is let go, done with the editor, the keyboard back where it was", async () => {
+    const { editors, files } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    document.getElementById("cdvFile")!.focus();
+    await viewer.showFile(fileMessage());
+    const inEditor = document.activeElement!;
+
+    key(inEditor, "keydown", "Escape");
+    key(inEditor, "keyup", "Escape");
+
+    expect(panel().hidden).toBe(true);
+    expect(files[0].disposed).toBe(true);
+    expect(document.activeElement!.id).toBe("cdvFile");
+  });
+
+  it("is busy while the editor is being made, and follows the page's theme once in", async () => {
+    const { editors, files, hold } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = viewer.showFile(fileMessage());
+
+    expect(panel().getAttribute("aria-busy")).toBe("true");
+    release();
+    await showing;
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+
+    document.body.classList.replace("vscode-dark", "vscode-light");
+    await new Promise((resolve) => setTimeout(resolve));
+    expect(files[0].themes).toEqual(["light"]);
+  });
+
+  it("shows the host's one line in place of an editor when there is no text to show", async () => {
+    const { editors, files } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await viewer.showFile(fileMessage({ notShown: "Binary file: there is no text to show." }));
+
+    const notice = panel().querySelector<HTMLElement>(".diffViewerNotice")!;
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toBe("Binary file: there is no text to show.");
+    expect(files).toEqual([]);
+  });
+
+  it("does not keep a file's editor that came after a diff took its place", async () => {
+    const { editors, made, files, hold } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showingFile = viewer.showFile(fileMessage());
+
+    // The diff is held back too: both are made once released.
+    const showingDiff = viewer.show(message());
+    release();
+    await Promise.all([showingFile, showingDiff]);
+
+    expect(files[0].disposed).toBe(true);
+    expect(made[0].disposed).toBe(false);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe(
+      "file.txt (abc1234^ ↔ abc1234)"
+    );
+    expect(panel().querySelector<HTMLElement>(".diffViewerLayouts")!.hidden).toBe(false);
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("does not keep a file's editor that came after the panel was closed, nor stay busy", async () => {
+    const { editors, files, hold } = fakeEditors();
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+    const release = hold();
+    const showing = viewer.showFile(fileMessage());
+
+    viewer.close();
+    release();
+    await showing;
+
+    expect(panel().hidden).toBe(true);
+    expect(files[0].disposed).toBe(true);
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("says so in the panel, in its own words, when there is no editor to show it in", async () => {
+    const editors: EditorFactory = {
+      createDiffViewer: () => Promise.reject(new Error("not asked")),
+      createFileViewer: () => Promise.reject(new Error("monaco.js did not load"))
+    };
+    const viewer = createDiffPanel(editors, { storage: memoryStorage() });
+
+    await expect(viewer.showFile(fileMessage())).rejects.toThrow("monaco.js did not load");
+
+    const error = panel().querySelector<HTMLElement>(".diffViewerError")!;
+    expect(error.hidden).toBe(false);
+    expect(error.textContent).toBe("No file editor");
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+  });
+});
+
+// Hunk staging (#406): the hunks a working tree diff offers, handed to the
+// editor to draw, and one asked of the host at a time.
+describe("the diff viewer's hunks", () => {
+  const offered = {
+    path: "src/file.txt",
+    area: "unstaged" as const,
+    token: "t0k3n",
+    label: "Stage Hunk",
+    name: "{0}: lines {1} to {2}",
+    keyboard: "Press Shift+F10",
+    hunks: [
+      { original: { start: 1, count: 4 }, modified: { start: 1, count: 5 } },
+      { original: { start: 20, count: 6 }, modified: { start: 21, count: 6 } }
+    ]
+  };
+
+  it("hands the editor the hunks to offer, in the host's word, and asks the host for the one chosen", async () => {
+    const { editors, made } = fakeEditors();
+    const asked: unknown[] = [];
+    const diffs = createDiffPanel(editors, {
+      storage: memoryStorage(),
+      askHunk: (request) => asked.push(request)
+    });
+
+    await diffs.show(message({ hunks: offered }));
+    const hunks = made[0].options.hunks!;
+    expect(hunks.label).toBe("Stage Hunk");
+    expect(hunks.hunks).toEqual(offered.hunks);
+    // Each named by its lines on the side its control is on, the modified.
+    expect(hunks.names).toEqual(["Stage Hunk: lines 1 to 5", "Stage Hunk: lines 21 to 26"]);
+    expect(hunks.keyboard).toBe("Press Shift+F10");
+    // The keyboard's way, as the panel's description.
+    const keys = document.getElementById(panel().getAttribute("aria-describedby")!)!;
+    expect(keys.textContent).toBe("Press Shift+F10");
+
+    hunks.choose(1);
+
+    expect(asked).toEqual([
+      {
+        command: "diffHunk",
+        path: "src/file.txt",
+        area: "unstaged",
+        token: "t0k3n",
+        hunk: 1,
+        asked: 1
+      }
+    ]);
+    // Busy until the host shows the diff anew.
+    expect(panel().getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("asks for one hunk at a time: the next choice waits for the diff shown anew", async () => {
+    const { editors, made } = fakeEditors();
+    const asked: unknown[] = [];
+    const diffs = createDiffPanel(editors, {
+      storage: memoryStorage(),
+      askHunk: (request) => asked.push(request)
+    });
+
+    await diffs.show(message({ hunks: offered }));
+    made[0].options.hunks!.choose(0);
+    made[0].options.hunks!.choose(1);
+    await diffs.show(
+      message({ hunks: { ...offered, token: "n3w", hunks: [offered.hunks[1]] }, answers: 1 })
+    );
+    expect(panel().hasAttribute("aria-busy")).toBe(false);
+    made[1].options.hunks!.choose(0);
+
+    expect(asked).toEqual([
+      expect.objectContaining({ token: "t0k3n", hunk: 0 }),
+      expect.objectContaining({ token: "n3w", hunk: 0 })
+    ]);
+  });
+
+  it("shows the answer to a hunk only over the diff it was asked from", async () => {
+    const { editors, made } = fakeEditors();
+    const diffs = createDiffPanel(editors, { storage: memoryStorage(), askHunk: () => {} });
+    const answer = message({ title: "file.txt (Working Tree), anew", answers: 1 });
+
+    await diffs.show(message({ hunks: offered }));
+    made[0].options.hunks!.choose(0);
+    // Another diff opened meanwhile (a commit's, from the graph).
+    await diffs.show(message({ title: "other.txt (abc1234^ ↔ abc1234)" }));
+    await diffs.show(answer);
+    expect(panel().querySelector(".diffViewerTitle")!.textContent).toBe(
+      "other.txt (abc1234^ ↔ abc1234)"
+    );
+    expect(made).toHaveLength(2);
+
+    // And none once the viewer was closed.
+    diffs.close();
+    await diffs.show({ ...answer, answers: 2 });
+    expect(panel().hidden).toBe(true);
+  });
+
+  it("offers no hunk without a host to ask, nor for a diff that has none", async () => {
+    const { editors, made } = fakeEditors();
+    await createDiffPanel(editors, { storage: memoryStorage() }).show(message({ hunks: offered }));
+    await createDiffPanel(editors, { storage: memoryStorage(), askHunk: () => {} }).show(message());
+
+    expect(made.map((viewer) => viewer.options.hunks)).toEqual([undefined, undefined]);
+    expect(panel().hasAttribute("aria-describedby")).toBe(false);
+  });
+
+  it("says the host's line over the diff, and nothing once a diff comes without one", async () => {
+    const diffs = createDiffPanel(fakeEditors().editors, { storage: memoryStorage() });
+    const said = () => panel().querySelector<HTMLElement>(".diffViewerSaid")!;
+
+    await diffs.show(message({ said: "The file changed since this diff was shown." }));
+    expect(said().hidden).toBe(false);
+    expect(said().textContent).toBe("The file changed since this diff was shown.");
+    expect(said().getAttribute("role")).toBe("status");
+
+    await diffs.show(message());
+    expect(said().hidden).toBe(true);
   });
 });

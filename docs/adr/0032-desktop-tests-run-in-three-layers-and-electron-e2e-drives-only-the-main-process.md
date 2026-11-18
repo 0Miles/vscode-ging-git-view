@@ -157,6 +157,38 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **E2E 的結果放在 `apps/desktop/e2e-results/`,不在 `out/` 底下,失敗的測試留下 trace。** `compile` 會先清空 `out/`,原本的 `out/e2e-results` 跟著消失,失敗的那一輪就什麼都查不到(#404 的第一次紅燈就是這樣)。這些測試自己啟動 app,Playwright 的 `use.trace` 只管它自己 fixture 開的頁面,所以 `diffViewer.spec.ts` 與 `actions.spec.ts` 啟動後用 `context().tracing` 錄,失敗時存成 `app-trace.zip`(`keepTraceIfFailed`;`trace.zip` 是 Playwright 自己的 test trace,只有測試端的步驟與時間);config 的 `trace: "retain-on-failure"` 留給之後用 fixture 的測試。
 - **#391 那條「點 CDV 的檔案只看到尚未支援」的測試移到這裡,改成打開 diff。** walk(`actions.spec.ts`)的 `viewDiff` 與 `viewDiffWithWorking` 改為斷言 diff viewer 出現、app 外面什麼都沒發生、沒有錯誤框,然後把它關掉,不讓它蓋住之後的步驟。
 
+## 補記(2026-11-18,#408)
+
+**檔案歷史的 Electron E2E 兩條([fileHistory.spec.ts](../../apps/desktop/e2e/fileHistory.spec.ts)),fixture 是測試自己建的、有一次 rename 的 repo。** 一條從應用程式選單 `ging.fileHistory` 觸發(先讀 `enabled`,再 `click()`),開檔對話框照 #394 的做法用 `electronApp.evaluate` 換掉 `dialog.showOpenDialog`,同時記下被問的選項(標題、按鈕、預設資料夾、`openFile`);斷言每一筆在 rename 前後的路徑、點 rename 之前的那一筆打開的是舊路徑的 diff(標題與兩側文字讀 Monaco 自己的 DOM,同 #404 的補記),以及側檢視、清單、diff viewer 由左到右相接。另一條從 CDV 檔案列的右鍵選單打開,驗歷史只到那個 commit、焦點在第一筆、Escape 收掉。兩條都斷言 console 沒有 error、log 沒有 `ERROR:`。
+
+`--follow` 的語意(rename、copy、merge、分頁、特殊字元、submodule)在 vitest 用真的 git 驗([packages/core/tests/queries/fileHistory.test.ts](../../packages/core/tests/queries/fileHistory.test.ts)),不在 E2E 重複:E2E 只管 main process 的整合路徑。面板的行為(握手、翻頁、過期的頁、鍵盤)在 jsdom 驗,版面在 webview E2E 驗(ADR-0031 的同日補記)。
+
+## 補記(2026-11-18,#405)
+
+**唯讀檔案的 Electron E2E 在 [fileAtRevision.spec.ts](../../apps/desktop/e2e/fileAtRevision.spec.ts),與 diff 的分開。** 驗的是只有真的 app 才證明得了的事:main process 在 commit 上讀到的文字依 `defaultFileEncoding` 解碼(working tree 已經改過,顯示的仍是 commit 的);面板裡是一個 Monaco editor、不是 diff;它照副檔名著色;打字不改變內容。
+
+- **「照副檔名著色」讀的是 Monaco 自己的 DOM:那一行被畫成好幾個 token(`mtk*` class 不只一種)。** 純文字的 model 整行只有一個 token。Monaco 0.57.0 的 editor 根元素沒有 `data-mode-id`,不能直接讀語言 id。
+- **walk(`actions.spec.ts`)的 `viewFileAtRevision` 從 stub 那一段移到兩個 diff 之後**,斷言同 diff:面板出現、app 外面什麼都沒發生、沒有錯誤框,然後關掉。排在後面,頁面的第一個 editor 仍是 `viewDiffWithWorking` 的,`FIRST_DIFF_BUDGET` 留在原處。stub 已經一個都不剩,walk 的 `stub` 與「尚未支援」的通知文字一併移除。
+
+## 補記(2026-11-18,#406、#460)
+
+**hunk stage 的 Electron E2E([hunkStaging.spec.ts](../../apps/desktop/e2e/hunkStaging.spec.ts))兩條:從 working tree 面板打開檔案的 diff、stage 其中一個 hunk、再從 staged 的 diff unstage 它;以及檔案在 diff 顯示之後改過時,hunk 被拒絕。** git 的各種情形(CRLF、`core.autocrlf`、檔尾無換行、編碼、整檔變更、衝突)由 core 的 vitest 用真的 git 驗(`hunk.test.ts`),E2E 只驗只有真的 app 才證明得了的:Monaco 把按鈕畫在 git 的 hunk 上方而且點得到、點下去的 hunk 經 main process 進了 index、面板跟著重讀。
+
+- **讀的是 repo 與畫面。** index 的內容用 `git show :0:<路徑>` 讀;按鈕的位置用它與被改的那一行的 bounding box 比(按鈕在 hunk 第一行上方,hunk 從改動前三行開始)。按鈕點得到這件事本身就是一項斷言:按鈕若放在 view zone 裡,editor 的行會擋住點擊(ADR-0031 的同日補記)。
+- **檔案在 app 啟動前就改好,stale 那條只改 working tree 的檔案。** 理由同 `workingTree.spec.ts`:app 讀 repo 時會不時握著 index 的 lock,測試自己寫 index 會跟它搶。改 working tree 的檔案不碰 index。
+- **失敗時留下 app 的 log**(`main.log`,與 `app-trace.zip` 放在一起):main process 那一側做了什麼,只有它看得到。
+
+## 補記(2026-11-18,本機 E2E 不占用使用者的畫面)
+
+**Electron E2E 一律經 [launch.ts](../../apps/desktop/e2e/launch.ts) 的 `launchApp` 啟動,它在 app 的 main 之前用 Electron 的 `-r` 載入測試端的 [quietWindows.js](../../apps/desktop/e2e/quietWindows.js):app 開的每個視窗都看不見、不搶鍵盤、不擋滑鼠。** 本機跑 E2E 時,視窗一個個跳出來搶走焦點,使用者沒辦法同時做別的事。產品碼不動,也沒有給測試用的全域(本 ADR 的原則):app 照常 `new BrowserWindow(...)`,拿到的是測試端換過的一個。`GING_E2E_SHOW=1` 時不載入它,視窗照 app 本來的樣子出現,方便看著跑。
+
+- **視窗照樣「顯示」,只是使用者看不到:`showInactive()`、`opacity: 0`、`focusable: false`、`skipTaskbar`、`setIgnoreMouseEvents(true)`,`show()` 一律改成 `showInactive()`,`focus()` / `moveTop()` 不做事。** 不選 `show: false`:沒顯示的視窗 Chromium 不畫,requestAnimationFrame 不跑,`document.visibilityState` 是 `hidden`,而 Monaco 的版面與圖形的繪製都靠這些;這個做法下實測頁面仍是 `visible`、rAF 照跑、`document.hasFocus()` 為真(Playwright 的輸入不經作業系統的焦點)。也不選移到螢幕外:視窗的位置與大小維持 app 要的樣子,讀版面的測試不受影響。
+- **關掉 Windows 的遮蔽偵測(`--disable-features=CalculateNativeWinOcclusion`)。** 被其他視窗蓋住的視窗會被 Chromium 當成 hidden 而停止繪製;測試的視窗本來就在使用者的視窗後面。
+- **類別名稱必須是 `BrowserWindow`。** Electron 用 `constructor.name` 認自己的視窗(`getAllWindows`、`getFocusedWindow`),子類別換了名字就從這些清單裡消失。`require("electron")` 的 export 是不能重新定義的 getter,所以 app 拿到的是包了一層 Proxy 的模組,只有 `BrowserWindow` 換掉(`Module._load` 攔 `"electron"`)。
+- **`-r <檔案>` 會被 app 當成自己的路徑。** app 照 `electron [switches] <app> [args]` 讀命令列(`launchArgs.ts`),第一個不是 switch 的參數就當 app 路徑;所以 quietWindows.js 先把 `-r` 與自己的路徑從 `process.argv` 拿掉,app 讀到的命令列與沒有它時相同。實測沒拿掉時每個 `--repo` 都被當成「忽略的參數」,幾乎全部 E2E 紅。
+- **驗證方式:** 跑全部 desktop E2E 時,另一個行程每 200ms 讀一次前景視窗(`GetForegroundWindow`)所屬的行程與執行檔路徑;不顯示的整輪(50/50)這個 worktree 的 electron 從未出現在前景(同一段時間其他 worktree 的 E2E 有);`GING_E2E_SHOW=1` 的整輪,它搶到前景 53 次。Tab 頁面在兩種模式下都是 `visible`、rAF 照跑;從啟動到圖形畫出,實測不顯示 2.0–3.7 秒、顯示 2.0–2.8 秒(各 6 次,機器同時被其他測試佔用)。
+- **webview E2E 本來就是 headless**(Playwright 預設,CI 只裝 `chromium --only-shell`),不受影響。**`pnpm run test:ext` 會開一個真的 VS Code 視窗,沒有支援的方式讓它不出現或不搶焦點:** `@vscode/test-electron` 啟動的是打包好的 VS Code,沒有 `-r`、也不讀 `NODE_OPTIONS`,VS Code 的命令列沒有隱藏或最小化視窗的選項。要在本機跑又不被打擾,只能放到另一個虛擬桌面或交給 CI。
+
 ## 補記(2026-11-18,#401)
 
 **階段 C 的收尾驗收是一條 Electron E2E([phaseC.spec.ts](../../apps/desktop/e2e/phaseC.spec.ts)):一個使用者、一次 app 工作階段，epic #291 C「完成的意思」的每個子句是一個具名的 step。** 各子句自己的 spec 驗得更深，這一條證明它們串得起來;圖形的每一個動作仍由 `actions.spec.ts` 的 walk 驗。

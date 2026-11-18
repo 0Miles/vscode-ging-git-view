@@ -3,14 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 
+import { APP_DIR, ELECTRON, launchApp } from "./launch";
 import { windowPage } from "./tabPages";
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 let userDataDir: string;
 let app: ElectronApplication;
@@ -23,7 +19,7 @@ const appArgs = (...args: string[]) => [APP_DIR, `--user-data-dir=${userDataDir}
 
 test.beforeEach(async () => {
   userDataDir = mkdtempSync(path.join(os.tmpdir(), "ging-e2e-"));
-  app = await _electron.launch({ executablePath: ELECTRON, args: appArgs() });
+  app = await launchApp(appArgs());
   output = "";
   for (const stream of [app.process().stdout, app.process().stderr]) {
     stream?.on("data", (chunk: Buffer) => (output += chunk.toString()));

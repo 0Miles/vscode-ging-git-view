@@ -1,7 +1,7 @@
 /* The editors as the page's bundle has them (#404): loaded the first time
- * one is asked for. Monaco is a few megabytes; every Tab's page, and the
- * window's own, would otherwise parse it on every load, though most never
- * show a diff. Its bundle and stylesheet come from the app itself
+ * one is asked for — a diff, or a file read-only (#405). Monaco is a few
+ * megabytes; every Tab's page, and the window's own, would otherwise parse it
+ * on every load, though most never show either. Its bundle and stylesheet come from the app itself
  * (`EDITOR_ASSETS`, served from `ging://app/`): nothing is fetched from
  * anywhere else, and the page's content security policy allows nothing else
  * (page.ts). */
@@ -44,7 +44,7 @@ export function lazyEditors(doc: Document): EditorFactory {
         return factory as EditorFactory;
       })
       .catch((e: unknown) => {
-        // Tried afresh on the next diff, not failed for the page's life.
+        // Tried afresh on the next one, not failed for the page's life.
         style.remove();
         script.remove();
         editors = null;
@@ -55,6 +55,8 @@ export function lazyEditors(doc: Document): EditorFactory {
 
   return {
     createDiffViewer: async (container, options) =>
-      (await load()).createDiffViewer(container, options)
+      (await load()).createDiffViewer(container, options),
+    createFileViewer: async (container, options) =>
+      (await load()).createFileViewer(container, options)
   };
 }

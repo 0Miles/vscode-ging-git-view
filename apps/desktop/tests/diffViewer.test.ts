@@ -4,13 +4,14 @@ import * as path from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import type { L10nArg } from "@ging/core/host/ports";
-import { createShowDiff } from "@ging/desktop/diffViewer";
-import type { ShowDiffMessage } from "@ging/webview/desktop/diff/protocol";
+import { createShowDiff, createShowFile } from "@ging/desktop/diffViewer";
+import type { ShowDiffMessage, ShowFileMessage } from "@ging/webview/desktop/diff/protocol";
 
 import { git, makeRepo, rev, rmrf } from "@ging/core/tests/helpers";
 
 // The main process's half of the diff viewer (#404): both sides read from a
-// real repository, decoded per the setting, and handed to the Tab's page.
+// real repository, decoded per the setting, and handed to the Tab's page. A
+// file shown read-only in it (#405) is read the same way.
 
 function setUp(encoding = "utf8") {
   const repo = makeRepo();
@@ -233,6 +234,127 @@ describe("showing a diff in a Tab's page", () => {
         modified: { workingFile: repo, repo }
       })
     ).rejects.toThrow();
+    expect(posted).toEqual([]);
+  });
+});
+
+function setUpFile(encoding = "utf8") {
+  const repo = makeRepo();
+  onTestFinished(() => rmrf(repo));
+  const posted: ShowFileMessage[] = [];
+  let pageThere = true;
+  const showFile = createShowFile({
+    gitPath: () => "git",
+    fileEncoding: () => encoding,
+    l10n: { t: (key: string, ...args: L10nArg[]) => `<${[key, ...args].join(" ")}>` },
+    repoRoot: () => repo,
+    post: (message) => {
+      if (pageThere) posted.push(message);
+      return pageThere;
+    }
+  });
+  return { repo, posted, showFile, closePage: () => (pageThere = false) };
+}
+
+describe("showing a file read-only in a Tab's page (#405)", () => {
+  it("hands the page the file at its revision, decoded per the setting, in the page's own words", async () => {
+    const { repo, posted, showFile } = setUpFile("win1252");
+    fs.mkdirSync(path.join(repo, "src"));
+    const head = commitFile(repo, "src/legacy.ts", WIN1252);
+    // Changed since: what is shown is the commit's.
+    fs.writeFileSync(path.join(repo, "src", "legacy.ts"), "edited\n");
+
+    const shown = await showFile({
+      title: "legacy.ts (x)",
+      file: { revision: { repo, filePath: "src/legacy.ts", commit: head } }
+    });
+
+    expect(shown).toBe(true);
+    expect(posted).toEqual([
+      {
+        command: "showFile",
+        title: "legacy.ts (x)",
+        file: { path: "src/legacy.ts", content: "naïve\n" },
+        notShown: null,
+        strings: { close: "<desktop.file.close>", cannotShow: "<desktop.file.cannotShow>" }
+      }
+    ]);
+  });
+
+  it("reads a working tree's file, named by its path in the repository", async () => {
+    const { repo, posted, showFile } = setUpFile();
+    fs.writeFileSync(path.join(repo, "b.txt"), "working\n");
+
+    await showFile({ title: "t", file: { workingFile: path.join(repo, "b.txt"), repo } });
+
+    expect(posted[0].file).toEqual({ path: "b.txt", content: "working\n" });
+  });
+
+  it("sends no binary file's bytes, but one line saying there is no text to show", async () => {
+    const { repo, posted, showFile } = setUpFile();
+    const head = commitFile(repo, "image.png", Buffer.from([0x89, 0x50, 0, 0x47]));
+
+    await showFile({
+      title: "t",
+      file: { revision: { repo, filePath: "image.png", commit: head } }
+    });
+
+    expect(posted[0]).toMatchObject({
+      file: { path: "image.png", content: "" },
+      notShown: "<desktop.file.binary>"
+    });
+  });
+
+  it("sends nothing of a file too large to show, saying so", async () => {
+    const { repo, posted, showFile } = setUpFile();
+    // Larger than FILE_TEXT_LIMIT (5 MiB).
+    const head = commitFile(repo, "big.txt", "x".repeat(5 * 1024 * 1024 + 1));
+
+    await showFile({ title: "t", file: { revision: { repo, filePath: "big.txt", commit: head } } });
+
+    expect(posted[0]).toMatchObject({
+      file: { content: "" },
+      notShown: "<desktop.diff.tooLarge 5>"
+    });
+  });
+
+  it("reads nothing of a repository that is not the Tab's, nor a revision that is not one", async () => {
+    const { repo, posted, showFile } = setUpFile();
+    const other = makeRepo();
+    onTestFinished(() => rmrf(other));
+    const written = path.join(repo, "written.txt");
+
+    await expect(
+      showFile({
+        title: "t",
+        file: { revision: { repo: other, filePath: "f", commit: rev(other, "HEAD") } }
+      })
+    ).rejects.toThrow("not this Tab's repository");
+    await expect(
+      showFile({ title: "t", file: { workingFile: path.join(other, "f"), repo: other } })
+    ).rejects.toThrow("not in this Tab's repository");
+    await Promise.all(
+      [`--output=${written}`, "HEAD", "main"].map((commit) =>
+        expect(
+          showFile({ title: "t", file: { revision: { repo, filePath: "f", commit } } }),
+          commit
+        ).rejects.toThrow("is not a revision a diff reads")
+      )
+    );
+    expect(fs.existsSync(written)).toBe(false);
+    expect(posted).toEqual([]);
+  });
+
+  it("answers false when the page is gone", async () => {
+    const { repo, posted, showFile, closePage } = setUpFile();
+    closePage();
+
+    await expect(
+      showFile({
+        title: "t",
+        file: { revision: { repo, filePath: "a", commit: rev(repo, "HEAD") } }
+      })
+    ).resolves.toBe(false);
     expect(posted).toEqual([]);
   });
 });
