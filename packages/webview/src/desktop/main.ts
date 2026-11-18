@@ -4,7 +4,8 @@
  * (ADR-0031). Today: the graph view with its Branches and Remotes side views
  * (#399), the marker, the host prompt overlay (#390), the settings page
  * (#397), the window's own page — the tab strip and the Welcome page (#393) —
- * the working tree panel (#403) and the diff viewer (#404).
+ * the working tree panel (#403), the diff viewer (#404), which shows a
+ * file read-only too (#405), and the file history panel (#408).
  *
  * Importing it only marks the page; `startDesktopEntry` starts what the page
  * shows. The app calls it, handing in what the webview may not import itself:
@@ -12,11 +13,13 @@
 
 import type { RequestMessage } from "@ging/shared/types";
 import { askInGraphDialog, startGitGraphView } from "@ging/webview/gitGraphView";
+import { formatDate } from "@ging/webview/utils/date";
 import { sendMessage, vscode } from "@ging/webview/utils/vscode";
 
 import { createDiffPanel } from "./diff/diffPanel";
-import { isShowDiffMessage } from "./diff/protocol";
+import { isShowDiffMessage, isShowFileMessage } from "./diff/protocol";
 import type { EditorFactory } from "./editors";
+import { startFileHistoryPanel } from "./fileHistory/fileHistoryPanel";
 import { type HostPromptReply, isHostPromptMessage } from "./hostPrompt";
 import { createHostPromptOverlay } from "./hostPromptOverlay";
 import type { SettingsPageState } from "./settings/protocol";
@@ -52,14 +55,16 @@ function listenForHostPrompts() {
   replyToHost({ command: "hostPromptReady" });
 }
 
-/** Show the diffs the host sends (#404) in the diff viewer. Like the prompts'
- *  listener, this one drops everything else; the graph's drops these. A diff
- *  that cannot be shown is said in the viewer, and, uncaught, reaches the
- *  graph's error reporter (ADR-0016). */
+/** Show the diffs the host sends (#404) in the diff viewer, and the files it
+ *  sends to be read (#405). Like the prompts' listener, this one drops
+ *  everything else; the graph's drops these. One that cannot be shown is said
+ *  in the viewer, and, uncaught, reaches the graph's error reporter
+ *  (ADR-0016). */
 function listenForDiffs(editors: EditorFactory) {
   const panel = createDiffPanel(editors);
   window.addEventListener("message", (event: MessageEvent) => {
     if (isShowDiffMessage(event.data)) void panel.show(event.data);
+    else if (isShowFileMessage(event.data)) void panel.showFile(event.data);
   });
 }
 
@@ -97,15 +102,22 @@ export function startDesktopEntry({ editors }: DesktopEntryDeps): void {
         reportMissing("graph page without a viewState");
       } else {
         // The side views sit beside the graph, in this page (#399).
-        startSideViews(startGitGraphView());
+        const graph = startGitGraphView();
+        startSideViews(graph);
         // A graph page is one with a host instance behind it, and the instance
         // is what asks (#390). The settings page has none, so asks nothing.
         listenForHostPrompts();
         // Beside the graph, on its repository (#403), asking in the graph's own
         // dialog before it rewrites pushed history (#407).
         startWorkingTreePanel({ confirm: askInGraphDialog });
-        // And what it opens a diff in (#404): over the graph it is of.
+        // And what it opens a diff (#404) or a file (#405) in: over the
+        // graph it is of.
         listenForDiffs(editors);
+        // A file's history (#408), from the Commit Details View's files and
+        // from the application menu, its dates written as the graph's are.
+        startFileHistoryPanel(graph, {
+          formatDate: (seconds) => formatDate(new Date(seconds * 1000), viewState.dateCustomFormat)
+        });
       }
       break;
     case "settings": {

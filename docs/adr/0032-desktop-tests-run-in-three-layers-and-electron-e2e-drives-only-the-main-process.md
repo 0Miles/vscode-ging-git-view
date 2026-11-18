@@ -157,6 +157,19 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **E2E 的結果放在 `apps/desktop/e2e-results/`,不在 `out/` 底下,失敗的測試留下 trace。** `compile` 會先清空 `out/`,原本的 `out/e2e-results` 跟著消失,失敗的那一輪就什麼都查不到(#404 的第一次紅燈就是這樣)。這些測試自己啟動 app,Playwright 的 `use.trace` 只管它自己 fixture 開的頁面,所以 `diffViewer.spec.ts` 與 `actions.spec.ts` 啟動後用 `context().tracing` 錄,失敗時存成 `app-trace.zip`(`keepTraceIfFailed`;`trace.zip` 是 Playwright 自己的 test trace,只有測試端的步驟與時間);config 的 `trace: "retain-on-failure"` 留給之後用 fixture 的測試。
 - **#391 那條「點 CDV 的檔案只看到尚未支援」的測試移到這裡,改成打開 diff。** walk(`actions.spec.ts`)的 `viewDiff` 與 `viewDiffWithWorking` 改為斷言 diff viewer 出現、app 外面什麼都沒發生、沒有錯誤框,然後把它關掉,不讓它蓋住之後的步驟。
 
+## 補記(2026-11-18,#408)
+
+**檔案歷史的 Electron E2E 兩條([fileHistory.spec.ts](../../apps/desktop/e2e/fileHistory.spec.ts)),fixture 是測試自己建的、有一次 rename 的 repo。** 一條從應用程式選單 `ging.fileHistory` 觸發(先讀 `enabled`,再 `click()`),開檔對話框照 #394 的做法用 `electronApp.evaluate` 換掉 `dialog.showOpenDialog`,同時記下被問的選項(標題、按鈕、預設資料夾、`openFile`);斷言每一筆在 rename 前後的路徑、點 rename 之前的那一筆打開的是舊路徑的 diff(標題與兩側文字讀 Monaco 自己的 DOM,同 #404 的補記),以及側檢視、清單、diff viewer 由左到右相接。另一條從 CDV 檔案列的右鍵選單打開,驗歷史只到那個 commit、焦點在第一筆、Escape 收掉。兩條都斷言 console 沒有 error、log 沒有 `ERROR:`。
+
+`--follow` 的語意(rename、copy、merge、分頁、特殊字元、submodule)在 vitest 用真的 git 驗([packages/core/tests/queries/fileHistory.test.ts](../../packages/core/tests/queries/fileHistory.test.ts)),不在 E2E 重複:E2E 只管 main process 的整合路徑。面板的行為(握手、翻頁、過期的頁、鍵盤)在 jsdom 驗,版面在 webview E2E 驗(ADR-0031 的同日補記)。
+
+## 補記(2026-11-18,#405)
+
+**唯讀檔案的 Electron E2E 在 [fileAtRevision.spec.ts](../../apps/desktop/e2e/fileAtRevision.spec.ts),與 diff 的分開。** 驗的是只有真的 app 才證明得了的事:main process 在 commit 上讀到的文字依 `defaultFileEncoding` 解碼(working tree 已經改過,顯示的仍是 commit 的);面板裡是一個 Monaco editor、不是 diff;它照副檔名著色;打字不改變內容。
+
+- **「照副檔名著色」讀的是 Monaco 自己的 DOM:那一行被畫成好幾個 token(`mtk*` class 不只一種)。** 純文字的 model 整行只有一個 token。Monaco 0.57.0 的 editor 根元素沒有 `data-mode-id`,不能直接讀語言 id。
+- **walk(`actions.spec.ts`)的 `viewFileAtRevision` 從 stub 那一段移到兩個 diff 之後**,斷言同 diff:面板出現、app 外面什麼都沒發生、沒有錯誤框,然後關掉。排在後面,頁面的第一個 editor 仍是 `viewDiffWithWorking` 的,`FIRST_DIFF_BUDGET` 留在原處。stub 已經一個都不剩,walk 的 `stub` 與「尚未支援」的通知文字一併移除。
+
 ## 補記(2026-11-18,#451、#466、#472、#473)
 
 **拿掉 #391、#403 為了避開 `index.lock` 而加的等待:walk 的 `settle`(改動 repo 的動作之後等圖形的重新載入)與 [workingTree.spec.ts](../../apps/desktop/e2e/workingTree.spec.ts) 在 commit 前等圖形的重新載入。** 根因修在產品:GING 自己的讀取不再拿 `index.lock`,所以動作與背景重新載入重疊也不會被拒。
