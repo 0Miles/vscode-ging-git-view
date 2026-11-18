@@ -114,6 +114,16 @@ export const DIFF_PANEL_STYLES = `
   border-bottom: 1px solid var(--vscode-panel-border);
   color: var(--vscode-descriptionForeground);
 }
+#diffViewer .diffViewerKeys {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 #diffViewer .diffViewerHunkWidget {
   position: absolute;
   top: 0;

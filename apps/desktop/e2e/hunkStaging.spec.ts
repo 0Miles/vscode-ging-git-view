@@ -113,6 +113,8 @@ test("one hunk of a file, opened from the working tree panel, staged from its di
   const viewer = page.locator("#diffViewer");
   await expect(viewer.locator(".diffViewerTitle")).toHaveText("numbers.txt (Working Tree)");
   await expect(hunkButtons(page)).toHaveText(["Stage Hunk", "Stage Hunk"]);
+  // Named apart by their lines: every button says the same word.
+  await expect(hunkButtons(page).nth(1)).toHaveAccessibleName("Stage Hunk: lines 25 to 30");
   // Each above its hunk: git's hunk starts three lines of context before the
   // line changed, the button on a row of its own just above that.
   const changedLine = viewer.locator(".editor.modified .view-line", { hasText: "twenty-eight" });
@@ -153,6 +155,29 @@ test("one hunk of a file, opened from the working tree panel, staged from its di
   app = null;
   const logged = readFileSync(path.join(scratch, "userData", "logs", "main.log"), "utf8");
   expect(logged).not.toContain("ERROR:");
+});
+
+test("a hunk staged through the editor's context menu, opened from the keyboard at the cursor", async () => {
+  const { path: dir, git } = repoWithTwoHunks();
+  const page = await launch(dir);
+  await row(page, "unstaged").focus();
+  await page.keyboard.press("Enter");
+  await diffShown(page);
+  await expect(hunkButtons(page)).toHaveCount(2);
+
+  // The viewer says how, in its description, read out as it is entered.
+  await expect(page.locator("#diffViewer")).toHaveAccessibleDescription(/Shift\+F10/);
+  const modified = page.locator("#diffViewer .editor.modified");
+  // The cursor on the first hunk's changed line, then the context menu.
+  await modified.locator(".view-line", { hasText: "three" }).click();
+  await page.keyboard.press("Shift+F10");
+  await page.getByRole("menuitem", { name: "Stage Hunk" }).click();
+  await diffShown(page, 5_000);
+
+  await expect(hunkButtons(page)).toHaveCount(1);
+  expect(git("show", ":0:numbers.txt") + "\n").toBe(
+    numbered((n) => (n === 3 ? "three" : String(n)))
+  );
 });
 
 test("a hunk is staged on no line once the file changed on disk after its diff was shown", async () => {

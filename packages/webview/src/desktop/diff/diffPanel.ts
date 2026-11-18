@@ -139,9 +139,14 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
     said.className = "diffViewerSaid";
     said.setAttribute("role", "status");
     said.hidden = true;
+    // How the keyboard reaches the hunks (#406), read out with the panel:
+    // their buttons sit outside the editor's keyboard order. Not shown.
+    const keys = document.createElement("p");
+    keys.id = "diffViewerKeys";
+    keys.className = "diffViewerKeys";
     const editorArea = document.createElement("div");
     editorArea.className = "diffViewerEditor";
-    panel.append(bar, error, notice, said, editorArea);
+    panel.append(bar, error, notice, said, keys, editorArea);
 
     panel.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !e.defaultPrevented) {
@@ -165,7 +170,7 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
     });
 
     document.body.append(panel);
-    return { panel, title, layoutButtons, close, error, notice, said, editorArea };
+    return { panel, title, layoutButtons, close, error, notice, said, keys, editorArea };
   }
 
   function showLayout(p: NonNullable<typeof parts>) {
@@ -203,6 +208,14 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
     return {
       label: offered.label,
       hunks: offered.hunks,
+      // Named by the lines on the side the control is on: the modified one.
+      names: offered.hunks.map(({ modified }) =>
+        offered.name
+          .replace("{0}", offered.label)
+          .replace("{1}", String(modified.start))
+          .replace("{2}", String(modified.start + Math.max(modified.count, 1) - 1))
+      ),
+      keyboard: offered.keyboard,
       choose: (index) => {
         if (asked || mine !== generation || parts === null) return;
         asked = true;
@@ -213,7 +226,8 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
           path: offered.path,
           area: offered.area,
           token: offered.token,
-          hunk: index
+          hunk: index,
+          asked: mine
         });
       }
     };
@@ -238,6 +252,9 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
 
   return {
     async show(message) {
+      // The answer to a hunk asked of a diff no longer shown — another diff
+      // opened, or the viewer closed, meanwhile — is not shown over it.
+      if (message.answers !== undefined && message.answers !== generation) return;
       parts ??= build();
       const p = parts;
       const mine = ++generation;
@@ -260,6 +277,8 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
       p.notice.hidden = true;
       p.said.textContent = message.said ?? "";
       p.said.hidden = message.said === undefined;
+      p.keys.textContent = "";
+      p.panel.removeAttribute("aria-describedby");
       p.editorArea.replaceChildren();
       if (message.notShown !== null) {
         // No text to compare: said in one line, and no editor made.
@@ -279,6 +298,10 @@ export function createDiffPanel(editors: EditorFactory, options: DiffPanelOption
 
       const asked = { layout, theme: themeOf(document) };
       const hunks = hunkActions(message, mine);
+      if (hunks !== undefined) {
+        p.keys.textContent = hunks.keyboard;
+        p.panel.setAttribute("aria-describedby", p.keys.id);
+      }
       let made: DiffViewer;
       try {
         made = await editors.createDiffViewer(container, {

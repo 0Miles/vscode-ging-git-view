@@ -83,6 +83,8 @@ describe("a working tree file's diff (#460)", () => {
         path: "n.txt",
         area: "unstaged",
         label: "<desktop.diff.stageHunk>",
+        name: "<desktop.diff.hunkName {0} {1} {2}>",
+        keyboard: "<desktop.diff.stageKeyboard>",
         hunks: [
           { original: { start: 1, count: 5 }, modified: { start: 1, count: 5 } },
           { original: { start: 16, count: 5 }, modified: { start: 16, count: 5 } }
@@ -182,7 +184,14 @@ describe("a hunk staged or unstaged from the diff viewer (#406)", () => {
     await diffs.show({ command: "workingTreeShowDiff", path: "n.txt", area: "unstaged" });
     const token = posted[0].hunks!.token;
 
-    await diffs.hunk({ command: "diffHunk", path: "n.txt", area: "unstaged", token, hunk: 1 });
+    await diffs.hunk({
+      command: "diffHunk",
+      path: "n.txt",
+      area: "unstaged",
+      token,
+      hunk: 1,
+      asked: 7
+    });
 
     expect(mutations).toEqual(["mutation"]);
     expect(indexed(repo, "n.txt")).toBe(numbered((n) => (n === 19 ? "nineteen" : String(n))));
@@ -190,6 +199,7 @@ describe("a hunk staged or unstaged from the diff viewer (#406)", () => {
     expect(posted[1]).toMatchObject({
       title: "<desktop.diff.workingTree n.txt>",
       revealLine: 16,
+      answers: 7,
       original: { content: numbered((n) => (n === 19 ? "nineteen" : String(n))) },
       hunks: { hunks: [{ original: { start: 1, count: 5 } }] }
     });
@@ -207,7 +217,8 @@ describe("a hunk staged or unstaged from the diff viewer (#406)", () => {
       path: "n.txt",
       area: "staged",
       token: posted[0].hunks!.token,
-      hunk: 0
+      hunk: 0,
+      asked: 1
     });
 
     expect(indexed(repo, "n.txt")).toBe(numbered((n) => (n === 19 ? "nineteen" : String(n))));
@@ -225,7 +236,8 @@ describe("a hunk staged or unstaged from the diff viewer (#406)", () => {
       path: "n.txt",
       area: "unstaged",
       token: posted[0].hunks!.token,
-      hunk: 1
+      hunk: 1,
+      asked: 1
     });
 
     expect(mutations).toEqual([]);
@@ -249,6 +261,8 @@ const hunks = (token: string): HunkRead => ({
     area: "unstaged",
     token,
     label: "Stage Hunk",
+    name: "{0}: lines {1} to {2}",
+    keyboard: "Press Shift+F10",
     hunks: [{ original: { start: 1, count: 1 }, modified: { start: 1, count: 1 } }]
   }
 });

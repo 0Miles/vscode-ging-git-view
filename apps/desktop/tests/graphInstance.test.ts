@@ -445,7 +445,8 @@ describe("a graph instance", () => {
       path: "n.txt",
       area: "unstaged",
       token: page.diffs[0].hunks!.token,
-      hunk: 0
+      hunk: 0,
+      asked: 1
     });
 
     expect(

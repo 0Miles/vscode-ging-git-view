@@ -17,7 +17,7 @@ import type { DiffSource, HunkRead, ShowDiff } from "./diffViewer";
 
 export type WorkingTreeDiffs = {
   /** Show the change the panel's row names, in the Tab's diff viewer. */
-  show(request: WorkingTreeShowDiffRequest, said?: string): Promise<boolean>;
+  show(request: WorkingTreeShowDiffRequest): Promise<boolean>;
   /** Stage or unstage the hunk the diff viewer names, then show the file's
    *  diff anew: the hunk gone from it, or, should the diff have changed
    *  since it was shown, the diff as it is now and why nothing was done. */
@@ -44,6 +44,7 @@ function whyNoHunks(reason: NoHunksReason, l10n: Pick<L10n, "t">): string | null
     case "deleted":
     case "renamed":
     case "notText":
+    case "converted":
       return l10n.t("desktop.diff.wholeFile");
   }
 }
@@ -60,17 +61,23 @@ export function createWorkingTreeDiffs(deps: WorkingTreeDiffDeps): WorkingTreeDi
         area,
         token: read.token,
         hunks: read.hunks,
-        label: l10n.t(area === "unstaged" ? "desktop.diff.stageHunk" : "desktop.diff.unstageHunk")
+        label: l10n.t(area === "unstaged" ? "desktop.diff.stageHunk" : "desktop.diff.unstageHunk"),
+        // Filled in by the page, which draws each hunk.
+        name: l10n.t("desktop.diff.hunkName", "{0}", "{1}", "{2}"),
+        keyboard: l10n.t(
+          area === "unstaged" ? "desktop.diff.stageKeyboard" : "desktop.diff.unstageKeyboard"
+        )
       }
     };
   };
 
-  /** The diff of `request`'s file, revealing `revealLine` of its right side. */
+  /** The diff of `request`'s file; after a hunk, revealing `revealLine` of
+   *  its right side, as the answer to the page's diff `answers`. */
   const show = async (
     request: WorkingTreeShowDiffRequest,
-    said?: string,
-    revealLine?: number
+    after: { said?: string; revealLine?: number; answers?: number } = {}
   ): Promise<boolean> => {
+    const { said, revealLine, answers } = after;
     const root = repo();
     const { path: file, oldPath, area } = request;
     const index: DiffSource = { revision: { repo: root, commit: ":0", filePath: file } };
@@ -100,7 +107,8 @@ export function createWorkingTreeDiffs(deps: WorkingTreeDiffDeps): WorkingTreeDi
       modified,
       ...(revealLine !== undefined && { revealLine }),
       hunks: hunkRead(file, area),
-      ...(said !== undefined && { said })
+      ...(said !== undefined && { said }),
+      ...(answers !== undefined && { answers })
     });
   };
 
@@ -119,13 +127,20 @@ export function createWorkingTreeDiffs(deps: WorkingTreeDiffDeps): WorkingTreeDi
   };
 
   return {
-    show: (request, said) => show(request, said),
-    hunk: async ({ path: file, area, token, hunk }) => {
+    show: (request) => show(request),
+    hunk: async ({ path: file, area, token, hunk, asked }) => {
       const outcome = await service.applyHunk({ path: file, area, token, hunk });
       // Shown where the hunk was: the next one, or what is left, is there.
-      const line =
-        outcome.kind === "applied" ? Math.max(outcome.hunk.modified.start, 1) : undefined;
-      return show({ command: "workingTreeShowDiff", path: file, area }, outcomeSaid(outcome), line);
+      // Only over the diff it was asked from: the page drops it otherwise.
+      return show(
+        { command: "workingTreeShowDiff", path: file, area },
+        {
+          said: outcomeSaid(outcome),
+          revealLine:
+            outcome.kind === "applied" ? Math.max(outcome.hunk.modified.start, 1) : undefined,
+          answers: asked
+        }
+      );
     }
   };
 }

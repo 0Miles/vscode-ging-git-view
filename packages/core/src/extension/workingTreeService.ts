@@ -195,10 +195,20 @@ export function createWorkingTreeService(deps: WorkingTreeServiceDeps): WorkingT
     // muted for it, nor the graph refreshed after it.
     applyHunk: (choice) =>
       inTurn(async (): Promise<HunkOutcome> => {
+        // One repository throughout: the one the diff was checked in is the
+        // one the patch goes to.
+        const run = deps.diffRun();
         try {
-          const patch = await hunkPatch(deps.diffRun(), choice);
-          await deps.runRepoMutation(deps.repo(), () => applyHunkPatch(deps.diffRun(), patch));
-          return { kind: "applied", hunk: patch.hunk };
+          const checked = await hunkPatch(run, choice);
+          // Checked again inside, just before git writes: the diff may have
+          // moved since, and `git apply` could find the hunk's context at
+          // an offset rather than refuse it.
+          let applied = checked;
+          await deps.runRepoMutation(deps.repo(), async () => {
+            applied = await hunkPatch(run, choice);
+            await applyHunkPatch(run, applied);
+          });
+          return { kind: "applied", hunk: applied.hunk };
         } catch (e: unknown) {
           if (e instanceof StaleHunkError) return { kind: "stale" };
           if (e instanceof NoHunkError) return { kind: "none", reason: e.reason };

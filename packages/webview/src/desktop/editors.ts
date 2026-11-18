@@ -18,6 +18,12 @@ import type { DiffDocument } from "./diff/protocol";
 export type HunkActions = {
   label: string;
   hunks: FileHunk[];
+  /** Each hunk's control's name for assistive technology, in `hunks`'
+   *  order: its word and its lines. */
+  names: string[];
+  /** How the keyboard reaches the action — the controls sit outside the
+   *  editor's own keyboard order — said as the editors' accessible name. */
+  keyboard: string;
   choose(index: number): void;
 };
 

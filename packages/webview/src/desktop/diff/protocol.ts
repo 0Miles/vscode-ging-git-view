@@ -42,6 +42,12 @@ export type DiffHunks = {
   hunks: FileHunk[];
   /** The hunk button's word: Stage Hunk, or Unstage Hunk. */
   label: string;
+  /** A hunk's name for assistive technology: `{0}` the button's word, `{1}`
+   *  and `{2}` the first and last of its lines. */
+  name: string;
+  /** How the keyboard reaches the hunks: the editor's context menu, said
+   *  with the editor's own name. */
+  keyboard: string;
 };
 
 /** Host → page: show this diff over the graph, in place of any shown. */
@@ -68,6 +74,10 @@ export type ShowDiffMessage = {
   /** One line said over the diff: why it offers no hunk, or what became of
    *  the last one asked for. */
   said?: string;
+  /** The diff shown anew after a hunk was asked for: the `asked` of that
+   *  request. Shown only while the diff it was asked from still is — not
+   *  over another diff opened, nor once the viewer was closed, meanwhile. */
+  answers?: number;
 };
 
 /** Page → host: stage or unstage hunk `hunk` (from 0) of the diff `token`
@@ -78,6 +88,9 @@ export type DiffHunkRequest = {
   area: HunkArea;
   token: string;
   hunk: number;
+  /** Which diff of the page's it was asked from, echoed in the answer
+   *  (`ShowDiffMessage.answers`). */
+  asked: number;
 };
 
 /** True when `A` and `B` share no command name. */
@@ -114,6 +127,8 @@ function isDiffHunks(value: unknown): value is DiffHunks {
     isArea(value.area) &&
     typeof value.token === "string" &&
     typeof value.label === "string" &&
+    typeof value.name === "string" &&
+    typeof value.keyboard === "string" &&
     Array.isArray(value.hunks) &&
     value.hunks.every((hunk) => isRecord(hunk) && isSpan(hunk.original) && isSpan(hunk.modified))
   );
@@ -131,7 +146,8 @@ export function isShowDiffMessage(data: unknown): data is ShowDiffMessage {
     (data.notShown === null || typeof data.notShown === "string") &&
     isRecord(data.strings) &&
     (data.hunks === undefined || isDiffHunks(data.hunks)) &&
-    (data.said === undefined || typeof data.said === "string")
+    (data.said === undefined || typeof data.said === "string") &&
+    (data.answers === undefined || Number.isInteger(data.answers))
   );
 }
 
@@ -144,6 +160,7 @@ export function isDiffHunkRequest(data: unknown): data is DiffHunkRequest {
     isArea(data.area) &&
     typeof data.token === "string" &&
     Number.isInteger(data.hunk) &&
-    (data.hunk as number) >= 0
+    (data.hunk as number) >= 0 &&
+    Number.isInteger(data.asked)
   );
 }

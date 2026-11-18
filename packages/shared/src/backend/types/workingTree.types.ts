@@ -62,7 +62,10 @@ export type FileHunk = { original: LineSpan; modified: LineSpan };
  *  nothing differs; it is in conflict (#410's to resolve); it has no text
  *  lines (binary); the file is new or gone on one side, or renamed, which is
  *  one change to the whole file; or it is no regular file (a symbolic link, a
- *  submodule, or a change of mode alone). */
+ *  submodule, or a change of mode alone); or git converts it between the
+ *  working tree and the index beyond line endings (a `filter`, such as LFS,
+ *  `working-tree-encoding` or `ident`), so git's hunks are not of the text
+ *  the diff viewer shows. */
 export type NoHunksReason =
   | "unchanged"
   | "conflicted"
@@ -70,7 +73,8 @@ export type NoHunksReason =
   | "added"
   | "deleted"
   | "renamed"
-  | "notText";
+  | "notText"
+  | "converted";
 
 /** A file's diff in one area, as hunks to stage or unstage one at a time:
  *  `token` names the very diff they were cut from, and a hunk is applied only

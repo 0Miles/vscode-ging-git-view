@@ -144,24 +144,56 @@ export function cutFileDiff(out: string): CutDiff {
  * The diff of `path` (repository-relative) in `area`, cut into hunks to
  * stage or unstage one at a time (#406). Read as bytes: a file in an encoding
  * other than UTF-8 goes back to git byte for byte. A conflicted path offers
- * none. One git run, straight from `spawnGit`: no git client's queue, which
- * the graph's own reads may fill after a change to the working tree.
- * Rejects when git fails, or `path` names more than one file.
+ * none, nor does a file git converts on its way into the index (`CONVERTING`;
+ * in either area, for one rule). Git runs straight from `spawnGit`: no git client's
+ * queue, which the graph's own reads may fill after a change to the working
+ * tree. Rejects when git fails, or `path` names more than one file.
  */
 export async function readFileDiff(run: DiffRun, path: string, area: HunkArea): Promise<CutDiff> {
+  const [diff, attributes] = await Promise.all([
+    gitOut(run, "diff", diffArgs(path, area)),
+    gitOut(run, "check-attr", ["check-attr", "-z", ...CONVERTING, "--", path])
+  ]);
+  const cut = cutFileDiff(diff.toString("latin1"));
+  if (cut.kind === "hunks" && converts(attributes.toString())) {
+    return { kind: "none", reason: "converted" };
+  }
+  return cut;
+}
+
+/** The attributes under which git's diff is not of the text the viewer
+ *  shows: a `filter` (LFS and the like) cleans the working tree's file into
+ *  something else, `working-tree-encoding` re-encodes it, `ident` expands
+ *  `$Id$`. The viewer shows the index's blob against the file as it is, so
+ *  git's hunks would sit on lines that are not theirs. Line endings are not
+ *  among them: they change no line's place. */
+const CONVERTING = ["filter", "working-tree-encoding", "ident"];
+
+/** Whether `git check-attr -z` says any of `CONVERTING` applies. Each answer
+ *  is `path NUL attribute NUL value NUL`. */
+function converts(out: string): boolean {
+  const fields = out.split("\0");
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    if (fields[i + 2] !== "unspecified" && fields[i + 2] !== "unset") return true;
+  }
+  return false;
+}
+
+/** `git <args>`'s output, as bytes; rejects when git fails. */
+async function gitOut(run: DiffRun, what: string, args: string[]): Promise<Buffer> {
   const result = await spawnGit({
     gitPath: run.gitPath,
     cwd: run.repoPath,
-    args: diffArgs(path, area),
+    args,
     onCommand: run.onCommand,
     gitEnv: run.gitEnv
   });
   if (result.kind === "error") throw result.error;
-  if (result.kind !== "ok") throw new Error(`git diff did not finish (${result.kind})`);
+  if (result.kind !== "ok") throw new Error(`git ${what} did not finish (${result.kind})`);
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr.trim() || `git diff exited with ${result.exitCode}`);
+    throw new Error(result.stderr.trim() || `git ${what} exited with ${result.exitCode}`);
   }
-  return cutFileDiff(result.stdout.toString("latin1"));
+  return result.stdout;
 }
 
 /** HEAD's commit, or `null` on a branch with no commit yet: what the staged

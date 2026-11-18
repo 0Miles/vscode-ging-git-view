@@ -47,6 +47,9 @@ export type DiffRequest = {
   hunks?: () => Promise<HunkRead>;
   /** A line to say over the diff: what became of the last hunk asked for. */
   said?: string;
+  /** The page's diff the hunk was asked from (`DiffHunkRequest.asked`): the
+   *  page shows this one only while that one is still shown. */
+  answers?: number;
 };
 
 /** Show a diff in the Tab's page. Resolves to whether it reached the page —
@@ -148,7 +151,7 @@ export function createShowDiff(deps: DiffViewerDeps): ShowDiff {
     return { hunks: after.hunks };
   };
 
-  return async ({ title, original, modified, revealLine, hunks, said }) => {
+  return async ({ title, original, modified, revealLine, hunks, said, answers }) => {
     check(original);
     check(modified);
     const encoding = fileEncoding();
@@ -177,7 +180,8 @@ export function createShowDiff(deps: DiffViewerDeps): ShowDiff {
         cannotShow: l10n.t("desktop.diff.cannotShow")
       },
       ...(offered.hunks !== undefined && { hunks: offered.hunks }),
-      ...(line !== undefined && { said: line })
+      ...(line !== undefined && { said: line }),
+      ...(answers !== undefined && { answers })
     });
   };
 }

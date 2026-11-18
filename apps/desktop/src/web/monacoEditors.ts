@@ -96,20 +96,24 @@ const sideBySide = (layout: DiffLayout) => layout === "sideBySide";
 const above = (hunk: FileHunk) =>
   hunk.modified.count === 0 ? hunk.modified.start : hunk.modified.start - 1;
 
-/** The hunk whose lines on the modified side hold `line`, if any. */
-const hunkAt = (hunks: FileHunk[], line: number) =>
-  hunks.findIndex(
-    ({ modified }) => line >= modified.start && line < modified.start + Math.max(modified.count, 1)
-  );
+/** The hunk whose lines on `side` hold `line`; -1 for none. A hunk that
+ *  takes no line of a side (count 0) holds none of it. */
+const hunkAt = (hunks: FileHunk[], side: "original" | "modified", line: number) =>
+  hunks.findIndex(({ [side]: span }) => line >= span.start && line < span.start + span.count);
+
+/** The context key that says the cursor of an editor is in a hunk: the
+ *  context menu's hunk action is listed only then. Each editor has its own. */
+const IN_HUNK = "ging.cursorInHunk";
 
 /** How tall the row each hunk's button sits in is, in pixels. */
 const HUNK_ROW = 24;
 
 /**
  * Offer `actions` on each hunk (#406): a button on a row of its own above the
- * hunk's first line on the modified side, and, for the keyboard, the same
- * action in the editor's context menu (Shift+F10), on the hunk the cursor is
- * in. Not the diff editor's own gutter menu: it is off, for Monaco 0.57.0's
+ * hunk's first line on the modified side, named by its lines; and, for the
+ * keyboard, the same action in either editor's context menu (Shift+F10),
+ * listed only while the cursor is in a hunk, which it acts on. The editors'
+ * accessible names say so. Not the diff editor's own gutter menu: it is off, for Monaco 0.57.0's
  * bug (`renderGutterMenu`, below), and its hunks would be Monaco's own, not
  * git's — which are what a patch is made of.
  *
@@ -141,6 +145,9 @@ function offerHunks(
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = actions.label;
+      // Every button says the same word: its name says which lines.
+      button.setAttribute("aria-label", actions.names[index]);
+      button.title = actions.names[index];
       button.dataset.hunk = String(index);
       button.addEventListener("click", () => actions.choose(index));
       row.append(button);
@@ -165,20 +172,31 @@ function offerHunks(
       );
     });
   });
-  const action = right.addAction({
-    id: "ging.hunk",
-    label: actions.label,
-    contextMenuGroupId: "navigation",
-    contextMenuOrder: 0,
-    run: (ed) => {
-      const line = ed.getPosition()?.lineNumber;
-      const index = line === undefined ? -1 : hunkAt(actions.hunks, line);
-      if (index !== -1) actions.choose(index);
-    }
+  // The buttons are outside the editors' keyboard order, so the keyboard's
+  // way is the context menu, on either side, listed only with the cursor in
+  // a hunk; and the editors' names say so to a screen reader.
+  const keyed = (["original", "modified"] as const).map((side) => {
+    const one = side === "original" ? editor.getOriginalEditor() : right;
+    one.updateOptions({ ariaLabel: actions.keyboard });
+    const at = () => hunkAt(actions.hunks, side, one.getPosition()?.lineNumber ?? 0);
+    const inHunk = one.createContextKey(IN_HUNK, at() !== -1);
+    const moved = one.onDidChangeCursorPosition(() => inHunk.set(at() !== -1));
+    const action = one.addAction({
+      id: "ging.hunk",
+      label: actions.label,
+      precondition: IN_HUNK,
+      contextMenuGroupId: "navigation",
+      contextMenuOrder: 0,
+      run: () => {
+        const index = at();
+        if (index !== -1) actions.choose(index);
+      }
+    });
+    return [moved, action];
   });
   return {
     dispose: () => {
-      action.dispose();
+      for (const disposable of keyed.flat()) disposable.dispose();
       for (const overlay of widgets) right.removeOverlayWidget(overlay);
       right.changeViewZones((zones) => zoneIds.forEach((id) => zones.removeZone(id)));
     }

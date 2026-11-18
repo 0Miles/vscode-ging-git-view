@@ -178,6 +178,32 @@ describe("reading a file's hunks", () => {
     expect(cutFileDiff(submodule)).toEqual({ kind: "none", reason: "notText" });
   });
 
+  it("offers no hunk of a file git converts between the working tree and the index", async () => {
+    const r = repo();
+    // A clean filter that changes nothing still makes git's diff one of the
+    // cleaned file, not of the file the viewer shows; LFS is one such.
+    git(["config", "filter.same.clean", "cat"], r);
+    git(["config", "filter.same.smudge", "cat"], r);
+    commit(
+      r,
+      ".gitattributes",
+      "filtered.txt filter=same\nencoded.txt working-tree-encoding=UTF-8\nident.txt ident\n"
+    );
+    for (const file of ["filtered.txt", "encoded.txt", "ident.txt", "plain.txt"]) {
+      commit(r, file, text(THIRTY));
+      fs.writeFileSync(path.join(r, file), text(CHANGED));
+    }
+
+    const reads = await Promise.all(
+      ["filtered.txt", "encoded.txt", "ident.txt", "plain.txt"].map((file) =>
+        read(r, file, "unstaged")
+      )
+    );
+
+    expect(reads.slice(0, 3)).toEqual(Array(3).fill({ kind: "none", reason: "converted" }));
+    expect(reads[3].kind).toBe("hunks");
+  });
+
   it("offers no hunk of a file in conflict", async () => {
     const r = repo();
     commit(r, "c.txt", "base\n");
