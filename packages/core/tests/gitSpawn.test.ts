@@ -65,7 +65,10 @@ describe("streamGit (real git)", () => {
       args: ["hash-object", "-w", "--stdin"],
       stdin: "x".repeat(4 * 1024 * 1024)
     });
+    // A blob that failed to be written is said here, not as a test's timeout.
+    expect(written.kind).toBe("ok");
     big = written.kind === "ok" ? written.stdout.toString().trim() : "";
+    expect(big).toMatch(/^[0-9a-f]{40,64}$/);
   });
   afterAll(() => {
     rmrf(repo);

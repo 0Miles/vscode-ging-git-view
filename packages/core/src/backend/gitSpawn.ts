@@ -267,8 +267,8 @@ export type GitStream = {
   pause(): void;
   resume(): void;
   /** Stop it: its stdout closed, unread, and the child killed (best-effort,
-   *  see `killTree`; a no-op on a child that has exited). `ended` settles
-   *  after, whatever was left in the pipe. */
+   *  see `killTree`). `killTree` is a no-op on an exited child; stdout is
+   *  closed either way. `ended` settles after, whatever was left in the pipe. */
   kill(): void;
   /** Settles once it has ended — stdout read to its end, or killed: the exit
    *  code (null when killed by a signal) and all of stderr, or why it never
