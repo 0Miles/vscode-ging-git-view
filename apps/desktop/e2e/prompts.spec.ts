@@ -3,9 +3,10 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage, windowPage } from "./tabPages";
 
 // A question of core's command services, asked through the desktop `Prompts`
@@ -14,9 +15,6 @@ import { focusedTabPage, windowPage } from "./tabPages";
 // shows it, and the row chosen there comes back to the command, which fetches
 // that remote and no other.
 
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 const FETCH_REMOTE = "ging.fetchRemote";
 
 let scratch: string;
@@ -24,12 +22,11 @@ let env: NodeJS.ProcessEnv;
 let app: ElectronApplication | null = null;
 
 async function launch(...args: string[]): Promise<ElectronApplication> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
+  app = await launchApp(
     // English whatever the machine's locale, so the page's words can be read.
-    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`, ...args],
-    env: env as Record<string, string>
-  });
+    ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`, ...args],
+    env
+  );
   return app;
 }
 

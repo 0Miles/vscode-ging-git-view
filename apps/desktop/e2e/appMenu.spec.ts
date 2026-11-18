@@ -3,9 +3,10 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, ELECTRON, launchApp } from "./launch";
 import { focusedTabPage, windowPage } from "./tabPages";
 
 // The application menu, the desktop host's entry to core's command services
@@ -15,10 +16,6 @@ import { focusedTabPage, windowPage } from "./tabPages";
 // the product shows it: the focused Tab's page, the Welcome page, a window of
 // its own, a system dialog answered in its place (ADR-0032). Accelerators are
 // the template's, held by appMenu.test.ts.
-
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 /** The graph's entries: none has anything to run on without a graph. */
 const GRAPH_ENTRIES = [
@@ -45,11 +42,7 @@ const appArgs = (...args: string[]) => [
 ];
 
 async function launch(...args: string[]): Promise<ElectronApplication> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: appArgs(...args),
-    env: env as Record<string, string>
-  });
+  app = await launchApp(appArgs(...args), env);
   return app;
 }
 

@@ -4,9 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, ELECTRON, launchApp } from "./launch";
 import { startStallingRemote, type StallingRemote } from "./stallingRemote";
 import { focusedTabPage, stripTabs, windowPage } from "./tabPages";
 import { startUnauthorizedRemote, type UnauthorizedRemote } from "./unauthorizedRemote";
@@ -19,9 +20,6 @@ import { startUnauthorizedRemote, type UnauthorizedRemote } from "./unauthorized
 // the 401 server of #392 for credentials asked through askpass, and a server
 // that never answers for a clone to cancel.
 
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 const CLONE_REPOSITORY = "ging.cloneRepository";
 
 let scratch: string;
@@ -31,11 +29,10 @@ let cleanUp: string[] = [];
 let servers: { close(): Promise<void> }[] = [];
 
 async function launch(): Promise<ElectronApplication> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`],
-    env: env as Record<string, string>
-  });
+  app = await launchApp(
+    ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`],
+    env
+  );
   return app;
 }
 
