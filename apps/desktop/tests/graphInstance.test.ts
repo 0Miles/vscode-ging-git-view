@@ -6,6 +6,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 
 import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths";
 import { createGraphInstance } from "@ging/desktop/graphInstance";
+import { createRecentRepos } from "@ging/desktop/recentRepos";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 import type {
@@ -229,6 +230,85 @@ describe("a graph instance", () => {
     expect(logged).toContain(
       `tabs: ${repos[0]} is no Git repository any more, dropped from the known set`
     );
+  });
+
+  it("drops its own repository no second time once it has left the known set", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    const other = open(repos[1]);
+    fs.rmSync(path.join(repos[0], ".git"), { recursive: true, force: true });
+    await page.receive({ command: "loadRepos", check: true });
+    const before = sentOf(page.posted, "loadRepos").length;
+    const otherBefore = sentOf(other.posted, "loadRepos").length;
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    // Nothing of its own left to check: answered as an unchecked loadRepos is,
+    // and the set not written, so no other Tab is told of it again.
+    expect(sentOf(page.posted, "loadRepos").slice(before)).toEqual([
+      { command: "loadRepos", repos: {}, lastActiveRepo: null }
+    ]);
+    expect(sentOf(other.posted, "loadRepos")).toHaveLength(otherBefore);
+    expect(Object.keys(shared.repoSource.getRepos())).toEqual([repos[1]]);
+    expect(logged.filter((line) => line.includes("dropped from the known set"))).toHaveLength(1);
+  });
+
+  it("says nothing kept of its own repository once it has left the known set, its folder gone", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    shared.repoSource.dropRepo(repos[0]);
+    rmrf(repos[0]);
+    expect(fs.existsSync(repos[0])).toBe(false);
+    const before = sentOf(page.posted, "loadRepos").length;
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    expect(sentOf(page.posted, "loadRepos").slice(before)).toEqual([
+      { command: "loadRepos", repos: {}, lastActiveRepo: null }
+    ]);
+    expect(logged.filter((line) => line.includes("kept in the known set"))).toEqual([]);
+  });
+
+  it("keeps its own repository, its folder not there now, on the recent list (#454)", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const unmounted = repos[0];
+    const page = open(unmounted);
+    // Its folder gone from under the open Tab, as `goneFolder` names one: a
+    // disk not mounted at the moment, which no look at the disk tells from a
+    // folder deleted. (A Tab is opened on a folder that is there only.)
+    rmrf(unmounted);
+    expect(fs.existsSync(unmounted)).toBe(false);
+    /** Told when a look at the list's folders found one otherwise. */
+    let lookedAt: () => void = Function.prototype as () => void;
+    const recent = createRecentRepos({
+      store: shared.storage.workspace,
+      repoSource: shared.repoSource,
+      onChange: () => lookedAt()
+    });
+    onTestFinished(() => recent.dispose());
+    recent.opened(unmounted);
+    const current = page.state.getLastActiveRepo();
+    const before = sentOf(page.posted, "loadRepos").length;
+
+    await page.receive({ command: "loadRepos", check: true });
+
+    expect(Object.keys(shared.repoSource.getRepos())).toEqual([unmounted]);
+    // Nothing dropped, so answered as an unchecked loadRepos is, once.
+    expect(sentOf(page.posted, "loadRepos").slice(before)).toEqual([
+      { command: "loadRepos", repos: { [unmounted]: expect.anything() }, lastActiveRepo: unmounted }
+    ]);
+    expect(page.state.getLastActiveRepo()).toBe(current);
+    expect(logged).toContain(`tabs: ${unmounted}'s folder is not there now, kept in the known set`);
+    expect(logged.filter((line) => line.includes("dropped from the known set"))).toEqual([]);
+
+    // Still listed, and marked as not there once looked at.
+    expect(recent.list().map((entry) => entry.path)).toEqual([unmounted]);
+    const looked = new Promise<void>((resolve) => {
+      lookedAt = resolve;
+    });
+    recent.check();
+    await looked;
+    expect(recent.list()).toEqual([expect.objectContaining({ path: unmounted, missing: true })]);
   });
 
   it("answers the graph's requests from its repository", async () => {
