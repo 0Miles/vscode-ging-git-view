@@ -147,7 +147,7 @@ export function createBlameController(deps: {
   // avatar — each kept bounded; only the latest request runs git, the one
   // before it aborted (see `createBlameHoverLookups`).
   const lookups = createBlameHoverLookups({
-    gitIn: (repo) => gitIn(repo),
+    gitIn,
     avatarOf: createBlameAvatars(deps.avatars)
   });
   const cancelLookups = () => lookups.cancel();
