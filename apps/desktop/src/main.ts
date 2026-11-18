@@ -827,7 +827,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
           const picked = await dialogsFor(owner).showOpenDialog({
             title: host.l10n.t("desktop.fileHistory.pickTitle"),
             buttonLabel: host.l10n.t("desktop.fileHistory.pickButton"),
-            defaultPath: root,
+            // The system's spelling of the folder, not the repository's `/` one.
+            defaultPath: path.normalize(root),
             properties: ["openFile"]
           });
           return picked.canceled ? null : (picked.filePaths[0] ?? null);

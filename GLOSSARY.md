@@ -58,6 +58,10 @@ _Avoid_: SCM view, source control panel, 暫存區面板
 使用者替 git 設定的外部合併程式 —— `merge.guitool`,沒有就 `merge.tool`,也就是 `git mergetool --gui` 會用的那一個。GING 只交出檔案(`git mergetool`),不替使用者挑工具,沒有設定就說怎麼設定;結果看工具結束後檔案還在不在衝突中,不看工具說了什麼(ADR-0030)。它不是 merge editor:那是宿主自己的 3-way 合併畫面(VS Code 的),桌面 host 沒有(內建的在 #411),所以圖形的「在 merge editor 中開啟」在桌面 host 交給 merge tool([#410](https://github.com/0Miles/vscode-ging-git-view/issues/410),ADR-0027)。桌面 host 專屬。
 _Avoid_: merge editor(留給宿主自己的 3-way 畫面), mergetool driver, merge driver(那是 git 的 `merge.<driver>`,另一回事), 合併編輯器
 
+**File history**:
+一個檔案被哪些 commit 改過 —— 從一個起點 commit 往回的 `git log --follow`:從 CDV 的檔案打開的是到那個 commit 為止,從應用程式選單打開的是到 HEAD 為止。每一筆都帶著檔案在**那個 commit** 的路徑:rename 之前是舊名字,點它打開的 diff 讀的也是舊名字。merge 只有在檔案與每個 parent 都不同時才算一筆(衝突的解法、merge 自己的改動)。它跟的是 git `--follow` 跟得到的:一個路徑,rename 與 copy 往回跟,遇到 rename 之後整次都跟舊名字(ADR-0027 的 #408 補記)。它畫在 Tab 頁面上自己的面板裡,**不是**圖形的路徑篩選:圖形畫什麼、**Navigation** 與 **Loaded commit window** 都不受它影響([#408](https://github.com/0Miles/vscode-ging-git-view/issues/408))。中文寫作「檔案歷史」。桌面 host 專屬。
+_Avoid_: file log, path filter, 路徑篩選, blame(那是 #409)
+
 ### 分支的狀態
 
 Default branch 是基準;merged 與 inactive 是兩個彼此獨立的事實,一個分支可以兩者皆是、皆非、或只中其一;hidable 則由前兩者推導而來,是唯一決定淡化與隱藏的集合。Redundant 涵蓋 merged 涵蓋不到的那一半,但它不參與 hidable,也不改變畫面的預設呈現。Cleanup candidate 由三個事實一起推導,決定的卻是另一件事 —— 提議刪除誰;它與 hidable 的豁免規則只差一項,兩者不可互換。以上都是算出來的事實;branch filter 則是使用者自己挑的,兩者一起決定圖形看得到什麼。
