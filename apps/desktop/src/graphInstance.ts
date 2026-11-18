@@ -21,7 +21,7 @@ import { createWorkingTreeService } from "@ging/core/extension/workingTreeServic
 import type { Prompts, RepoSource } from "@ging/core/host/ports";
 import { createShowDiff, type ShowDiff } from "@ging/desktop/diffViewer";
 import { createDesktopOpener } from "@ging/desktop/ports/opener";
-import { createDesktopWatcher } from "@ging/desktop/ports/watcher";
+import { createDesktopWatcher, watchOneOnDisk } from "@ging/desktop/ports/watcher";
 import type {
   GitGraphViewState,
   GitRepoSet,
@@ -33,10 +33,7 @@ import {
   isDiffHunkRequest,
   type ShowDiffMessage
 } from "@ging/webview/desktop/diff/protocol";
-import type {
-  SideViewRequest,
-  SideViewStateMessage
-} from "@ging/webview/desktop/sideViews/protocol";
+import type { SideViewMessage, SideViewRequest } from "@ging/webview/desktop/sideViews/protocol";
 import {
   isWorkingTreeRequest,
   type WorkingTreeMessage,
@@ -58,9 +55,9 @@ type GraphInstanceOptions = {
   channel: WebviewChannel;
   /** Asks in its own page: a prompt git raises comes back here. */
   prompts: Prompts;
-  /** Into its page, beside the graph's messages: its side views' state
-   *  (#399), which is not the graph's protocol (ADR-0031). */
-  postSideView: (message: SideViewStateMessage) => void;
+  /** Into its page, beside the graph's messages: its side views' (#399,
+   *  #400), which are not the graph's protocol (ADR-0031). */
+  postSideView: (message: SideViewMessage) => void;
   /** Its Tab's: where its Current repository persists (`TabStates`). */
   extensionState: MessageHandlerDeps["extensionState"];
   /** Show setting `key` in the app's settings, as they are now (#397): where
@@ -339,7 +336,9 @@ export function createGraphInstance(
   });
   const reflog = createReflogCommand({ ...kitDeps, clipboard: shared.clipboard });
   // The Remotes view's commands are those (#399), asked in this page as the
-  // menu's are.
+  // menu's are. The Stash view's are core's stash list's (#400), asked there
+  // too; what they change is muted and refreshed around, as core's command
+  // services' changes are.
   const sideViews = createSideViews({
     repo,
     post: postSideView,
@@ -354,6 +353,19 @@ export function createGraphInstance(
     fetchRemote: (target, remote) => fetchService.fetchOneCommand(target, remote),
     managePullRequestProviders: () => void appCommands.managePullRequestProviders(),
     setShowRemoteBranches: (value) => void bridge.post({ command: "setShowRemoteBranches", value }),
+    stash: {
+      git: gitClients.gitClientFor(repo),
+      clipboard: shared.clipboard,
+      prompts,
+      l10n,
+      mutate: (work) => runRepoMutation(repo, work)
+    },
+    stashWatch: {
+      git: { gitPath: shared.gitPath, gitEnv: () => gitEnv },
+      watch: watchOneOnDisk(logger.logError)
+    },
+    openCommitDiff: (request) => opener.openCommitDiff(request),
+    formatDate: (unixSec) => new Date(unixSec * 1000).toLocaleString(),
     logger,
     nowMs: () => Date.now()
   });

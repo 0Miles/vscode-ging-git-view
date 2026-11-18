@@ -166,7 +166,7 @@ _Avoid_: page, 分頁, commit 快取, maxCommits(那是實作名)
 
 ### Stash 的身分
 
-stash 出現在兩個地方。圖形只畫得出 loaded commit window 搆得到的 stash;stash 側檢視(VS Code host 專屬)列出整個堆疊,與圖形載入了什麼無關,所以不在載入範圍內的 stash 一律從側檢視找、從側檢視操作(#102)。兩邊認 stash 的規則是同一套,靠下面兩個值。
+stash 出現在兩個地方。圖形只畫得出 loaded commit window 搆得到的 stash;stash 側檢視(VS Code host 的 TreeView,以及桌面 host Tab 頁面裡的第三段側檢視,#400)列出整個堆疊,與圖形載入了什麼無關,所以不在載入範圍內的 stash 一律從側檢視找、從側檢視操作(#102)。兩邊認 stash 的規則是同一套,靠下面兩個值。
 
 **Stash SHA**:
 stash commit 的 SHA —— stash 的**身分**。git 實際作用的、拿來比對的都是它。
