@@ -30,7 +30,7 @@ import type {
   SideViewStashFilesMessage,
   SideViewStateMessage
 } from "./protocol";
-import { keyboardMenuEvent, redrawTree, rowOf, treeKeys } from "./tree";
+import { isMenuKey, keyboardMenuEvent, redrawTree, rowKeyed, rowOf, treeKeys } from "./tree";
 
 /** Each action's words and icon, as the graph's own stash menu has them
  *  (`refContextMenu`): the same actions, under the same names. */
@@ -189,9 +189,7 @@ export function createStashView(
   /** Draw, with the keyboard on `focusKey` whether or not it was in the tree. */
   const renderFocused = () => {
     render();
-    Array.from(body.querySelectorAll<HTMLElement>("[data-key]"))
-      .find((row) => row.dataset.key === focusKey)
-      ?.focus();
+    rowKeyed(body, focusKey)?.focus();
   };
 
   treeKeys(
@@ -204,7 +202,7 @@ export function createStashView(
         activate(row);
         return true;
       }
-      if (e.key === "ContextMenu" || e.key === "F10") {
+      if (isMenuKey(e)) {
         if (isFile) return false;
         openMenu(keyboardMenuEvent(), row);
         return true;

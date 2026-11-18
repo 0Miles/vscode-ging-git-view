@@ -7,9 +7,9 @@
  * and the recently opened list; each is only asked of the host, which does the
  * rest. A clone running is shown over it, with a way to cancel it. */
 
+import { postToHost } from "@ging/webview/desktop/postToHost";
 import { escapeHtml } from "@ging/webview/utils/html";
 import { svgIcons } from "@ging/webview/utils/icons";
-import { vscode } from "@ging/webview/utils/vscode";
 
 import {
   type ClonePanel,
@@ -110,10 +110,7 @@ body.windowPage { margin: 0; padding: 0; overflow: hidden; }
 .cloneCancel:disabled { cursor: default; opacity: 0.6; }
 `;
 
-const post = (message: WindowRequest) =>
-  // Cast as the host prompt replies are (desktop/main.ts): the host API is
-  // typed for the graph's requests, and the window's stay out of that protocol.
-  (vscode.postMessage as unknown as (m: WindowRequest) => void)(message);
+const post: (message: WindowRequest) => void = postToHost;
 
 function tabHtml(tab: TabStripEntry, closeTab: string): string {
   return `<div class="tab${tab.focused ? " focused" : ""}" role="tab" tabindex="${tab.focused ? 0 : -1}" aria-selected="${tab.focused}" data-tab-id="${tab.id}" title="${escapeHtml(tab.tooltip)}">${

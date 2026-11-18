@@ -8,6 +8,7 @@
 
 import type { FileHunk, HunkArea } from "@ging/shared/backend/types";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import { isRecord, type NoCommandShared } from "@ging/webview/desktop/protocolGuards";
 
 import type { FileBlameOffer } from "./blameProtocol";
 
@@ -122,11 +123,6 @@ export type ShowFileMessage = {
 /** What the host sends the panel over the graph: a diff, or a file. */
 export type ViewerMessage = ShowDiffMessage | ShowFileMessage;
 
-/** True when `A` and `B` share no command name. */
-type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
-  ? true
-  : false;
-
 /** Checked by the compiler: a diff shares the page's `message` event with the
  *  graph's answers, and one named like them would be taken for one
  *  (ADR-0031). */
@@ -141,10 +137,6 @@ export const FILE_COMMANDS_STAY_APART: NoCommandShared<
   ShowFileMessage["command"],
   ResponseMessage["command"]
 > = true;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function isDiffDocument(value: unknown): value is DiffDocument {
   return isRecord(value) && typeof value.path === "string" && typeof value.content === "string";

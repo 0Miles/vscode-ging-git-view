@@ -9,6 +9,7 @@
  * entry nor the host's dispatch ever learns of them. */
 
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import { isRecord, type NoCommandShared } from "@ging/webview/desktop/protocolGuards";
 
 /** One row of a pick or pickMany, without its value: the page answers with
  *  the row's index, and the host holds the values. */
@@ -86,11 +87,6 @@ export type HostPromptReply =
   | { command: "hostPromptReady" }
   | { command: "hostPromptAnswer"; id: number; answer: HostPromptAnswer };
 
-/** True when `A` and `B` share no command name. */
-type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
-  ? true
-  : false;
-
 /**
  * Checked by the compiler, not at runtime: a host prompt message named like
  * one of the graph's would be taken by the graph's dispatch for its own, and a
@@ -101,10 +97,6 @@ export const COMMANDS_STAY_APART: NoCommandShared<
   ResponseMessage["command"]
 > &
   NoCommandShared<HostPromptReply["command"], RequestMessage["command"]> = true;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 const KINDS: ReadonlySet<unknown> = new Set<HostPrompt["kind"]>([
   "pick",

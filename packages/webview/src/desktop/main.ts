@@ -12,18 +12,18 @@
  * shows. The app calls it, handing in what the webview may not import itself:
  * the editors, which are Monaco's (`apps/desktop/src/web/page.ts`). */
 
-import type { RequestMessage } from "@ging/shared/types";
 import { askInGraphDialog, startGitGraphView } from "@ging/webview/gitGraphView";
 import { formatDate } from "@ging/webview/utils/date";
-import { sendMessage, vscode } from "@ging/webview/utils/vscode";
+import { sendMessage } from "@ging/webview/utils/vscode";
 
-import { type FileBlameRequest, isFileBlameHostMessage } from "./diff/blameProtocol";
+import { isFileBlameHostMessage } from "./diff/blameProtocol";
 import { createDiffPanel } from "./diff/diffPanel";
 import { type DiffHunkRequest, isShowDiffMessage, isShowFileMessage } from "./diff/protocol";
 import type { EditorFactory } from "./editors";
 import { startFileHistoryPanel } from "./fileHistory/fileHistoryPanel";
 import { type HostPromptReply, isHostPromptMessage } from "./hostPrompt";
 import { createHostPromptOverlay } from "./hostPromptOverlay";
+import { postToHost } from "./postToHost";
 import type { SettingsPageState } from "./settings/protocol";
 import { startSettingsPage } from "./settings/settingsPage";
 import { startSideViews } from "./sideViews/sideViews";
@@ -36,14 +36,8 @@ import { startWorkingTreePanel } from "./workingTree/workingTreePanel";
  *  (`apps/vscode/tests/backend/webviewEntries.test.ts`). */
 const DESKTOP_ENTRY_MARKER = "ging-desktop-entry";
 
-/** A reply to the host's prompts, posted where the graph posts its requests.
- *  Not a `RequestMessage`, and never handled as one (ADR-0031). */
-function replyToHost(reply: HostPromptReply) {
-  // The cast is what ADR-0031 costs: the host API is typed for the graph's
-  // requests, and widening it to the desktop's replies would put them in the
-  // protocol both entries share.
-  vscode.postMessage(reply as unknown as RequestMessage);
-}
+/** A reply to the host's prompts, posted where the graph posts its requests. */
+const replyToHost: (reply: HostPromptReply) => void = postToHost;
 
 /** Show the host's prompts as they arrive, and tell it the page is listening:
  *  it holds them back until then. Its messages reach the graph's listener too,
@@ -59,10 +53,8 @@ function listenForHostPrompts() {
 }
 
 /** Not `RequestMessage`s either: a working tree file's diff asked for (#460)
- *  and a hunk staged from it (#406). Cast as `replyToHost`'s replies are. */
-function askHost(request: WorkingTreeShowDiffRequest | DiffHunkRequest) {
-  vscode.postMessage(request as unknown as RequestMessage);
-}
+ *  and a hunk staged from it (#406). */
+const askHost: (request: WorkingTreeShowDiffRequest | DiffHunkRequest) => void = postToHost;
 
 /** Show the diffs the host sends (#404) in the diff viewer, and the files it
  *  sends to be read (#405), with their blame (#409). Like the prompts' listener, this one drops
@@ -75,8 +67,7 @@ function listenForDiffs(editors: EditorFactory) {
   // of the host past the graph's requests.
   const panel = createDiffPanel(editors, {
     askHunk: askHost,
-    askBlame: (request: FileBlameRequest) =>
-      vscode.postMessage(request as unknown as RequestMessage)
+    askBlame: postToHost
   });
   window.addEventListener("message", (event: MessageEvent) => {
     if (isShowDiffMessage(event.data)) void panel.show(event.data);

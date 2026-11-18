@@ -5,6 +5,7 @@
  * and never part of `RequestMessage` / `ResponseMessage` (ADR-0031). */
 
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import { isRecord, type NoCommandShared } from "@ging/webview/desktop/protocolGuards";
 
 /** The tab strip's height in CSS pixels: the page draws the strip this tall,
  *  and the main process lays each Tab's view out below it. */
@@ -100,11 +101,6 @@ export type WindowRequest =
   | { command: "openRecent"; path: string }
   | { command: "forgetRecent"; path: string };
 
-/** True when `A` and `B` share no command name. */
-type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
-  ? true
-  : false;
-
 /** Checked by the compiler: the window's messages share the page's `message`
  *  event and the host's channel with the graph's (ADR-0031). */
 export const WINDOW_COMMANDS_STAY_APART: NoCommandShared<
@@ -112,10 +108,6 @@ export const WINDOW_COMMANDS_STAY_APART: NoCommandShared<
   ResponseMessage["command"]
 > &
   NoCommandShared<WindowRequest["command"], RequestMessage["command"]> = true;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 /** Whether `data`, heard on the page's `message` channel, is the window's state. */
 export function isWindowStateMessage(data: unknown): data is WindowStateMessage {

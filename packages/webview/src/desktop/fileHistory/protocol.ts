@@ -6,6 +6,7 @@
 
 import type { FileHistoryEntry } from "@ging/shared/backend/types";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
+import { isRecord, type NoCommandShared } from "@ging/webview/desktop/protocolGuards";
 
 /** The panel's words, in the host's language: they come with every history
  *  and with the answer to `fileHistoryReady`, so the panel needs none of the
@@ -103,11 +104,6 @@ export type FileHistoryRequest =
   | FileHistoryCloseRequest
   | FileHistoryDiffRequest;
 
-/** True when `A` and `B` share no command name. */
-type NoCommandShared<A extends string, B extends string> = [Extract<A, B>] extends [never]
-  ? true
-  : false;
-
 /** Checked by the compiler: these share the page's `message` event and the
  *  host's channel with the graph's, and one named like the graph's would be
  *  taken for it (ADR-0031). */
@@ -115,10 +111,6 @@ export const FILE_HISTORY_COMMANDS_STAY_APART: [
   NoCommandShared<FileHistoryHostMessage["command"], ResponseMessage["command"]>,
   NoCommandShared<FileHistoryRequest["command"], RequestMessage["command"]>
 ] = [true, true];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 const CHANGES: ReadonlySet<unknown> = new Set(["A", "M", "D", "R", "C"]);
 
@@ -133,9 +125,6 @@ function isEntryRef(value: unknown): value is FileHistoryDiffRequest["entry"] {
     (value.submodule === null || isRecord(value.submodule))
   );
 }
-
-/** Whether `data`, heard on the page's `message` channel, is the host's to
- *  the file history panel. */
 
 const isRequestId = (value: unknown) => value === null || Number.isSafeInteger(value);
 
