@@ -207,6 +207,7 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **日期照圖形的 `dates.customFormat`(`viewState.dateCustomFormat`)寫**,由桌面入口把格式化函式交給面板;面板本身不讀 `viewState`,jsdom 測試([desktopFileHistory.test.ts](../../packages/webview/tests/desktopFileHistory.test.ts))注入假的。
 - **樣式由模組自己插進一個 `<style>`**,理由同 #397、#403 的補記;只用 `theme.ts` 已提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。
 - **working tree 面板的檔案列這次不放入口。** 那裡列的都是改過的檔案,應用程式選單的 File History… 選得到任何一個;而同時進行的 #406 正在改那一列的按鈕與點擊(hunk stage、面板 → diff),兩邊同時動同一列容易互相蓋掉。要加時,由那一列送一則 `fileHistoryOpen`(`start: null`)就好,協定不必改。
+
 ## 補記(2026-11-18,#479)
 
 **working tree 面板的訊息框不再隨重繪離開頁面。** 上面 #403 補記說「面板每次收到回答都整個重繪」;訊息框原本是重繪後再 prepend 回去,移出頁面的那一刻它就失去焦點(連同進行中的 IME 組字),而 `refocus` 認不得沒有 `data-action` 的訊息框,焦點落到清單的第一個按鈕。使用者打字時剛好來一則回答(例如檔案監看觸發的重讀),之後打的字就不進訊息框。
