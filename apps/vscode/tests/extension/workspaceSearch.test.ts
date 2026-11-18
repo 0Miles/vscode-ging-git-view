@@ -11,9 +11,11 @@ import { rmrf } from "@ging/core/tests/helpers";
 import { useSharedRepo } from "./helpers";
 
 /**
- * Mocha budgets for the tests that search a directory tree, by how many
- * directories the search visits: it asks git about each one, a spawn apiece.
- * Nothing else is left in a test body, the trees being built once per suite.
+ * Mocha budgets for the tests that search a directory tree, by how many times
+ * the search asks git, a spawn apiece: once about the folder it starts in, and
+ * once about each folder below that has a `.git` entry (#438). Folders without
+ * one are walked without asking. Nothing else is left in a test body, the trees
+ * being built once per suite.
  *
  * Measured in the extension host on Windows (#425). One spawn: 0.1–0.3s on an
  * idle machine, 1.1–1.6s with every core oversubscribed twice over, and 2.6s
@@ -131,6 +133,7 @@ suite("workspaceSearch / searchDirectoryForRepos", () => {
     assert.deepStrictEqual(added, []);
   });
 
+  // Two spawns: the start, and `nested-repo` for its `.git` entry.
   test("finds repo nested at depth 1", async function () {
     this.timeout(TWO_SPAWN_TIMEOUT_MS);
     const { repoSearch, added } = makeStubs();
@@ -139,8 +142,9 @@ suite("workspaceSearch / searchDirectoryForRepos", () => {
     assert.deepStrictEqual(added, [nestedParent + "/nested-repo"]);
   });
 
+  // One spawn: `level1`, the only folder below the start, has no `.git` entry.
   test("does not find repos beyond maxDepth", async function () {
-    this.timeout(TWO_SPAWN_TIMEOUT_MS);
+    this.timeout(ONE_SPAWN_TIMEOUT_MS);
     const { repoSearch, added } = makeStubs();
     const found = await repoSearch.searchDirectoryForRepos(deepParent, 1);
     assert.strictEqual(found, false);
