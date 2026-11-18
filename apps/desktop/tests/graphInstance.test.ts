@@ -4,6 +4,7 @@ import * as path from "node:path";
 
 import { describe, expect, it, onTestFinished } from "vitest";
 
+import { REPO_CHANGE_DEBOUNCE_MS } from "@ging/core/backend/utils/repoWatchPaths";
 import { createGraphInstance } from "@ging/desktop/graphInstance";
 import { createSharedServices } from "@ging/desktop/sharedServices";
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
@@ -98,7 +99,9 @@ function setUp() {
       repo,
       channel: page.webview,
       prompts: ports.prompts,
-      postSideView: (message) => sideViews.push(message),
+      postSideView: (message) => {
+        if (message.command === "sideViewState") sideViews.push(message);
+      },
       extensionState: state,
       revealSetting: (key) => revealed.push(key),
       postDiff: (message) => {
@@ -620,6 +623,42 @@ describe("a graph instance", () => {
       branches: { roots: [{ type: "leaf", branch: "main", isHead: true }] },
       remotes: []
     });
+  });
+
+  it("pops a stash its Stash view lists, asking in its own prompts, and redraws its graph (#400)", async () => {
+    const { shared, repos, open, logged } = setUp();
+    const page = open(repos[0]);
+    fs.writeFileSync(path.join(repos[0], "f"), "stashed");
+    git(["stash", "push", "-m", "wip"], repos[0]);
+    await page.instance.sideView({ command: "sideViewReady" });
+    const [stash] = page.sideViews.at(-1)!.stashes!;
+    expect(stash).toMatchObject({ selector: "stash@{0}", message: "On main: wip" });
+    // Its stash log watch reads once more after it is hung, past the
+    // debounce: let that land before acting, so what follows is the pop's.
+    const sentBefore = page.sideViews.length;
+    await expect
+      .poll(() => page.sideViews.length, { timeout: REPO_CHANGE_DEBOUNCE_MS + 5_000 })
+      .toBeGreaterThan(sentBefore);
+    page.answers.choose = shared.l10n.t("dialog.stash.pop");
+
+    await page.instance.sideView({ command: "sideViewStash", action: "pop", id: stash.id });
+
+    expect(page.asked[0]).toEqual([
+      "choose",
+      shared.l10n.t("dialog.stash.popConfirm", "stash@{0}"),
+      {
+        detail: shared.l10n.t("dialog.stash.reinstateIndexDetail"),
+        actions: [
+          shared.l10n.t("dialog.stash.pop"),
+          shared.l10n.t("dialog.stash.popReinstateIndex")
+        ]
+      }
+    ]);
+    expect(fs.readFileSync(path.join(repos[0], "f"), "utf8")).toBe("stashed");
+    expect(page.sideViews.at(-1)!.stashes).toEqual([]);
+    // Changed muted, then redrawn, as core's command services' changes are.
+    expect(sentOf(page.posted, "refresh").length).toBeGreaterThan(0);
+    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
   });
 
   it("configures the provider of a host Create Pull Request knows none for, in its own prompts, into the app's settings", async () => {

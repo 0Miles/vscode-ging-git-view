@@ -34,6 +34,7 @@ body.gingSideViews.workingTreeOpen #scrollShadow.active { right: ${WORKING_TREE_
 .sideView { display: flex; flex-direction: column; min-height: 0; flex: 0 0 auto; border-bottom: 1px solid var(--vscode-panel-border); }
 #branchesView.open { flex: 2 1 0; }
 #remotesView.open { flex: 1 1 0; }
+#stashView.open { flex: 1 1 0; }
 .sideViewHeader { display: flex; align-items: center; height: 24px; padding: 0 4px 0 2px; flex: 0 0 auto; }
 .sideViewTitle {
   display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; height: 100%; padding: 0;
@@ -69,6 +70,15 @@ body.gingSideViews.workingTreeOpen #scrollShadow.active { right: ${WORKING_TREE_
 .sideViewRow.dimmed .sideViewLabel { color: var(--vscode-disabledForeground); }
 .sideViewDescription { margin-left: 6px; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; color: var(--vscode-descriptionForeground); font-size: 12px; }
 .sideViewRow.selected .sideViewDescription { color: inherit; }
+/* A stash file's change, as VS Code's file decorations colour it; a rename as
+   the working tree panel colours one (#403), the theme having no colour of its
+   own for it. */
+.sideViewFileBadge { margin-left: auto; padding-left: 6px; flex: 0 0 auto; font-size: 12px; }
+.sideViewFileBadge.badgeA { color: var(--vscode-gitDecoration-addedResourceForeground); }
+.sideViewFileBadge.badgeM, .sideViewFileBadge.badgeR { color: var(--vscode-gitDecoration-modifiedResourceForeground); }
+.sideViewFileBadge.badgeD { color: var(--vscode-gitDecoration-deletedResourceForeground); }
+.sideViewFileBadge.badgeU { color: var(--vscode-gitDecoration-untrackedResourceForeground); }
+.sideViewRow.selected .sideViewFileBadge { color: inherit; }
 .sideViewBadge { margin-left: auto; padding-left: 6px; flex: 0 0 auto; color: var(--vscode-descriptionForeground); }
 .sideViewEmpty { padding: 6px 12px; color: var(--vscode-descriptionForeground); white-space: normal; }
 .sideViewEmpty button {

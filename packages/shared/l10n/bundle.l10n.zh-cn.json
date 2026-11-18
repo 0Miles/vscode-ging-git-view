@@ -586,6 +586,8 @@
   "desktop.sideView.renameRemote": "重命名 remote…",
   "desktop.sideView.removeRemote": "移除 remote…",
   "desktop.sideView.copyUrl": "复制 remote URL",
+  "desktop.sideView.stashes": "Stash",
+  "desktop.sideView.noStashes": "此仓库没有 stash。",
   "branchView.current": "当前",
   "branchView.mergedInto": "已合并进 {0}",
   "branchView.age.day": "{0} 天",
