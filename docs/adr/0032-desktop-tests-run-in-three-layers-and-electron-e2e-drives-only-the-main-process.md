@@ -156,3 +156,11 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **頁面的第一個 diff 有自己的時間預算 `FIRST_DIFF_BUDGET`(30 秒,[diffViewerPage.ts](../../apps/desktop/e2e/diffViewerPage.ts)),之後的 diff 沒有。** 第一個 diff 要先載入約 3.4 MB 的 `monaco.js`,parse 時整個頁面卡住,測試對頁面的每一次讀取(包括 walk 讀宿主回答的 `page.evaluate`)都跟著等。重現過:在壓縮前的 commit(a01f92b,`monaco.js` 7.7 MB)把 renderer 的 CPU 降速 6 倍跑 walk,`viewDiffWithWorking` 的回答等不到 5 秒的預設時間就失敗;壓縮後(1ea0781)在同樣的降速下照樣失敗,所以壓縮只是讓它少見,不是修好;4 倍降速兩者都過;改成下面的等法之後,6 倍降速也過。所以等待改成讀產品本身的狀態 —— 面板在 editor 做好之前標 `aria-busy`(ADR-0031 的同日補記),`diffShown` 等它消失 —— 並給這一次明說的預算;walk 的 `Step.budget` 只用在它的第一個 diff。這是頁面在慢機器上第一次 diff 真的要花的時間,不是放寬等待去蓋過一個 bug。
 - **E2E 的結果放在 `apps/desktop/e2e-results/`,不在 `out/` 底下,失敗的測試留下 trace。** `compile` 會先清空 `out/`,原本的 `out/e2e-results` 跟著消失,失敗的那一輪就什麼都查不到(#404 的第一次紅燈就是這樣)。這些測試自己啟動 app,Playwright 的 `use.trace` 只管它自己 fixture 開的頁面,所以 `diffViewer.spec.ts` 與 `actions.spec.ts` 啟動後用 `context().tracing` 錄,失敗時存成 `app-trace.zip`(`keepTraceIfFailed`;`trace.zip` 是 Playwright 自己的 test trace,只有測試端的步驟與時間);config 的 `trace: "retain-on-failure"` 留給之後用 fixture 的測試。
 - **#391 那條「點 CDV 的檔案只看到尚未支援」的測試移到這裡,改成打開 diff。** walk(`actions.spec.ts`)的 `viewDiff` 與 `viewDiffWithWorking` 改為斷言 diff viewer 出現、app 外面什麼都沒發生、沒有錯誤框,然後把它關掉,不讓它蓋住之後的步驟。
+
+## 補記(2026-11-18,#406、#460)
+
+**hunk stage 的 Electron E2E([hunkStaging.spec.ts](../../apps/desktop/e2e/hunkStaging.spec.ts))兩條:從 working tree 面板打開檔案的 diff、stage 其中一個 hunk、再從 staged 的 diff unstage 它;以及檔案在 diff 顯示之後改過時,hunk 被拒絕。** git 的各種情形(CRLF、`core.autocrlf`、檔尾無換行、編碼、整檔變更、衝突)由 core 的 vitest 用真的 git 驗(`hunk.test.ts`),E2E 只驗只有真的 app 才證明得了的:Monaco 把按鈕畫在 git 的 hunk 上方而且點得到、點下去的 hunk 經 main process 進了 index、面板跟著重讀。
+
+- **讀的是 repo 與畫面。** index 的內容用 `git show :0:<路徑>` 讀;按鈕的位置用它與被改的那一行的 bounding box 比(按鈕在 hunk 第一行上方,hunk 從改動前三行開始)。按鈕點得到這件事本身就是一項斷言:按鈕若放在 view zone 裡,editor 的行會擋住點擊(ADR-0031 的同日補記)。
+- **檔案在 app 啟動前就改好,stale 那條只改 working tree 的檔案。** 理由同 `workingTree.spec.ts`:app 讀 repo 時會不時握著 index 的 lock,測試自己寫 index 會跟它搶。改 working tree 的檔案不碰 index。
+- **失敗時留下 app 的 log**(`main.log`,與 `app-trace.zip` 放在一起):main process 那一側做了什麼,只有它看得到。
