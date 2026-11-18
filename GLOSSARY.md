@@ -50,9 +50,13 @@ _Avoid_: start page, empty state
 _Avoid_: dialog, 對話框(這兩個詞留給 `#dialog`)
 
 **Working tree panel**:
-桌面 host 上每個 **Tab** 的圖形右側那一欄:列出 current repository 已暫存(staged)、未暫存(unstaged,含未追蹤)與衝突中的檔案,整檔 stage / unstage,並 commit 已暫存的內容([#403](https://github.com/0Miles/vscode-ging-git-view/issues/403),ADR-0031),或 amend 上一個 commit,可選擇 sign off([#407](https://github.com/0Miles/vscode-ging-git-view/issues/407))。它是桌面 host 的「原始檔控制檢視」:圖形的 Open Source Control View 在 VS Code host 打開 VS Code 的原始檔控制檢視,在桌面 host 打開它。只做到整個檔案;hunk 層級是 #406,行級不做。
+桌面 host 上每個 **Tab** 的圖形右側那一欄:列出 current repository 已暫存(staged)、未暫存(unstaged,含未追蹤)與衝突中的檔案,整檔 stage / unstage,並 commit 已暫存的內容([#403](https://github.com/0Miles/vscode-ging-git-view/issues/403),ADR-0031),或 amend 上一個 commit,可選擇 sign off([#407](https://github.com/0Miles/vscode-ging-git-view/issues/407))。它是桌面 host 的「原始檔控制檢視」:圖形的 Open Source Control View 在 VS Code host 打開 VS Code 的原始檔控制檢視,在桌面 host 打開它。點 staged 或 unstaged 的檔案列,在 diff viewer 打開它的改變(#460),在那裡一個一個 stage 或 unstage 它的 **hunk**([#406](https://github.com/0Miles/vscode-ging-git-view/issues/406));行級不做。
 衝突中([#410](https://github.com/0Miles/vscode-ging-git-view/issues/410)),衝突檔可以交給 **merge tool**,或直接標記為已解決(整檔 stage,檔案裡還有衝突標記時先問);進行中的 merge、rebase、cherry-pick、revert 可以在這裡 Continue 或 Abort。中文寫作「working tree 面板」。桌面 host 專屬。
 _Avoid_: SCM view, source control panel, 暫存區面板
+
+**Hunk**:
+一個檔案的 diff 裡,git 切出來的一段(`@@` 開頭的那一段):改動的行加上前後各三行 context,兩段相距不到六行時 git 會把它們併成一段。stage / unstage 的最小單位就是它 —— 是 git 的 hunk,不是 diff viewer 自己算出來、畫成色塊的那些「改變」,兩者的邊界不一定相同。一個 hunk 只在檔案的 diff 仍是顯示時那一份的時候才套用;檔案在那之後改過,就拒絕並重新顯示(ADR-0027)。新檔、刪除、rename、binary、衝突中的檔案沒有自己的 hunk,只能整檔。中文照寫 hunk,UI 上是「區塊」(zh-cn「块」)。桌面 host 專屬。
+_Avoid_: block(VS Code 的 Stage Block 指的是 editor 的改變,不是 git 的 hunk), chunk, 片段, 行範圍
 
 **Merge tool**:
 使用者替 git 設定的外部合併程式 —— `merge.guitool`,沒有就 `merge.tool`,也就是 `git mergetool --gui` 會用的那一個。GING 只交出檔案(`git mergetool`),不替使用者挑工具,沒有設定就說怎麼設定;結果看工具結束後檔案還在不在衝突中,不看工具說了什麼(ADR-0030)。它不是 merge editor:那是宿主自己的 3-way 合併畫面(VS Code 的),桌面 host 沒有(內建的在 #411),所以圖形的「在 merge editor 中開啟」在桌面 host 交給 merge tool([#410](https://github.com/0Miles/vscode-ging-git-view/issues/410),ADR-0027)。桌面 host 專屬。

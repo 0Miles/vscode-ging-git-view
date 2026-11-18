@@ -123,7 +123,24 @@ test("a file viewed at a revision shows its blame once Blame is pressed, each li
   await expect(viewer(page).locator(".view-lines")).toContainText("first");
 
   // The hover: what the inline blame's says, written in full by the host —
-  // the commit's whole message and its hunk — with its links.
+  // the commit's whole message and its hunk — with its links. The host's
+  // first hover is held back past Monaco's hover delay, as a slow git would
+  // hold it: written in full after it is shown, it must still be seen in
+  // full where the pointer rests (Monaco 0.57 does not redo a hover shown).
+  await page.evaluate(() => {
+    let held = false;
+    window.addEventListener(
+      "message",
+      (e) => {
+        const data = e.data as { command?: string };
+        if (data?.command !== "fileBlameHover" || held) return;
+        held = true;
+        e.stopImmediatePropagation();
+        setTimeout(() => window.postMessage(data, window.location.origin), 1500);
+      },
+      { capture: true }
+    );
+  });
   await annotation(page, "first").hover();
   const hover = page.locator(".monaco-hover").filter({ hasText: "add notes" });
   await expect(hover).toBeVisible();

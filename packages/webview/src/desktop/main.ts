@@ -19,7 +19,7 @@ import { sendMessage, vscode } from "@ging/webview/utils/vscode";
 
 import { type FileBlameRequest, isFileBlameHostMessage } from "./diff/blameProtocol";
 import { createDiffPanel } from "./diff/diffPanel";
-import { isShowDiffMessage, isShowFileMessage } from "./diff/protocol";
+import { type DiffHunkRequest, isShowDiffMessage, isShowFileMessage } from "./diff/protocol";
 import type { EditorFactory } from "./editors";
 import { startFileHistoryPanel } from "./fileHistory/fileHistoryPanel";
 import { type HostPromptReply, isHostPromptMessage } from "./hostPrompt";
@@ -28,6 +28,7 @@ import type { SettingsPageState } from "./settings/protocol";
 import { startSettingsPage } from "./settings/settingsPage";
 import { startSideViews } from "./sideViews/sideViews";
 import { startWindowPage } from "./window/windowPage";
+import type { WorkingTreeShowDiffRequest } from "./workingTree/protocol";
 import { startWorkingTreePanel } from "./workingTree/workingTreePanel";
 
 /** Which entry the page loaded, for the desktop host's E2E to read (#386).
@@ -57,15 +58,23 @@ function listenForHostPrompts() {
   replyToHost({ command: "hostPromptReady" });
 }
 
+/** Not `RequestMessage`s either: a working tree file's diff asked for (#460)
+ *  and a hunk staged from it (#406). Cast as `replyToHost`'s replies are. */
+function askHost(request: WorkingTreeShowDiffRequest | DiffHunkRequest) {
+  vscode.postMessage(request as unknown as RequestMessage);
+}
+
 /** Show the diffs the host sends (#404) in the diff viewer, and the files it
  *  sends to be read (#405), with their blame (#409). Like the prompts' listener, this one drops
  *  everything else; the graph's drops these. One that cannot be shown is said
  *  in the viewer, and, uncaught, reaches the graph's error reporter
- *  (ADR-0016). */
+ *  (ADR-0016). A hunk staged or unstaged in a diff (#406) is the host's to
+ *  apply. */
 function listenForDiffs(editors: EditorFactory) {
-  // A file's blame (#409) is asked of the host as the prompts' replies are
-  // posted: not a `RequestMessage` either.
+  // A hunk staged or unstaged (#406), and a file's blame (#409), are asked
+  // of the host past the graph's requests.
   const panel = createDiffPanel(editors, {
+    askHunk: askHost,
     askBlame: (request: FileBlameRequest) =>
       vscode.postMessage(request as unknown as RequestMessage)
   });
@@ -117,7 +126,17 @@ export function startDesktopEntry({ editors }: DesktopEntryDeps): void {
         listenForHostPrompts();
         // Beside the graph, on its repository (#403), asking in the graph's own
         // dialog before it rewrites pushed history (#407).
-        startWorkingTreePanel({ confirm: askInGraphDialog });
+        // Its files' diffs open in the diff viewer, by the host (#460).
+        startWorkingTreePanel({
+          confirm: askInGraphDialog,
+          showDiff: (file, area) =>
+            askHost({
+              command: "workingTreeShowDiff",
+              path: file.path,
+              ...(file.oldPath !== undefined && { oldPath: file.oldPath }),
+              area
+            })
+        });
         // And what it opens a diff (#404) or a file (#405) in: over the
         // graph it is of.
         listenForDiffs(editors);

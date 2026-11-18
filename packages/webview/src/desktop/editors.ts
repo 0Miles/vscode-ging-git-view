@@ -6,11 +6,27 @@
  *
  * The one caller is the panel over the graph (diff/diffPanel.ts), which shows
  * a diff (#404) or one file read-only (#405), so the factory makes those two.
- * Hunk staging (#406) grows what a `DiffViewer` can do, blame (#409) what a
- * `FileViewer` can: annotations beside its lines, each with a hover. Each
- * when it has a caller (ADR-0027). */
+ * Hunk staging (#406) is a choice a `DiffViewer` offers on each hunk it is
+ * given; blame (#409) grows what a `FileViewer` can: annotations beside its
+ * lines, each with a hover. Each when it has a caller (ADR-0027). */
+
+import type { FileHunk } from "@ging/shared/backend/types";
 
 import type { DiffDocument } from "./diff/protocol";
+
+/** Hunks of the diff for the user to act on one at a time (#406): a control
+ *  at each, `label` its word, `choose` called with the hunk's index. */
+export type HunkActions = {
+  label: string;
+  hunks: FileHunk[];
+  /** Each hunk's control's name for assistive technology, in `hunks`'
+   *  order: its word and its lines. */
+  names: string[];
+  /** How the keyboard reaches the action — the controls sit outside the
+   *  editor's own keyboard order — said as the editors' accessible name. */
+  keyboard: string;
+  choose(index: number): void;
+};
 
 /** The page's theme, as `<body>`'s `vscode-dark` / `vscode-light` says. */
 export type ThemeKind = "dark" | "light";
@@ -26,6 +42,9 @@ export type DiffViewerOptions = {
   theme: ThemeKind;
   /** A 1-based line of `modified` to reveal and put the cursor on. */
   revealLine: number | null;
+  /** Hunks to offer an action on, each above its first line in `modified`;
+   *  none offered when absent. */
+  hunks?: HunkActions;
 };
 
 /** A read-only diff of two documents, drawn in the element it was made in. */

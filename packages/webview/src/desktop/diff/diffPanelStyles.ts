@@ -135,4 +135,49 @@ export const DIFF_PANEL_STYLES = `
   font-style: normal;
   cursor: pointer;
 }
+#diffViewer .diffViewerSaid {
+  flex: none;
+  margin: 0;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  color: var(--vscode-descriptionForeground);
+}
+#diffViewer .diffViewerKeys {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+#diffViewer .diffViewerHunkWidget {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: visible;
+}
+#diffViewer .diffViewerHunk {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding-left: 4px;
+  white-space: nowrap;
+}
+#diffViewer .diffViewerHunk button {
+  padding: 0 6px;
+  border-radius: 2px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--vscode-button-secondaryForeground);
+  background-color: var(--vscode-button-secondaryBackground);
+  border-color: var(--vscode-button-border, transparent);
+}
+#diffViewer .diffViewerHunk button:hover {
+  background-color: var(--vscode-button-secondaryHoverBackground);
+}
 `;

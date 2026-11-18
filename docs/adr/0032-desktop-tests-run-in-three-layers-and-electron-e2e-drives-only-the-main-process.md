@@ -170,6 +170,14 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **「照副檔名著色」讀的是 Monaco 自己的 DOM:那一行被畫成好幾個 token(`mtk*` class 不只一種)。** 純文字的 model 整行只有一個 token。Monaco 0.57.0 的 editor 根元素沒有 `data-mode-id`,不能直接讀語言 id。
 - **walk(`actions.spec.ts`)的 `viewFileAtRevision` 從 stub 那一段移到兩個 diff 之後**,斷言同 diff:面板出現、app 外面什麼都沒發生、沒有錯誤框,然後關掉。排在後面,頁面的第一個 editor 仍是 `viewDiffWithWorking` 的,`FIRST_DIFF_BUDGET` 留在原處。stub 已經一個都不剩,walk 的 `stub` 與「尚未支援」的通知文字一併移除。
 
+## 補記(2026-11-18,#406、#460)
+
+**hunk stage 的 Electron E2E([hunkStaging.spec.ts](../../apps/desktop/e2e/hunkStaging.spec.ts))兩條:從 working tree 面板打開檔案的 diff、stage 其中一個 hunk、再從 staged 的 diff unstage 它;以及檔案在 diff 顯示之後改過時,hunk 被拒絕。** git 的各種情形(CRLF、`core.autocrlf`、檔尾無換行、編碼、整檔變更、衝突)由 core 的 vitest 用真的 git 驗(`hunk.test.ts`),E2E 只驗只有真的 app 才證明得了的:Monaco 把按鈕畫在 git 的 hunk 上方而且點得到、點下去的 hunk 經 main process 進了 index、面板跟著重讀。
+
+- **讀的是 repo 與畫面。** index 的內容用 `git show :0:<路徑>` 讀;按鈕的位置用它與被改的那一行的 bounding box 比(按鈕在 hunk 第一行上方,hunk 從改動前三行開始)。按鈕點得到這件事本身就是一項斷言:按鈕若放在 view zone 裡,editor 的行會擋住點擊(ADR-0031 的同日補記)。
+- **檔案在 app 啟動前就改好,stale 那條只改 working tree 的檔案。** 理由同 `workingTree.spec.ts`:app 讀 repo 時會不時握著 index 的 lock,測試自己寫 index 會跟它搶。改 working tree 的檔案不碰 index。
+- **失敗時留下 app 的 log**(`main.log`,與 `app-trace.zip` 放在一起):main process 那一側做了什麼,只有它看得到。
+
 ## 補記(2026-11-18,#409)
 
 **blame 的 Electron E2E 兩條在 [fileBlame.spec.ts](../../apps/desktop/e2e/fileBlame.spec.ts),fixture 是測試自己建的兩個 commit(Alice 新增、Bob 改第二行)。** 驗的是只有真的 app 才證明得了的事:Monaco 真的把註記畫在每一行前面(讀 `.view-line` 裡的 `.gingBlameAnnotation`;Monaco 把空白畫成 no-break space,讀之前換回來);hover 先出現、再被宿主寫完整(commit 訊息的 body、hunk 的 `+SECOND`),Markdown 的 `command:` 連結真的經 main process 打開這一行的 diff;再次打開檔案時切換鈕記得是開的;點註記之後面板關掉、圖形停在那個 commit(CDV 打開或焦點在那一列)。另一條從應用程式選單的 `ging.blameFile` 觸發(先讀 `enabled`,再 `click()`),開檔對話框照 #394 的做法換掉,斷言它被問的標題與按鈕、標題寫 working tree,以及還沒 commit 的那一行寫「You • Uncommitted changes」。兩條都斷言 console 沒有 error、log 沒有 `ERROR:`。

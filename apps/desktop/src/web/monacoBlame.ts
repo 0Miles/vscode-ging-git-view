@@ -82,6 +82,30 @@ function fit(text: string, width: number): string {
 /** `text` as Markdown that shows exactly it. */
 const markdownText = (text: string) => text.replace(/[\\`*_{}[\]()#+\-.!|<>~$&=]/g, "\\$&");
 
+/** What Monaco's content hover controller (`editor.contrib.contentHover`)
+ *  does that the hover of a line is shown anew with: not in Monaco's API. */
+type ContentHover = {
+  hideContentHover(): void;
+  showContentHover(range: monaco.Range, mode: number, source: number, focus: boolean): void;
+};
+/** `HoverStartMode.Immediate` and `HoverStartSource.Mouse`, as Monaco 0.57
+ *  numbers them. */
+const IMMEDIATE = 1;
+const MOUSE = 0;
+
+/** The editor's content hover controller, when it is there as Monaco 0.57
+ *  has it; null otherwise, and a hover written in full shows on the next
+ *  hover instead. */
+function contentHover(editor: monaco.editor.IStandaloneCodeEditor): ContentHover | null {
+  const controller = editor.getContribution(
+    "editor.contrib.contentHover"
+  ) as Partial<ContentHover> | null;
+  return typeof controller?.showContentHover === "function" &&
+    typeof controller.hideContentHover === "function"
+    ? (controller as ContentHover)
+    : null;
+}
+
 export type EditorBlame = {
   set(blame: BlameGutter | null): void;
   setHover(line: number, markdown: string): void;
@@ -99,6 +123,8 @@ export function attachBlame(
   /** Each line's decoration, by its 0-based line. */
   let ids: string[] = [];
   let width = 0;
+  /** The annotation the pointer is on: its 0-based line, or null. */
+  let pointedAt: number | null = null;
 
   /** Line `line`'s decoration: its annotation, and `hover`. */
   function decoration(
@@ -135,7 +161,11 @@ export function attachBlame(
   const listeners = [
     editor.onMouseMove((e) => {
       const line = annotationAt(e.target);
+      pointedAt = line;
       if (line !== null) events?.hover(line);
+    }),
+    editor.onMouseLeave(() => {
+      pointedAt = null;
     }),
     editor.onMouseDown((e) => {
       if (!e.event.leftButton) return;
@@ -170,6 +200,22 @@ export function attachBlame(
         isTrusted: { enabledCommands: Object.values(BLAME_LINKS) }
       };
       [ids[line]] = editor.deltaDecorations([ids[line]], [decoration(line, hover)]);
+      // Monaco 0.57's content hover listens to no change of decorations
+      // (contentHoverController.js hooks the model, its content and the
+      // mouse): a hover already shown is computed again only if something
+      // else — a later mouse move — happens to restart it, so the pointer
+      // resting on the annotation could keep seeing what it said before. So
+      // it is shown anew, at once, from the decoration as it is now.
+      if (pointedAt === line) {
+        const controller = contentHover(editor);
+        controller?.hideContentHover();
+        controller?.showContentHover(
+          new monaco.Range(line + 1, 1, line + 1, 1),
+          IMMEDIATE,
+          MOUSE,
+          false
+        );
+      }
     },
     dispose() {
       for (const listener of listeners) listener.dispose();

@@ -5,6 +5,7 @@ import type {
   WorkingTreeStatusMessage,
   WorkingTreeStrings
 } from "@ging/webview/desktop/workingTree/protocol";
+import type { WorkingTreePanelOptions } from "@ging/webview/desktop/workingTree/workingTreePanel";
 
 import { createVscodeMock } from "./setup";
 
@@ -84,7 +85,10 @@ const STATUS: WorkingTreeStatus = {
 /** What the panel asked in the page's dialog, and how to answer it. */
 type Asked = { html: string; actionName: string; confirmed: () => void };
 
-async function load(open = false, options: { confirm?: boolean } = { confirm: true }) {
+async function load(
+  open = false,
+  options: { confirm?: boolean; showDiff?: WorkingTreePanelOptions["showDiff"] } = { confirm: true }
+) {
   vi.resetModules();
   localStorage.clear();
   if (open) localStorage.setItem("ging.workingTree.open", "true");
@@ -95,11 +99,13 @@ async function load(open = false, options: { confirm?: boolean } = { confirm: tr
   const asked: Asked[] = [];
   const { startWorkingTreePanel } =
     await import("@ging/webview/desktop/workingTree/workingTreePanel");
-  startWorkingTreePanel(
-    options.confirm === true
-      ? { confirm: (html, actionName, confirmed) => asked.push({ html, actionName, confirmed }) }
-      : {}
-  );
+  startWorkingTreePanel({
+    ...(options.confirm === true && {
+      confirm: (html: string, actionName: string, confirmed: () => void) =>
+        asked.push({ html, actionName, confirmed })
+    }),
+    ...(options.showDiff !== undefined && { showDiff: options.showDiff })
+  });
   return Object.assign(mock, { asked });
 }
 
@@ -286,6 +292,33 @@ describe("the working tree panel", () => {
     expect(panel().querySelector(".wtClean")!.textContent).toBe("No changes.");
   });
 
+  it("keeps the keyboard, caret and selection in the message box when an answer redraws the panel mid-sentence (#479)", async () => {
+    const mock = await load(true);
+    hear(answer("workingTreeLoad"));
+    box().focus();
+    type("Half a sentence");
+    box().setSelectionRange(5, 9, "backward");
+    const blurred = vi.fn();
+    box().addEventListener("blur", blurred);
+
+    // The watcher woke the graph (#451): a refresh, the panel's read, its answer.
+    hear({ command: "refresh" });
+    expect(mock.sentMessages.at(-1)).toEqual({ command: "workingTreeLoad" });
+    hear(answer("workingTreeLoad"));
+
+    expect(document.activeElement).toBe(box());
+    expect(blurred).not.toHaveBeenCalled();
+    expect([box().selectionStart, box().selectionEnd, box().selectionDirection]).toEqual([
+      5,
+      9,
+      "backward"
+    ]);
+    // What is typed next still goes where the user was typing.
+    box().setRangeText(" more", box().selectionEnd, box().selectionEnd, "end");
+    box().dispatchEvent(new Event("input", { bubbles: true }));
+    expect(box().value).toBe("Half a se morentence");
+  });
+
   it("lets the keyboard reach a file's button, and keeps it there across redraws", async () => {
     const mock = await load(true);
     hear(answer("workingTreeLoad"));
@@ -402,6 +435,60 @@ describe("the working tree panel", () => {
     expect(document.body.classList.contains("workingTreeOpen")).toBe(false);
     expect(localStorage.getItem("ging.workingTree.open")).toBe("false");
     expect(mock.sentMessages).toEqual([]);
+  });
+});
+
+/** `key` pressed on `target`, as the keyboard sends it. */
+const press = (target: Element, key: string) =>
+  target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+
+// A file's diff (#460): a row of the staged or unstaged list opens it in the
+// diff viewer, where its hunks are staged or unstaged (#406).
+describe("the working tree panel's diffs", () => {
+  async function opening() {
+    const opened: [string, string][] = [];
+    const mock = await load(true, {
+      showDiff: (file, area) => opened.push([file.path, area])
+    });
+    hear(answer("workingTreeLoad"));
+    mock.sentMessages.length = 0;
+    return { mock, opened };
+  }
+
+  it("opens a staged or unstaged file's diff by click, Enter or Space on its row", async () => {
+    const { mock, opened } = await opening();
+
+    rows("unstaged")[0].querySelector<HTMLElement>(".wtName")!.click();
+    press(rows("staged")[0], "Enter");
+    press(rows("unstaged")[1], " ");
+
+    expect(opened).toEqual([
+      ["README.md", "unstaged"],
+      ["src/moved name.ts", "staged"],
+      ["docs/<new>.md", "unstaged"]
+    ]);
+    // Opening asks nothing of the working tree.
+    expect(mock.sentMessages).toEqual([]);
+  });
+
+  it("opens nothing from a row's own button, nor a conflict's or a submodule's row", async () => {
+    const { opened } = await opening();
+
+    press(rows("unstaged")[0].querySelector("[data-action=stage]")!, "Enter");
+    rows("conflicted")[0].click();
+    rows("unstaged")[2].click();
+
+    expect(opened).toEqual([]);
+    expect(rows("conflicted")[0].tabIndex).toBe(-1);
+    expect(rows("unstaged")[2].hasAttribute("tabindex")).toBe(false);
+    expect(rows("unstaged")[0].getAttribute("tabindex")).toBe("0");
+  });
+
+  it("makes no row a way in to a diff without a viewer to open it in", async () => {
+    await load(true, {});
+    hear(answer("workingTreeLoad"));
+
+    expect(panel().querySelectorAll(".wtFile[tabindex]")).toHaveLength(0);
   });
 });
 
@@ -662,5 +749,14 @@ describe("the working tree panel's amend and sign-off", () => {
 
     expect(document.activeElement).toBe(tickBox("signOff"));
     expect(tickBox("signOff").checked).toBe(true);
+
+    // Amend rewrites the message box as well as the part around the tick
+    // boxes (#479): the keyboard stays on the tick box, not on the box.
+    tickBox("amend").focus();
+    tick("amend");
+
+    expect(document.activeElement).toBe(tickBox("amend"));
+    expect(tickBox("amend").checked).toBe(true);
+    expect(box().value).toBe(HEAD_MESSAGE);
   });
 });
