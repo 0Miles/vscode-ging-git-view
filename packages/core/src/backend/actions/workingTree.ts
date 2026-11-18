@@ -30,9 +30,10 @@ export async function cleanUntrackedFiles(git: SimpleGit): Promise<void> {
 export type WholeFiles = readonly string[];
 
 /**
- * Run `git <args>` on `paths`, handed over in a file rather than on the
- * command line (`--pathspec-from-file`, git 2.25+), which on Windows holds
- * only about 32k characters: "Stage All" may name thousands of files. An
+ * Run `git <args>` on `paths`, more than one handed over in a file rather
+ * than on the command line (`--pathspec-from-file`, git 2.25+), which on
+ * Windows holds only about 32k characters: "Stage All" may name thousands of
+ * files. An
  * unmerged path is never among them: staging or unstaging one resolves the
  * conflict, which only `resolveFiles` does (#410), never a whole-file stage.
  */
@@ -45,9 +46,16 @@ async function onPaths(git: SimpleGit, args: string[], paths: WholeFiles): Promi
   );
 }
 
-/** Run `git <args>` on exactly `named`, through a pathspec file. */
+/** Run `git <args>` on exactly `named`. One path goes on the command line,
+ *  which any git takes: the graph's conflict banner marks one file resolved
+ *  through `resolveFiles`, and worked before git 2.25 (#468). More go through
+ *  a pathspec file. */
 async function onNamed(git: SimpleGit, args: string[], named: WholeFiles): Promise<void> {
   if (named.length === 0) return;
+  if (named.length === 1) {
+    await git.raw(["--literal-pathspecs", ...args, "--", named[0]]);
+    return;
+  }
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ging-pathspec-"));
   const file = path.join(dir, "paths");
   try {
