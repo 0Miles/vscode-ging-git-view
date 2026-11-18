@@ -12,12 +12,13 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import type { RequestMessage, ResponseMessage } from "@ging/shared/types";
 
 import { diffShown, FIRST_DIFF_BUDGET, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage, windowPage } from "./tabPages";
 
 // Every kind of message the graph's dispatch handles, sent from the page as the
@@ -30,11 +31,6 @@ import { focusedTabPage, windowPage } from "./tabPages";
 // file's program, the clipboard and the terminal are stood in for in the main
 // process, the way graph.spec.ts answers its dialog, and every remote is a
 // local folder or never contacted.
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 type Command = RequestMessage["command"];
 type Request<C extends Command> = Extract<RequestMessage, { command: C }>;
@@ -324,17 +320,16 @@ function actionsOn(repo: string) {
 test("the graph's page leaves the app only through the opener", async () => {
   const fixture = makeFixtureRepo(env);
   cleanUp.push(fixture.path);
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [
+  app = await launchApp(
+    [
       "--lang=en-US",
       APP_DIR,
       `--user-data-dir=${path.join(scratch, "userData")}`,
       "--repo",
       fixture.path
     ],
-    env: env as Record<string, string>
-  });
+    env
+  );
   const electronApp = app;
   await startTrace(electronApp);
   const page = await focusedTabPage(electronApp);
@@ -459,17 +454,16 @@ test("every message the dispatch handles finishes, and the webview reports no fa
   userDataWithAvatar();
   const saveDir = path.join(scratch, "saved");
   mkdirSync(saveDir);
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: [
+  app = await launchApp(
+    [
       "--lang=en-US",
       APP_DIR,
       `--user-data-dir=${path.join(scratch, "userData")}`,
       "--repo",
       fixture.path
     ],
-    env: env as Record<string, string>
-  });
+    env
+  );
   const electronApp = app;
   await startTrace(electronApp);
   const page = await focusedTabPage(electronApp);

@@ -2,17 +2,11 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import os from "node:os";
 import path from "node:path";
 
-import {
-  _electron,
-  type ElectronApplication,
-  expect,
-  type Locator,
-  type Page,
-  test
-} from "@playwright/test";
+import { type ElectronApplication, expect, type Locator, type Page, test } from "@playwright/test";
 
 import { diffShown, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { datedGit, isolatedGitEnv } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage } from "./tabPages";
 
 // A file's blame (#409), with real git behind it: shown beside the file a
@@ -23,11 +17,6 @@ import { focusedTabPage } from "./tabPages";
 // line's annotation, its hover in Markdown with the links that run through
 // the main process, and a click that takes the graph to the commit. Read
 // through the page, the menu and the app's log.
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 let scratch: string;
 let env: NodeJS.ProcessEnv;
@@ -62,11 +51,10 @@ const log = () => readFileSync(path.join(userData(), "logs", "main.log"), "utf8"
 
 async function launch(): Promise<ElectronApplication> {
   mkdirSync(userData(), { recursive: true });
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${userData()}`, "--repo", repo],
-    env: env as Record<string, string>
-  });
+  app = await launchApp(
+    ["--lang=en-US", APP_DIR, `--user-data-dir=${userData()}`, "--repo", repo],
+    env
+  );
   await startTrace(app);
   return app;
 }

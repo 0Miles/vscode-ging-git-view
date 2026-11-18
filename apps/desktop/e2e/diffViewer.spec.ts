@@ -3,10 +3,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { diffShown, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, launchApp } from "./launch";
 import { focusedTabPage } from "./tabPages";
 
 // The diff viewer (#404): a file's diff, opened from the Commit Details View
@@ -15,11 +16,6 @@ import { focusedTabPage } from "./tabPages";
 // app under the page's content security policy, with nothing from anywhere
 // else; both sides read by the main process per `defaultFileEncoding`. Read
 // through the page and the app's log (ADR-0032).
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 let scratch: string;
 let env: NodeJS.ProcessEnv;
@@ -46,11 +42,10 @@ const log = () => readFileSync(path.join(userData(), "logs", "main.log"), "utf8"
 async function launch(repo: string, settings: Record<string, unknown> = {}) {
   mkdirSync(userData(), { recursive: true });
   writeFileSync(path.join(userData(), "settings.json"), JSON.stringify(settings));
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${userData()}`, "--repo", repo],
-    env: env as Record<string, string>
-  });
+  app = await launchApp(
+    ["--lang=en-US", APP_DIR, `--user-data-dir=${userData()}`, "--repo", repo],
+    env
+  );
   await startTrace(app);
   return app;
 }

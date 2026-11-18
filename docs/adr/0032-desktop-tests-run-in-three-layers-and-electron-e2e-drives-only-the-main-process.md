@@ -178,9 +178,20 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **檔案在 app 啟動前就改好,stale 那條只改 working tree 的檔案。** 理由同 `workingTree.spec.ts`:app 讀 repo 時會不時握著 index 的 lock,測試自己寫 index 會跟它搶。改 working tree 的檔案不碰 index。
 - **失敗時留下 app 的 log**(`main.log`,與 `app-trace.zip` 放在一起):main process 那一側做了什麼,只有它看得到。
 
+## 補記(2026-11-18,本機 E2E 不占用使用者的畫面)
+
+**Electron E2E 一律經 [launch.ts](../../apps/desktop/e2e/launch.ts) 的 `launchApp` 啟動,它在 app 的 main 之前用 Electron 的 `-r` 載入測試端的 [quietWindows.js](../../apps/desktop/e2e/quietWindows.js):app 開的每個視窗都看不見、不搶鍵盤、不擋滑鼠。** 本機跑 E2E 時,視窗一個個跳出來搶走焦點,使用者沒辦法同時做別的事。產品碼不動,也沒有給測試用的全域(本 ADR 的原則):app 照常 `new BrowserWindow(...)`,拿到的是測試端換過的一個。`GING_E2E_SHOW=1` 時不載入它,視窗照 app 本來的樣子出現,方便看著跑。
+
+- **視窗照樣「顯示」,只是使用者看不到:`showInactive()`、`opacity: 0`、`focusable: false`、`skipTaskbar`、`setIgnoreMouseEvents(true)`,`show()` 一律改成 `showInactive()`,`focus()` / `moveTop()` 不做事。** 不選 `show: false`:沒顯示的視窗 Chromium 不畫,requestAnimationFrame 不跑,`document.visibilityState` 是 `hidden`,而 Monaco 的版面與圖形的繪製都靠這些;這個做法下實測頁面仍是 `visible`、rAF 照跑、`document.hasFocus()` 為真(Playwright 的輸入不經作業系統的焦點)。也不選移到螢幕外:視窗的位置與大小維持 app 要的樣子,讀版面的測試不受影響。
+- **關掉 Windows 的遮蔽偵測(`--disable-features=CalculateNativeWinOcclusion`)。** 被其他視窗蓋住的視窗會被 Chromium 當成 hidden 而停止繪製;測試的視窗本來就在使用者的視窗後面。
+- **類別名稱必須是 `BrowserWindow`。** Electron 用 `constructor.name` 認自己的視窗(`getAllWindows`、`getFocusedWindow`),子類別換了名字就從這些清單裡消失。`require("electron")` 的 export 是不能重新定義的 getter,所以 app 拿到的是包了一層 Proxy 的模組,只有 `BrowserWindow` 換掉(`Module._load` 攔 `"electron"`)。
+- **`-r <檔案>` 會被 app 當成自己的路徑。** app 照 `electron [switches] <app> [args]` 讀命令列(`launchArgs.ts`),第一個不是 switch 的參數就當 app 路徑;所以 quietWindows.js 先把 `-r` 與自己的路徑從 `process.argv` 拿掉,app 讀到的命令列與沒有它時相同。實測沒拿掉時每個 `--repo` 都被當成「忽略的參數」,幾乎全部 E2E 紅。
+- **驗證方式:** 跑全部 desktop E2E 時,另一個行程每 200ms 讀一次前景視窗(`GetForegroundWindow`)所屬的行程與執行檔路徑;不顯示的整輪(50/50)這個 worktree 的 electron 從未出現在前景(同一段時間其他 worktree 的 E2E 有);`GING_E2E_SHOW=1` 的整輪,它搶到前景 53 次。Tab 頁面在兩種模式下都是 `visible`、rAF 照跑;從啟動到圖形畫出,實測不顯示 2.0–3.7 秒、顯示 2.0–2.8 秒(各 6 次,機器同時被其他測試佔用)。
+- **webview E2E 本來就是 headless**(Playwright 預設,CI 只裝 `chromium --only-shell`),不受影響。**`pnpm run test:ext` 會開一個真的 VS Code 視窗,沒有支援的方式讓它不出現或不搶焦點:** `@vscode/test-electron` 啟動的是打包好的 VS Code,沒有 `-r`、也不讀 `NODE_OPTIONS`,VS Code 的命令列沒有隱藏或最小化視窗的選項。要在本機跑又不被打擾,只能放到另一個虛擬桌面或交給 CI。
+
 ## 補記(2026-11-18,#409)
 
 **blame 的 Electron E2E 兩條在 [fileBlame.spec.ts](../../apps/desktop/e2e/fileBlame.spec.ts),fixture 是測試自己建的兩個 commit(Alice 新增、Bob 改第二行)。** 驗的是只有真的 app 才證明得了的事:Monaco 真的把註記畫在每一行前面(讀 `.view-line` 裡的 `.gingBlameAnnotation`;Monaco 把空白畫成 no-break space,讀之前換回來);hover 先出現、再被宿主寫完整(commit 訊息的 body、hunk 的 `+SECOND`),Markdown 的 `command:` 連結真的經 main process 打開這一行的 diff;再次打開檔案時切換鈕記得是開的;點註記之後面板關掉、圖形停在那個 commit(CDV 打開或焦點在那一列)。另一條從應用程式選單的 `ging.blameFile` 觸發(先讀 `enabled`,再 `click()`),開檔對話框照 #394 的做法換掉,斷言它被問的標題與按鈕、標題寫 working tree,以及還沒 commit 的那一行寫「You • Uncommitted changes」。兩條都斷言 console 沒有 error、log 沒有 `ERROR:`。
 
 - **blame 的語意在 vitest 用真的 git 驗,不在 E2E 重複**:某個 commit 的檔案、`^`、rename 前的檔名、shallow clone 的 boundary、非 UTF-8 檔逐行、特殊字元的路徑、`-` 開頭的 revision、大小上限、abort([atRevision.test.ts](../../packages/core/tests/queries/blameFile/atRevision.test.ts));一次一個檔案、被取代或關掉時回答 null、hover 的內容與連結參數的檢查([fileBlameService.test.ts](../../packages/core/tests/extension/fileBlameService.test.ts));宿主端的訊息往返、選單的 Blame File…、未追蹤的檔案([graphInstance.test.ts](../../apps/desktop/tests/graphInstance.test.ts))。面板的切換、記住、取代與關閉時放掉、過期的回答、點擊與連結在 jsdom 用假的 editors 驗([desktopDiffPanel.test.ts](../../packages/webview/tests/desktopDiffPanel.test.ts))。
-- **本機只各跑一次。** quiet-E2E 修正落地前,依協調者指示,本機只跑本票新增的 spec 一次,重複交給 CI;沒有改 `actions.spec.ts`。
+- **它照「本機 E2E 不占用使用者的畫面」補記,經 `launchApp` 啟動 app。** 沒有改 `actions.spec.ts`。

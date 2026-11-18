@@ -3,9 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, ELECTRON, launchApp } from "./launch";
 import { focusedTabPage, stripTabs, windowPage } from "./tabPages";
 
 // The Welcome page's Open Folder and Initialize Repository, the menu's, and
@@ -13,10 +14,6 @@ import { focusedTabPage, stripTabs, windowPage } from "./tabPages";
 // clicked, so it is answered in its place through the seam the main process
 // looks it up by (ADR-0032); the rest is read from the pages and the log.
 
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 const OPEN_FOLDER = "ging.openFolder";
 const OPEN_RECENT = "ging.openRecent";
 const INIT_REPOSITORY = "ging.initRepository";
@@ -46,11 +43,7 @@ const appArgs = (...args: string[]) => [
 ];
 
 async function launch(...args: string[]): Promise<ElectronApplication> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: appArgs(...args),
-    env: env as Record<string, string>
-  });
+  app = await launchApp(appArgs(...args), env);
   return app;
 }
 

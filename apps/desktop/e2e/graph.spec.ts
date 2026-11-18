@@ -3,15 +3,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { APP_DIR, ELECTRON, launchApp } from "./launch";
 import { focusedTabPage, windowPage } from "./tabPages";
-
-/** The app as `electron .` runs it: package.json's `main`, built into out/. */
-const APP_DIR = path.resolve(__dirname, "..");
-/** In Node, the `electron` package is the path to its binary. */
-const ELECTRON = require("electron") as unknown as string;
 
 /** A line the webview's failure report leaves in the log (`formatWebviewError`),
  *  or a message the page posted that reached no graph. */
@@ -47,11 +43,7 @@ const appArgs = (...args: string[]) => [
  *  single-instance lock's scope) and with git kept off the developer's own
  *  configuration (ADR-0032). */
 async function launch(...args: string[]): Promise<ElectronApplication> {
-  app = await _electron.launch({
-    executablePath: ELECTRON,
-    args: appArgs(...args),
-    env: env as Record<string, string>
-  });
+  app = await launchApp(appArgs(...args), env);
   return app;
 }
 
