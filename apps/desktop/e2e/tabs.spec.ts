@@ -17,6 +17,7 @@ import {
 import { TAB_STRIP_HEIGHT } from "@ging/webview/desktop/window/protocol";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { clickMenu } from "./mainProcess";
 import { focusedTabPage, stripTabs, tabPage, windowPage } from "./tabPages";
 
 // The desktop window's Tabs (#393): a repository per Tab, at most one Tab per
@@ -84,16 +85,6 @@ function spelled(repo: FixtureRepo): string {
   return execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: repo.path, env })
     .toString()
     .trim();
-}
-
-/** The menu entry `id`, clicked as the menu Electron built would click it,
- *  and whether it was enabled (a direct click does not check). */
-function clickMenu(electronApp: ElectronApplication, id: string): Promise<boolean | null> {
-  return electronApp.evaluate(({ Menu }, wanted) => {
-    const item = Menu.getApplicationMenu()?.getMenuItemById(wanted);
-    item?.click();
-    return item ? item.enabled : null;
-  }, id);
 }
 
 /** Every message box the app shows, answered in its place (ADR-0032). */

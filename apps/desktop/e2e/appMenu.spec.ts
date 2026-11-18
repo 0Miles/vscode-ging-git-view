@@ -1,11 +1,18 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import {
+  clickMenu,
+  menuEnabled,
+  putTerminalOnPath,
+  standInTerminals,
+  terminalsStarted
+} from "./mainProcess";
 import { focusedTabPage, windowPage } from "./tabPages";
 
 // The application menu, the desktop host's entry to core's command services
@@ -65,24 +72,6 @@ function fixtureRepo(): FixtureRepo {
   const repo = makeFixtureRepo(env);
   cleanUp.push(repo.path);
   return repo;
-}
-
-/** Whether entry `id` is enabled, as the main process holds it. */
-function enabled(electronApp: ElectronApplication, id: string): Promise<boolean | null> {
-  return electronApp.evaluate(
-    ({ Menu }, wanted) => Menu.getApplicationMenu()?.getMenuItemById(wanted)?.enabled ?? null,
-    id
-  );
-}
-
-/** Entry `id` clicked as the menu Electron built would click it — no window,
- *  no check of `enabled` — answering whether it was enabled. */
-function clickMenu(electronApp: ElectronApplication, id: string): Promise<boolean | null> {
-  return electronApp.evaluate(({ Menu }, wanted) => {
-    const item = Menu.getApplicationMenu()?.getMenuItemById(wanted);
-    item?.click();
-    return item ? item.enabled : null;
-  }, id);
 }
 
 /** Every message box the app shows is dismissed — its cancel button, or its
@@ -190,40 +179,19 @@ test("Show Statistics opens a window of its own on the focused Tab's figures", a
 test("Open in Terminal starts the system's terminal in the focused Tab's repository", async () => {
   const repo = fixtureRepo();
   // On Linux the app looks its terminal up on the PATH's absolute folders, and
-  // a CI machine may have none: one put first there, as actions.spec.ts does.
-  // It is never run — the spawn is stood in for, below.
-  if (process.platform === "linux") {
-    const bin = path.join(scratch, "bin");
-    mkdirSync(bin);
-    writeFileSync(path.join(bin, "x-terminal-emulator"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-    env.PATH = `${bin}:${env.PATH ?? ""}`;
-  }
+  // a CI machine may have none: one put first there. It is never run — the
+  // spawn is stood in for, below.
+  if (process.platform === "linux") putTerminalOnPath(env, scratch);
+
   const electronApp = await launch("--repo", repo.path);
   await focusedTabPage(electronApp);
-  // The terminal is the one detached process the app starts: taken in its
-  // place, as actions.spec.ts does, so no terminal opens (ADR-0032).
-  await electronApp.evaluate(() => {
-    const started: { cwd: string }[] = [];
-    (globalThis as Record<string, unknown>).terminals = started;
-    const node = process.mainModule!.require.bind(process.mainModule);
-    const childProcess = node("node:child_process") as typeof import("node:child_process");
-    const { EventEmitter } = node("node:events") as typeof import("node:events");
-    const realSpawn = childProcess.spawn;
-    childProcess.spawn = ((command: string, args: string[], options?: { detached?: boolean }) => {
-      if (options?.detached !== true) return realSpawn(command, args, options ?? {});
-      started.push({ cwd: (options as { cwd: string }).cwd });
-      const child = Object.assign(new EventEmitter(), { unref: () => {} });
-      queueMicrotask(() => child.emit("spawn"));
-      return child;
-    }) as typeof childProcess.spawn;
-  });
+  // No terminal opens (ADR-0032).
+  await standInTerminals(electronApp);
 
   expect(await clickMenu(electronApp, "ging.openTerminal")).toBe(true);
 
   await expect
-    .poll(() =>
-      electronApp.evaluate(() => (globalThis as Record<string, unknown>).terminals as unknown[])
-    )
+    .poll(() => terminalsStarted(electronApp))
     .toEqual([{ cwd: realpathSync.native(repo.path) }]);
   expect(await closeAndReadLog()).not.toMatch(/ERROR:/);
 });
@@ -234,7 +202,7 @@ test("with no Tab, the graph's entries are not offered, and Set Git User Details
   await expect(window.locator("#welcome")).toBeVisible();
   const askedBoxes = await answerMessageBoxes(electronApp);
 
-  const offered = await Promise.all(GRAPH_ENTRIES.map((id) => enabled(electronApp, id)));
+  const offered = await Promise.all(GRAPH_ENTRIES.map((id) => menuEnabled(electronApp, id)));
   expect(offered).toEqual(GRAPH_ENTRIES.map(() => false));
   expect(await clickMenu(electronApp, "ging.setGitUserDetails")).toBe(true);
 
@@ -276,7 +244,7 @@ test("with a Tab whose folder has gone in front, nothing that asks is offered, a
 
   const offered = await Promise.all(
     [...GRAPH_ENTRIES, "ging.setGitUserDetails", "ging.managePullRequestProviders"].map((id) =>
-      enabled(electronApp, id)
+      menuEnabled(electronApp, id)
     )
   );
   expect(offered.every((value) => value === false)).toBe(true);

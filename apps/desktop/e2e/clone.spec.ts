@@ -7,6 +7,13 @@ import { pathToFileURL } from "node:url";
 import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import {
+  answerFolderDialog,
+  answerMessageBoxes,
+  folderDialogs,
+  menuEnabled,
+  messageBoxes
+} from "./mainProcess";
 import { startStallingRemote, type StallingRemote } from "./stallingRemote";
 import { focusedTabPage, stripTabs, windowPage } from "./tabPages";
 import { startUnauthorizedRemote, type UnauthorizedRemote } from "./unauthorizedRemote";
@@ -65,43 +72,6 @@ async function closeAndReadLog(): Promise<string> {
   return readFileSync(path.join(scratch, "userData", "logs", "main.log"), "utf8");
 }
 
-/** The folder dialog answered with `folder`, its options kept to be read. */
-async function answerFolderDialog(electronApp: ElectronApplication, folder: string): Promise<void> {
-  await electronApp.evaluate(({ dialog }, answer) => {
-    const asked: unknown[] = [];
-    (globalThis as Record<string, unknown>).askedFolders = asked;
-    dialog.showOpenDialog = (async (...args: unknown[]) => {
-      asked.push(args.at(-1));
-      return { canceled: false, filePaths: [answer] };
-    }) as typeof dialog.showOpenDialog;
-  }, folder);
-}
-
-/** Every message box answered with its first button, and kept to be read. */
-async function answerMessageBoxes(electronApp: ElectronApplication): Promise<void> {
-  await electronApp.evaluate(({ dialog }) => {
-    const asked: unknown[] = [];
-    (globalThis as Record<string, unknown>).askedBoxes = asked;
-    dialog.showMessageBox = (async (...args: unknown[]) => {
-      asked.push(args.at(-1));
-      return { response: 0, checkboxChecked: false };
-    }) as typeof dialog.showMessageBox;
-  });
-}
-
-const asked = (electronApp: ElectronApplication, what: "askedFolders" | "askedBoxes") =>
-  electronApp.evaluate(
-    (_, key) => ((globalThis as Record<string, unknown>)[key] as unknown[]) ?? [],
-    what
-  );
-
-/** Whether the menu's Clone Repository… is enabled now. */
-const cloneEnabled = (electronApp: ElectronApplication) =>
-  electronApp.evaluate(
-    ({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled ?? null,
-    CLONE_REPOSITORY
-  );
-
 /** Answer the Welcome page's URL prompt with `url`. */
 async function typeUrl(window: Page, url: string): Promise<void> {
   const input = window.locator("#hostPromptInput");
@@ -154,7 +124,7 @@ test("Clone Repository clones a file:// remote into the folder chosen and opens 
   const cloned = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: folder, env })
     .toString()
     .trim();
-  expect(await asked(electronApp, "askedFolders")).toEqual([
+  expect(await folderDialogs(electronApp)).toEqual([
     { properties: ["openDirectory", "createDirectory"], buttonLabel: "Clone Here" }
   ]);
   // Opened as Open Folder opens one: first in Open Recent.
@@ -168,7 +138,7 @@ test("Clone Repository clones a file:// remote into the folder chosen and opens 
     )
     .toEqual([`ging.openRecent:${cloned}`]);
   // A Tab now covers the Welcome page the clone is shown on.
-  expect(await cloneEnabled(electronApp)).toBe(false);
+  expect(await menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(false);
 
   const logged = await closeAndReadLog();
   expect(logged).toContain(`clone: ${url} into ${folder}`);
@@ -208,7 +178,7 @@ test("a remote that asks for credentials asks on the Welcome page, and a clone i
   // Turned away again, git gives up: said in a box over the window, in the
   // app's words before git's own, which are git's business.
   await expect
-    .poll(() => asked(electronApp, "askedBoxes"))
+    .poll(() => messageBoxes(electronApp))
     .toEqual([
       expect.objectContaining({
         type: "error",
@@ -244,7 +214,7 @@ test("Cancel stops git, every process of it, and removes the folder it made; not
   const window = await windowPage(electronApp);
   await answerFolderDialog(electronApp, parent);
   // From the menu this time: with no Tab, its entry is enabled.
-  expect(await cloneEnabled(electronApp)).toBe(true);
+  expect(await menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(true);
   await electronApp.evaluate(({ Menu }, id) => {
     Menu.getApplicationMenu()?.getMenuItemById(id)?.click();
   }, CLONE_REPOSITORY);
@@ -256,7 +226,7 @@ test("Cancel stops git, every process of it, and removes the folder it made; not
   await expect(panel).toBeVisible();
   await expect.poll(() => remote.requests()).toBeGreaterThan(0);
   expect(existsSync(folder)).toBe(true);
-  await expect.poll(() => cloneEnabled(electronApp)).toBe(false);
+  await expect.poll(() => menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(false);
   // Nothing that would open a Tab over the clone's panel is offered...
   expect(
     await electronApp.evaluate(({ Menu }) =>

@@ -6,6 +6,13 @@ import path from "node:path";
 import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import {
+  answerFolderDialog,
+  answerMessageBoxes,
+  clickMenu,
+  folderDialogs,
+  messageBoxes
+} from "./mainProcess";
 import { focusedTabPage, stripTabs, windowPage } from "./tabPages";
 
 // The Welcome page's Open Folder and Initialize Repository, the menu's, and
@@ -20,16 +27,6 @@ const ELECTRON = require("electron") as unknown as string;
 const OPEN_FOLDER = "ging.openFolder";
 const OPEN_RECENT = "ging.openRecent";
 const INIT_REPOSITORY = "ging.initRepository";
-
-/** The menu entry `id`, clicked as the menu Electron built would click it,
- *  and whether it was enabled (a direct click does not check). */
-function clickMenu(electronApp: ElectronApplication, id: string): Promise<boolean | null> {
-  return electronApp.evaluate(({ Menu }, wanted) => {
-    const item = Menu.getApplicationMenu()?.getMenuItemById(wanted);
-    item?.click();
-    return item ? item.enabled : null;
-  }, id);
-}
 
 let scratch: string;
 let env: NodeJS.ProcessEnv;
@@ -81,37 +78,6 @@ function spelled(folder: string): string {
     .toString()
     .trim();
 }
-
-/** The folder dialog answered with `folder` from now on, each time it is
- *  asked; what it was asked with is kept, to be read by `folderDialogs`. */
-async function answerFolderDialog(electronApp: ElectronApplication, folder: string): Promise<void> {
-  await electronApp.evaluate(({ dialog }, answer) => {
-    const asked: unknown[] = [];
-    (globalThis as Record<string, unknown>).askedFolders = asked;
-    dialog.showOpenDialog = (async (...args: unknown[]) => {
-      asked.push(args.at(-1));
-      return { canceled: false, filePaths: [answer] };
-    }) as typeof dialog.showOpenDialog;
-  }, folder);
-}
-
-const folderDialogs = (electronApp: ElectronApplication) =>
-  electronApp.evaluate(() => (globalThis as Record<string, unknown>).askedFolders as unknown[]);
-
-/** Every message box answered with its first button, and kept to be read. */
-async function answerMessageBoxes(electronApp: ElectronApplication): Promise<void> {
-  await electronApp.evaluate(({ dialog }) => {
-    const asked: unknown[] = [];
-    (globalThis as Record<string, unknown>).askedBoxes = asked;
-    dialog.showMessageBox = (async (...args: unknown[]) => {
-      asked.push(args.at(-1));
-      return { response: 0, checkboxChecked: false };
-    }) as typeof dialog.showMessageBox;
-  });
-}
-
-const messageBoxes = (electronApp: ElectronApplication) =>
-  electronApp.evaluate(() => (globalThis as Record<string, unknown>).askedBoxes as unknown[]);
 
 /** The recent list as the Welcome page shows it. */
 function recentList(window: Page) {

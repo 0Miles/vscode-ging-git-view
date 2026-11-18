@@ -1,0 +1,362 @@
+import { execFileSync } from "node:child_process";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync
+} from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+
+import { keepTraceIfFailed, startTrace } from "./diffViewerPage";
+import { datedGit, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { type GuardedRemote, startGuardedRemote } from "./guardedRemote";
+import {
+  answerFolderDialog,
+  clickMenu,
+  menuEnabled,
+  openSettings,
+  putTerminalOnPath,
+  settingRow,
+  standInTerminals,
+  terminalsStarted
+} from "./mainProcess";
+import { focusedTabPage, stripTabs, windowPage } from "./tabPages";
+
+// Phase C's acceptance walk (#401, epic #291): "someone without VS Code can
+// open, clone and init repositories, see the graph, perform the graph's
+// actions — authenticated fetch and push among them — switch between
+// repositories, change settings and the theme, and open a system terminal".
+// One user, one app session, each clause a step named after it. The network
+// is local only (ADR-0032): an HTTP remote on 127.0.0.1 that asks for
+// credentials and lets the right ones in (guardedRemote.ts, the #392 401
+// server with git's own http-backend behind it), and folders on disk. The
+// system's dialogs are answered in their place; its terminal is a fake one on
+// the PATH on Linux, stood in for elsewhere (mainProcess.ts).
+//
+// Each clause's own spec goes deeper; this one proves they hold together.
+// Every one of the graph's actions is walked by actions.spec.ts.
+
+const APP_DIR = path.resolve(__dirname, "..");
+/** In Node, the `electron` package is the path to its binary. */
+const ELECTRON = require("electron") as unknown as string;
+/** What the page's failure report leaves in the log (graph.spec.ts). */
+const WEBVIEW_FAILURE = /ERROR: webview |"reportError"/;
+/**
+ * How long a wait on git's work may take: a clone, a push or a fetch through
+ * the guarded remote — each question git asks runs the askpass helper, the
+ * app's own binary started as Node — or the graph's reload after git changed
+ * the repository. Measured on Windows with other E2E runs on the machine
+ * (#401's status record): one askpass question took 2 s to be asked, a branch
+ * created 4.2 s to be drawn, a fetch answered 5 s and more to be drawn, the
+ * push step 16.8 s in all; the default 5 s ran out at a different one of them
+ * in 4 of 10 runs, with the page answering throughout (the trace). Not a race:
+ * each wait is on what the product shows once git is done.
+ */
+const GIT_WORK = { timeout: 30_000 };
+const USERNAME = "alice";
+const PASSWORD = "s3cret";
+
+let scratch: string;
+let env: NodeJS.ProcessEnv;
+let app: ElectronApplication | null = null;
+let cleanUp: string[] = [];
+let remote: GuardedRemote | null = null;
+
+/**
+ * `env` with nothing of VS Code's in it: no `VSCODE_*` variable, no askpass
+ * of its (the developer's terminal may be VS Code's), and no folder on the
+ * PATH holding its `code` command. The app needs none of it.
+ */
+function withoutVsCode(from: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const kept = Object.fromEntries(
+    Object.entries(from).filter(
+      ([name]) => !/^VSCODE_/i.test(name) && !/^(GIT|SSH)_ASKPASS$/i.test(name)
+    )
+  );
+  const pathName = Object.keys(kept).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
+  kept[pathName] = (kept[pathName] ?? "")
+    .split(path.delimiter)
+    .filter(
+      (dir) => !["code", "code.cmd", "code.exe"].some((bin) => existsSync(path.join(dir, bin)))
+    )
+    .join(path.delimiter);
+  return kept;
+}
+
+/** Answer git's two questions, asked in `page` through askpass: the username,
+ *  then the password, masked. */
+async function answerCredentials(page: Page): Promise<void> {
+  const input = page.locator("#hostPromptInput");
+  await expect(input).toHaveAttribute("placeholder", "Username", GIT_WORK);
+  await expect(input).toBeFocused();
+  await page.keyboard.type(USERNAME);
+  await page.keyboard.press("Enter");
+  await expect(input).toHaveAttribute("placeholder", "Password", GIT_WORK);
+  await expect(input).toHaveAttribute("type", "password");
+  await page.keyboard.type(PASSWORD);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#hostPrompt")).toBeHidden(GIT_WORK);
+}
+
+/** Click the item of the graph's context menu now open in `page` whose label
+ *  starts with `label`. */
+async function chooseFromMenu(page: Page, label: string): Promise<void> {
+  const item = page.locator("#contextMenu .contextMenuItem").filter({
+    hasText: new RegExp(`^${label}`)
+  });
+  await item.click();
+}
+
+test.beforeEach(() => {
+  scratch = realpathSync.native(mkdtempSync(path.join(os.tmpdir(), "ging-e2e-")));
+  // No system config, an empty global one, and never the terminal: no
+  // credential helper answers in the user's place, so git asks (ADR-0032).
+  env = withoutVsCode(isolatedGitEnv(path.join(scratch, "home")));
+  cleanUp = [];
+});
+
+test.afterEach(async () => {
+  if (app !== null) await keepTraceIfFailed(app, test.info());
+  await app?.close();
+  app = null;
+  // The app's own account of a walk that failed, beside its trace.
+  const log = path.join(scratch, "userData", "logs", "main.log");
+  if (test.info().status !== test.info().expectedStatus && existsSync(log)) {
+    copyFileSync(log, test.info().outputPath("main.log"));
+  }
+  await remote?.close();
+  remote = null;
+  [scratch, ...cleanUp].forEach((dir) => rmSync(dir, { recursive: true, force: true }));
+});
+
+test("phase C: open, clone and init repositories, act on the graph through a remote that asks for credentials, switch Tabs, change settings and theme, open a terminal", async () => {
+  test.setTimeout(180_000);
+
+  // The project on a server that asks who is there.
+  const upstream = makeFixtureRepo(env);
+  cleanUp.push(upstream.path);
+  const served = path.join(scratch, "served");
+  const servedRepo = path.join(served, "project.git");
+  execFileSync("git", ["clone", "--bare", "--template=", upstream.path, servedRepo], {
+    env,
+    stdio: "pipe"
+  });
+  remote = await startGuardedRemote({
+    root: served,
+    repo: "project.git",
+    username: USERNAME,
+    password: PASSWORD,
+    env
+  });
+  /** What the server's repository has `ref` at, or "" while it has none. */
+  const servedRef = (ref: string) => {
+    try {
+      return execFileSync("git", ["--git-dir", servedRepo, "rev-parse", "--verify", ref], {
+        env,
+        stdio: "pipe"
+      })
+        .toString()
+        .trim();
+    } catch {
+      return "";
+    }
+  };
+  // Another repository already on disk, and a folder to start one in.
+  const another = makeFixtureRepo(env);
+  cleanUp.push(another.path);
+  const newProject = path.join(scratch, "new-project");
+  mkdirSync(newProject);
+  const clones = path.join(scratch, "clones");
+  mkdirSync(clones);
+  const cloned = path.join(clones, "project");
+  // On Linux the terminal is the one on the PATH, really started; elsewhere
+  // the system's own is stood in for once the app runs.
+  const terminalRecord = process.platform === "linux" ? putTerminalOnPath(env, scratch) : null;
+
+  app = await _electron.launch({
+    executablePath: ELECTRON,
+    args: ["--lang=en-US", APP_DIR, `--user-data-dir=${path.join(scratch, "userData")}`],
+    env: env as Record<string, string>
+  });
+  const electronApp = app;
+  await startTrace(electronApp);
+  const window = await windowPage(electronApp);
+  if (terminalRecord === null) await standInTerminals(electronApp);
+
+  await test.step("someone without VS Code starts the app: the Welcome page", async () => {
+    await expect(window.locator("#welcome .welcomeActions")).toBeVisible();
+    await expect(window.locator("#tabStrip")).toBeHidden();
+  });
+
+  let project!: Page;
+  await test.step("clone a repository, its remote asking for credentials", async () => {
+    await answerFolderDialog(electronApp, clones);
+    await window.getByRole("button", { name: "Clone Repository..." }).click();
+    await expect(window.locator("#hostPromptInput")).toBeFocused();
+    await window.keyboard.type(remote!.url);
+    await window.keyboard.press("Enter");
+    // There is no Tab yet: git's askpass asks on the Welcome page.
+    await expect(window.locator("#clonePanel")).toBeVisible();
+    await answerCredentials(window);
+    // git's own clone, then the Tab it is opened in.
+    await expect(window.locator("#tabStrip .tab")).toHaveCount(1, GIT_WORK);
+    project = await focusedTabPage(electronApp);
+    expect((await stripTabs(window)).map(({ title }) => title)).toEqual(["project"]);
+    expect(
+      execFileSync("git", ["remote", "get-url", "origin"], { cwd: cloned, env }).toString().trim()
+    ).toBe(remote!.url);
+  });
+
+  const rows = project.locator("#commitTable tr.commit");
+  await test.step("see the graph", async () => {
+    await expect(rows).toHaveCount(upstream.commits.length, GIT_WORK);
+    await expect(rows.first()).toContainText("Third commit");
+    await expect(project.locator('.gitRef[data-name="origin/feature"]')).toBeVisible();
+  });
+
+  await test.step("act on the graph: create a branch, push it through a remote that asks", async () => {
+    await rows.filter({ hasText: "Second commit" }).click({ button: "right" });
+    await chooseFromMenu(project, "Create Branch");
+    await project.locator("#dialogInput0").fill("topic");
+    await project.locator("#dialogAction").click();
+    const topic = project.locator('.gitRef[data-name="topic"]');
+    await expect(topic).toBeVisible(GIT_WORK);
+
+    await topic.click({ button: "right" });
+    await chooseFromMenu(project, "Push Branch");
+    await project.locator("#dialogAction").click();
+    await answerCredentials(project);
+    await expect.poll(() => servedRef("refs/heads/topic"), GIT_WORK).toBe(upstream.commits[2].hash);
+    await expect(project.locator("#dialog #actionRunning")).toHaveCount(0, GIT_WORK);
+  });
+
+  await test.step("fetch through a remote that asks", async () => {
+    // Someone else pushed meanwhile.
+    const git = datedGit(servedRepo, env, 1_700_100_000);
+    const ahead = git("commit-tree", "main^{tree}", "-p", "main", "-m", "Remote commit");
+    git("update-ref", "refs/heads/main", ahead);
+
+    await project.locator("#fetchBtn").click();
+    await answerCredentials(project);
+    await expect(rows.filter({ hasText: "Remote commit" })).toHaveCount(1, GIT_WORK);
+    await expect(project.locator("#dialog #actionRunning")).toHaveCount(0, GIT_WORK);
+  });
+
+  await test.step("open a folder's repository and init another: one Tab each", async () => {
+    await answerFolderDialog(electronApp, another.path);
+    expect(await clickMenu(electronApp, "ging.openFolder")).toBe(true);
+    await expect
+      .poll(async () => (await stripTabs(window)).map(({ title }) => title), GIT_WORK)
+      .toEqual(["project", path.basename(another.path)]);
+
+    await answerFolderDialog(electronApp, newProject);
+    expect(await clickMenu(electronApp, "ging.initRepository")).toBe(true);
+    await expect
+      .poll(async () => (await stripTabs(window)).map(({ title }) => title), GIT_WORK)
+      .toEqual(["project", path.basename(another.path), "new-project"]);
+    expect(existsSync(path.join(newProject, ".git"))).toBe(true);
+    const fresh = await focusedTabPage(electronApp, 3);
+    await expect(fresh.locator("#repoTitleName")).toHaveText("new-project", GIT_WORK);
+
+    // Known gap #461: with a Tab open, Clone is not offered — its progress and
+    // its credential prompts are drawn on the Welcome page the Tabs cover.
+    // This walk cloned first for that reason.
+    expect(await menuEnabled(electronApp, "ging.cloneRepository")).toBe(false);
+  });
+
+  await test.step("switch between repositories", async () => {
+    const tabs = await stripTabs(window);
+    const projectTab = tabs.find(({ title }) => title === "project")!;
+    await window.locator(`#tabStrip .tab[data-tab-id="${projectTab.id}"]`).click();
+    await expect
+      .poll(async () => (await stripTabs(window)).find(({ focused }) => focused)?.title)
+      .toBe("project");
+    const focused = await focusedTabPage(electronApp, 3);
+    await expect(focused.locator("#repoTitleName")).toHaveText("project");
+    // Each is in Open Recent, to come back to.
+    const recent = await electronApp.evaluate(({ Menu }) =>
+      Menu.getApplicationMenu()
+        ?.getMenuItemById("ging.openRecent")
+        ?.submenu?.items.map((item) => item.id)
+    );
+    expect(recent).toHaveLength(3);
+  });
+
+  await test.step("change a setting: the graph follows without a restart", async () => {
+    const settings = await openSettings(electronApp);
+    await settingRow(settings, "ging-git-view.show.remoteBranches")
+      .locator("input[type=checkbox]")
+      .uncheck();
+    // What only the remote's branches lead to is gone from the graph.
+    await expect(rows.filter({ hasText: "Remote commit" })).toHaveCount(0, GIT_WORK);
+    await expect(rows.filter({ hasText: "Feature commit" })).toHaveCount(0);
+    await expect(project.locator('.gitRef[data-name="origin/feature"]')).toHaveCount(0);
+
+    await test.step("and the theme, by hand: every page follows", async () => {
+      // Every page of the app's — the window's, each Tab's, the settings' —
+      // in `theme`, and the choice itself held, not the system's.
+      const choose = async (theme: "dark" | "light") => {
+        await settings.locator("#ging-theme select").selectOption(theme);
+        await Promise.all(
+          electronApp
+            .windows()
+            .map((page) => expect(page.locator("body")).toContainClass(`vscode-${theme}`))
+        );
+        expect(await electronApp.evaluate(({ nativeTheme }) => nativeTheme.themeSource)).toBe(
+          theme
+        );
+      };
+      // Both ways, so one of them is a change whatever the system's theme is.
+      await choose("dark");
+      await choose("light");
+      await settings.close();
+    });
+  });
+
+  await test.step("open a system terminal in the focused Tab's repository", async () => {
+    expect(await clickMenu(electronApp, "ging.openTerminal")).toBe(true);
+    if (terminalRecord !== null) {
+      await expect
+        .poll(() => (existsSync(terminalRecord) ? readFileSync(terminalRecord, "utf8") : ""))
+        .toBe(`${realpathSync.native(cloned)}\n`);
+    } else {
+      await expect
+        .poll(() => terminalsStarted(electronApp))
+        .toEqual([{ cwd: realpathSync.native(cloned) }]);
+    }
+  });
+
+  await test.step("nothing went wrong on the way", async () => {
+    // Every credential the remote saw was the one typed; each of the clone,
+    // the push and the fetch was asked for one.
+    const sent = remote!.requests.flatMap(({ authorization }) =>
+      authorization === undefined ? [] : [authorization]
+    );
+    expect(new Set(sent)).toEqual(
+      new Set([`Basic ${Buffer.from(`${USERNAME}:${PASSWORD}`).toString("base64")}`])
+    );
+    const challenged = remote!.requests.filter(
+      ({ url, authorization }) => url.includes("/info/refs") && authorization === undefined
+    );
+    expect(
+      challenged.map(({ url }) => new URL(url, "http://x").searchParams.get("service"))
+    ).toEqual(["git-upload-pack", "git-receive-pack", "git-upload-pack"]);
+
+    await electronApp.close();
+    app = null;
+    const logged = readFileSync(path.join(scratch, "userData", "logs", "main.log"), "utf8");
+    const spelled = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: cloned, env })
+      .toString()
+      .trim();
+    expect(logged).toContain(`clone: cloned ${spelled}`);
+    expect(logged).toContain("settings: ging-git-view.show.remoteBranches saved");
+    expect(logged).not.toMatch(WEBVIEW_FAILURE);
+    expect(logged).not.toContain("ERROR:");
+  });
+});

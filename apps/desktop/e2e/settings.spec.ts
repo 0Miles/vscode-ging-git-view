@@ -3,9 +3,10 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { _electron, type ElectronApplication, expect, type Page, test } from "@playwright/test";
+import { _electron, type ElectronApplication, expect, test } from "@playwright/test";
 
 import { addAheadRemote, type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
+import { openSettings, settingRow } from "./mainProcess";
 import { focusedTabPage } from "./tabPages";
 
 // The settings window (#397): opened from the menu's Settings…, writing
@@ -49,26 +50,6 @@ function fixtureRepo(): FixtureRepo {
   return repo;
 }
 
-/** Open the settings from the application menu's Settings… entry, found by
- *  its id as #390's E2E finds its own (ADR-0032); its accelerator is the
- *  template's, tested in appMenu.test.ts. */
-async function openSettings(electronApp: ElectronApplication): Promise<Page> {
-  const opened = electronApp.waitForEvent("window");
-  expect(
-    await electronApp.evaluate(({ Menu }) => {
-      const item = Menu.getApplicationMenu()?.getMenuItemById("ging.settings");
-      item?.click();
-      return item ? { enabled: item.enabled, accelerator: item.accelerator } : null;
-    })
-  ).toEqual({ enabled: true, accelerator: "CmdOrCtrl+," });
-  const settings = await opened;
-  await expect(settings.locator("html")).toHaveAttribute("data-ging-page", "settings");
-  return settings;
-}
-
-/** A setting's row on the settings page, by its key. */
-const row = (settings: Page, key: string) => settings.locator(`[id="${key}"]`);
-
 test.beforeEach(() => {
   scratch = mkdtempSync(path.join(os.tmpdir(), "ging-e2e-"));
   env = isolatedGitEnv(path.join(scratch, "home"));
@@ -99,8 +80,10 @@ test("a change to the auto-fetch interval takes effect without a restart", async
   await expect(graph.locator("#commitTable tr.commit").first()).toBeVisible();
   const settings = await openSettings(electronApp);
 
-  await row(settings, "ging-git-view.autoFetch.enabled").locator("input[type=checkbox]").check();
-  const interval = row(settings, "ging-git-view.autoFetch.intervalMinutes").locator("input");
+  await settingRow(settings, "ging-git-view.autoFetch.enabled")
+    .locator("input[type=checkbox]")
+    .check();
+  const interval = settingRow(settings, "ging-git-view.autoFetch.intervalMinutes").locator("input");
   await interval.fill("1");
   await interval.press("Tab");
   // Each saved, as the page shows once the host has answered.
