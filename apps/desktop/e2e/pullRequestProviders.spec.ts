@@ -7,6 +7,7 @@ import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 import { APP_DIR, launchApp } from "./launch";
+import { answerMessageBoxes, messageBoxes } from "./mainProcess";
 import { focusedTabPage } from "./tabPages";
 
 // Manage Pull Request Providers on the desktop host (#398): core's flow, run
@@ -66,16 +67,7 @@ test("a provider configured from a failed Create Pull Request is asked in the pa
 
   // Every system box answered with its first button — "Configure a
   // Provider...", then "Show Setting" — and kept, to be read below.
-  await electronApp.evaluate(({ dialog }) => {
-    const asked: unknown[] = [];
-    (globalThis as Record<string, unknown>).askedBoxes = asked;
-    dialog.showMessageBox = (async (...args: unknown[]) => {
-      asked.push(args.at(-1));
-      return { response: 0, checkboxChecked: false };
-    }) as typeof dialog.showMessageBox;
-  });
-  const askedBoxes = () =>
-    electronApp.evaluate(() => (globalThis as Record<string, unknown>).askedBoxes);
+  await answerMessageBoxes(electronApp);
 
   // What the branch menu's Create Pull Request sends.
   await page.evaluate((repoPath) => {
@@ -141,7 +133,7 @@ test("a provider configured from a failed Create Pull Request is asked in the pa
     { [KEY]: saved }
   );
 
-  expect(await askedBoxes()).toEqual([
+  expect(await messageBoxes(electronApp)).toEqual([
     expect.objectContaining({
       type: "error",
       message: "No pull request provider is configured for git.example.com.",

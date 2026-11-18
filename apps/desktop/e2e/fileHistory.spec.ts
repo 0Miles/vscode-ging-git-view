@@ -7,6 +7,7 @@ import { type ElectronApplication, expect, type Page, test } from "@playwright/t
 import { diffShown, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { datedGit, isolatedGitEnv } from "./fixtureRepo";
 import { APP_DIR, launchApp } from "./launch";
+import { answerFolderDialog, clickMenu, folderDialogs } from "./mainProcess";
 import { focusedTabPage } from "./tabPages";
 
 // A file's history (#408), with real git behind it: opened from the
@@ -91,30 +92,11 @@ test("the menu's File History… lists the picked file's commits across its rena
   await expect(page.locator("#commitTable tr.commit")).toHaveCount(SUBJECTS.length);
 
   // The system's dialog, answered: the file, and what it was asked.
-  await electronApp.evaluate(
-    ({ dialog }, answer) => {
-      const asked: unknown[] = [];
-      (globalThis as Record<string, unknown>).askedFiles = asked;
-      dialog.showOpenDialog = (async (...args: unknown[]) => {
-        asked.push(args.at(-1));
-        return { canceled: false, filePaths: [answer] };
-      }) as typeof dialog.showOpenDialog;
-    },
-    path.join(repo, "new.txt")
-  );
-  const enabled = await electronApp.evaluate(
-    ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("ging.fileHistory")?.enabled ?? null
-  );
-  expect(enabled).toBe(true);
-  await electronApp.evaluate(({ Menu }) =>
-    Menu.getApplicationMenu()?.getMenuItemById("ging.fileHistory")?.click()
-  );
+  await answerFolderDialog(electronApp, path.join(repo, "new.txt"));
+  expect(await clickMenu(electronApp, "ging.fileHistory")).toBe(true);
 
   await expect(panel(page)).toBeVisible();
-  const asked = await electronApp.evaluate(
-    () => (globalThis as Record<string, unknown>).askedFiles as Record<string, unknown>[]
-  );
-  expect(asked).toEqual([
+  expect(await folderDialogs(electronApp)).toEqual([
     {
       title: "File History",
       buttonLabel: "Show History",

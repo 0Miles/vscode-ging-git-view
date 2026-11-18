@@ -11,6 +11,7 @@ import { APP_DIR, ELECTRON, launchApp } from "./launch";
 import {
   answerFolderDialog,
   answerMessageBoxes,
+  clickMenu,
   folderDialogs,
   menuEnabled,
   messageBoxes
@@ -212,9 +213,7 @@ test("Cancel stops git, every process of it, and removes the folder it made; not
   await answerFolderDialog(electronApp, parent);
   // From the menu this time: with no Tab, its entry is enabled.
   expect(await menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(true);
-  await electronApp.evaluate(({ Menu }, id) => {
-    Menu.getApplicationMenu()?.getMenuItemById(id)?.click();
-  }, CLONE_REPOSITORY);
+  await clickMenu(electronApp, CLONE_REPOSITORY);
   await typeUrl(window, remote.url);
 
   // git has reached the remote, made the folder, and waits on an answer
@@ -226,10 +225,8 @@ test("Cancel stops git, every process of it, and removes the folder it made; not
   await expect.poll(() => menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(false);
   // Nothing that would open a Tab over the clone's panel is offered...
   expect(
-    await electronApp.evaluate(({ Menu }) =>
-      ["ging.openFolder", "ging.initRepository"].map(
-        (id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled
-      )
+    await Promise.all(
+      ["ging.openFolder", "ging.initRepository"].map((id) => menuEnabled(electronApp, id))
     )
   ).toEqual([false, false]);
   // ...and a later launch naming a repository waits for the clone.

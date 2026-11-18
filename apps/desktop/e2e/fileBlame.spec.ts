@@ -7,6 +7,7 @@ import { type ElectronApplication, expect, type Locator, type Page, test } from 
 import { diffShown, keepTraceIfFailed, startTrace } from "./diffViewerPage";
 import { datedGit, isolatedGitEnv } from "./fixtureRepo";
 import { APP_DIR, launchApp } from "./launch";
+import { answerFolderDialog, clickMenu, folderDialogs } from "./mainProcess";
 import { focusedTabPage } from "./tabPages";
 
 // A file's blame (#409), with real git behind it: shown beside the file a
@@ -193,24 +194,8 @@ test("the menu's Blame File… shows the working tree's copy of the picked file 
   await expect(commitRow(page, "shout second")).toBeVisible();
 
   // The system's dialog, answered: the file, and what it was asked.
-  await electronApp.evaluate(
-    ({ dialog }, answer) => {
-      const asked: unknown[] = [];
-      (globalThis as Record<string, unknown>).askedFiles = asked;
-      dialog.showOpenDialog = (async (...args: unknown[]) => {
-        asked.push(args.at(-1));
-        return { canceled: false, filePaths: [answer] };
-      }) as typeof dialog.showOpenDialog;
-    },
-    path.join(repo, "notes.txt")
-  );
-  const enabled = await electronApp.evaluate(
-    ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("ging.blameFile")?.enabled ?? null
-  );
-  expect(enabled).toBe(true);
-  await electronApp.evaluate(({ Menu }) =>
-    Menu.getApplicationMenu()?.getMenuItemById("ging.blameFile")?.click()
-  );
+  await answerFolderDialog(electronApp, path.join(repo, "notes.txt"));
+  expect(await clickMenu(electronApp, "ging.blameFile")).toBe(true);
 
   await diffShown(page);
   await expect(viewer(page).locator(".diffViewerTitle")).toHaveText("notes.txt (Working Tree)");
@@ -218,10 +203,7 @@ test("the menu's Blame File… shows the working tree's copy of the picked file 
     .poll(() => said(annotation(page, "not committed")))
     .toBe("You • Uncommitted changes");
   await expect.poll(() => said(annotation(page, "SECOND"))).toMatch(/^Bob, .+ • shout second$/);
-  const asked = await electronApp.evaluate(
-    () => (globalThis as Record<string, unknown>).askedFiles as Record<string, unknown>[]
-  );
-  expect(asked).toEqual([
+  expect(await folderDialogs(electronApp)).toEqual([
     expect.objectContaining({ title: "Blame File", buttonLabel: "Blame", properties: ["openFile"] })
   ]);
 

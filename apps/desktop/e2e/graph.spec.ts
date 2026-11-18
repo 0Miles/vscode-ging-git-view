@@ -7,6 +7,7 @@ import { type ElectronApplication, expect, test } from "@playwright/test";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 import { APP_DIR, ELECTRON, launchApp } from "./launch";
+import { answerMessageBoxes, messageBoxes } from "./mainProcess";
 import { focusedTabPage, windowPage } from "./tabPages";
 
 /** A line the webview's failure report leaves in the log (`formatWebviewError`),
@@ -131,14 +132,7 @@ test("a later launch naming a path that is no repository leaves the graph open, 
     // The system's dialog, answered in its place (ADR-0032): every box goes
     // through the app's NativeDialogs, which looks Electron's up when called,
     // so replacing it here answers for them all.
-    await electronApp.evaluate(({ dialog }) => {
-      const asked: unknown[] = [];
-      (globalThis as Record<string, unknown>).askedBoxes = asked;
-      dialog.showMessageBox = (async (...args: unknown[]) => {
-        asked.push(args.at(-1));
-        return { response: 0, checkboxChecked: false };
-      }) as typeof dialog.showMessageBox;
-    });
+    await answerMessageBoxes(electronApp);
 
     const missing = path.join(scratch, "not-a-repo");
     const sandbox = process.platform === "linux" ? ["--no-sandbox"] : [];
@@ -149,7 +143,7 @@ test("a later launch naming a path that is no repository leaves the graph open, 
     expect(await new Promise((resolve) => second.on("exit", resolve))).toBe(0);
 
     await expect
-      .poll(() => electronApp.evaluate(() => (globalThis as Record<string, unknown>).askedBoxes))
+      .poll(() => messageBoxes(electronApp))
       .toEqual([
         expect.objectContaining({
           type: "error",

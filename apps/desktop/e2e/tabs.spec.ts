@@ -11,7 +11,7 @@ import { TAB_STRIP_HEIGHT } from "@ging/webview/desktop/window/protocol";
 
 import { type FixtureRepo, isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 import { APP_DIR, ELECTRON, launchApp } from "./launch";
-import { answerMessageBoxes, clickMenu } from "./mainProcess";
+import { answerMessageBoxes, clickMenu, menuEnabled } from "./mainProcess";
 import { focusedTabPage, stripTabs, tabPage, windowPage } from "./tabPages";
 
 // The desktop window's Tabs (#393): a repository per Tab, at most one Tab per
@@ -191,24 +191,14 @@ test("closing the last Tab shows the Welcome page, with nothing to run the graph
   const electronApp = await launch("--repo", repo.path);
   const window = await windowPage(electronApp);
   await focusedTabPage(electronApp);
-  expect(
-    await electronApp.evaluate(
-      ({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled,
-      FETCH_REMOTE
-    )
-  ).toBe(true);
+  expect(await menuEnabled(electronApp, FETCH_REMOTE)).toBe(true);
 
   await window.locator("#tabStrip .tab .tabClose").click();
 
   await expect(window.locator("#tabStrip")).toBeHidden();
   await expect(window.locator("#welcome")).toBeVisible();
   await expect.poll(() => electronApp.windows().length).toBe(1);
-  expect(
-    await electronApp.evaluate(
-      ({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled,
-      FETCH_REMOTE
-    )
-  ).toBe(false);
+  expect(await menuEnabled(electronApp, FETCH_REMOTE)).toBe(false);
   expect(await closeAndReadLog()).not.toContain("ERROR:");
 });
 
