@@ -28,8 +28,10 @@ export function createRunRepoMutation(deps: {
 }): RunRepoMutation {
   // No use for the repo: `afterMutation` refreshes every surface, whichever
   // repo each one shows.
+  // Read afresh each time: it aborts while the work runs.
+  const aborted = () => deps.signal?.aborted === true;
   return async (_repo, work) => {
-    if (deps.signal?.aborted === true) throw new GitAbortedError("repo mutation");
+    if (aborted()) throw new GitAbortedError("repo mutation");
     // The watcher muted is the one unmuted, even if the graph closes or is
     // replaced while the work runs.
     const watcher = deps.watcher();
@@ -45,7 +47,7 @@ export function createRunRepoMutation(deps: {
       await work();
     } finally {
       watcher?.unmute();
-      if (deps.signal?.aborted !== true) deps.afterMutation();
+      if (!aborted()) deps.afterMutation();
     }
   };
 }

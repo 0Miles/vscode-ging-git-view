@@ -9,13 +9,7 @@ import type { SimpleGit } from "simple-git";
 
 import { type ConfiguredRemote, listRemotes } from "@ging/core/backend/queries/listRemotes";
 import { formatGitError, isGitAborted } from "@ging/core/backend/utils/gitError";
-import type {
-  HostLogger,
-  L10n,
-  Prompts,
-  RepoSource,
-  RunRepoMutation
-} from "@ging/core/host/ports";
+import type { HostLogger, L10n, Prompts, RepoSource, RunRepoMutation } from "@ging/core/host/ports";
 
 /** A modal yes-or-no question whose one way to say yes is `confirmLabel`;
  *  resolves to whether it was said. */

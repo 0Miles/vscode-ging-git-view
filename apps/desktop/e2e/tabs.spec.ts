@@ -232,16 +232,41 @@ async function serverAskingForCredentials() {
     received,
     /** How many connections git still has open. */
     openConnections: () => connections.size,
-    close: () =>
-      new Promise<void>((resolve) => {
-        // A workaround, not what the app should leave behind: a test that
-        // fails while git is still on the network leaves that git running,
-        // since closing a Tab or the app does not stop the git it started
-        // (#450). Without this, the server never closes and the test hangs.
-        server.closeAllConnections();
-        server.close(() => resolve());
-      })
+    close: () => new Promise<void>((resolve) => server.close(() => resolve()))
   };
+}
+
+/** A git server on this machine that never answers: a fetch from it stays on
+ *  the network, its connection open, until something stops its git (#450). */
+async function serverNeverAnswering() {
+  const connections = new Set<Socket>();
+  const server = http.createServer(() => {
+    /* never answered */
+  });
+  server.on("connection", (socket) => {
+    connections.add(socket);
+    socket.on("close", () => connections.delete(socket));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}/repo.git`,
+    openConnections: () => connections.size,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve()))
+  };
+}
+
+/** Start a fetch in Tab `tab` from the menu, and wait for git to be on the
+ *  network to `server`. */
+async function fetchHanging(
+  electronApp: ElectronApplication,
+  tab: Locator,
+  server: { openConnections: () => number }
+): Promise<void> {
+  await tab.click();
+  await expect(tab).toContainClass("focused");
+  expect(await clickMenu(electronApp, FETCH_REMOTE)).toBe(true);
+  await expect.poll(server.openConnections, { timeout: 15_000 }).toBeGreaterThan(0);
 }
 
 /** Start a fetch in Tab `tab` from the menu, and wait for git's question for
@@ -383,6 +408,52 @@ test("quitting while a Tab's git waits on a prompt quits, and lets that git go",
     // Both Tabs are still what the next session opens.
     const reopened = await windowPage(await launch());
     await expect(reopened.locator("#tabStrip .tab")).toHaveCount(2);
+  } finally {
+    await app?.close();
+    app = null;
+    await server.close();
+  }
+});
+
+test("closing a Tab while its fetch waits on a server that never answers stops that git", async () => {
+  const server = await serverNeverAnswering();
+  try {
+    const repo = repoFetchingFrom(server);
+    const electronApp = await launch("--repo", repo.path);
+    await answerMessageBoxes(electronApp);
+    const window = await windowPage(electronApp);
+    const page = await focusedTabPage(electronApp);
+    await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
+    const tab = window.locator("#tabStrip .tab");
+    await fetchHanging(electronApp, tab, server);
+
+    await tab.locator(".tabClose").click();
+
+    // Nothing but a kill ends this git: the server never answers.
+    await expect(window.locator("#tabStrip")).toBeHidden();
+    await expect.poll(server.openConnections, { timeout: 15_000 }).toBe(0);
+    expect(await closeAndReadLog()).not.toContain("ERROR:");
+  } finally {
+    await app?.close();
+    app = null;
+    await server.close();
+  }
+});
+
+test("quitting while a Tab's fetch waits on a server that never answers stops that git", async () => {
+  const server = await serverNeverAnswering();
+  try {
+    const repo = repoFetchingFrom(server);
+    const electronApp = await launch("--repo", repo.path);
+    await answerMessageBoxes(electronApp);
+    const window = await windowPage(electronApp);
+    const page = await focusedTabPage(electronApp);
+    await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
+    await fetchHanging(electronApp, window.locator("#tabStrip .tab"), server);
+
+    const logged = await closeAndReadLog();
+    await expect.poll(server.openConnections, { timeout: 15_000 }).toBe(0);
+    expect(logged).not.toContain("ERROR:");
   } finally {
     await app?.close();
     app = null;
