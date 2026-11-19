@@ -153,6 +153,7 @@ function drawChoose(
 /** One row of a pick list: its label, its description, its detail under
  *  them, the warning mark, and a rule above it when it starts a group. */
 function itemRow(item: HostPromptItem, index: number): HTMLLIElement {
+  // A named group's rule is drawn with its name (`listRows`).
   const row = el(
     "li",
     item.separatorAbove === true ? "hostPromptItem separatorAbove" : "hostPromptItem"
@@ -172,11 +173,43 @@ function itemRow(item: HostPromptItem, index: number): HTMLLIElement {
   return row;
 }
 
+/** A named group's heading: its rule, and its name on it. */
+type GroupName = { head: HTMLElement; from: number; to: number };
+
+/** Put `rows` in `list`, each row that starts a named group (a string
+ *  `separatorAbove`) under that name: answers the names, for the filter. */
+function listRows(
+  list: HTMLElement,
+  items: readonly HostPromptItem[],
+  rows: HTMLElement[]
+): GroupName[] {
+  const names: GroupName[] = [];
+  rows.forEach((row, index) => {
+    const above = items[index].separatorAbove;
+    // A rule of either kind ends the group before it.
+    const last = names.at(-1);
+    if (above !== undefined && above !== false && last !== undefined && last.to > index) {
+      last.to = index;
+    }
+    if (typeof above === "string") {
+      // Not an option: the arrows and a click pass it by.
+      const head = el("li", "hostPromptGroup", above);
+      head.setAttribute("role", "presentation");
+      names.push({ head, from: index, to: rows.length });
+      list.append(head);
+    }
+    list.append(row);
+  });
+  return names;
+}
+
 /** A filter box over the rows of a list: typing hides the rows it no longer
- *  matches, and `onFilter` hears which still show. */
+ *  matches, and the name of a group none of whose rows match, and `onFilter`
+ *  hears which rows still show. */
 function filterOver(
   prompt: Extract<HostPrompt, { kind: "pick" | "pickMany" }>,
   rows: HTMLElement[],
+  names: readonly GroupName[],
   onFilter: (visible: number[]) => void
 ): HTMLInputElement {
   const filter = textInput(prompt.placeholder);
@@ -188,6 +221,9 @@ function filterOver(
     rows.forEach((row, index) => {
       row.hidden = !visible.includes(index);
     });
+    for (const { head, from, to } of names) {
+      head.hidden = !visible.some((index) => index >= from && index < to);
+    }
     onFilter(visible);
   });
   return filter;
@@ -207,12 +243,12 @@ function drawPick(
     row.addEventListener("click", () => settle(index));
     return row;
   });
-  list.append(...rows);
+  const names = listRows(list, prompt.items, rows);
 
   // The row Enter would choose: the first that shows, moved by the arrows.
   let visible = prompt.items.map((_, index) => index);
   let active = -1;
-  const filter = filterOver(prompt, rows, (shown) => {
+  const filter = filterOver(prompt, rows, names, (shown) => {
     visible = shown;
     activate(shown[0] ?? -1);
   });
@@ -278,8 +314,7 @@ function drawPickMany(
     });
     return row;
   });
-  list.append(...rows);
-  const filter = filterOver(prompt, rows, () => {});
+  const filter = filterOver(prompt, rows, listRows(list, prompt.items, rows), () => {});
   // Every row checked counts, whether the filter shows it or not.
   const checked = () => boxes.flatMap((box, index) => (box.checked ? [index] : []));
   root.append(

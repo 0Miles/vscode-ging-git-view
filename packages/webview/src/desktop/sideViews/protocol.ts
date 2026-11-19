@@ -43,6 +43,22 @@ export type SideViewBranches = {
   toggles: Record<SideViewToggleField, boolean>;
 };
 
+/** The column's width, in CSS pixels, until the user drags it (#459). */
+export const SIDE_VIEW_WIDTH = 260;
+/** How narrow and how wide a drag may make the column. */
+export const SIDE_VIEW_MIN_WIDTH = 160;
+export const SIDE_VIEW_MAX_WIDTH = 600;
+
+/** `width` as the column may be: whole pixels, within its bounds. */
+export const clampSideViewWidth = (width: number): number =>
+  Math.min(SIDE_VIEW_MAX_WIDTH, Math.max(SIDE_VIEW_MIN_WIDTH, Math.round(width)));
+
+/** How the column sits in every Tab of the app (#459): its width, and whether
+ *  it is shown at all. The app's, not a Tab's or a repository's. */
+export type SideViewLayout = { width: number; shown: boolean };
+
+export const DEFAULT_SIDE_VIEW_LAYOUT: SideViewLayout = { width: SIDE_VIEW_WIDTH, shown: true };
+
 /** One configured remote, as the Remotes view lists it. */
 export type SideViewRemote = { name: string; fetchUrl: string; pushUrl: string };
 
@@ -103,6 +119,12 @@ export type SideViewStrings = {
   copyUrl: string;
   stashes: string;
   noStashes: string;
+  /** The Branches view's Search Branch (#459). */
+  search: string;
+  /** The Branches view's More Actions' View Reflog (#459). */
+  viewReflog: string;
+  /** The column's drag handle (#459). */
+  resize: string;
 };
 
 /** Host → page: every view, whole each time. `null` for a view whose read has
@@ -133,8 +155,24 @@ export type SideViewStashFilesMessage = {
   files: SideViewStashFile[] | null;
 };
 
+/** Host → page: lay the column out so (#459) — on the page's word that it
+ *  listens, and whenever the app's layout changes, from any Tab or the View
+ *  menu. */
+export type SideViewLayoutMessage = {
+  command: "sideViewLayout";
+  layout: SideViewLayout;
+  /** The `seq` of the last `sideViewResize` from this Tab's page that the host
+   *  had handled when it sent this; none (or 0) before the first. A page that
+   *  has sent a later one since keeps its own width: this layout is older
+   *  than what it last wrote, the echo of an earlier step among them. */
+  resizeSeq?: number;
+};
+
 /** Everything the host posts to the side views. */
-export type SideViewMessage = SideViewStateMessage | SideViewStashFilesMessage;
+export type SideViewMessage =
+  | SideViewStateMessage
+  | SideViewStashFilesMessage
+  | SideViewLayoutMessage;
 
 /** What the Remotes view does to one remote it lists. */
 export type SideViewRemoteAction = "fetch" | "editUrl" | "rename" | "remove" | "copyUrl";
@@ -162,7 +200,15 @@ export type SideViewRequest =
   /** Read the files of the stash listed as `id`. */
   | { command: "sideViewStashFiles"; id: string }
   /** Open the diff of the file at `path` in the stash listed as `id`. */
-  | { command: "sideViewStashDiff"; id: string; path: string };
+  | { command: "sideViewStashDiff"; id: string; path: string }
+  /** VS Code's Search Branch (#459): asked in the host prompt overlay, over
+   *  the tree the host last read; what is checked becomes the filter. */
+  | { command: "sideViewSearch" }
+  /** The instance's View Reflog, as the application menu runs it (#459). */
+  | { command: "sideViewViewReflog" }
+  /** The user left the column `width` wide (#459): the app's, from now on.
+   *  `seq` counts the page's resizes, from 1 at each load. */
+  | { command: "sideViewResize"; width: number; seq: number };
 
 /** Checked by the compiler (ADR-0031). */
 export const SIDE_VIEW_COMMANDS_STAY_APART: NoCommandShared<
@@ -180,6 +226,27 @@ export function isSideViewStateMessage(data: unknown): data is SideViewStateMess
     typeof data.filterSeq === "number" &&
     isRecord(data.cmv) &&
     isRecord(data.strings)
+  );
+}
+
+/** Whether `value` is a layout, as the host states one. */
+export function isSideViewLayout(value: unknown): value is SideViewLayout {
+  return (
+    isRecord(value) &&
+    typeof value.width === "number" &&
+    Number.isFinite(value.width) &&
+    typeof value.shown === "boolean"
+  );
+}
+
+/** Whether `data`, heard on the page's `message` channel, is the column's
+ *  layout. */
+export function isSideViewLayoutMessage(data: unknown): data is SideViewLayoutMessage {
+  return (
+    isRecord(data) &&
+    data.command === "sideViewLayout" &&
+    isSideViewLayout(data.layout) &&
+    (data.resizeSeq === undefined || typeof data.resizeSeq === "number")
   );
 }
 
@@ -216,7 +283,16 @@ export function isSideViewRequest(data: unknown): data is SideViewRequest {
     case "sideViewRefresh":
     case "sideViewAddRemote":
     case "sideViewManagePullRequestProviders":
+    case "sideViewSearch":
+    case "sideViewViewReflog":
       return true;
+    case "sideViewResize":
+      return (
+        typeof data.width === "number" &&
+        Number.isFinite(data.width) &&
+        typeof data.seq === "number" &&
+        Number.isFinite(data.seq)
+      );
     case "sideViewToggle":
       return typeof data.field === "string" && TOGGLE_FIELDS.includes(data.field);
     case "sideViewSetFilter":

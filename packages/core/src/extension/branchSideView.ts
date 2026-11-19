@@ -9,6 +9,7 @@
 import type { L10n } from "@ging/core/host/ports";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
 import {
+  type BranchTreeLeaf,
   type BranchTreeNode,
   buildGroupedBranchRoots
 } from "@ging/shared/backend/utils/branchTree";
@@ -82,6 +83,53 @@ export function resolveSideViewToggle(
   globalDefault: boolean
 ): boolean {
   return state?.[field] ?? globalDefault;
+}
+
+/** One branch Search Branch offers: the tree's leaf, whether it is the one
+ *  checked out (marked current), and whether the filter holds it (checked
+ *  when the picker opens). */
+export type SideViewSearchItem = { leaf: BranchTreeLeaf; current: boolean; picked: boolean };
+
+/** A run of Search Branch's rows: the remote branches or the local ones.
+ *  `named` when both runs are there, so each goes under its group's name. */
+export type SideViewSearchGroup = {
+  group: "remote" | "local";
+  named: boolean;
+  items: SideViewSearchItem[];
+};
+
+/**
+ * What Search Branch offers over the tree `roots` (#459): every leaf the tree
+ * lists — so what the toggles and the hidden remotes leave in it — in the
+ * tree's order, remote ones first, then local; an empty run is left out, and
+ * the runs are named only when there are two. Each host draws the rows its
+ * own way: VS Code's QuickPick (`searchBranch` in branchesView.ts), the
+ * desktop's host prompt overlay (sideViews.ts). Nothing at all when the tree
+ * lists no branch.
+ */
+export function sideViewSearchGroups(
+  roots: readonly BranchTreeNode[],
+  filter: readonly string[]
+): SideViewSearchGroup[] {
+  const leaves: BranchTreeLeaf[] = [];
+  const walk = (nodes: readonly BranchTreeNode[]) => {
+    for (const node of nodes) {
+      if (node.type === "leaf") leaves.push(node);
+      else walk(node.children);
+    }
+  };
+  walk(roots);
+  const held = new Set(filter);
+  const runs = (["remote", "local"] as const)
+    .map((group) => ({
+      group,
+      items: leaves
+        .filter((leaf) => leaf.isRemote === (group === "remote"))
+        .map((leaf) => ({ leaf, current: leaf.isHead, picked: held.has(leaf.branch) }))
+    }))
+    .filter((run) => run.items.length > 0);
+  const named = runs.length > 1;
+  return runs.map(({ group, items }) => ({ group, named, items }));
 }
 
 /**

@@ -78,6 +78,26 @@ describe("buildDesktopPage for a repository", () => {
     expect([...doc.scripts].at(-1)?.getAttribute("src")).toBe("web.js");
   });
 
+  it("hands the bundle the side views' column layout when it has one, in a script its nonce allows (#459)", () => {
+    const doc = parse(
+      buildDesktopPage(themeFor("dark", "win32"), {
+        graph: {
+          viewState,
+          l10n: strings,
+          nonce: "n0nce",
+          sideViewLayout: { width: 333, shown: false }
+        }
+      })
+    );
+    const inline = [...doc.scripts].filter((s) => !s.hasAttribute("src"));
+    expect(inline.map((s) => s.getAttribute("nonce"))).toEqual(["n0nce", "n0nce", "n0nce"]);
+    const globals: Record<string, unknown> = {};
+    for (const script of inline)
+      new Function("window", script.text.replace(/^var /, "window."))(globals);
+    expect(globals.sideViewLayout).toEqual({ width: 333, shown: false });
+    expect([...doc.scripts].at(-1)?.getAttribute("src")).toBe("web.js");
+  });
+
   it("lets the diff viewer load the editor's worker and font from the app, and nothing else (#404)", () => {
     const csp = graphPage()
       .querySelector('meta[http-equiv="Content-Security-Policy"]')!

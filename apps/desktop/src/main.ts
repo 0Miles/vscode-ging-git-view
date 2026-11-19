@@ -369,6 +369,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       blameFile: onGraph((c) => c.blameFile()),
       setGitUserDetails: asking((c) => c.setGitUserDetails()),
       managePullRequestProviders: asking((c) => c.managePullRequestProviders()),
+      // Every Tab's page hears it through its side views (#459); the menu is
+      // built anew with the box as it now is.
+      toggleSideViews: () => {
+        if (shared === null) return;
+        shared.sideViewLayout.setShown(!shared.sideViewLayout.get().shown);
+        syncMenu();
+      },
       // In a system dialog, so it needs no page: the Welcome page's will do
       // behind a notice too.
       hideApp: () => app.hide(),
@@ -405,7 +412,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       focus: menuFocus(focusedTab()?.content.page ?? null),
       // Open Recent's entries: the Welcome page's list, as it stands.
       recentRepos: recent?.list().map((entry) => entry.path) ?? [],
-      cloning: menuShowsCloning
+      cloning: menuShowsCloning,
+      sideViewsShown: shared.sideViewLayout.get().shown
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   };
@@ -851,7 +859,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       const page: TabPage = {
         graph: true,
         page: () => ({
-          graph: { viewState: instance.pageViewState(), l10n: strings, nonce: getNonce() }
+          graph: {
+            viewState: instance.pageViewState(),
+            l10n: strings,
+            nonce: getNonce(),
+            // The column opens as the app last left it (#459).
+            sideViewLayout: host.sideViewLayout.get()
+          }
         }),
         instance,
         prompts,
