@@ -334,7 +334,9 @@ export function startWindowPage(strip: HTMLElement, welcome: HTMLElement): void 
     const request = entryRequest(event.target);
     if (request === null) return;
     const closing = event.target instanceof Element && event.target.closest(".tabClose") !== null;
-    post(closing && request.command === "focusTab" ? { command: "closeTab", id: request.id } : request);
+    post(
+      closing && request.command === "focusTab" ? { command: "closeTab", id: request.id } : request
+    );
   });
   // A middle click closes a Tab, as in a browser's tab strip.
   strip.addEventListener("auxclick", (event) => {

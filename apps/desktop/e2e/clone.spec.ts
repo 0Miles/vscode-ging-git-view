@@ -384,9 +384,10 @@ test("with a Tab in front, a credential the clone needs brings the Welcome page 
   await expect.poll(() => viewsInWindow(electronApp)).toBe(1);
   remote.release();
 
-  // The Username prompt brings the Welcome page forward over the Tab.
+  // The Username prompt, git's whole prompt (#445), brings the Welcome page
+  // forward over the Tab.
   const input = window.locator("#hostPromptInput");
-  await expect(input).toHaveAttribute("placeholder", "Username");
+  await expect(input).toHaveAttribute("placeholder", /^Username for '/);
   await expect(window.locator("#hostPrompt")).toBeVisible();
   await expect(panel).toBeVisible();
   await expect.poll(() => viewsInWindow(electronApp)).toBe(0);
@@ -394,7 +395,7 @@ test("with a Tab in front, a credential the clone needs brings the Welcome page 
   await expect(window.locator("#tabStrip .tab[data-tab-id].focused")).toHaveCount(0);
   await window.keyboard.type("alice");
   await window.keyboard.press("Enter");
-  await expect(input).toHaveAttribute("placeholder", "Password");
+  await expect(input).toHaveAttribute("placeholder", /^Password for '/);
   await window.keyboard.type("s3cret");
   await window.keyboard.press("Enter");
 
