@@ -102,6 +102,20 @@ export const HOST_PROMPT_STYLES = `
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
+/* A named group's heading (\`PickItem.separatorAbove\` a string): the rule, with
+   the name under it, as VS Code's QuickPick writes a separator's label. */
+#hostPrompt .hostPromptGroup {
+  margin-top: 4px;
+  padding: 4px 6px 2px;
+  border-top: 1px solid var(--vscode-widget-border);
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.85em;
+  cursor: default;
+}
+#hostPrompt .hostPromptGroup:first-child {
+  margin-top: 0;
+  border-top: 0;
+}
 #hostPrompt .hostPromptError {
   padding: 4px 6px;
   border: 1px solid var(--vscode-errorForeground);

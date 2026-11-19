@@ -45,6 +45,9 @@ const TREE_KEYS = new Set([
   "ContextMenu"
 ]);
 
+/** Whether `e` is one of the keys a tree takes. */
+export const isTreeKey = (e: KeyboardEvent) => TREE_KEYS.has(e.key) || isMenuKey(e);
+
 /**
  * A tree's keys, on the tree: they are not the graph's to move its rows by.
  * Up, Down, Home and End move the keyboard between rows, `moved` told where
@@ -56,7 +59,7 @@ export function treeKeys(
   moved: (next: HTMLElement) => void
 ): void {
   body.addEventListener("keydown", (e) => {
-    if (!TREE_KEYS.has(e.key) && !isMenuKey(e)) return;
+    if (!isTreeKey(e)) return;
     const row = rowOf(document.activeElement);
     if (row === null || !body.contains(row)) return;
     const rows = Array.from(body.querySelectorAll<HTMLElement>(".sideViewRow"));

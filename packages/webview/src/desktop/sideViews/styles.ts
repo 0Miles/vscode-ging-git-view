@@ -15,8 +15,11 @@
 
 import { WORKING_TREE_WIDTH } from "@ging/webview/desktop/workingTree/workingTreePanel";
 
-/** The column's width, in CSS pixels. */
-export const SIDE_VIEW_WIDTH = 260;
+import { SIDE_VIEW_WIDTH } from "./protocol";
+
+/** A row of a tree, in CSS pixels: what the Branches tree's window of drawn
+ *  rows is reckoned in (#459). */
+export const SIDE_VIEW_ROW_HEIGHT = 22;
 
 export const SIDE_VIEW_STYLES = `
 :root { --ging-side-view-width: ${SIDE_VIEW_WIDTH}px; }
@@ -31,6 +34,18 @@ body.gingSideViews.workingTreeOpen #scrollShadow.active { right: ${WORKING_TREE_
   background-color: var(--vscode-editor-background); color: var(--vscode-foreground);
   font-family: var(--vscode-font-family); font-size: 13px; user-select: none;
 }
+#sideViews[hidden], #sideViewResizer[hidden] { display: none; }
+/* The column's edge (#459): a sash over its border, as VS Code's between two
+   views, drawn in the focus colour while it is pointed at, dragged or has the
+   keyboard. */
+#sideViewResizer {
+  position: fixed; top: 0; bottom: 0; left: calc(var(--ging-side-view-width) - 3px); width: 5px;
+  z-index: 11; cursor: col-resize; touch-action: none; outline: none;
+}
+#sideViewResizer:hover, #sideViewResizer:focus-visible, body.sideViewResizing #sideViewResizer {
+  background-color: var(--vscode-focusBorder);
+}
+body.sideViewResizing { cursor: col-resize; user-select: none; }
 .sideView { display: flex; flex-direction: column; min-height: 0; flex: 0 0 auto; border-bottom: 1px solid var(--vscode-panel-border); }
 #branchesView.open { flex: 2 1 0; }
 #remotesView.open { flex: 1 1 0; }
@@ -53,7 +68,10 @@ body.gingSideViews.workingTreeOpen #scrollShadow.active { right: ${WORKING_TREE_
 .sideViewActions svg { fill: currentColor; }
 .sideView:not(.open) .sideViewActions, .sideView:not(.open) .sideViewBody { display: none; }
 .sideViewBody { flex: 1 1 auto; min-height: 0; overflow: auto; outline: none; }
-.sideViewRow { display: flex; align-items: center; height: 22px; padding-right: 8px; white-space: nowrap; cursor: pointer; }
+/* The Branches tree's drawn rows (#459): as tall as all of its rows, the
+   ones drawn pushed down to where they sit. */
+.sideViewRows { box-sizing: border-box; }
+.sideViewRow { display: flex; align-items: center; height: ${SIDE_VIEW_ROW_HEIGHT}px; padding-right: 8px; white-space: nowrap; cursor: pointer; }
 .sideViewRow:hover { background-color: var(--vscode-list-hoverBackground); }
 .sideViewRow.selected { background-color: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
 /* As VS Code's lists: the selection of a list without the keyboard is drawn

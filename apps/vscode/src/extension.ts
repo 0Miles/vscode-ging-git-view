@@ -4,7 +4,11 @@ import { AvatarManager } from "@ging/core/avatarManager";
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { getCommitFileContent } from "@ging/core/backend/queries/commitFileContent";
 import { formatGitError } from "@ging/core/backend/utils/gitError";
-import { repoContainingPath, resolveToKnownRepo } from "@ging/core/backend/utils/repoMatch";
+import {
+  locateInKnownRepos,
+  reposNotYetKnown,
+  resolveToKnownRepo
+} from "@ging/core/backend/utils/repoMatch";
 import { AskpassManager } from "@ging/core/extension/askpass/askpassManager";
 import { createBranchActionDelegate } from "@ging/core/extension/branchActionDelegate";
 import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
@@ -375,17 +379,16 @@ export function activate(context: vscode.ExtensionContext) {
   // Mirror VSCode's built-in git discovery into repoManager so the Graph webview
   // (which lives behind repoManager) can switch to any repo the user selects in the
   // Source Control view. We only ADD — never remove — to avoid stomping on repoManager's
-  // own discovery.
+  // own discovery. Built-in git spells a repo as git does, which may differ from the
+  // workspace search's spelling of the same repo (a link, a short name, another letter
+  // case); such a repo is already known and is not added twice (#435).
   const mirrorBuiltinIntoRepoManager = () => {
-    const existing = repoManager.getRepos();
-    let changed = false;
-    for (const repoPath of scmRepoTracker.getRepoPaths()) {
-      if (!existing[repoPath]) {
-        repoManager.addRepo(repoPath);
-        changed = true;
-      }
-    }
-    if (changed) repoManager.sendRepos();
+    const fresh = reposNotYetKnown(
+      scmRepoTracker.getRepoPaths(),
+      Object.keys(repoManager.getRepos())
+    );
+    for (const repoPath of fresh) repoManager.addRepo(repoPath);
+    if (fresh.length > 0) repoManager.sendRepos();
   };
   context.subscriptions.push(scmRepoTracker.onDidChangeRepos(mirrorBuiltinIntoRepoManager));
   mirrorBuiltinIntoRepoManager();
@@ -586,9 +589,11 @@ export function activate(context: vscode.ExtensionContext) {
       config.openToTheRepoOfActiveEditor() &&
       activeEditor !== undefined
     ) {
+      // The same lookup inline blame uses, so a file opened under another
+      // spelling of a known repo still finds it (#435).
       const filePath = getPathFromUri(activeEditor.document.uri);
-      const repo = repoContainingPath(filePath, Object.keys(repoManager.getRepos()));
-      if (repo !== null) repoToOpen = repo;
+      const location = locateInKnownRepos(filePath, Object.keys(repoManager.getRepos()));
+      if (location !== null) repoToOpen = location.repo;
     }
     // Persist first so a freshly-created panel reads the right repo during its
     // initial `loadRepos` handshake — avoids racing the webview boot.

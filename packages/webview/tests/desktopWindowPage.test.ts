@@ -236,6 +236,96 @@ describe("the desktop entry on the window's page", () => {
     });
   });
 
+  describe("a clone running with Tabs open (#461)", () => {
+    const cloneEntry = () => strip().querySelector<HTMLElement>(".cloneTab");
+    const unfocused = STATE.tabs.map((tab) => ({ ...tab, focused: false }));
+
+    it("puts an entry for it after the Tabs, in front while no Tab is, with no close button", async () => {
+      await load();
+      hear({ ...STATE, tabs: unfocused, welcome: WELCOME, clone: CLONE });
+
+      const entry = cloneEntry()!;
+      expect(strip().lastElementChild).toBe(entry);
+      expect(entry.querySelector(".tabTitle")!.textContent).toBe(
+        "Cloning https://example.com/<app>.git"
+      );
+      expect(entry.classList.contains("focused")).toBe(true);
+      expect(entry.getAttribute("aria-selected")).toBe("true");
+      expect(entry.querySelector(".tabClose")).toBeNull();
+      expect(tabs().filter((tab) => tab.classList.contains("focused"))).toEqual([entry]);
+      expect(entry.querySelector(".cloneTabBar")!.classList.contains("indeterminate")).toBe(true);
+    });
+
+    it("shows how far it has got, and stays behind a Tab brought forward", async () => {
+      await load();
+      hear({ ...STATE, clone: { ...CLONE, percent: 45 } });
+
+      const entry = cloneEntry()!;
+      expect(entry.classList.contains("focused")).toBe(false);
+      expect(entry.querySelector<HTMLElement>(".cloneTabBar .cloneBarFill")!.style.width).toBe(
+        "45%"
+      );
+    });
+
+    it("asks the host to bring the clone forward when clicked, and goes when it is done", async () => {
+      const mock = await load();
+      hear({ ...STATE, clone: CLONE });
+      mock.sentMessages.length = 0;
+
+      cloneEntry()!.click();
+      expect(mock.sentMessages).toEqual([{ command: "showClone" }]);
+
+      hear(STATE);
+      expect(cloneEntry()).toBeNull();
+    });
+
+    // Progress comes several times a second: an entry being pressed must be
+    // the one still there when the press ends.
+    it("changes the strip's entries in place as the clone goes, never drawn anew", async () => {
+      const mock = await load();
+      hear({ ...STATE, clone: CLONE });
+      const entry = cloneEntry()!;
+      const [alpha, beta] = tabs();
+      const close = beta.querySelector<HTMLElement>(".tabClose")!;
+
+      hear({ ...STATE, tabs: unfocused, clone: { ...CLONE, percent: 60 } });
+      mock.sentMessages.length = 0;
+      entry.click();
+      alpha.click();
+      close.click();
+
+      expect(entry.isConnected && alpha.isConnected && beta.isConnected).toBe(true);
+      expect(entry.classList.contains("focused")).toBe(true);
+      expect(beta.classList.contains("focused")).toBe(false);
+      expect(entry.querySelector<HTMLElement>(".cloneBarFill")!.style.width).toBe("60%");
+      expect(mock.sentMessages).toEqual([
+        { command: "showClone" },
+        { command: "focusTab", id: 3 },
+        { command: "closeTab", id: 7 }
+      ]);
+    });
+
+    it("keeps the strip in the host's order as Tabs come and go", async () => {
+      await load();
+      hear({ ...STATE, clone: CLONE });
+      const [alpha] = tabs();
+
+      hear({
+        ...STATE,
+        tabs: [
+          { id: 9, title: "gamma", tooltip: "/repos/gamma", focused: true, asking: false },
+          { ...STATE.tabs[0], asking: false }
+        ],
+        clone: CLONE
+      });
+
+      expect(tabs().map((tab) => tab.dataset.tabId ?? "clone")).toEqual(["9", "3", "clone"]);
+      expect(tabs()[1]).toBe(alpha);
+      expect(alpha.querySelector(".tabAsking")).toBeNull();
+      expect(tabs()[0].querySelector(".tabTitle")!.textContent).toBe("gamma");
+    });
+  });
+
   it("ignores messages that are not the window's state", async () => {
     await load();
     hear(STATE);

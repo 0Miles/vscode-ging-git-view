@@ -4,6 +4,7 @@
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { isGitRepository } from "@ging/core/backend/utils/git";
+import { isUsableRepoPathAsync } from "@ging/core/backend/utils/repoPath";
 import { createConflictCommands } from "@ging/core/extension/conflictCommands";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { createFileBlameService } from "@ging/core/extension/fileBlameService";
@@ -356,9 +357,18 @@ export function createGraphInstance(
     // Its own repository alone, as with the rest (#394): the app's check would
     // drop every known repository git cannot reach now — the recent list's
     // folders on a disk not mounted at the moment among them — when only this
-    // Tab's graph failed to load. Whether its own should go is #454's.
+    // Tab's graph failed to load. Its own goes only when its folder is there
+    // and no repository (#454): a folder not there is kept, as the recent list
+    // keeps one, since no look tells a folder deleted from a disk not mounted.
+    // Looked at off the main thread: a network share gone away would freeze
+    // the window.
     checkReposExist: async () => {
-      if (!known() || (await isGitRepository(repo, shared.gitPath()))) return false;
+      if (!known()) return false;
+      if (!(await isUsableRepoPathAsync(repo))) {
+        logger.log(`tabs: ${repo}'s folder is not there now, kept in the known set`);
+        return false;
+      }
+      if (await isGitRepository(repo, shared.gitPath())) return false;
       logger.log(`tabs: ${repo} is no Git repository any more, dropped from the known set`);
       shared.repoSource.dropRepo(repo);
       return true;
@@ -416,6 +426,20 @@ export function createGraphInstance(
     refreshGraph: () => void bridge.post({ command: "refresh" })
   });
   const reflog = createReflogCommand({ ...kitDeps, clipboard: shared.clipboard });
+  const commands: InstanceCommands = {
+    ...appCommands,
+    fetch: () => fetchService.fetchCommand(),
+    fetchRemote: () => fetchService.fetchRemoteCommand(),
+    manageRemotes: () => remoteCommands.manageRemotes(),
+    toggleRemoteVisibility: () => remoteCommands.toggleRemoteVisibility(),
+    viewReflog: () => reflog.viewReflog(),
+    openTerminal: () => {
+      const name = repo.split("/").findLast((s) => s !== "") ?? repo;
+      opener.openTerminal(repo, `GING: ${name}`);
+    },
+    fileHistory: () => fileHistory.pickAndShow(),
+    blameFile: () => fileBlame.pickAndShow()
+  };
   // The Remotes view's commands are those (#399), asked in this page as the
   // menu's are. The Stash view's are core's stash list's (#400), asked there
   // too; what they change is muted and refreshed around, as core's command
@@ -433,6 +457,9 @@ export function createGraphInstance(
     remoteCommands,
     fetchRemote: (target, remote) => fetchService.fetchOneCommand(target, remote),
     managePullRequestProviders: () => void appCommands.managePullRequestProviders(),
+    // The application menu's View Reflog, on this instance (#459).
+    viewReflog: () => commands.viewReflog(),
+    layout: shared.sideViewLayout,
     setShowRemoteBranches: (value) => void bridge.post({ command: "setShowRemoteBranches", value }),
     stash: {
       git: gitClients.gitClientFor(repo),
@@ -509,20 +536,7 @@ export function createGraphInstance(
       sideViews.settingChanged();
     },
     showFile,
-    commands: {
-      ...appCommands,
-      fetch: () => fetchService.fetchCommand(),
-      fetchRemote: () => fetchService.fetchRemoteCommand(),
-      manageRemotes: () => remoteCommands.manageRemotes(),
-      toggleRemoteVisibility: () => remoteCommands.toggleRemoteVisibility(),
-      viewReflog: () => reflog.viewReflog(),
-      openTerminal: () => {
-        const name = repo.split("/").findLast((s) => s !== "") ?? repo;
-        opener.openTerminal(repo, `GING: ${name}`);
-      },
-      fileHistory: () => fileHistory.pickAndShow(),
-      blameFile: () => fileBlame.pickAndShow()
-    },
+    commands,
     sideView: (message) => sideViews.receive(message),
     dispose: () => {
       sideViews.dispose();

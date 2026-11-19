@@ -196,8 +196,9 @@ export type PickItem<T> = {
    *  would make concrete, such as the URL it opens. Not filtered on. */
   detail?: string;
   /** A rule above the row, setting it and the rows after it apart from the
-   *  ones before. */
-  separatorAbove?: boolean;
+   *  ones before; a string is the name of the group they make, written on
+   *  the rule, as VS Code's QuickPick names a separator. */
+  separatorAbove?: boolean | string;
   /** Checked when a `pickMany` opens; ignored by `pick`. */
   picked?: boolean;
   /** Marked the way the host marks a warning — a commit git's garbage

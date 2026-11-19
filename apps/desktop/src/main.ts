@@ -86,9 +86,16 @@ import {
   schemaLocale
 } from "./settings/settingsPage";
 import { createSettingsWindow, type SettingsWindow } from "./settingsWindow";
+import { tellOfSettingWrites } from "./settingWrites";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
 import { createStatisticsWindow, type StatisticsWindow } from "./statisticsWindow";
-import { createTabWindow, layoutTabViews, type TabPageLike, type TabWindow } from "./tabWindow";
+import {
+  createTabWindow,
+  layoutTabViews,
+  type TabPageLike,
+  tabStripEntries,
+  type TabWindow
+} from "./tabWindow";
 import { launchTerminal, terminalLaunches } from "./terminal";
 import { type Theme, themeFor } from "./theme";
 import { readThemeChoice, writeThemeChoice } from "./themeChoice";
@@ -369,6 +376,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       blameFile: onGraph((c) => c.blameFile()),
       setGitUserDetails: asking((c) => c.setGitUserDetails()),
       managePullRequestProviders: asking((c) => c.managePullRequestProviders()),
+      // Every Tab's page hears it through its side views (#459); the menu is
+      // built anew with the box as it now is.
+      toggleSideViews: () => {
+        if (shared === null) return;
+        shared.sideViewLayout.setShown(!shared.sideViewLayout.get().shown);
+        syncMenu();
+      },
       // In a system dialog, so it needs no page: the Welcome page's will do
       // behind a notice too.
       hideApp: () => app.hide(),
@@ -387,9 +401,9 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         }
       },
       initRepository: unlessCloning(() => void repoOpening?.initRepo()),
-      // Asked and shown on the Welcome page, so enabled only while no Tab
-      // covers it (appMenu.ts).
-      cloneRepository: () => void repoCloning?.clone()
+      // Asked and shown on the Welcome page, brought forward over the Tabs
+      // for it (#461).
+      cloneRepository: () => void cloneRepo()
     };
   })();
 
@@ -405,7 +419,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       focus: menuFocus(focusedTab()?.content.page ?? null),
       // Open Recent's entries: the Welcome page's list, as it stands.
       recentRepos: recent?.list().map((entry) => entry.path) ?? [],
-      cloning: menuShowsCloning
+      cloning: menuShowsCloning,
+      sideViewsShown: shared.sideViewLayout.get().shown
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   };
@@ -437,23 +452,24 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     if (!windowListening || owner === null || owner.webContents.isDestroyed()) return;
     if (shared === null) return;
     const repos = shared.repoSource.getRepos();
-    const focused = focusedTab();
-    const welcomeShown = tabList().length === 0;
+    // No Tab, or none in front of it (#461).
+    const welcomeShown = focusedTab() === null;
     const message: WindowStateMessage = {
       command: "windowState",
-      tabs: tabList().map((tab) => ({
-        id: tab.id,
-        title: repos[tab.repo]?.customName || path.basename(tab.repo),
-        tooltip: tab.repo,
-        focused: tab === focused,
-        asking: tab !== focused && tab.content.page.asking
-      })),
+      tabs:
+        tabWindow === null
+          ? []
+          : tabStripEntries(
+              tabWindow.tabs,
+              (tab) => repos[tab.repo]?.customName || path.basename(tab.repo),
+              (tab) => tab.content.page.asking
+            ),
       notice: welcomeShown ? welcomeNotice : null,
       // Only while it shows. What it says of each folder is what was last
       // found (`RecentRepos.check`), never looked at here.
       welcome: welcomeShown ? welcomeContent() : null,
-      // Drawn on the Welcome page: under a Tab, should one have opened
-      // meanwhile, until the Tab is closed or the clone is done.
+      // Drawn on the Welcome page, and as an entry of the strip's that brings
+      // it forward again while a Tab is in front (#461).
       clone: repoCloning?.panel() ?? null,
       strings: { closeTab: shared.l10n.t("desktop.tab.close") }
     };
@@ -479,8 +495,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       if (!inWindow && shown.includes(view)) owner.contentView.removeChildView(view);
       if (inWindow && !shown.includes(view)) owner.contentView.addChildView(view);
     }
-    // The keyboard goes where the user's eyes do: to the Tab brought forward.
+    // The keyboard goes where the user's eyes do: to the Tab brought forward,
+    // or to the Welcome page brought forward over the Tabs (#461).
     if (focused !== null && focused.id !== keyboardTab) focused.content.view.webContents.focus();
+    if (focused === null && keyboardTab !== null) owner.webContents.focus();
     keyboardTab = focused?.id ?? null;
   };
 
@@ -495,7 +513,21 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
   /** Look at the recent list's folders again, while the Welcome page shows
    *  it: what is found comes back through `postWindowState`. */
   const checkRecentWhileShown = () => {
-    if (tabList().length === 0) recent?.check();
+    if (focusedTab() === null) recent?.check();
+  };
+
+  /** Clone Repository (#395) whatever is in front (#461): the Welcome page,
+   *  where it is asked and shown, comes forward over the Tabs. A clone that
+   *  opened nothing — cancelled, failed, or never asked for — goes back to
+   *  the Tab that was in front, unless one has been brought forward since. */
+  const cloneRepo = async () => {
+    if (repoCloning === null || repoCloning.busy()) return;
+    tabWindow?.tabs.focusWelcome();
+    try {
+      await repoCloning.clone();
+    } finally {
+      tabWindow?.tabs.restoreFocus();
+    }
   };
 
   /** What `request` names, checked: a repository, a path that is none, or
@@ -607,7 +639,11 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         void repoOpening?.initRepo();
         break;
       case "cloneRepo":
-        void repoCloning?.clone();
+        void cloneRepo();
+        break;
+      case "showClone":
+        // The strip's entry for the clone running (#461).
+        if (repoCloning?.panel()) tabWindow?.tabs.focusWelcome();
         break;
       case "cancelClone":
         repoCloning?.cancel();
@@ -717,8 +753,6 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       settings: host.settings,
       l10n: host.l10n,
       logger,
-      instances: () =>
-        tabList().flatMap((tab) => (tab.content.page.instance ? [tab.content.page.instance] : [])),
       setTheme: (choice) => {
         nativeTheme.themeSource = choice;
         void writeThemeChoice(host.storage.global, choice);
@@ -732,6 +766,14 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       logger,
       // Only ever a key the app has: the one Show Setting names.
       valueOf: (key) => host.settings.get(key)
+    });
+    // Every write, whoever made it, reaches the settings window and each
+    // graph instance (#446), for as long as the app runs, as its settings do.
+    tellOfSettingWrites({
+      settings: host.settings,
+      settingsWindow,
+      instances: () =>
+        tabList().flatMap((tab) => (tab.content.page.instance ? [tab.content.page.instance] : []))
     });
     statisticsWindow = createStatisticsWindow({
       url: `${PAGE_URL}${STATISTICS_PATH.slice(1)}`,
@@ -851,7 +893,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       const page: TabPage = {
         graph: true,
         page: () => ({
-          graph: { viewState: instance.pageViewState(), l10n: strings, nonce: getNonce() }
+          graph: {
+            viewState: instance.pageViewState(),
+            l10n: strings,
+            nonce: getNonce(),
+            // The column opens as the app last left it (#459).
+            sideViewLayout: host.sideViewLayout.get()
+          }
         }),
         instance,
         prompts,
@@ -962,8 +1010,20 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         l10n: host.l10n,
         gitPath: desktopGitPath
       }),
-      // The credentials its git asks for are asked on the Welcome page.
-      askpassRoute: () => host.askpass.route(welcomeAsker),
+      // The credentials its git asks for, and ssh's choices (a host key to
+      // trust), are asked on the Welcome page, brought forward for them should
+      // a Tab be in front (#461).
+      askpassRoute: () =>
+        host.askpass.route({
+          input: (options) => {
+            tabWindow?.tabs.focusWelcome();
+            return welcomeAsker.input(options);
+          },
+          choose: (message, options) => {
+            tabWindow?.tabs.focusWelcome();
+            return welcomeAsker.choose(message, options);
+          }
+        }),
       openRepo: openInTab,
       onChange: () => {
         postWindowState();
