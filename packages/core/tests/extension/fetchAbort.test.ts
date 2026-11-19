@@ -7,12 +7,24 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { checkoutAndPullBranch, pullBranch } from "@ging/core/backend/actions/branch";
 import { addTag, deleteTag, pushTag } from "@ging/core/backend/actions/tag";
 import { gitClientFactory } from "@ging/core/backend/gitClient";
-import { runNetworkGit, stoppableNetworkCommands } from "@ging/core/backend/gitRun";
+import {
+  runNetworkGit,
+  runNetworkGitOutput,
+  stoppableNetworkCommands
+} from "@ging/core/backend/gitRun";
 import { GitAbortedError } from "@ging/core/backend/utils/gitError";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 
-import { fakePorts, git, hangingGitServer, makeRepo, rmrf } from "@ging/core/tests/helpers";
+import {
+  fakePorts,
+  git,
+  hangingGitServer,
+  makeRepo,
+  makeTempDir,
+  rev,
+  rmrf
+} from "@ging/core/tests/helpers";
 
 // The git a fetch starts is stopped when the signal its host hands the fetch
 // service and the mutation hook aborts — an instance disposed of, the app
@@ -222,6 +234,25 @@ describe("the auto-fetch timer", () => {
   }, 40_000);
 });
 
+describe("a network run that fails", () => {
+  it("says what git printed on stdout first, then its stderr, as a git client does", async () => {
+    const repo = makeRepo();
+    onTestFinished(() => rmrf(repo));
+    // A pull's conflicts are on stdout, its progress and the remote's URL on
+    // stderr: the outcome is to lead.
+    const say = "alias.say=!echo out-line; echo err-line >&2; exit 1";
+
+    const failed: unknown = await runNetworkGitOutput({ gitPath: () => "git" }, repo, [
+      "-c",
+      say,
+      "say"
+    ]).catch((e: unknown) => e);
+
+    expect(failed).toBeInstanceOf(Error);
+    expect((failed as Error).message.split("\n")).toEqual(["out-line", "err-line"]);
+  });
+});
+
 describe("a remote named like an option", () => {
   it("is fetched as a name, never run as one", async () => {
     const controller = new AbortController();
@@ -297,13 +328,7 @@ describe("a git client's network commands, through NetworkGit (the graph's own)"
           pushToRemote: "origin"
         })
     ],
-    ["deleteTag on the remote", (g) => deleteTag(g, { tagName: "v1", deleteOnRemote: "origin" })],
-    ["pullBranch", (g) => pullBranch(g, { remote: "origin", branchName: "main" })],
-    [
-      "checkoutAndPullBranch",
-      (g) =>
-        checkoutAndPullBranch(g, { branchName: "main", remote: "origin", branchOnRemote: "main" })
-    ]
+    ["deleteTag on the remote", (g) => deleteTag(g, { tagName: "v1", deleteOnRemote: "origin" })]
   ])(
     "stops the %s action's git its signal aborts",
     async (_name, action) => {
@@ -320,6 +345,70 @@ describe("a git client's network commands, through NetworkGit (the graph's own)"
       } finally {
         await c.server.close();
       }
+    },
+    40_000
+  );
+
+  // A pull merges or rebases once it has fetched; a kill there leaves that
+  // half done, so the signal never reaches it. Held in its merge by a hook
+  // while the signal aborts, it finishes once let go.
+  it.each<[string, (git: SimpleGit) => Promise<unknown>]>([
+    ["pullBranch", (g) => pullBranch(g, { remote: "origin", branchName: "main" })],
+    [
+      "checkoutAndPullBranch",
+      (g) =>
+        checkoutAndPullBranch(g, { branchName: "main", remote: "origin", branchOnRemote: "main" })
+    ]
+  ])(
+    "lets the %s action's pull finish when its signal aborts",
+    async (_name, action) => {
+      const remote = makeRepo();
+      onTestFinished(() => rmrf(remote));
+      const local = makeTempDir("ngg-pull-");
+      onTestFinished(() => rmrf(local));
+      git(["clone", "-q", remote, local], local);
+      git(["config", "user.name", "T"], local);
+      git(["config", "user.email", "t@example.com"], local);
+      git(["config", "pull.rebase", "false"], local);
+      fs.writeFileSync(path.join(remote, "theirs.txt"), "theirs\n");
+      git(["add", "."], remote);
+      git(["commit", "-qm", "theirs"], remote);
+      fs.writeFileSync(path.join(local, "ours.txt"), "ours\n");
+      git(["add", "."], local);
+      git(["commit", "-qm", "ours"], local);
+      // The merge commit waits in its hook until `go` is there.
+      const started = path.join(local, "hook-started").replaceAll("\\", "/");
+      const go = path.join(local, "go").replaceAll("\\", "/");
+      fs.mkdirSync(path.join(local, ".git", "hooks"), { recursive: true });
+      fs.writeFileSync(
+        path.join(local, ".git", "hooks", "pre-merge-commit"),
+        `#!/bin/sh\ntouch "${started}"\nwhile [ ! -f "${go}" ]; do sleep 0.1; done\n`,
+        { mode: 0o755 }
+      );
+      const controller = new AbortController();
+      const stoppable = stoppableNetworkCommands(
+        gitClientFactory(local, "git").getInstance(),
+        () => local,
+        { gitPath: () => "git", signal: controller.signal }
+      );
+
+      const outcome = action(stoppable).then(
+        () => "done",
+        (e: unknown) => e
+      );
+      await expect.poll(() => fs.existsSync(started), { timeout: SETTLE_MS }).toBe(true);
+      controller.abort();
+      // Time for a kill to land, were one sent.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      fs.writeFileSync(go, "");
+
+      expect(await outcome).toBe("done");
+      const gitDir = path.join(local, ".git");
+      for (const inProgress of ["MERGE_HEAD", "rebase-merge", "rebase-apply"]) {
+        expect(fs.existsSync(path.join(gitDir, inProgress))).toBe(false);
+      }
+      // A merge commit, its second parent what the remote had.
+      expect(rev(local, "HEAD^2")).toBe(rev(remote, "HEAD"));
     },
     40_000
   );

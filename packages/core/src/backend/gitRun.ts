@@ -77,8 +77,11 @@ function subcommand(args: readonly string[]): string | undefined {
 }
 
 /** The subcommands of a git client's that go to the network, and so run
- *  through `NetworkGit` in `stoppableNetworkCommands`. */
-const NETWORK_SUBCOMMANDS = new Set(["fetch", "push", "pull", "ls-remote"]);
+ *  through `NetworkGit` in `stoppableNetworkCommands`. Never `pull`: once it
+ *  has fetched it merges or rebases in the working tree, and a kill there
+ *  leaves a rebase or a half-made merge behind (#450, ADR-0028). A pull runs
+ *  to its end on the client, as it always has. */
+const NETWORK_SUBCOMMANDS = new Set(["fetch", "push", "ls-remote"]);
 
 /** `runNetworkGit`, resolving to what git printed on stdout. */
 export async function runNetworkGitOutput(
@@ -104,10 +107,10 @@ export async function runNetworkGitOutput(
   switch (result.kind) {
     case "ok":
       if (result.exitCode === 0) return result.stdout.toString();
-      // Both, as a git client's error has them: a pull's conflicts are said
-      // on stdout, its fetch's failure on stderr.
+      // Both, stdout first, as a git client's error has them: what git says
+      // of the outcome comes before the progress and the remote's URL.
       throw new Error(
-        [result.stderr.trim(), result.stdout.toString().trim()]
+        [result.stdout.toString().trim(), result.stderr.trim()]
           .filter((text) => text !== "")
           .join("\n") || `${name} exited with ${result.exitCode}`
       );
@@ -122,12 +125,12 @@ export async function runNetworkGitOutput(
 }
 
 /**
- * `git`, its `raw` calls that go to the network (fetch, push, pull,
- * ls-remote) run through `net` in `repo` instead (#450): the graph's own Fetch
- * button, its pushes (branches and tags) and its pulls, which reach git as
- * `raw` calls on the client the dispatch holds — the actions use `raw`, never
- * simple-git's own `push` / `pull` / `fetch`, for this. Every other call is
- * the client's own.
+ * `git`, its `raw` calls that go to the network (fetch, push, ls-remote) run
+ * through `net` in `repo` instead (#450): the graph's own Fetch button and its
+ * pushes (branches and tags), which reach git as `raw` calls on the client the
+ * dispatch holds — the actions use `raw`, never simple-git's own `push` /
+ * `fetch`, for this. Every other call is the client's own — a pull's too (see
+ * `NETWORK_SUBCOMMANDS`).
  */
 export function stoppableNetworkCommands(
   git: SimpleGit,
