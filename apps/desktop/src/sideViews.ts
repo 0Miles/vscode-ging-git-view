@@ -21,7 +21,8 @@ import type { BranchFilterStore } from "@ging/core/extension/branchFilterStore";
 import {
   batchNoTargetsMessage,
   resolveSideViewToggle,
-  sideViewBranchRoots
+  sideViewBranchRoots,
+  sideViewSearchGroups
 } from "@ging/core/extension/branchSideView";
 import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
 import type { RemoteCommands, RemoteTarget } from "@ging/core/extension/remoteCommands";
@@ -44,7 +45,7 @@ import type {
   RepoSource
 } from "@ging/core/host/ports";
 import { displayRef } from "@ging/shared/backend/utils/branchRef";
-import type { BranchTreeLeaf, BranchTreeNode } from "@ging/shared/backend/utils/branchTree";
+import type { BranchTreeNode } from "@ging/shared/backend/utils/branchTree";
 import type { GitRepoState } from "@ging/shared/types";
 import type {
   SideViewBranches,
@@ -425,27 +426,18 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
    */
   const search = async () => {
     if (branches === null) return;
-    const leaves: BranchTreeLeaf[] = [];
-    const walk = (nodes: readonly BranchTreeNode[]) => {
-      for (const node of nodes) {
-        if (node.type === "leaf") leaves.push(node);
-        else walk(node.children);
-      }
-    };
-    walk(branches.roots);
-    if (leaves.length === 0) return;
-    const filter = new Set(deps.filterStore.get(repo));
-    const remote = leaves.filter((leaf) => leaf.isRemote);
-    const local = leaves.filter((leaf) => !leaf.isRemote);
-    const named = remote.length > 0 && local.length > 0;
-    const items = [remote, local].flatMap((group, g) =>
-      group.map((leaf, i) => ({
+    // What the tree lists, in its order and groups: core's, shared with VS
+    // Code's Search Branch (ADR-0018).
+    const groups = sideViewSearchGroups(branches.roots, deps.filterStore.get(repo));
+    if (groups.length === 0) return;
+    const items = groups.flatMap(({ group, named, items: run }) =>
+      run.map(({ leaf, current, picked }, i) => ({
         label: displayRef(leaf.branch),
-        description: leaf.isHead ? l10n.t("branchView.current") : undefined,
-        picked: filter.has(leaf.branch),
+        description: current ? l10n.t("branchView.current") : undefined,
+        picked,
         ...(named &&
           i === 0 && {
-            separatorAbove: g === 0 ? strings.groupRemote : strings.groupLocal
+            separatorAbove: group === "remote" ? strings.groupRemote : strings.groupLocal
           }),
         value: leaf.branch
       }))
