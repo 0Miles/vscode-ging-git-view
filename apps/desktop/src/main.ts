@@ -86,6 +86,7 @@ import {
   schemaLocale
 } from "./settings/settingsPage";
 import { createSettingsWindow, type SettingsWindow } from "./settingsWindow";
+import { tellOfSettingWrites } from "./settingWrites";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
 import { createStatisticsWindow, type StatisticsWindow } from "./statisticsWindow";
 import { createTabWindow, layoutTabViews, type TabPageLike, type TabWindow } from "./tabWindow";
@@ -725,8 +726,6 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       settings: host.settings,
       l10n: host.l10n,
       logger,
-      instances: () =>
-        tabList().flatMap((tab) => (tab.content.page.instance ? [tab.content.page.instance] : [])),
       setTheme: (choice) => {
         nativeTheme.themeSource = choice;
         void writeThemeChoice(host.storage.global, choice);
@@ -740,6 +739,14 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       logger,
       // Only ever a key the app has: the one Show Setting names.
       valueOf: (key) => host.settings.get(key)
+    });
+    // Every write, whoever made it, reaches the settings window and each
+    // graph instance (#446), for as long as the app runs, as its settings do.
+    tellOfSettingWrites({
+      settings: host.settings,
+      settingsWindow,
+      instances: () =>
+        tabList().flatMap((tab) => (tab.content.page.instance ? [tab.content.page.instance] : []))
     });
     statisticsWindow = createStatisticsWindow({
       url: `${PAGE_URL}${STATISTICS_PATH.slice(1)}`,

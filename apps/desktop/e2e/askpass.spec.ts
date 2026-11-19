@@ -23,6 +23,11 @@ import { startUnauthorizedRemote, type UnauthorizedRemote } from "./unauthorized
 /** What the page's failure report leaves in the log (graph.spec.ts). */
 const WEBVIEW_FAILURE = /ERROR: webview |"reportError"/;
 
+/** `text` as a pattern matching itself alone. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 let scratch: string;
 let env: NodeJS.ProcessEnv;
 let app: ElectronApplication | null = null;
@@ -84,11 +89,15 @@ test("a 401 asks the page for a username, then a masked password, and git tries 
   const input = page.locator("#hostPromptInput");
 
   // git asks for the username first, of the remote's URL. The helper hands
-  // over git's prompt (`Username for '<url>': `) as the request's first
-  // word and the URL inside the quotes.
+  // over git's whole prompt (`Username for '<url>': `) as the placeholder and
+  // the URL inside its quotes as the title (#445). The trailing space is
+  // git's, not this test's.
   await expect(overlay).toBeVisible();
   await expect(title).toHaveText(`GING: http://${host}`);
-  await expect(input).toHaveAttribute("placeholder", "Username");
+  await expect(input).toHaveAttribute(
+    "placeholder",
+    new RegExp(`^${escapeRegExp(`Username for 'http://${host}':`)}\\s*$`)
+  );
   await expect(input).toHaveAttribute("type", "text");
   await expect(input).toBeFocused();
   // Over the progress dialog, not in its place (ADR-0031).
@@ -98,7 +107,10 @@ test("a 401 asks the page for a username, then a masked password, and git tries 
 
   // Then the password, of the URL now carrying that username; this one alone
   // is masked.
-  await expect(input).toHaveAttribute("placeholder", "Password");
+  await expect(input).toHaveAttribute(
+    "placeholder",
+    new RegExp(`^${escapeRegExp(`Password for 'http://alice@${host}':`)}\\s*$`)
+  );
   await expect(title).toHaveText(`GING: http://alice@${host}`);
   await expect(input).toHaveAttribute("type", "password");
   await expect(input).toBeFocused();

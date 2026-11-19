@@ -19,6 +19,8 @@ import {
   type CloneUrlProblem,
   cloneUrlProblem,
   CloneUrlError,
+  removeCredentialsFromRemote,
+  urlHasCredentials,
   urlWithoutCredentials
 } from "@ging/core/backend/actions/clone";
 import type { GitCommandHandler } from "@ging/core/backend/gitSpawn";
@@ -75,6 +77,16 @@ export function createRepoCloneCommand({
 
     /** `url` as it may be shown or logged: no user name or password in it. */
     shownUrl: (url: string): string => urlWithoutCredentials(url),
+
+    /** `url` has a password or token in it that git would save, as it is,
+     *  in the clone's `.git/config` (`urlHasCredentials`, #471). */
+    hasCredentials: (url: string): boolean => urlHasCredentials(url),
+
+    /** Take the user name and password of `url`, the one `repo` was cloned
+     *  from, out of its `origin`'s URL; answers whether git did. Says
+     *  nothing either way: the host does. */
+    removeCredentials: (repo: string, url: string): Promise<boolean> =>
+      removeCredentialsFromRemote({ gitPath: gitPath(), repo, url, onCommand }),
 
     /** Where `url` is cloned under `parent`: a folder named as git would
      *  name it (`cloneFolderName`). Only for a URL `urlProblem` takes. */

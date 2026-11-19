@@ -4,6 +4,7 @@
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { isGitRepository } from "@ging/core/backend/utils/git";
+import { isUsableRepoPathAsync } from "@ging/core/backend/utils/repoPath";
 import { createConflictCommands } from "@ging/core/extension/conflictCommands";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { createFileBlameService } from "@ging/core/extension/fileBlameService";
@@ -356,9 +357,18 @@ export function createGraphInstance(
     // Its own repository alone, as with the rest (#394): the app's check would
     // drop every known repository git cannot reach now — the recent list's
     // folders on a disk not mounted at the moment among them — when only this
-    // Tab's graph failed to load. Whether its own should go is #454's.
+    // Tab's graph failed to load. Its own goes only when its folder is there
+    // and no repository (#454): a folder not there is kept, as the recent list
+    // keeps one, since no look tells a folder deleted from a disk not mounted.
+    // Looked at off the main thread: a network share gone away would freeze
+    // the window.
     checkReposExist: async () => {
-      if (!known() || (await isGitRepository(repo, shared.gitPath()))) return false;
+      if (!known()) return false;
+      if (!(await isUsableRepoPathAsync(repo))) {
+        logger.log(`tabs: ${repo}'s folder is not there now, kept in the known set`);
+        return false;
+      }
+      if (await isGitRepository(repo, shared.gitPath())) return false;
       logger.log(`tabs: ${repo} is no Git repository any more, dropped from the known set`);
       shared.repoSource.dropRepo(repo);
       return true;
