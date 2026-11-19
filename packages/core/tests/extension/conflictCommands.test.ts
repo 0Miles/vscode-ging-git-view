@@ -78,32 +78,54 @@ function tool(repo: string, name: string, cmd: string) {
   git(["config", `mergetool.${name}.trustExitCode`, "true"], repo);
 }
 
+/**
+ * Budgets for the tests that run `git mergetool`, by how many times they run
+ * it. It is a shell script: on Windows each run starts sh, a run of git
+ * commands, and the tool's own `cp`, on top of the repository and the merge
+ * `setUp` builds.
+ *
+ * Measured with the CPU at 99% on Windows (#476): a test that runs no tool took
+ * at most 11s, one test that runs the tool at most 31.8s, past the backend's
+ * 30s default. So 30s for `setUp` and 30s more for each run of the tool: two
+ * to three times the worst of those numbers.
+ */
+const ONE_MERGETOOL_TIMEOUT_MS = 60_000;
+const TWO_MERGETOOL_TIMEOUT_MS = 90_000;
+
 describe("mergeTool", () => {
-  it("runs the configured tool, says nothing once the file is resolved, and refreshes after", async () => {
-    const { repo, conflicts, calls, unmerged } = setUp("a.txt", "b.txt");
-    tool(repo, "theirs", 'cp "$REMOTE" "$MERGED"');
-    git(["config", "merge.tool", "theirs"], repo);
+  it(
+    "runs the configured tool, says nothing once the file is resolved, and refreshes after",
+    { timeout: ONE_MERGETOOL_TIMEOUT_MS },
+    async () => {
+      const { repo, conflicts, calls, unmerged } = setUp("a.txt", "b.txt");
+      tool(repo, "theirs", 'cp "$REMOTE" "$MERGED"');
+      git(["config", "merge.tool", "theirs"], repo);
 
-    await conflicts.mergeTool("a.txt");
+      await conflicts.mergeTool("a.txt");
 
-    expect(unmerged()).toEqual(["b.txt"]);
-    expect(fs.readFileSync(path.join(repo, "a.txt"), "utf8")).toBe("side\n");
-    expect(calls).toEqual([
-      ["runRepoMutation", repo],
-      ["runRepoMutation done", repo]
-    ]);
-  });
+      expect(unmerged()).toEqual(["b.txt"]);
+      expect(fs.readFileSync(path.join(repo, "a.txt"), "utf8")).toBe("side\n");
+      expect(calls).toEqual([
+        ["runRepoMutation", repo],
+        ["runRepoMutation done", repo]
+      ]);
+    }
+  );
 
-  it("warns when the tool exits with the file still in conflict", async () => {
-    const { repo, conflicts, calls, unmerged } = setUp("a.txt");
-    tool(repo, "giving-up", "false");
-    git(["config", "merge.guitool", "giving-up"], repo);
+  it(
+    "warns when the tool exits with the file still in conflict",
+    { timeout: ONE_MERGETOOL_TIMEOUT_MS },
+    async () => {
+      const { repo, conflicts, calls, unmerged } = setUp("a.txt");
+      tool(repo, "giving-up", "false");
+      git(["config", "merge.guitool", "giving-up"], repo);
 
-    await conflicts.mergeTool("a.txt");
+      await conflicts.mergeTool("a.txt");
 
-    expect(unmerged()).toEqual(["a.txt"]);
-    expect(calls.at(-1)).toEqual(["showWarning", "mergeTool.unresolved|a.txt|giving-up"]);
-  });
+      expect(unmerged()).toEqual(["a.txt"]);
+      expect(calls.at(-1)).toEqual(["showWarning", "mergeTool.unresolved|a.txt|giving-up"]);
+    }
+  );
 
   it("says how to configure one when none is, and runs no tool: git would guess", async () => {
     const { repo, conflicts, calls, unmerged } = setUp("a.txt");
@@ -137,21 +159,27 @@ describe("mergeTool", () => {
     expect(unmerged()).toEqual(["[ab].txt", "a.txt"]);
   });
 
-  it("opens one tool at a time: a second file waits for the first to close", async () => {
-    const { repo, conflicts, calls, unmerged } = setUp("a.txt", "b.txt");
-    tool(repo, "theirs", 'cp "$REMOTE" "$MERGED"');
-    git(["config", "merge.tool", "theirs"], repo);
+  // The first file's tool and, once it closes, the second's; the `b.txt` asked
+  // for while the first is open runs none.
+  it(
+    "opens one tool at a time: a second file waits for the first to close",
+    { timeout: TWO_MERGETOOL_TIMEOUT_MS },
+    async () => {
+      const { repo, conflicts, calls, unmerged } = setUp("a.txt", "b.txt");
+      tool(repo, "theirs", 'cp "$REMOTE" "$MERGED"');
+      git(["config", "merge.tool", "theirs"], repo);
 
-    const first = conflicts.mergeTool("a.txt");
-    await conflicts.mergeTool("b.txt");
-    await first;
+      const first = conflicts.mergeTool("a.txt");
+      await conflicts.mergeTool("b.txt");
+      await first;
 
-    expect(calls[0]).toEqual(["showInformation", "mergeTool.busy|a.txt"]);
-    expect(unmerged()).toEqual(["b.txt"]);
-    // The first closed: the next one opens.
-    await conflicts.mergeTool("b.txt");
-    expect(unmerged()).toEqual([]);
-  });
+      expect(calls[0]).toEqual(["showInformation", "mergeTool.busy|a.txt"]);
+      expect(unmerged()).toEqual(["b.txt"]);
+      // The first closed: the next one opens.
+      await conflicts.mergeTool("b.txt");
+      expect(unmerged()).toEqual([]);
+    }
+  );
 });
 
 describe("confirmResolve", () => {
