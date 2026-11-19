@@ -152,6 +152,10 @@ export function createSharedServices({
           `A git credential prompt reached no window, answered as dismissed: ${prompt}`
         );
         return undefined;
+      },
+      choose: async (message) => {
+        logger.logError(`An ssh prompt reached no window, answered as dismissed: ${message}`);
+        return undefined;
       }
     },
     helperDir
