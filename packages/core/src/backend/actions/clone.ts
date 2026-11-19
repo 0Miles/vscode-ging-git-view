@@ -157,6 +157,51 @@ export function urlWithoutCredentials(url: string): string {
   return at === -1 ? url : scheme[0] + rest.slice(at + 1);
 }
 
+/**
+ * Whether `url` carries a secret git would save as it is in the clone's
+ * `.git/config` (#471): over http(s), any user name and password at all,
+ * since a token may stand alone in the user field; over any other scheme,
+ * only a password (`ssh://git:secret@`), an ssh user name being no secret.
+ * git's scp-like `user@host:path` and a path name none.
+ */
+export function urlHasCredentials(url: string): boolean {
+  const scheme = SCHEME_URL.exec(url);
+  if (scheme === null) return false;
+  const rest = url.slice(scheme[0].length);
+  const slash = rest.search(/[\\/]/);
+  const authority = slash === -1 ? rest : rest.slice(0, slash);
+  const at = authority.lastIndexOf("@");
+  if (at <= 0) return false;
+  const userInfo = authority.slice(0, at);
+  return /^https?$/i.test(scheme[1]) || userInfo.includes(":");
+}
+
+/**
+ * Point `repo`'s `origin` at `url` without its user name and password
+ * (`urlWithoutCredentials`), so that they are no longer in its
+ * `.git/config` (#471). Answers whether git did; what it said is not
+ * answered, lest it repeat the URL.
+ */
+export async function removeCredentialsFromRemote({
+  gitPath,
+  repo,
+  url,
+  onCommand
+}: {
+  gitPath: string;
+  repo: string;
+  url: string;
+  onCommand?: GitCommandHandler;
+}): Promise<boolean> {
+  const result = await spawnGit({
+    gitPath,
+    cwd: repo,
+    args: ["remote", "set-url", "--", "origin", urlWithoutCredentials(url)],
+    onCommand
+  });
+  return result.kind === "ok" && result.exitCode === 0;
+}
+
 /** A progress line: a stage, then how far through it in percent. */
 const PROGRESS_LINE = /^(?:remote: )?([^:]+):\s+(\d{1,3})%/;
 /** What git and the remote say of a clone along the way that is no failure. */

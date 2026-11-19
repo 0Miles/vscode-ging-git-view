@@ -4,6 +4,8 @@
  * then core's clone, its progress shown on the Welcome page with a way to
  * cancel it, and the repository opened in a Tab. A credential git needs is
  * asked on the Welcome page too, through an askpass route of the clone's own.
+ * A URL with a password or token in it is asked about first (#471): git would
+ * save it, as it is, in the new repository's `.git/config`.
  * Everything it reaches out to is handed in, so vitest drives all of it with
  * fakes. */
 
@@ -20,13 +22,17 @@ import { pickFolder } from "./repoOpening";
 export const PROGRESS_INTERVAL_MS = 100;
 
 export type RepoCloningDeps = {
-  /** The Welcome page's: the URL is asked there. */
-  prompts: Pick<Prompts, "input">;
+  /** The Welcome page's: the URL is asked there, and what to do with the
+   *  credentials in it. */
+  prompts: Pick<Prompts, "input" | "choose" | "showWarning">;
   dialogs: Pick<NativeDialogs, "showOpenDialog">;
   l10n: L10n;
   logger: Pick<HostLogger, "log">;
   /** Core's Clone Repository. */
-  command: Pick<RepoCloneCommand, "urlProblem" | "folderFor" | "shownUrl" | "cloneRepo">;
+  command: Pick<
+    RepoCloneCommand,
+    "urlProblem" | "folderFor" | "shownUrl" | "hasCredentials" | "removeCredentials" | "cloneRepo"
+  >;
   /** An environment for one clone's git whose credential prompts are asked
    *  on the Welcome page (an askpass route), and how to let it go. */
   askpassRoute(): { env: NodeJS.ProcessEnv; dispose(): void };
@@ -53,6 +59,10 @@ export type RepoCloning = {
   dispose(): Promise<void>;
 };
 
+/** What to clone and where, and whether to take the credentials out of the
+ *  clone's remote URL once it is made. */
+type Target = { url: string; folder: string; removeCredentials: boolean };
+
 /** The clone running: where to, how far, and how to stop it. */
 type Running = {
   url: string;
@@ -76,8 +86,23 @@ export function createRepoCloning(deps: RepoCloningDeps): RepoCloning {
   /** The folder the clone goes in, as the user chose it, or `null`. */
   const pickParent = () => pickFolder(dialogs, l10n.t("desktop.folderDialog.clone"));
 
-  /** Ask what to clone and where: the URL, trimmed, and the folder for it. */
-  const ask = async (): Promise<{ url: string; folder: string } | null> => {
+  /** For a URL with credentials in it, whether to take them out of the
+   *  clone's remote URL: `null` when the user cancelled. No credentials in
+   *  the question: it says what git does with them, not what they are. */
+  const askAboutCredentials = async (): Promise<boolean | null> => {
+    const answer = await prompts.choose(l10n.t("desktop.clone.credentials.message"), {
+      detail: l10n.t("desktop.clone.credentials.detail"),
+      actions: [
+        { label: l10n.t("desktop.clone.credentials.remove"), value: true },
+        { label: l10n.t("desktop.clone.credentials.keep"), value: false }
+      ]
+    });
+    return answer ?? null;
+  };
+
+  /** Ask what to clone and where: the URL, trimmed, what to do with any
+   *  credentials in it, and the folder for it. */
+  const ask = async (): Promise<Target | null> => {
     const answer = await prompts.input({
       prompt: l10n.t("desktop.clone.urlPrompt"),
       placeholder: l10n.t("desktop.clone.urlPlaceholder"),
@@ -85,12 +110,30 @@ export function createRepoCloning(deps: RepoCloningDeps): RepoCloning {
     });
     if (answer === undefined || disposed) return null;
     const url = answer.trim();
+    let removeCredentials = false;
+    if (command.hasCredentials(url)) {
+      const remove = await askAboutCredentials();
+      if (remove === null) logger.log("clone: cancelled");
+      if (remove === null || disposed) return null;
+      removeCredentials = remove;
+    }
     const parent = await pickParent();
     if (parent === null || disposed) return null;
-    return { url, folder: command.folderFor(parent, url) };
+    return { url, folder: command.folderFor(parent, url), removeCredentials };
   };
 
-  const run = async ({ url, folder }: { url: string; folder: string }): Promise<void> => {
+  /** Take the credentials out of `repo`'s remote URL, cloned from `url`; when
+   *  that fails, say they are still there. Neither says what they are. */
+  const removeCredentials = async (repo: string, url: string): Promise<void> => {
+    if (await command.removeCredentials(repo, url)) {
+      logger.log(`clone: removed the credentials from the remote URL of ${repo}`);
+      return;
+    }
+    logger.log(`clone: could not remove the credentials from the remote URL of ${repo}`);
+    if (!disposed) prompts.showWarning(l10n.t("desktop.clone.credentials.notRemoved", repo));
+  };
+
+  const run = async ({ url, folder, removeCredentials: remove }: Target): Promise<void> => {
     const abort = new AbortController();
     const clone: Running = { url, folder, progress: null, abort };
     running = clone;
@@ -115,6 +158,9 @@ export function createRepoCloning(deps: RepoCloningDeps): RepoCloning {
       running = null;
       deps.onChange();
     }
+    // Taken out even from a clone the window is gone before opening: it is
+    // on the disk all the same.
+    if (cloned !== undefined && remove) await removeCredentials(cloned.repo, url);
     if (cloned !== undefined && !disposed) {
       logger.log(`clone: cloned ${cloned.repo}`);
       deps.openRepo(cloned.repo);
@@ -131,7 +177,7 @@ export function createRepoCloning(deps: RepoCloningDeps): RepoCloning {
       }
       asking = true;
       deps.onChange();
-      let target: { url: string; folder: string } | null;
+      let target: Target | null;
       try {
         target = await ask();
       } finally {
