@@ -14,8 +14,15 @@ function fatal(err: unknown): void {
   process.exit(1);
 }
 
+/** What git's prompt is about: the text between its first and last single
+ *  quote (`Username for '<url>': `), or "" when it has no such pair. */
+function hostOf(prompt: string): string {
+  const first = prompt.indexOf("'");
+  const last = prompt.lastIndexOf("'");
+  return last > first && first !== -1 ? prompt.substring(first + 1, last) : "";
+}
+
 function main(argv: string[]): void {
-  if (argv.length !== 5) return fatal("Wrong number of arguments");
   if (!process.env["NEO_GIT_GRAPH_ASKPASS_HANDLE"]) return fatal("Missing handle");
   if (!process.env["NEO_GIT_GRAPH_ASKPASS_PIPE"]) return fatal("Missing pipe");
 
@@ -40,12 +47,14 @@ function main(argv: string[]): void {
   });
 
   req.on("error", () => fatal("Error in request"));
-  // argv[2] is the prompt git issues; argv[4] is "Host '<host>':" — strip the quotes.
+  // git hands its prompt over as one argument (askpass.sh passes it on with
+  // "$@"); should it ever come in several, they are joined back with spaces.
   // The token, when git was run with one, says whose prompt this is.
+  const request = argv.slice(2).join(" ");
   req.write(
     JSON.stringify({
-      request: argv[2],
-      host: argv[4].substring(1, argv[4].length - 2),
+      request,
+      host: hostOf(request),
       token: process.env["NEO_GIT_GRAPH_ASKPASS_TOKEN"]
     })
   );

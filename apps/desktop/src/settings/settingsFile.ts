@@ -33,6 +33,11 @@ export type Settings = {
    *  write. A read after it resolves sees the
    *  value. Writes go out one at a time, in the order asked. */
   update(key: string, value: unknown): Promise<void>;
+  /** Call `listener` with the key of each write that lands, whoever asked
+   *  for it, before that `update` resolves and after a read would see it; a
+   *  refused or failed write calls nothing. A listener that throws is
+   *  reported and does not fail the write. */
+  onDidUpdate(listener: (key: string) => void): { dispose(): void };
 };
 
 /** Why `Settings.update` wrote nothing: the key or the value, not the file. */
@@ -217,6 +222,7 @@ export function openSettings(
   // One write at a time, so two in quick succession do not both start from
   // the file as it was before either.
   let writing: Promise<void> = Promise.resolve();
+  const listeners = new Set<(key: string) => void>();
 
   return {
     get(key) {
@@ -240,9 +246,22 @@ export function openSettings(
         await writeWhole(file, `${JSON.stringify(values, null, 2)}\n`);
         // Not left to the next task: whoever wrote it reads it back at once.
         cached = null;
+        for (const listener of listeners) {
+          try {
+            listener(key);
+          } catch (e) {
+            onError(`Telling of ${key} written failed: ${String(e)}`);
+          }
+        }
       });
       writing = write.catch(() => {});
       return write;
+    },
+    onDidUpdate(listener) {
+      // Its own entry, so one listener added twice is two listeners.
+      const entry = (key: string) => listener(key);
+      listeners.add(entry);
+      return { dispose: () => listeners.delete(entry) };
     }
   };
 }

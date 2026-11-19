@@ -29,6 +29,9 @@ function subject() {
   const changed: string[] = [];
   const themes: ThemeChoice[] = [];
   const replies: SettingsResponse[] = [];
+  // A graph instance hears of a write as every listener does (#446).
+  const following = settings.onDidUpdate((key) => changed.push(key));
+  onTestFinished(() => following.dispose());
   const handle = createSettingsPageHandler({
     config,
     settings,
@@ -37,7 +40,6 @@ function subject() {
       log: (line) => logged.push(line),
       logError: (line) => logged.push(`ERROR: ${line}`)
     },
-    instances: () => [{ settingChanged: (key) => changed.push(key) }],
     setTheme: (choice) => themes.push(choice)
   });
   const post = (message: unknown) => handle(message, (answer) => replies.push(answer));

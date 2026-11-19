@@ -103,7 +103,7 @@
   "config.fileEncoding": "解码 diff 视图及查看某修订版本文件内容时所用的编码（支持 iconv-lite 的任意编码）。默认值：utf8",
   "config.showSpecificBranches": "首次打开仓库时图形中初始显示的 branch 名称（启用相应选项时会与 checkout branch merge）。为空则显示所有 branch。",
   "config.graph.uncommittedChanges": "在图形上 uncommitted 更改的空心圆圈的绘制位置。",
-  "command.getVersionInfo": "Fetch 版本信息",
+  "command.getVersionInfo": "获取版本信息",
   "command.openFileFromDiff": "打开文件",
   "config.issueLinkingRegex": "匹配 commit 消息中议题编号的正则表达式（例如 \"#(\\\\d+)\"）。捕获组可在 issueLinkingUrl 中以 $1、$2 等引用。留空以禁用议题链接。",
   "config.issueLinkingUrl": "议题引用所链接到的 URL 模板，其中 $1、$2…由 issueLinkingRegex 的捕获组替换（例如 \"https://github.com/owner/repo/issues/$1\"）。",

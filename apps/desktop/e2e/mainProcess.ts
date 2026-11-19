@@ -53,17 +53,21 @@ export const folderDialogs = (electronApp: ElectronApplication) =>
     () => ((globalThis as Record<string, unknown>).askedFolders as unknown[]) ?? []
   );
 
-/** Every message box answered with its first button, and kept, as the app
- *  put it, for `messageBoxes` to read. */
-export async function answerMessageBoxes(electronApp: ElectronApplication): Promise<void> {
-  await electronApp.evaluate(({ dialog }) => {
+/** Every message box answered with its first button — or the `n`th box with
+ *  button `answers[n]`, where given — and kept, as the app put it, for
+ *  `messageBoxes` to read. */
+export async function answerMessageBoxes(
+  electronApp: ElectronApplication,
+  answers: number[] = []
+): Promise<void> {
+  await electronApp.evaluate(({ dialog }, buttons) => {
     const asked: unknown[] = [];
     (globalThis as Record<string, unknown>).askedBoxes = asked;
     dialog.showMessageBox = (async (...args: unknown[]) => {
       asked.push(args.at(-1));
-      return { response: 0, checkboxChecked: false };
+      return { response: buttons[asked.length - 1] ?? 0, checkboxChecked: false };
     }) as typeof dialog.showMessageBox;
-  });
+  }, answers);
 }
 
 /** The message boxes shown since `answerMessageBoxes`. */

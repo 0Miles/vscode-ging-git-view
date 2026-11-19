@@ -71,6 +71,24 @@ describe("formatGitError", () => {
     );
   });
 
+  // ssh says why before git's catch-all (#470).
+  it("keeps ssh's own reason in front of git's 'Could not read from remote repository.'", () => {
+    const fatal =
+      "fatal: Could not read from remote repository.\n\n" +
+      "Please make sure you have the correct access rights\nand the repository exists.";
+    expect(
+      formatGitError(
+        new Error(`Cloning into 'project'...\nHost key verification failed.\r\n${fatal}`)
+      )
+    ).toBe("Host key verification failed.\nCould not read from remote repository.");
+    expect(
+      formatGitError(new Error(`git@github.com: Permission denied (publickey).\n${fatal}`))
+    ).toBe(
+      "git@github.com: Permission denied (publickey).\nCould not read from remote repository."
+    );
+    expect(formatGitError(new Error(fatal))).toBe("Could not read from remote repository.");
+  });
+
   it("returns the first meaningful line when nothing is recognised", () => {
     expect(formatGitError(new Error("\n\nsomething unexpected happened\n"))).toBe(
       "something unexpected happened"
