@@ -236,7 +236,7 @@ describe("a graph instance", () => {
     const { shared, repos, open, logged } = setUp();
     const page = open(repos[0]);
     const other = open(repos[1]);
-    fs.rmSync(path.join(repos[0], ".git"), { recursive: true, force: true });
+    rmrf(path.join(repos[0], ".git"));
     await page.receive({ command: "loadRepos", check: true });
     const before = sentOf(page.posted, "loadRepos").length;
     const otherBefore = sentOf(other.posted, "loadRepos").length;
