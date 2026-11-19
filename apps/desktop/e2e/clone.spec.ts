@@ -260,6 +260,34 @@ function viewsInWindow(electronApp: ElectronApplication): Promise<number> {
   );
 }
 
+/** Note, from now on, which page the app last handed the keyboard to
+ *  (`WebContents.focus()`). Playwright types over CDP, which reaches a page
+ *  whether it has the keyboard or not, and the test's windows never take it
+ *  from the user (quietWindows.js), so `isFocused()` says nothing: the call
+ *  itself is what is read. */
+function noteKeyboard(electronApp: ElectronApplication): Promise<void> {
+  return electronApp.evaluate(({ webContents }) => {
+    const proto = Object.getPrototypeOf(webContents.getAllWebContents()[0]) as {
+      focus(this: { id: number }): void;
+    };
+    const focus = proto.focus;
+    const noted = globalThis as { gingKeyboardTo?: number };
+    proto.focus = function (this: { id: number }) {
+      noted.gingKeyboardTo = this.id;
+      return focus.call(this);
+    };
+  });
+}
+
+/** The window's own page was the last handed the keyboard (`noteKeyboard`). */
+function keyboardInWindowPage(electronApp: ElectronApplication): Promise<boolean> {
+  return electronApp.evaluate(
+    ({ BrowserWindow }) =>
+      (globalThis as { gingKeyboardTo?: number }).gingKeyboardTo ===
+      BrowserWindow.getAllWindows()[0].webContents.id
+  );
+}
+
 test("with a Tab open, Clone Repository brings the Welcome page forward and opens the clone in a Tab after it", async () => {
   const fixture = makeFixtureRepo(env);
   cleanUp.push(fixture.path);
@@ -281,11 +309,15 @@ test("with a Tab open, Clone Repository brings the Welcome page forward and open
     .toEqual([[opened, true]]);
   await answerFolderDialog(electronApp, parent);
   expect(await menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(true);
+  await noteKeyboard(electronApp);
   await clickMenu(electronApp, CLONE_REPOSITORY);
+  // The keyboard goes from the Tab to the Welcome page brought forward.
+  await expect.poll(() => keyboardInWindowPage(electronApp)).toBe(true);
 
-  // The URL is asked on the Welcome page, in front: no Tab focused, no view
-  // over it.
+  // The URL is asked on the Welcome page, in front — its own entries drawn
+  // under the prompt: no Tab focused, no view over it.
   await expect(window.locator("#hostPrompt")).toBeVisible();
+  await expect(window.locator("#welcome .welcomeActions")).toBeVisible();
   expect(await viewsInWindow(electronApp)).toBe(0);
   expect((await stripTabs(window)).map(({ focused }) => focused)).toEqual([false]);
   await typeUrl(window, url);
@@ -309,7 +341,9 @@ test("with a Tab open, Clone Repository brings the Welcome page forward and open
 test("with a Tab in front, a credential the clone needs brings the Welcome page forward to ask it", async () => {
   const fixture = makeFixtureRepo(env);
   cleanUp.push(fixture.path);
-  const remote: UnauthorizedRemote = await startUnauthorizedRemote();
+  // Held: git waits on its first request until the user has gone back to
+  // the Tab.
+  const remote: UnauthorizedRemote = await startUnauthorizedRemote({ hold: true });
   servers.push(remote);
   const parent = path.join(scratch, "clones");
   mkdirSync(parent);
@@ -331,12 +365,29 @@ test("with a Tab in front, a credential the clone needs brings the Welcome page 
   const cloneTab = window.locator("#tabStrip .cloneTab");
   await expect(cloneTab).toHaveText(`Cloning ${remote.url}`);
   await expect(cloneTab.locator(".tabClose")).toHaveCount(0);
+  const tab = window.locator("#tabStrip .tab[data-tab-id]");
+  const panel = window.locator("#clonePanel");
 
-  // The Username prompt is asked on the Welcome page, in front of the Tab.
+  // Clicking the Tab brings it forward; the clone goes on, its entry stays.
+  await tab.click();
+  await expect.poll(() => viewsInWindow(electronApp)).toBe(1);
+  await expect(cloneTab).toBeVisible();
+  await expect(cloneTab).not.toHaveClass(/focused/);
+  // Clicking the clone's entry brings the Welcome page and its panel back.
+  await cloneTab.click();
+  await expect.poll(() => viewsInWindow(electronApp)).toBe(0);
+  await expect(panel).toBeVisible();
+  await expect(window.locator("#tabStrip .tab[data-tab-id].focused")).toHaveCount(0);
+  // Back to the Tab, and only then does git get its 401.
+  await tab.click();
+  await expect.poll(() => viewsInWindow(electronApp)).toBe(1);
+  remote.release();
+
+  // The Username prompt brings the Welcome page forward over the Tab.
   const input = window.locator("#hostPromptInput");
   await expect(input).toHaveAttribute("placeholder", "Username");
   await expect(window.locator("#hostPrompt")).toBeVisible();
-  await expect(window.locator("#clonePanel")).toBeVisible();
+  await expect(panel).toBeVisible();
   await expect.poll(() => viewsInWindow(electronApp)).toBe(0);
   await expect(cloneTab).toHaveClass(/focused/);
   await expect(window.locator("#tabStrip .tab[data-tab-id].focused")).toHaveCount(0);
