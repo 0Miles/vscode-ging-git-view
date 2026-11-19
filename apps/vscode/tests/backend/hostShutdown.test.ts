@@ -1,10 +1,15 @@
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
+import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { runNetworkGit } from "@ging/core/backend/gitRun";
 import { GitAbortedError } from "@ging/core/backend/utils/gitError";
-import { createHostShutdown, startHostShutdown } from "@ging/vscode/hostShutdown";
+import {
+  createHostShutdown,
+  createShutDownFetching,
+  startHostShutdown
+} from "@ging/vscode/hostShutdown";
 
-import { git, hangingGitServer, makeRepo, rmrf } from "@ging/core/tests/helpers";
+import { fakePorts, git, hangingGitServer, makeRepo, rmrf } from "@ging/core/tests/helpers";
 
 // The VS Code host's deactivation (#450): the signal its fetches run under is
 // aborted, and deactivation waits, bounded, for the git it stopped to go.
@@ -41,6 +46,52 @@ describe("the extension's deactivate", () => {
     await deactivate();
 
     expect(shutdown.signal.aborted).toBe(true);
+  }, 60_000);
+
+  it("stops the fetch activate's services run, and resolves once its git has gone", async () => {
+    const server = await hangingGitServer();
+    try {
+      const repo = makeRepo();
+      onTestFinished(() => rmrf(repo));
+      git(["remote", "add", "origin", server.url], repo);
+      const { ports, calls } = fakePorts();
+      const logged: string[] = [];
+      // As `activate` builds them.
+      const { runRepoMutation, fetchService } = createShutDownFetching({
+        watcher: () => undefined,
+        afterMutation: () => {},
+        fetch: {
+          config: {
+            fetchAndPrune: () => false,
+            fetchAndPruneTags: () => false,
+            autoFetchEnabled: () => false,
+            autoFetchIntervalMinutes: () => 10
+          },
+          prompts: ports.prompts,
+          l10n: ports.l10n,
+          logger: { log: (line) => logged.push(line) },
+          gitClientFor: (target) => gitClientFactory(target, "git").getInstance(),
+          currentRepo: () => repo,
+          repoSource: { getRepos: () => ({ [repo]: { columnWidths: null } }) }
+        },
+        networkGit: { gitPath: () => "git" }
+      });
+      const { deactivate } = await import("@ging/vscode/extension");
+      const fetching = fetchService.fetchCommand();
+      await expect.poll(server.openConnections, { timeout: 15_000 }).toBeGreaterThan(0);
+
+      await deactivate();
+
+      // Gone by the time deactivation is done, not just sent a kill: on
+      // Windows the extension host exits right after.
+      expect(server.openConnections()).toBe(0);
+      await fetching;
+      expect(logged).toEqual(["error.unableToFetch: git fetch: aborted"]);
+      expect(calls.filter(([name]) => String(name).startsWith("show"))).toEqual([]);
+      await expect(runRepoMutation(repo, async () => {})).rejects.toBeInstanceOf(GitAbortedError);
+    } finally {
+      await server.close();
+    }
   }, 60_000);
 });
 

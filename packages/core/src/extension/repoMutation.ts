@@ -22,7 +22,8 @@ export function createRunRepoMutation(deps: {
   /** Aborted once whatever started the work is gone — the instance disposed
    *  of, the extension deactivated (#450). Work asked for after that never
    *  starts, and rejects with `GitAbortedError`; a git running inside the work
-   *  is stopped by the same signal, handed to its spawn (`NetworkGit`). Nothing
+   *  is sent a kill by the same signal when its spawn was handed it
+   *  (`NetworkGit`) — best-effort, see ADR-0028. Nothing
    *  is refreshed after an aborted run: there is no surface left to redraw. */
   signal?: AbortSignal;
 }): RunRepoMutation {

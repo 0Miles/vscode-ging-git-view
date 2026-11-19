@@ -1,9 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
-
 import type { SimpleGit } from "simple-git";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { checkoutAndPullBranch, pullBranch } from "@ging/core/backend/actions/branch";
 import { addTag, deleteTag, pushTag } from "@ging/core/backend/actions/tag";

@@ -15,14 +15,12 @@ import { createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import { createBranchFacts, createGitSnapshotReader } from "@ging/core/extension/branchFacts";
 import { createBranchFilterStore } from "@ging/core/extension/branchFilterStore";
 import { batchNoTargetsMessage, resolveSideViewToggle } from "@ging/core/extension/branchSideView";
-import { createFetchService } from "@ging/core/extension/fetchService";
 import { createInfoCommands } from "@ging/core/extension/infoCommands";
 import { registerMessageHandlers } from "@ging/core/extension/messageHandler";
 import { type ConfigScope, runPruneTagsMigration } from "@ging/core/extension/pruneTagsMigration";
 import { createReflogCommand } from "@ging/core/extension/reflogCommand";
 import { createRemoteCommands, type RemoteTarget } from "@ging/core/extension/remoteCommands";
 import { createRepoGitClients } from "@ging/core/extension/repoGitClients";
-import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 import {
   REPO_SETTING_DEFAULT_KEYS,
   resolveShowRemoteBranches,
@@ -74,7 +72,7 @@ import {
   vscodePrompts,
   vscodeStorage
 } from "./hostPorts";
-import { deactivateHost, startHostShutdown } from "./hostShutdown";
+import { createShutDownFetching, deactivateHost } from "./hostShutdown";
 import * as l10n from "./l10n";
 import { initL10n } from "./l10n";
 import { RepoFileWatcher } from "./repoFileWatcher";
@@ -225,35 +223,22 @@ export function activate(context: vscode.ExtensionContext) {
   // commands, and the timer — run inside this hook, which refreshes whether or
   // not a graph is open. The graph's own fetches take the git call alone, since
   // its bridge mutes and refreshes around them.
-  // Aborted on deactivate (#450, hostShutdown.ts): a fetch still running is
-  // sent a kill, best-effort (ADR-0028), deactivation waits a bounded while
-  // for it, and none starts after. The extension's, not a graph panel's: these
-  // run for the side views and commands with no graph open, so closing the
-  // panel stops none of them.
-  const shutdown = startHostShutdown();
-  const runRepoMutation = createRunRepoMutation({
+  // Both stopped on deactivate (#450, hostShutdown.ts).
+  const currentRepo = () => extensionState.getLastActiveRepo();
+  const { runRepoMutation, fetchService } = createShutDownFetching({
     watcher: () => currentWatcher,
     afterMutation: () => refreshAfterRemoteChange(),
-    signal: shutdown.signal
-  });
-  const currentRepo = () => extensionState.getLastActiveRepo();
-  // Every fetch, and the auto-fetch timer.
-  const fetchService = createFetchService({
-    config,
-    prompts: vscodePrompts,
-    l10n: vscodeL10n,
-    logger,
-    gitClientFor: repoGitClients.gitClientFor,
-    currentRepo,
-    repoSource: repoManager,
-    runRepoMutation,
-    networkGit: {
-      gitPath: config.gitPath,
-      gitEnv: gitEnv(),
-      onCommand: logger.logCmd,
-      signal: shutdown.signal,
-      onAborted: shutdown.onAborted
-    }
+    // Every fetch, and the auto-fetch timer.
+    fetch: {
+      config,
+      prompts: vscodePrompts,
+      l10n: vscodeL10n,
+      logger,
+      gitClientFor: repoGitClients.gitClientFor,
+      currentRepo,
+      repoSource: repoManager
+    },
+    networkGit: { gitPath: config.gitPath, gitEnv: gitEnv(), onCommand: logger.logCmd }
   });
   fetchService.restartAutoFetch();
   context.subscriptions.push(fetchService);

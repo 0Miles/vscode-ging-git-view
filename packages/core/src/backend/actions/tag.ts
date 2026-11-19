@@ -36,7 +36,5 @@ export async function pushTag(git: SimpleGit, input: ActionPayload<"pushTag">): 
   // remote's refusal is reported, after every remote has answered (#264).
   // `raw`, as every network command of the graph's: a host can run those
   // where it can stop them (`stoppableNetworkCommands`, #450).
-  await attemptOnEachRemote(input.remotes, (remote) =>
-    git.raw(["push", remote, input.tagName])
-  );
+  await attemptOnEachRemote(input.remotes, (remote) => git.raw(["push", remote, input.tagName]));
 }

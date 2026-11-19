@@ -10,6 +10,15 @@
  * `activate` and its `deactivate` is `deactivateHost`.
  */
 
+import type { NetworkGit } from "@ging/core/backend/gitRun";
+import {
+  createFetchService,
+  type FetchService,
+  type FetchServiceDeps
+} from "@ging/core/extension/fetchService";
+import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
+import type { RunRepoMutation, Watcher } from "@ging/core/host/ports";
+
 /** How long deactivation waits for the stopped gits: well under the 5 s
  *  VS Code gives every extension's `deactivate` in all. */
 export const DEACTIVATE_WAITS_FOR_GIT_MS = 3_000;
@@ -47,6 +56,34 @@ export function createHostShutdown(): HostShutdown {
       });
     }
   };
+}
+
+/**
+ * The extension's fetch service and its `runRepoMutation`, both under the
+ * shutdown `activate` starts (`startHostShutdown`): what deactivation aborts
+ * is what their git runs under, and what it waits for is what their stopped
+ * git hands back. The extension's, not a graph panel's: these run for the
+ * side views and commands with no graph open, so closing the panel stops none
+ * of them.
+ */
+export function createShutDownFetching(deps: {
+  watcher: () => Pick<Watcher, "mute" | "unmute"> | undefined;
+  afterMutation: () => void;
+  fetch: Omit<FetchServiceDeps, "runRepoMutation" | "networkGit">;
+  networkGit: Omit<NetworkGit, "signal" | "onAborted">;
+}): { runRepoMutation: RunRepoMutation; fetchService: FetchService } {
+  const shutdown = startHostShutdown();
+  const runRepoMutation = createRunRepoMutation({
+    watcher: deps.watcher,
+    afterMutation: deps.afterMutation,
+    signal: shutdown.signal
+  });
+  const fetchService = createFetchService({
+    ...deps.fetch,
+    runRepoMutation,
+    networkGit: { ...deps.networkGit, signal: shutdown.signal, onAborted: shutdown.onAborted }
+  });
+  return { runRepoMutation, fetchService };
 }
 
 let current: HostShutdown | undefined;
