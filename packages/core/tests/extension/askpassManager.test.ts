@@ -37,11 +37,7 @@ function ask(
 }
 
 /** What `choose` was asked: its message and options. */
-interface Chosen {
-  message: string;
-  detail?: string;
-  actions: readonly { label: string; value: unknown }[];
-}
+type Chosen = { message: string } & Parameters<Prompts["choose"]>[1];
 
 /** Notes what `choose` was asked, then answers with the action at `pick`
  *  (`undefined` for the host's Cancel), or rejects when `pick` is `"fail"`. */
@@ -55,10 +51,12 @@ function chooser(pick: number | undefined | "fail") {
   return { chosen, choose };
 }
 
+/** A `choose` that is dismissed, for prompts a test asks nothing of. */
+const dismiss: Prompts["choose"] = async () => undefined;
+
 function start(
   answer: (options: InputOptions) => PromiseLike<string | undefined>,
-  helpers = os.tmpdir(),
-  choose: Prompts["choose"] = chooser(undefined).choose
+  { choose = dismiss, helpers = os.tmpdir() }: { choose?: Prompts["choose"]; helpers?: string } = {}
 ) {
   const asked: InputOptions[] = [];
   manager = new AskpassManager(
@@ -120,7 +118,7 @@ describe("AskpassManager", () => {
         toRoute.push(options);
         return "routed";
       },
-      choose: chooser(undefined).choose
+      choose: dismiss
     });
 
     const res = await ask(handle, {
@@ -138,8 +136,8 @@ describe("AskpassManager", () => {
   it("gives each route a token of its own", () => {
     start(async () => undefined);
     const tokens = [
-      manager!.route({ input: async () => undefined, choose: chooser(undefined).choose }),
-      manager!.route({ input: async () => undefined, choose: chooser(undefined).choose })
+      manager!.route({ input: async () => undefined, choose: dismiss }),
+      manager!.route({ input: async () => undefined, choose: dismiss })
     ].map((route) => route.env.NEO_GIT_GRAPH_ASKPASS_TOKEN);
     expect(new Set(tokens).size).toBe(2);
     expect(manager!.getEnv().NEO_GIT_GRAPH_ASKPASS_TOKEN).toBeUndefined();
@@ -149,7 +147,7 @@ describe("AskpassManager", () => {
     const { asked, handle } = start(async () => "default");
     const gone = manager!.route({
       input: async () => "routed",
-      choose: chooser(undefined).choose
+      choose: dismiss
     });
     gone.dispose();
 
@@ -174,7 +172,7 @@ describe("AskpassManager", () => {
 
     const route = manager!.route({
       input: async () => undefined,
-      choose: chooser(undefined).choose
+      choose: dismiss
     });
     expect(route.env.SSH_ASKPASS).toBe(route.env.GIT_ASKPASS);
     expect(route.env.SSH_ASKPASS).toMatch(/askpass\.sh$/);
@@ -184,7 +182,7 @@ describe("AskpassManager", () => {
 
   it("asks a host key confirmation as a choice, its fingerprint in the detail, and answers yes", async () => {
     const { chosen, choose } = chooser(0);
-    const { asked, handle } = start(async () => "typed", os.tmpdir(), choose);
+    const { asked, handle } = start(async () => "typed", { choose });
     const res = await ask(handle, {
       request: HOST_KEY_PROMPT,
       host: "github.com (20.27.177.113)' can"
@@ -207,7 +205,7 @@ describe("AskpassManager", () => {
 
   it("asks an older ssh's (yes/no)? confirmation as a choice too", async () => {
     const { chosen, choose } = chooser(0);
-    const { asked, handle } = start(async () => "typed", os.tmpdir(), choose);
+    const { asked, handle } = start(async () => "typed", { choose });
     const prompt =
       "The authenticity of host 'example.com (192.0.2.1)' can't be established.\n" +
       "RSA key fingerprint is SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8.\n" +
@@ -223,20 +221,20 @@ describe("AskpassManager", () => {
   });
 
   it("answers a cancelled host key confirmation with no", async () => {
-    const { handle } = start(async () => "typed", os.tmpdir(), chooser(undefined).choose);
+    const { handle } = start(async () => "typed", { choose: dismiss });
     const res = await ask(handle, { request: HOST_KEY_PROMPT, host: "" });
     expect(res).toEqual({ status: 200, body: JSON.stringify("no") });
   });
 
   it("answers a host key confirmation that failed with an error status", async () => {
-    const { handle } = start(async () => "typed", os.tmpdir(), chooser("fail").choose);
+    const { handle } = start(async () => "typed", { choose: chooser("fail").choose });
     const res = await ask(handle, { request: HOST_KEY_PROMPT, host: "" });
     expect(res.status).toBe(500);
   });
 
   it("puts a host key confirmation to the route whose token it carries", async () => {
     const { chosen: toDefault, choose } = chooser(0);
-    const { handle } = start(async () => undefined, os.tmpdir(), choose);
+    const { handle } = start(async () => undefined, { choose });
     const routed = chooser(0);
     const route = manager!.route({ input: async () => undefined, choose: routed.choose });
     const res = await ask(handle, {
@@ -251,7 +249,7 @@ describe("AskpassManager", () => {
 
   it("asks for a key's passphrase masked", async () => {
     const { chosen, choose } = chooser(0);
-    const { asked, handle } = start(async () => "hunter2", os.tmpdir(), choose);
+    const { asked, handle } = start(async () => "hunter2", { choose });
     const prompt = "Enter passphrase for key '/home/u/.ssh/id_rsa': ";
     const res = await ask(handle, { request: prompt, host: "/home/u/.ssh/id_rsa" });
     expect(chosen).toEqual([]);
@@ -262,7 +260,7 @@ describe("AskpassManager", () => {
 
   it("asks for a security key's or token's PIN masked", async () => {
     const { chosen, choose } = chooser(0);
-    const { asked, handle } = start(async () => "1234", os.tmpdir(), choose);
+    const { asked, handle } = start(async () => "1234", { choose });
     const prompts = [
       "Enter PIN for ED25519-SK key /home/u/.ssh/id_ed25519_sk: ",
       "Enter PIN for 'tok': "
@@ -286,7 +284,7 @@ describe("AskpassManager", () => {
     "Open local forward 127.0.0.1:8080 -> github.com:80 on github.com?"
   ])("asks %j as a choice, and answers a cancel with no", async (request) => {
     const { chosen, choose } = chooser(undefined);
-    const { asked, handle } = start(async () => "", os.tmpdir(), choose);
+    const { asked, handle } = start(async () => "", { choose });
     const res = await ask(handle, { request, host: "" });
     expect(asked).toEqual([]);
     expect(chosen).toHaveLength(1);
@@ -308,7 +306,7 @@ describe("AskpassManager", () => {
 
   it("asks ssh's (yes/no): question on updated host keys as a choice", async () => {
     const { chosen, choose } = chooser(0);
-    const { asked, handle } = start(async () => "typed", os.tmpdir(), choose);
+    const { asked, handle } = start(async () => "typed", { choose });
     const res = await ask(handle, {
       request: "Learned new hostkey: ED25519 SHA256:abc\nAccept updated hostkeys? (yes/no): ",
       host: ""
@@ -438,7 +436,7 @@ describe("askpass helper", () => {
   });
 
   it("asks with git's whole prompt and the URL in its quotes, masked for a certificate password", async () => {
-    const { asked } = start(async () => "s3cret", helperDir);
+    const { asked } = start(async () => "s3cret", { helpers: helperDir });
     const prompt = "Certificate Password for 'cert:///C:/Users/John Doe/my cert.p12': ";
     const res = await runScript(prompt, manager!.getEnv());
     expect(res).toMatchObject({ code: 0, stdout: "s3cret\n" });
@@ -452,7 +450,7 @@ describe("askpass helper", () => {
   });
 
   it("asks a username prompt whole and unmasked, the URL as its title", async () => {
-    const { asked } = start(async () => "alice", helperDir);
+    const { asked } = start(async () => "alice", { helpers: helperDir });
     const prompt = "Username for 'https://example.com': ";
     const res = await runScript(prompt, manager!.getEnv());
     expect(res).toMatchObject({ code: 0, stdout: "alice\n" });

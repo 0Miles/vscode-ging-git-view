@@ -10,7 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { getNonce } from "@ging/core/backend/utils/nonce";
-import type { Prompts } from "@ging/core/host/ports";
+import type { ChooseAction, Prompts } from "@ging/core/host/ports";
 
 export interface AskpassEnvironment {
   // Index signature so this is a valid env dict (assignable to NodeJS.ProcessEnv
@@ -66,17 +66,35 @@ function isSecret(request: string): boolean {
   return /password|passphrase/i.test(request) || /\bPIN\b/.test(request);
 }
 
-/** A yes-or-no of ssh's, or a line of text. */
-function isYesOrNo(request: string): boolean {
-  return HOST_KEY_CONFIRMATION.test(request) || PERMISSION_QUESTION.test(request);
+/** A yes-or-no of ssh's as the `choose` that asks it, whose only action is
+ *  `yes`; undefined for a line of text. The request is git's or ssh's prompt
+ *  verbatim: which kind it is shows only in its text, since ssh sends no
+ *  SSH_ASKPASS_PROMPT hint for either. */
+function yesOrNo(
+  request: string
+): [message: string, options: { detail?: string; actions: ChooseAction<"yes">[] }] | undefined {
+  if (HOST_KEY_CONFIRMATION.test(request)) {
+    // A yes-or-no, not a line of text: a typo would only make ssh ask again.
+    // The first line names the host; the helper's `host` can't, being cut at
+    // the quote in "can't".
+    const [message, ...rest] = request.split(/\r?\n/);
+    return [
+      message,
+      { detail: rest.join("\n"), actions: [{ label: "Continue connecting", value: "yes" }] }
+    ];
+  }
+  if (PERMISSION_QUESTION.test(request)) {
+    return [request.trim(), { actions: [{ label: "Yes", value: "yes" }] }];
+  }
+  return undefined;
 }
 
 /** Runs a small IPC server that git's GIT_ASKPASS helper, and ssh's
  *  SSH_ASKPASS (the same helper), connect to; each request is put to the user
  *  through `Prompts.input` and the entered value is returned to git, except
- *  ssh's yes-or-no questions (a host key confirmation, a ControlMaster
- *  `ask_permission`), each a `Prompts.choose` answered `yes` or `no`. When the server can't start, getEnv falls back to a no-op helper so
- *  git's own prompting is left untouched.
+ *  ssh's yes-or-no questions, each a `Prompts.choose` (see `yesOrNo`). When
+ *  the server can't start, getEnv falls back to a no-op helper so git's own
+ *  prompting is left untouched.
  *
  *  One server serves a whole process. Git run with `getEnv()` asks the
  *  prompts the manager was built with; a Host that asks in more than one place
@@ -125,7 +143,7 @@ export class AskpassManager {
         // The route that ran this git is gone; nobody is left to ask. A
         // yes-or-no is a no: ssh takes an empty answer to some as a yes.
         res.writeHead(200);
-        res.end(JSON.stringify(isYesOrNo(data.request) ? "no" : ""));
+        res.end(JSON.stringify(yesOrNo(data.request) ? "no" : ""));
         return;
       }
       ask(prompts, data).then(
@@ -175,28 +193,11 @@ export class AskpassManager {
   }
 }
 
-/** Puts one request to `prompts`; resolves to what goes back to the helper.
- *  The request is git's or ssh's prompt verbatim: which kind it is shows only
- *  in its text, since ssh sends no SSH_ASKPASS_PROMPT hint for either. */
+/** Puts one request to `prompts`; resolves to what goes back to the helper. */
 async function ask(prompts: AskpassPrompts, data: AskpassRequest): Promise<string> {
-  if (HOST_KEY_CONFIRMATION.test(data.request)) {
-    // A yes-or-no, not a line of text: a typo would only make ssh ask again.
-    // The first line names the host; the helper's `host` can't, being cut at
-    // the quote in "can't".
-    const [message, ...rest] = data.request.split(/\r?\n/);
-    const answer = await prompts.choose(message, {
-      detail: rest.join("\n"),
-      actions: [{ label: "Continue connecting", value: "yes" }]
-    });
-    return answer ?? "no";
-  }
-  if (PERMISSION_QUESTION.test(data.request)) {
-    // Dismissed is a no, not the empty answer ssh would take as a yes.
-    const answer = await prompts.choose(data.request.trim(), {
-      actions: [{ label: "Yes", value: "yes" }]
-    });
-    return answer ?? "no";
-  }
+  const question = yesOrNo(data.request);
+  // Dismissed is a no, not the empty answer ssh would take to some as a yes.
+  if (question) return (await prompts.choose(...question)) ?? "no";
   const answer = await prompts.input({
     placeholder: data.request,
     prompt: "GING: " + data.host,

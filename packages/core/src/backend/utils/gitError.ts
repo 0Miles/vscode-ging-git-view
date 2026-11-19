@@ -74,11 +74,14 @@ export function formatGitError(error: unknown): string {
     // git's catch-all when ssh gave up; ssh says why on the line before it
     // ("Host key verification failed.", "Permission denied (publickey).").
     const before = lines[fatalAt - 1];
-    return fatal === "Could not read from remote repository." &&
-      before !== undefined &&
-      !/^(hint|warning):|^Cloning into /i.test(before)
-      ? before + "\n" + fatal
-      : fatal;
+    if (
+      fatal !== "Could not read from remote repository." ||
+      before === undefined ||
+      /^(hint|warning):|^Cloning into /i.test(before)
+    ) {
+      return fatal;
+    }
+    return before + "\n" + fatal;
   }
 
   // 4. Nothing recognisable — surface the first non-empty line.
