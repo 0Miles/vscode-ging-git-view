@@ -220,7 +220,7 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
   - CI(ubuntu,PR #478):同樣的步驟 clone 0.9 秒、建 branch 並 push 1.3 秒、fetch 0.7 秒、改設定 1.0 秒。
   - 每個 step 的耗時印在測試輸出(`phaseC step <秒>: <step>`),之後的 run 都能拿來對照。
 - **「沒裝 VS Code」在 E2E 裡是啟動 env 的條件:** 拿掉 `VSCODE_*`、`GIT_ASKPASS` / `SSH_ASKPASS`,以及 PATH 上放著 `code` 的資料夾 —— 但同時放著 git 的資料夾留著(例如 VS Code 的套件把 `code` 連到 `/usr/bin`),並斷言 git 仍在 PATH 上。真正乾淨的機器是安裝包的事(階段 E)。
-- **有 Tab 時不能 clone(#461)是現況，被斷言並加上 annotation。** walk 因此先 clone;#461 做完時這一行要翻過來。
+- **有 Tab 時不能 clone(#461)是現況，被斷言並加上 annotation。** walk 因此先 clone;#461 做完時這一行要翻過來。(#461 已翻過來:annotation 拿掉，斷言改成 enabled,見 #461 補記。)
 
 ## 補記(2026-11-19,#461)
 
@@ -230,4 +230,5 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **分頁列的暫時項目。** 有 Tab 時,clone 進行中分頁列最後多一個項目(`ClonePanel.title`,不含帳密的 `shownUrl`;下緣是進度條;沒有關閉鈕,取消只在 clone 面板上)。沒有 Tab 聚焦時它標成 focused;點它送 `showClone`,Welcome page 回到前面。點任何一個 Tab 只是把那個 Tab 帶到前面,clone 在背景繼續。沒有 Tab 時分頁列整條是藏的,不畫這個項目。
 - **帳密時自動帶回。** clone 的 askpass route 包一層:收到請求就先 `focusWelcome()` 再問;回答後留在 Welcome page,直到 clone 結束或使用者點 Tab。
 - **關窗。** Tab 照舊以清單存下;Welcome page 在前面時,存成 active 的是 `returnTo()` 的 Tab。暫時項目不是 Tab,不會存。
+- **E2E 的兩個做法。** 401 server 可以先 hold(`startUnauthorizedRemote({ hold: true })`):git 停在第一個請求上，測試先點 Tab、點暫時項目、再點 Tab,`release()` 之後才收到 401,證明帳密提示把 Welcome page 帶回前面。鍵盤交給視窗頁面這件事讀的是 `WebContents.focus()` 這個呼叫(測試在 main process 包一層記下最後被交鍵盤的頁面):Playwright 經 CDP 打字，不管哪頁有鍵盤都打得進去，而 quietWindows.js 的視窗不能 focus,`isFocused()` 永遠是 false。
 - **驗法。** tabs.test.ts 驗 `focusWelcome` / `returnTo` / `restoreFocus`;tabWindow.test.ts 驗 Welcome page 在前面時 `layoutTabViews` 沒有 view 在視窗內、`tabStripEntries` 每個都 `focused: false`,以及下次啟動恢復的 Tab;jsdom 驗暫時項目的畫法與 `showClone`。clone.spec.ts 新增兩條:先開一個 Tab 再 clone `file://` bare repo(新 Tab 在原 Tab 之後、原 Tab 還在);先開一個 Tab 再 clone 401 server(Username 提示在 Welcome page 上、視窗內沒有 view、分頁列只有暫時項目是 focused,失敗後回到原 Tab)。兩條都先讀 `enabled` 再 `click()`。phaseC.spec.ts 的 known gap annotation 拿掉,斷言翻成 `true`。
