@@ -502,7 +502,8 @@ describe("the desktop side views' host half", () => {
     await settled();
     expect(posted[0]).toEqual({
       command: "sideViewLayout",
-      layout: { width: 260, shown: false }
+      layout: { width: 260, shown: false },
+      resizeSeq: 0
     });
 
     // The View menu's Side Views, and a width dragged in another Tab.
@@ -510,19 +511,43 @@ describe("the desktop side views' host half", () => {
     layout.setWidth(400);
     const layouts = posted.filter((m) => m.command === "sideViewLayout");
     expect(layouts.slice(1)).toEqual([
-      { command: "sideViewLayout", layout: { width: 260, shown: true } },
-      { command: "sideViewLayout", layout: { width: 400, shown: true } }
+      { command: "sideViewLayout", layout: { width: 260, shown: true }, resizeSeq: 0 },
+      { command: "sideViewLayout", layout: { width: 400, shown: true }, resizeSeq: 0 }
     ]);
+  });
+
+  it("says which of the page's own resizes each layout follows, counted afresh when the page loads again", async () => {
+    const { views, posted, layout, settled } = setUp();
+    views.receive({ command: "sideViewReady" });
+    await settled();
+    const layouts = () => posted.filter((m) => m.command === "sideViewLayout");
+
+    await views.receive({ command: "sideViewResize", width: 270, seq: 1 });
+    await views.receive({ command: "sideViewResize", width: 280, seq: 2 });
+    expect(layouts().slice(1)).toEqual([
+      { command: "sideViewLayout", layout: { width: 270, shown: true }, resizeSeq: 1 },
+      { command: "sideViewLayout", layout: { width: 280, shown: true }, resizeSeq: 2 }
+    ]);
+
+    // Reloaded: its resizes count from 1 again, so the host's from 0.
+    views.receive({ command: "sideViewReady" });
+    await settled();
+    layout.setShown(false);
+    expect(layouts().at(-1)).toEqual({
+      command: "sideViewLayout",
+      layout: { width: 280, shown: false },
+      resizeSeq: 0
+    });
   });
 
   it("keeps the width the page's column was dragged to, held to its bounds", async () => {
     const { views, layout, layoutStorage } = setUp();
 
-    await views.receive({ command: "sideViewResize", width: 333.4 });
+    await views.receive({ command: "sideViewResize", width: 333.4, seq: 1 });
     expect(layout.get().width).toBe(333);
-    await views.receive({ command: "sideViewResize", width: 20 });
+    await views.receive({ command: "sideViewResize", width: 20, seq: 2 });
     expect(layout.get().width).toBe(160);
-    await views.receive({ command: "sideViewResize", width: 5000 });
+    await views.receive({ command: "sideViewResize", width: 5000, seq: 3 });
     expect(layout.get().width).toBe(600);
 
     // What a Tab opened later reads.

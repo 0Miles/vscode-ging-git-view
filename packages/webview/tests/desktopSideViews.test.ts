@@ -511,10 +511,25 @@ describe("the desktop side views", () => {
 
   // --- The column's layout (#459) ------------------------------------------
 
-  const layoutIs = (width: number, shown: boolean) =>
-    hear({ command: "sideViewLayout", layout: { width, shown } });
+  /** A host that has heard every resize the page sent. */
+  const HEARD_ALL = Number.MAX_SAFE_INTEGER;
+  const layoutIs = (width: number, shown: boolean, resizeSeq = HEARD_ALL) =>
+    hear({ command: "sideViewLayout", layout: { width, shown }, resizeSeq });
   const press = (key: string) =>
     resizer().dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  /** The page's `sideViewResize` posts since the log was cleared. */
+  const resizes = () =>
+    sideViewPosts().filter((m) => m.command === "sideViewResize") as unknown as {
+      width: number;
+      seq: number;
+    }[];
+  /** A pointer event of `type` on the handle, as the user's mouse makes one. */
+  const pointer = (type: string, clientX: number) => {
+    const Event = globalThis.PointerEvent ?? MouseEvent;
+    resizer().dispatchEvent(
+      new Event(type, { button: 0, clientX, bubbles: true, cancelable: true })
+    );
+  };
 
   it("puts a handle on the column's edge that the keyboard moves 10 pixels a step, within bounds", () => {
     layoutIs(260, true);
@@ -530,12 +545,15 @@ describe("the desktop side views", () => {
     press("ArrowLeft");
     expect(columnWidth()).toBe("270px");
     expect(handle.getAttribute("aria-valuenow")).toBe("270");
-    // Each step left where it is, for the host to keep.
-    expect(sideViewPosts()).toEqual([
-      { command: "sideViewResize", width: 270 },
-      { command: "sideViewResize", width: 280 },
-      { command: "sideViewResize", width: 270 }
+    // Each step left where it is, for the host to keep, counted.
+    expect(sideViewPosts().map(({ command }) => command)).toEqual([
+      "sideViewResize",
+      "sideViewResize",
+      "sideViewResize"
     ]);
+    const posts = resizes();
+    expect(posts.map(({ width }) => width)).toEqual([270, 280, 270]);
+    expect(posts.map(({ seq }) => seq - posts[0].seq)).toEqual([0, 1, 2]);
 
     layoutIs(165, true);
     press("ArrowLeft");
@@ -544,6 +562,50 @@ describe("the desktop side views", () => {
     layoutIs(595, true);
     press("ArrowRight");
     expect(columnWidth()).toBe("600px");
+    layoutIs(260, true);
+  });
+
+  it("keeps its own width over a layout the host sent before it heard the page's latest step", () => {
+    layoutIs(260, true);
+    press("ArrowRight");
+    press("ArrowRight");
+    expect(columnWidth()).toBe("280px");
+    const [first, second] = resizes();
+
+    // The echo of the first step, arriving after the second was taken.
+    layoutIs(270, true, first.seq);
+    expect(columnWidth()).toBe("280px");
+    // One that names none of the page's steps is as old.
+    hear({ command: "sideViewLayout", layout: { width: 270, shown: true } });
+    expect(columnWidth()).toBe("280px");
+    // Its Side Views is still the app's, whatever the width.
+    layoutIs(270, false, first.seq);
+    expect(document.getElementById("sideViews")!.hidden).toBe(true);
+    layoutIs(270, true, first.seq);
+    expect(columnWidth()).toBe("280px");
+
+    // Once the host has heard the latest, another Tab's width is this one's.
+    layoutIs(280, true, second.seq);
+    layoutIs(350, true, second.seq);
+    expect(columnWidth()).toBe("350px");
+    layoutIs(260, true);
+  });
+
+  it("ends a drag the system cancels where it got to, and follows the pointer no further", () => {
+    layoutIs(260, true);
+    const handle = resizer();
+    // jsdom captures no pointer.
+    handle.setPointerCapture ??= () => {};
+    pointer("pointerdown", 100);
+    expect(document.body.classList.contains("sideViewResizing")).toBe(true);
+    pointer("pointermove", 150);
+    pointer("pointercancel", 150);
+
+    expect(document.body.classList.contains("sideViewResizing")).toBe(false);
+    expect(resizes().map(({ width }) => width)).toEqual([310]);
+    pointer("pointermove", 200);
+    expect(columnWidth()).toBe("310px");
+    expect(resizes()).toHaveLength(1);
     layoutIs(260, true);
   });
 

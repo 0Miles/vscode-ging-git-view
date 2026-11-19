@@ -403,9 +403,13 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
   });
 
   // The column's layout is the app's: a width dragged in another Tab, or the
-  // View menu's Side Views, reaches this one's page too.
+  // View menu's Side Views, reaches this one's page too. Each says which of
+  // the page's own resizes it follows: one sent before the page's latest was
+  // heard — the echo of an earlier step among them — is older than what the
+  // page shows, and the page keeps its width over it.
+  let resizeSeq = 0;
   const sendLayout = (layout: SideViewLayout) => {
-    if (listening) deps.post({ command: "sideViewLayout", layout });
+    if (listening) deps.post({ command: "sideViewLayout", layout, resizeSeq });
   };
   const layoutSub = deps.layout.onDidChange(sendLayout);
 
@@ -476,6 +480,8 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     switch (message.command) {
       case "sideViewReady":
         listening = true;
+        // A page loaded anew counts its resizes from 1 again.
+        resizeSeq = 0;
         // The page booted with the layout (page.ts); it may have moved since.
         sendLayout(deps.layout.get());
         send();
@@ -519,6 +525,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
         await deps.viewReflog();
         break;
       case "sideViewResize":
+        resizeSeq = Math.max(resizeSeq, message.seq);
         deps.layout.setWidth(message.width);
         break;
       case "sideViewRemote": {

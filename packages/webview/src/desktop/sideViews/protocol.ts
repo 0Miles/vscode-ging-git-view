@@ -158,7 +158,15 @@ export type SideViewStashFilesMessage = {
 /** Host → page: lay the column out so (#459) — on the page's word that it
  *  listens, and whenever the app's layout changes, from any Tab or the View
  *  menu. */
-export type SideViewLayoutMessage = { command: "sideViewLayout"; layout: SideViewLayout };
+export type SideViewLayoutMessage = {
+  command: "sideViewLayout";
+  layout: SideViewLayout;
+  /** The `seq` of the last `sideViewResize` from this Tab's page that the host
+   *  had handled when it sent this; none (or 0) before the first. A page that
+   *  has sent a later one since keeps its own width: this layout is older
+   *  than what it last wrote, the echo of an earlier step among them. */
+  resizeSeq?: number;
+};
 
 /** Everything the host posts to the side views. */
 export type SideViewMessage =
@@ -198,8 +206,9 @@ export type SideViewRequest =
   | { command: "sideViewSearch" }
   /** The instance's View Reflog, as the application menu runs it (#459). */
   | { command: "sideViewViewReflog" }
-  /** The user left the column `width` wide (#459): the app's, from now on. */
-  | { command: "sideViewResize"; width: number };
+  /** The user left the column `width` wide (#459): the app's, from now on.
+   *  `seq` counts the page's resizes, from 1 at each load. */
+  | { command: "sideViewResize"; width: number; seq: number };
 
 /** Checked by the compiler (ADR-0031). */
 export const SIDE_VIEW_COMMANDS_STAY_APART: NoCommandShared<
@@ -233,7 +242,12 @@ export function isSideViewLayout(value: unknown): value is SideViewLayout {
 /** Whether `data`, heard on the page's `message` channel, is the column's
  *  layout. */
 export function isSideViewLayoutMessage(data: unknown): data is SideViewLayoutMessage {
-  return isRecord(data) && data.command === "sideViewLayout" && isSideViewLayout(data.layout);
+  return (
+    isRecord(data) &&
+    data.command === "sideViewLayout" &&
+    isSideViewLayout(data.layout) &&
+    (data.resizeSeq === undefined || typeof data.resizeSeq === "number")
+  );
 }
 
 /** Whether `data`, heard on the page's `message` channel, is a stash's files. */
@@ -273,7 +287,12 @@ export function isSideViewRequest(data: unknown): data is SideViewRequest {
     case "sideViewViewReflog":
       return true;
     case "sideViewResize":
-      return typeof data.width === "number" && Number.isFinite(data.width);
+      return (
+        typeof data.width === "number" &&
+        Number.isFinite(data.width) &&
+        typeof data.seq === "number" &&
+        Number.isFinite(data.seq)
+      );
     case "sideViewToggle":
       return typeof data.field === "string" && TOGGLE_FIELDS.includes(data.field);
     case "sideViewSetFilter":

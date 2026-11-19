@@ -199,8 +199,10 @@ export function startSideViews(
   };
   /** The user left the column where it is: the app's from now on, and the
    *  graph laid out again for the width it has, as after a pane resized. */
+  let resizeAsked = 0;
   const resized = () => {
-    post({ command: "sideViewResize", width: layout.width });
+    resizeAsked += 1;
+    post({ command: "sideViewResize", width: layout.width, seq: resizeAsked });
     window.dispatchEvent(new Event("resize"));
   };
 
@@ -820,9 +822,16 @@ export function startSideViews(
       return;
     }
     if (isSideViewLayoutMessage(event.data)) {
-      const { width, shown } = event.data.layout;
+      const { shown } = event.data.layout;
+      // Sent before the host heard this page's latest width — the echo of an
+      // earlier step among them — so older than what the page shows: the
+      // width stays the page's own.
+      const width =
+        (event.data.resizeSeq ?? 0) < resizeAsked
+          ? layout.width
+          : clampSideViewWidth(event.data.layout.width);
       const moved = width !== layout.width || shown !== layout.shown;
-      layout = { width: clampSideViewWidth(width), shown };
+      layout = { width, shown };
       applyLayout();
       if (moved) {
         // The graph laid out again for the width it has now; the tree's
