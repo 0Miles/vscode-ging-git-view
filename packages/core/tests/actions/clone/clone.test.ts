@@ -16,6 +16,8 @@ import {
   cloneRepository,
   cloneUrlProblem,
   CloneUrlError,
+  removeCredentialsFromRemote,
+  urlHasCredentials,
   urlWithoutCredentials
 } from "@ging/core/backend/actions/clone";
 import { createRepoCloneCommand } from "@ging/core/extension/repoCloneCommand";
@@ -118,6 +120,16 @@ async function localServer(answer: 401 | null) {
 
 const git = (args: string[], cwd: string) =>
   cp.execFileSync("git", args, { cwd, stdio: "pipe" }).toString().trim();
+
+/** A repository with nothing in its `.git/config` but what `git init` and an
+ *  `origin` of `url` (none when `null`) put there: no `user.email` that has
+ *  an `@` of its own. */
+function repoWithOrigin(url: string | null): string {
+  const repo = tempDir("ngg-clone-origin-");
+  git(["init", "--template=", "-b", "main"], repo);
+  if (url !== null) git(["remote", "add", "origin", url], repo);
+  return repo;
+}
 
 describe("cloneRepository", () => {
   it("clones a file:// bare repository into a new folder and answers its top as git spells it", async () => {
@@ -391,6 +403,56 @@ describe("urlWithoutCredentials", () => {
   });
 });
 
+describe("urlHasCredentials", () => {
+  it.each([
+    ["https://user:token@host/o/r.git", true],
+    // A user field alone may well be the token.
+    ["https://token@host/o/r.git", true],
+    ["http://u:p@host/r", true],
+    // ssh's user name is no secret...
+    ["ssh://git@host/o/r.git", false],
+    // ...its password is.
+    ["ssh://git:secret@host/r", true],
+    ["git@github.com:o/r.git", false],
+    ["https://host/o/r.git", false],
+    // An `@` with nothing before it is no user name, let alone a token.
+    ["https://@host/o/r.git", false],
+    ["http://@host/r", false],
+    ["file:///tmp/r", false]
+  ])("%s: %s", (url, has) => {
+    expect(urlHasCredentials(url)).toBe(has);
+  });
+});
+
+describe("removeCredentialsFromRemote", () => {
+  it("takes the user name and password out of remote.origin.url, and out of .git/config", async () => {
+    const repo = repoWithOrigin("https://u:t@example.invalid/o/r.git");
+
+    expect(
+      await removeCredentialsFromRemote({
+        gitPath: "git",
+        repo,
+        url: "https://u:t@example.invalid/o/r.git"
+      })
+    ).toBe(true);
+    expect(git(["config", "remote.origin.url"], repo)).toBe("https://example.invalid/o/r.git");
+    expect(fs.readFileSync(path.join(repo, ".git", "config"), "utf8")).not.toContain("t@");
+  });
+
+  it("answers false when git could not change the URL", async () => {
+    // No origin to change.
+    const repo = repoWithOrigin(null);
+
+    expect(
+      await removeCredentialsFromRemote({
+        gitPath: "git",
+        repo,
+        url: "https://u:t@example.invalid/r"
+      })
+    ).toBe(false);
+  });
+});
+
 describe("the Clone Repository command service", () => {
   const command = (ports: ReturnType<typeof fakePorts>["ports"]) =>
     createRepoCloneCommand({ prompts: ports.prompts, l10n: ports.l10n, gitPath: () => "git" });
@@ -414,6 +476,20 @@ describe("the Clone Repository command service", () => {
     expect(service.urlProblem("ext::sh -c x")).toBe("clone.url.transport");
     expect(service.urlProblem("-x")).toBe("clone.url.option");
     expect(service.urlProblem("   ")).toBe("clone.url.empty");
+  });
+
+  it("tells a URL with credentials in it, and takes them out of a clone's remote URL", async () => {
+    const { ports, calls } = fakePorts();
+    const service = command(ports);
+    const repo = repoWithOrigin("https://u:t@example.invalid/o/r.git");
+
+    expect(service.hasCredentials("https://u:t@example.invalid/o/r.git")).toBe(true);
+    expect(service.hasCredentials("git@github.com:o/r.git")).toBe(false);
+    expect(
+      await service.removeCredentials(toRepoPath(repo), "https://u:t@example.invalid/o/r.git")
+    ).toBe(true);
+    expect(git(["config", "remote.origin.url"], repo)).toBe("https://example.invalid/o/r.git");
+    expect(calls).toEqual([]);
   });
 
   it("puts the clone in a folder under the one chosen, named after the repository", () => {
