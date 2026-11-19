@@ -1,6 +1,9 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
+/** `release` of a remote that holds nothing back: it answers at once anyway. */
+const answerAtOnce = () => {};
+
 /** A request the remote answered, as it arrived. */
 export type SeenRequest = { method: string; url: string; authorization: string | undefined };
 
@@ -28,7 +31,7 @@ export type UnauthorizedRemote = {
  */
 export async function startUnauthorizedRemote({ hold = false } = {}): Promise<UnauthorizedRemote> {
   const requests: SeenRequest[] = [];
-  let release = () => {};
+  let release: () => void = answerAtOnce;
   const released = hold ? new Promise<void>((resolve) => (release = resolve)) : Promise.resolve();
   const server = http.createServer(async (req, res) => {
     requests.push({
