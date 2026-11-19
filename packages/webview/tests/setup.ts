@@ -1,14 +1,15 @@
 import { expect } from "vitest";
 
 import type { GitCommitDetails } from "@ging/shared/backend/types";
-import englishBundle from "@ging/shared/l10n/bundle.l10n.json";
 import type * as GG from "@ging/shared/types";
-import { getWebviewLocalizedStrings } from "@ging/webview/webviewL10n";
 import { buildWebviewMarkup } from "@ging/webview/webviewMarkup";
 
-// The fixture itself lives in its own module so the webview harness can load
-// it without vitest; suites keep importing it from here.
+import { englishStrings } from "./englishStrings";
+
+// The fixture and the English strings live in their own modules so the webview
+// harness can load them without vitest; suites keep importing them from here.
 export { DEFAULT_REPO, makeViewState } from "./viewStateFixture";
+export { englishStrings };
 
 /** The viewport height every suite starts with — jsdom's own default, restated
  *  so the threshold below is worked out from declared numbers rather than from
@@ -143,13 +144,6 @@ export function createVscodeMock(initialState: WebViewState | null = null) {
     clearMessages: () => sent.splice(0),
     getState: () => state
   };
-}
-
-/** The webview's strings as an English-speaking user gets them: each key looked
- *  up in the base bundle, the key itself where the bundle has nothing. */
-export function englishStrings() {
-  const bundle: Record<string, string> = englishBundle;
-  return getWebviewLocalizedStrings((key) => bundle[key] || key);
 }
 
 export function setupHtml(viewState: GG.GitGraphViewState) {
