@@ -83,6 +83,9 @@ export function createSettingsWindow({
   const send = (shown: BrowserWindow, message: SettingsHostMessage) => {
     if (!shown.webContents.isDestroyed()) shown.webContents.send(CHANNELS.hostMessage, message);
   };
+  /** Tell the page of `shown` the value `key` holds now. */
+  const pushValue = (shown: BrowserWindow, key: string) =>
+    send(shown, { command: "settingUpdated", key, value: valueOf(key), error: null });
 
   return {
     open: () => {
@@ -97,13 +100,11 @@ export function createSettingsWindow({
       }
       // Not reloaded, which would drop what is typed and not yet sent in its
       // other rows: told the value now, then to show the row.
-      send(shown, { command: "settingUpdated", key, value: valueOf(key), error: null });
+      pushValue(shown, key);
       send(shown, { command: "revealSetting", key });
     },
     updated: (key) => {
-      if (win !== null) {
-        send(win, { command: "settingUpdated", key, value: valueOf(key), error: null });
-      }
+      if (win !== null) pushValue(win, key);
     },
     deliver(sender, message) {
       if (win === null || sender !== win.webContents) return false;

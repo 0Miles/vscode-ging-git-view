@@ -37,10 +37,8 @@ export type Settings = {
    *  for it, before that `update` resolves and after a read would see it; a
    *  refused or failed write calls nothing. A listener that throws is
    *  reported and does not fail the write. */
-  onDidUpdate(listener: (key: string) => void): Disposable;
+  onDidUpdate(listener: (key: string) => void): { dispose(): void };
 };
-
-export type Disposable = { dispose(): void };
 
 /** Why `Settings.update` wrote nothing: the key or the value, not the file. */
 export class SettingRefused extends Error {

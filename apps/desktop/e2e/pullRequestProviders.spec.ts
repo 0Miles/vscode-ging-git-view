@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { type ElectronApplication, expect, test } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 
 import { isolatedGitEnv, makeFixtureRepo } from "./fixtureRepo";
 import { APP_DIR, launchApp } from "./launch";
@@ -30,6 +30,21 @@ async function launch(...args: string[]): Promise<ElectronApplication> {
     env
   );
   return app;
+}
+
+/** What the branch menu's Create Pull Request sends, for `main` to `origin`. */
+async function requestCreatePullRequest(page: Page, repoPath: string): Promise<void> {
+  await page.evaluate((repo) => {
+    const vscode = (
+      globalThis as unknown as { acquireVsCodeApi(): { postMessage(m: unknown): void } }
+    ).acquireVsCodeApi();
+    vscode.postMessage({
+      command: "createPullRequest",
+      repo,
+      branchName: "main",
+      remote: "origin"
+    });
+  }, repoPath);
 }
 
 /** Close the app and read its whole log (see graph.spec.ts for why the file). */
@@ -70,17 +85,7 @@ test("a provider configured from a failed Create Pull Request is asked in the pa
   await answerMessageBoxes(electronApp);
 
   // What the branch menu's Create Pull Request sends.
-  await page.evaluate((repoPath) => {
-    const vscode = (
-      globalThis as unknown as { acquireVsCodeApi(): { postMessage(m: unknown): void } }
-    ).acquireVsCodeApi();
-    vscode.postMessage({
-      command: "createPullRequest",
-      repo: repoPath,
-      branchName: "main",
-      remote: "origin"
-    });
-  }, repo.path);
+  await requestCreatePullRequest(page, repo.path);
 
   // Straight to the forge of the host it failed for, each with the URL it opens.
   const overlay = page.locator("#hostPrompt");
@@ -119,7 +124,7 @@ test("a provider configured from a failed Create Pull Request is asked in the pa
   const settings = await settingsOpened;
   await expect(settings.locator("html")).toHaveAttribute("data-ging-page", "settings");
   expect(new URL(settings.url()).searchParams.get("setting")).toBe(KEY);
-  const row = settings.locator(`[id="${KEY}"]`);
+  const row = settingRow(settings, KEY);
   await expect(row).toBeInViewport();
   const saved = [
     {
@@ -173,17 +178,7 @@ test("a settings window already open shows the provider as soon as it is saved, 
   // "Configure a Provider...", then Cancel where "Show Setting" is offered.
   await answerMessageBoxes(electronApp, [0, 1]);
   await page.bringToFront();
-  await page.evaluate((repoPath) => {
-    const vscode = (
-      globalThis as unknown as { acquireVsCodeApi(): { postMessage(m: unknown): void } }
-    ).acquireVsCodeApi();
-    vscode.postMessage({
-      command: "createPullRequest",
-      repo: repoPath,
-      branchName: "main",
-      remote: "origin"
-    });
-  }, repo.path);
+  await requestCreatePullRequest(page, repo.path);
 
   const overlay = page.locator("#hostPrompt");
   await expect(overlay).toBeVisible();
