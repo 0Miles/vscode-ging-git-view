@@ -260,6 +260,57 @@ describe("AskpassManager", () => {
     expect(res).toEqual({ status: 200, body: JSON.stringify("hunter2") });
   });
 
+  it("asks for a security key's or token's PIN masked", async () => {
+    const { chosen, choose } = chooser(0);
+    const { asked, handle } = start(async () => "1234", os.tmpdir(), choose);
+    const prompts = [
+      "Enter PIN for ED25519-SK key /home/u/.ssh/id_ed25519_sk: ",
+      "Enter PIN for 'tok': "
+    ];
+    await Promise.all(prompts.map((prompt) => ask(handle, { request: prompt, host: "" })));
+    expect(chosen).toEqual([]);
+    expect(asked).toHaveLength(2);
+    expect(asked.map(({ placeholder, password }) => ({ placeholder, password }))).toEqual(
+      expect.arrayContaining(prompts.map((placeholder) => ({ placeholder, password: true })))
+    );
+  });
+
+  // ssh's other yes-or-no (`ask_permission`, ControlMaster ask): an empty
+  // answer is a yes there, so a dismissed one must be a "no".
+  it("asks whether to allow a shared connection as a choice, and answers a cancel with no", async () => {
+    const { chosen, choose } = chooser(undefined);
+    const { asked, handle } = start(async () => "", os.tmpdir(), choose);
+    const res = await ask(handle, { request: "Allow shared connection to github.com? ", host: "" });
+    expect(asked).toEqual([]);
+    expect(chosen).toHaveLength(1);
+    expect(chosen[0].actions.map(({ value }) => value)).toEqual(["yes"]);
+    expect(res).toEqual({ status: 200, body: JSON.stringify("no") });
+  });
+
+  it("answers a shared connection question for a route that is gone with no", async () => {
+    const { handle } = start(async () => "");
+    const gone = manager!.route({ input: async () => "", choose: chooser(0).choose });
+    gone.dispose();
+    const res = await ask(handle, {
+      request: "Allow shared connection to github.com? ",
+      host: "",
+      token: gone.env.NEO_GIT_GRAPH_ASKPASS_TOKEN
+    });
+    expect(res).toEqual({ status: 200, body: JSON.stringify("no") });
+  });
+
+  it("asks ssh's (yes/no): question on updated host keys as a choice", async () => {
+    const { chosen, choose } = chooser(0);
+    const { asked, handle } = start(async () => "typed", os.tmpdir(), choose);
+    const res = await ask(handle, {
+      request: "Learned new hostkey: ED25519 SHA256:abc\nAccept updated hostkeys? (yes/no): ",
+      host: ""
+    });
+    expect(asked).toEqual([]);
+    expect(chosen).toHaveLength(1);
+    expect(res).toEqual({ status: 200, body: JSON.stringify("yes") });
+  });
+
   it("points git at the helpers in the folder it was given", () => {
     start(async () => undefined);
     const env = manager!.getEnv();

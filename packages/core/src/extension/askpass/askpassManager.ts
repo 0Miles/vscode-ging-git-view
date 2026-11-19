@@ -47,18 +47,35 @@ export interface AskpassRoute {
 }
 
 /** What the manager asks with: a line of text for a credential, a choice for
- *  ssh's yes-or-no on a new host's key. */
+ *  ssh's yes-or-no questions. */
 export type AskpassPrompts = Pick<Prompts, "input" | "choose">;
 
 /** The last line of OpenSSH's host key confirmation: `(yes/no)?` in older
  *  releases, `(yes/no/[fingerprint])?` since 8.0, `(yes/no):` elsewhere. */
 const HOST_KEY_CONFIRMATION = /(?:\(yes\/no(?:\/\[fingerprint\])?\)\?|\(yes\/no\):)\s*$/;
 
+/** OpenSSH's `ask_permission` questions (mux.c, for ControlMaster `ask` and
+ *  `autoask`). ssh takes an empty answer to these as a yes, and only `no` or a
+ *  failed helper as a no. */
+const PERMISSION_QUESTION =
+  /^(?:Allow (?:shared connection|forward) to |Terminate shared connection to |Disable further multiplexing on shared connection to |Open .+ on )[^\n]*\?\s*$/;
+
+/** What a prompt masks: a password, a key's passphrase, a security key's or
+ *  a PKCS#11 token's PIN. */
+function isSecret(request: string): boolean {
+  return /password|passphrase/i.test(request) || /\bPIN\b/.test(request);
+}
+
+/** A yes-or-no of ssh's, or a line of text. */
+function isYesOrNo(request: string): boolean {
+  return HOST_KEY_CONFIRMATION.test(request) || PERMISSION_QUESTION.test(request);
+}
+
 /** Runs a small IPC server that git's GIT_ASKPASS helper, and ssh's
  *  SSH_ASKPASS (the same helper), connect to; each request is put to the user
  *  through `Prompts.input` and the entered value is returned to git, except
- *  ssh's host key confirmation, which is a `Prompts.choose` answered `yes` or
- *  `no`. When the server can't start, getEnv falls back to a no-op helper so
+ *  ssh's yes-or-no questions (a host key confirmation, a ControlMaster
+ *  `ask_permission`), each a `Prompts.choose` answered `yes` or `no`. When the server can't start, getEnv falls back to a no-op helper so
  *  git's own prompting is left untouched.
  *
  *  One server serves a whole process. Git run with `getEnv()` asks the
@@ -105,9 +122,10 @@ export class AskpassManager {
       const data = JSON.parse(reqData) as AskpassRequest;
       const prompts = data.token === undefined ? this.prompts : this.routes.get(data.token);
       if (prompts === undefined) {
-        // The route that ran this git is gone; nobody is left to ask.
+        // The route that ran this git is gone; nobody is left to ask. A
+        // yes-or-no is a no: ssh takes an empty answer to some as a yes.
         res.writeHead(200);
-        res.end(JSON.stringify(""));
+        res.end(JSON.stringify(isYesOrNo(data.request) ? "no" : ""));
         return;
       }
       ask(prompts, data).then(
@@ -172,10 +190,17 @@ async function ask(prompts: AskpassPrompts, data: AskpassRequest): Promise<strin
     });
     return answer ?? "no";
   }
+  if (PERMISSION_QUESTION.test(data.request)) {
+    // Dismissed is a no, not the empty answer ssh would take as a yes.
+    const answer = await prompts.choose(data.request.trim(), {
+      actions: [{ label: "Yes", value: "yes" }]
+    });
+    return answer ?? "no";
+  }
   const answer = await prompts.input({
     placeholder: data.request,
     prompt: "GING: " + data.host,
-    password: /password|passphrase/i.test(data.request)
+    password: isSecret(data.request)
   });
   return answer || "";
 }
