@@ -415,6 +415,9 @@ describe("urlHasCredentials", () => {
     ["ssh://git:secret@host/r", true],
     ["git@github.com:o/r.git", false],
     ["https://host/o/r.git", false],
+    // An `@` with nothing before it is no user name, let alone a token.
+    ["https://@host/o/r.git", false],
+    ["http://@host/r", false],
     ["file:///tmp/r", false]
   ])("%s: %s", (url, has) => {
     expect(urlHasCredentials(url)).toBe(has);

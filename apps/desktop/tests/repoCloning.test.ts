@@ -419,6 +419,21 @@ describe("Clone Repository of a URL with credentials in it (#471)", () => {
     expectNoToken(h);
   });
 
+  it("warns of nothing when the credentials cannot be taken out after the window has gone", async () => {
+    const h = make({ url: URL_WITH_TOKEN, credentials: STRIP, removes: false });
+
+    const done = h.cloning.clone();
+    const clone = await started(h);
+    const disposed = h.cloning.dispose();
+    clone.settle({ repo: "/work/app" });
+    await Promise.all([done, disposed]);
+
+    // No box with no window to sit over: the log says it all the same.
+    expect(h.warned).toEqual([]);
+    expect(h.opened).toEqual([]);
+    expectNoToken(h);
+  });
+
   it("removes nothing from a clone that failed", async () => {
     const h = make({ url: URL_WITH_TOKEN, credentials: STRIP });
 
