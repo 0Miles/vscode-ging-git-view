@@ -1010,13 +1010,18 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
         l10n: host.l10n,
         gitPath: desktopGitPath
       }),
-      // The credentials its git asks for are asked on the Welcome page,
-      // brought forward for them should a Tab be in front (#461).
+      // The credentials its git asks for, and ssh's choices (a host key to
+      // trust), are asked on the Welcome page, brought forward for them should
+      // a Tab be in front (#461).
       askpassRoute: () =>
         host.askpass.route({
           input: (options) => {
             tabWindow?.tabs.focusWelcome();
             return welcomeAsker.input(options);
+          },
+          choose: (message, options) => {
+            tabWindow?.tabs.focusWelcome();
+            return welcomeAsker.choose(message, options);
           }
         }),
       openRepo: openInTab,
