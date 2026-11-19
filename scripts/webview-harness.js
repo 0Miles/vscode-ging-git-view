@@ -177,25 +177,35 @@ function loadViewStateFixture(out) {
 
 /**
  * The graph page's markup as both hosts send it: buildWebviewMarkup, the one
- * source of everything inside <body> before the bootstrap scripts (#442).
- * Bundled and called rather than copied, as the viewState fixture is, so the
- * page the E2E drives cannot drift from the real one. Its strings are English,
- * built as the webview suites build them (packages/webview/tests/setup.ts):
- * each key looked up in the base bundle, the key itself where it has nothing.
+ * source of everything inside <body> before the bootstrap scripts (#442), in
+ * the English the webview suites use. Bundled and called rather than copied,
+ * as the viewState fixture is, so the page the E2E drives cannot drift from
+ * the real one.
  *
  * @param {string} out
  * @returns {string}
  */
 function loadGraphMarkup(out) {
-  /** @type {typeof import("../packages/webview/src/webviewMarkup")} */
-  const markup = requireBundled(path.join(WEBVIEW, "src", "webviewMarkup.ts"), out);
-  /** @type {typeof import("../packages/webview/src/webviewL10n")} */
-  const l10n = requireBundled(path.join(WEBVIEW, "src", "webviewL10n.ts"), out);
-  /** @type {Record<string, string>} */
-  const english = JSON.parse(
-    fs.readFileSync(path.join(ROOT, "packages", "shared", "l10n", "bundle.l10n.json"), "utf8")
-  );
-  return markup.buildWebviewMarkup(l10n.getWebviewLocalizedStrings((key) => english[key] || key));
+  const outfile = path.join(out, "graphMarkup.cjs");
+  esbuild.buildSync({
+    stdin: {
+      contents: [
+        'export { buildWebviewMarkup } from "./src/webviewMarkup";',
+        'export { englishStrings } from "./tests/englishStrings";'
+      ].join("\n"),
+      resolveDir: WEBVIEW,
+      sourcefile: "graphMarkup.ts",
+      loader: "ts"
+    },
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    outfile,
+    logLevel: "silent"
+  });
+  /** @type {typeof import("../packages/webview/src/webviewMarkup") & typeof import("../packages/webview/tests/englishStrings")} */
+  const markup = require(outfile);
+  return markup.buildWebviewMarkup(markup.englishStrings());
 }
 
 /**
