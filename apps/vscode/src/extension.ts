@@ -74,6 +74,7 @@ import {
   vscodePrompts,
   vscodeStorage
 } from "./hostPorts";
+import { deactivateHost, startHostShutdown } from "./hostShutdown";
 import * as l10n from "./l10n";
 import { initL10n } from "./l10n";
 import { RepoFileWatcher } from "./repoFileWatcher";
@@ -224,16 +225,16 @@ export function activate(context: vscode.ExtensionContext) {
   // commands, and the timer — run inside this hook, which refreshes whether or
   // not a graph is open. The graph's own fetches take the git call alone, since
   // its bridge mutes and refreshes around them.
-  // Aborted on deactivate (#450): a fetch still running is stopped with all
-  // it started, and none starts after. The extension's, not a graph panel's:
-  // these run for the side views and commands with no graph open, so closing
-  // the panel stops none of them.
-  const deactivated = new AbortController();
-  context.subscriptions.push({ dispose: () => deactivated.abort() });
+  // Aborted on deactivate (#450, hostShutdown.ts): a fetch still running is
+  // sent a kill, best-effort (ADR-0028), deactivation waits a bounded while
+  // for it, and none starts after. The extension's, not a graph panel's: these
+  // run for the side views and commands with no graph open, so closing the
+  // panel stops none of them.
+  const shutdown = startHostShutdown();
   const runRepoMutation = createRunRepoMutation({
     watcher: () => currentWatcher,
     afterMutation: () => refreshAfterRemoteChange(),
-    signal: deactivated.signal
+    signal: shutdown.signal
   });
   const currentRepo = () => extensionState.getLastActiveRepo();
   // Every fetch, and the auto-fetch timer.
@@ -250,7 +251,8 @@ export function activate(context: vscode.ExtensionContext) {
       gitPath: config.gitPath,
       gitEnv: gitEnv(),
       onCommand: logger.logCmd,
-      signal: deactivated.signal
+      signal: shutdown.signal,
+      onAborted: shutdown.onAborted
     }
   });
   fetchService.restartAutoFetch();
@@ -1046,4 +1048,7 @@ export function activate(context: vscode.ExtensionContext) {
   logger.log("Extension activated successfully");
 }
 
-export function deactivate() {}
+/** Stops the git it left running, and waits a bounded while for it (#450). */
+export function deactivate(): Promise<void> {
+  return deactivateHost();
+}

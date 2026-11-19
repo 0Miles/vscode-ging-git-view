@@ -34,9 +34,10 @@ export type FetchServiceDeps = CommandKitDeps &
     >;
     prompts: Pick<Prompts, "showError" | "showInformation" | "pick">;
     /** How the commands' and the timer's fetches spawn git, and the signal
-     *  that stops them (#450): once it aborts, a fetch running is killed with
-     *  everything it started, none starts again, and the timer is stopped.
-     *  Without it they run on `gitClientFor`'s client, which nothing stops. */
+     *  that stops them (#450): once it aborts, a fetch running is sent a kill
+     *  aimed at everything it started (best-effort, ADR-0028), none starts
+     *  again, and the timer is stopped. Without it they run on
+     *  `gitClientFor`'s client, which nothing stops. */
     networkGit?: NetworkGit;
   };
 

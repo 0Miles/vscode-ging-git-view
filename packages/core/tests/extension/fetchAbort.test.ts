@@ -240,33 +240,44 @@ describe("a git client's network commands, through NetworkGit (the graph's own)"
     onTestFinished(() => rmrf(repo));
     git(["remote", "add", "origin", server.url], repo);
     const exits: Promise<void>[] = [];
-    const stoppable = stoppableNetworkCommands(gitClientFactory(repo, "git").getInstance(), () => repo, {
-      gitPath: () => "git",
-      signal,
-      onAborted: (exited) => exits.push(exited)
-    });
+    const stoppable = stoppableNetworkCommands(
+      gitClientFactory(repo, "git").getInstance(),
+      () => repo,
+      {
+        gitPath: () => "git",
+        signal,
+        onAborted: (exited) => exits.push(exited)
+      }
+    );
     return { server, repo, stoppable, exits };
   }
 
   it.each([
     ["fetch", ["fetch", "--all"]],
     ["push", ["push", "origin", "main"]],
-    ["push with -c before it", ["-c", "push.useForceIfIncludes=true", "push", "--force-with-lease", "origin", "main"]]
-  ])("stops a %s its signal aborts", async (_name, args) => {
-    const controller = new AbortController();
-    const c = await client(controller.signal);
-    try {
-      const running = c.stoppable.raw(args);
-      await expect.poll(c.server.openConnections, { timeout: SETTLE_MS }).toBeGreaterThan(0);
-      controller.abort();
+    [
+      "push with -c before it",
+      ["-c", "push.useForceIfIncludes=true", "push", "--force-with-lease", "origin", "main"]
+    ]
+  ])(
+    "stops a %s its signal aborts",
+    async (_name, args) => {
+      const controller = new AbortController();
+      const c = await client(controller.signal);
+      try {
+        const running = c.stoppable.raw(args);
+        await expect.poll(c.server.openConnections, { timeout: SETTLE_MS }).toBeGreaterThan(0);
+        controller.abort();
 
-      await expect(running).rejects.toBeInstanceOf(GitAbortedError);
-      expect(c.exits).toHaveLength(1);
-      await expect.poll(c.server.openConnections, { timeout: SETTLE_MS }).toBe(0);
-    } finally {
-      await c.server.close();
-    }
-  }, 40_000);
+        await expect(running).rejects.toBeInstanceOf(GitAbortedError);
+        expect(c.exits).toHaveLength(1);
+        await expect.poll(c.server.openConnections, { timeout: SETTLE_MS }).toBe(0);
+      } finally {
+        await c.server.close();
+      }
+    },
+    40_000
+  );
 
   it("leaves every other command to the client", async () => {
     const controller = new AbortController();
