@@ -68,7 +68,7 @@ describe("the git call", () => {
     h.settings.pruneTags = true;
     await h.service.fetchRemoteCommand();
     // `--prune-tags` without `--prune` is git's rule, not ours (ADR-0012).
-    expect(h.calls).toContainEqual(["git", REPO, "fetch", "origin"]);
+    expect(h.calls).toContainEqual(["git", REPO, "fetch", "--", "origin"]);
   });
 
   it("goes around the hook, and leaves a failure to its caller", async () => {
@@ -130,7 +130,7 @@ describe("the Remotes side-view's fetch", () => {
     await h.service.fetchOneCommand("/other", "upstream");
     expect(h.calls).toEqual([
       ["runRepoMutation", "/other"],
-      ["git", "/other", "fetch", "--prune", "upstream"],
+      ["git", "/other", "fetch", "--prune", "--", "upstream"],
       ["runRepoMutation done", "/other"]
     ]);
   });
@@ -153,7 +153,7 @@ describe("the Fetch Remote command", () => {
     expect(h.calls).toEqual([
       ["git", REPO, "remote", "-v"],
       ["runRepoMutation", REPO],
-      ["git", REPO, "fetch", "--prune", "origin"],
+      ["git", REPO, "fetch", "--prune", "--", "origin"],
       ["runRepoMutation done", REPO]
     ]);
   });
@@ -167,7 +167,7 @@ describe("the Fetch Remote command", () => {
       ["git", REPO, "remote", "-v"],
       ["pick", [{ label: "origin" }, { label: "upstream" }], { placeholder: "fetch.pickRemote" }],
       ["runRepoMutation", REPO],
-      ["git", REPO, "fetch", "--prune", "upstream"],
+      ["git", REPO, "fetch", "--prune", "--", "upstream"],
       ["runRepoMutation done", REPO]
     ]);
   });

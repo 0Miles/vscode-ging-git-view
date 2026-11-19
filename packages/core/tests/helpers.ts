@@ -1,5 +1,7 @@
 import * as cp from "node:child_process";
 import * as fs from "node:fs";
+import * as http from "node:http";
+import type { AddressInfo, Socket } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -11,6 +13,30 @@ export {
   type PromptReply,
   recordingRunRepoMutation
 } from "./fakeHost";
+
+/** A git server on this machine that never answers: every request is left
+ *  hanging, so a fetch from it keeps its connection open until something stops
+ *  the git holding it (#450). Its `url` is a remote to add; `close` waits for
+ *  every connection to go, so a git left running hangs the test rather than
+ *  pass it. */
+export async function hangingGitServer() {
+  const connections = new Set<Socket>();
+  const server = http.createServer(() => {
+    /* never answered */
+  });
+  server.on("connection", (socket) => {
+    connections.add(socket);
+    socket.on("close", () => connections.delete(socket));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}/repo.git`,
+    /** How many connections git still has open to it. */
+    openConnections: () => connections.size,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve()))
+  };
+}
 
 export function git(args: string[], cwd: string) {
   cp.execFileSync("git", args, { cwd, stdio: "pipe" });

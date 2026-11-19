@@ -101,6 +101,10 @@ import { readThemeChoice, writeThemeChoice } from "./themeChoice";
  * — while the main process decides exactly which files are reachable
  * (ADR-0031's 補記 of 2026-11-13).
  */
+/** How long quitting waits for the gits the Tabs' disposal stopped (#450):
+ *  past it the app goes anyway — a kill is best-effort (ADR-0028). */
+const QUIT_WAITS_FOR_GIT_MS = 5_000;
+
 const SCHEME = "ging";
 const HOST = "app";
 const PAGE_URL = `${SCHEME}://${HOST}/`;
@@ -688,6 +692,10 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
     disposeWindow();
     void cloneEnded
       .then(async () => {
+        // The gits the Tabs' disposal stopped, gone with all they started
+        // (#450): on Windows each kill is a `taskkill` of its own, which the
+        // app exiting at once cuts short, leaving git on the network.
+        await shared?.stoppingGits.ended(QUIT_WAITS_FOR_GIT_MS);
         // After the clone: its askpass route is the shared server's.
         shared?.dispose();
         // The Tabs as they stand, the recent list's order: the next session's.

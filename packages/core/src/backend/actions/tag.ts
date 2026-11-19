@@ -20,19 +20,21 @@ export async function addTag(
   await git.tag(args);
   if (input.pushToRemote !== null) {
     // Force-push the tag too when replacing, so the remote ref is updated.
-    await git.push(input.pushToRemote, input.tagName, input.force ? ["--force"] : []);
+    await git.raw(["push", ...(input.force ? ["--force"] : []), input.pushToRemote, input.tagName]);
   }
 }
 
 export async function deleteTag(git: SimpleGit, input: ActionPayload<"deleteTag">): Promise<void> {
   await git.tag(["-d", input.tagName]);
   if (input.deleteOnRemote !== null) {
-    await git.push(input.deleteOnRemote, ":refs/tags/" + input.tagName);
+    await git.raw(["push", input.deleteOnRemote, ":refs/tags/" + input.tagName]);
   }
 }
 
 export async function pushTag(git: SimpleGit, input: ActionPayload<"pushTag">): Promise<void> {
   // Push the tag to each selected remote; simple-git serialises them. Every
   // remote's refusal is reported, after every remote has answered (#264).
-  await attemptOnEachRemote(input.remotes, (remote) => git.push(remote, input.tagName));
+  // `raw`, as every network command of the graph's: a host can run those
+  // where it can stop them (`stoppableNetworkCommands`, #450).
+  await attemptOnEachRemote(input.remotes, (remote) => git.raw(["push", remote, input.tagName]));
 }

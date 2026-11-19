@@ -11,10 +11,10 @@ import {
 } from "@ging/core/backend/actions/stash";
 import { commitDetails } from "@ging/core/backend/queries/commitDetails";
 import { listStashes } from "@ging/core/backend/queries/listStashes";
-import { formatGitError } from "@ging/core/backend/utils/gitError";
+import { formatGitError, isGitAborted } from "@ging/core/backend/utils/gitError";
 import { confirm } from "@ging/core/extension/commandKit";
 import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
-import type { Clipboard, L10n, Prompts } from "@ging/core/host/ports";
+import type { Clipboard, HostLogger, L10n, Prompts } from "@ging/core/host/ports";
 import type { GitFileChangeType, ScmStashEntry } from "@ging/shared/backend/types";
 import type { StashAction } from "@ging/shared/backend/utils/stashActionCatalogue";
 
@@ -82,6 +82,8 @@ export type ListedStashHost = {
    *  watcher around it and redraws after (`runRepoMutation`, #400). Without
    *  it the git just runs, as in VS Code, whose graph watches for itself. */
   mutate?: (work: () => Promise<void>) => Promise<void>;
+  /** Where an action `mutate` refused once its host was gone is told (#450). */
+  logger?: Pick<HostLogger, "log">;
 };
 
 /** #333: a stash whose position changed is refused, not redirected — the user
@@ -108,6 +110,11 @@ async function runAgreed<Failed extends string>(
     await (host.mutate === undefined ? action() : host.mutate(action));
   } catch (error) {
     if (error instanceof StashMovedError) return refuseMoved(host);
+    // Its host gone (#450): nobody left to tell, nothing left to re-read.
+    if (isGitAborted(error)) {
+      host.logger?.log(`stash: ${error.message}`);
+      return "refused";
+    }
     const outcome = report(error);
     host.refresh();
     return outcome;

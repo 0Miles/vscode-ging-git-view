@@ -26,6 +26,7 @@ import {
   fakePorts,
   fakeWebview,
   git,
+  hangingGitServer,
   makeRepo,
   makeTempDir,
   rev,
@@ -1332,4 +1333,43 @@ describe("a graph instance", () => {
       ]);
     expect(sentOf(closed.posted, "fetchAvatar")).toEqual([]);
   });
+
+  it("stops the git its fetch started once disposed, and no other instance's, saying nothing (#450)", async () => {
+    const servers = [await hangingGitServer(), await hangingGitServer()];
+    const { shared, repos, open, logged } = setUp();
+    const closed = open(repos[0]);
+    const other = open(repos[1]);
+    try {
+      git(["remote", "add", "origin", servers[0].url], repos[0]);
+      git(["remote", "add", "origin", servers[1].url], repos[1]);
+      const closedFetch = closed.instance.commands.fetch();
+      void other.instance.commands.fetch();
+      await expect.poll(servers[0].openConnections, { timeout: 15_000 }).toBeGreaterThan(0);
+      await expect.poll(servers[1].openConnections, { timeout: 15_000 }).toBeGreaterThan(0);
+      const otherConnections = servers[1].openConnections();
+      const refreshes = sentOf(closed.posted, "refresh").length;
+
+      closed.instance.dispose();
+
+      // Its fetch ends, and with it the connection git held: the server never
+      // answers, so only a kill lets it go.
+      await closedFetch;
+      await expect.poll(servers[0].openConnections, { timeout: 15_000 }).toBe(0);
+      // Nothing redrawn for the fetch it stopped: its page is gone.
+      expect(sentOf(closed.posted, "refresh").length).toBe(refreshes);
+      // The other's fetch runs on, connected as it was — once every git the
+      // disposal stopped has gone, and a moment more for a kill gone astray.
+      await shared.stoppingGits.ended(5_000);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(servers[1].openConnections()).toBe(otherConnections);
+      // Nothing said in the disposed instance's page: a line in the log.
+      expect(
+        closed.asked.filter(([name]) => name === "showError" || name === "showInformation")
+      ).toEqual([]);
+      expect(logged).toContain("error.unableToFetch: git fetch: aborted");
+    } finally {
+      other.instance.dispose();
+      await Promise.all(servers.map((server) => server.close()));
+    }
+  }, 60_000);
 });

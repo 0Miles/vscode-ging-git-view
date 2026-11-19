@@ -46,6 +46,16 @@ status: accepted
 - **三個缺口仍在。** clone 等 askpass 時,樹裡有 MSYS 的 `sh`(`askpass.sh`)與它啟動的 helper,缺口 2、3 照樣適用;但 askpass 的提示是 modal,蓋住了 clone 面板的取消鈕,從 UI 取消不到正在問帳密的 clone,只有 app 結束會走到那條路(那時 Welcome page 的 `Prompts` 先把提示答成取消,git 自己結束)。
 - **不重開 Job Object 方案。** 最壞的情況是一個逃掉的行程在目的地被刪的同時又寫了一點東西,而刪除的重試會在它結束後收拾;沒有寫到目的地以外的路。
 
+## 補記(2026-11-19,#450)
+
+**重新評估條件 2 再次被觸發:fetch 與 push 是第二個會寫入、會走網路的 kill 路徑呼叫端。評估後維持這篇的決定(盡力而為、立刻 settle)。** 上面 #395 補記裡「只有 clone 用它」從此不成立。
+
+- **哪些呼叫端。** core 的 `runNetworkGit`(`packages/core/src/backend/gitRun.ts`)經 `spawnGit` 跑 fetch,帶 `signal` 與 `ownProcessGroup`;`stoppableNetworkCommands` 把一個 git client 的 `raw` fetch、push、`ls-remote` 改走它,所以 graph 自己的 Fetch 鈕與 bridge 的 push(分支與 tag)也在內。signal 在桌面版 instance 被處置(關 Tab、結束 app)時、在 VS Code extension `deactivate` 時 abort。被中止的 git 一律只寫 log、不跳錯誤框。
+- **宿主要等它走。** Windows 上的 kill 是另外 spawn 的 `taskkill`,宿主若在它做完之前就結束(app 結束、extension host 結束),整棵樹會留著、連線還在。所以 `aborted` 的 `exited` 交給宿主(`NetworkGit.onAborted`):桌面版 `will-quit` 最多等 5 秒(`QUIT_WAITS_FOR_GIT_MS`),VS Code 的 `deactivate` 最多等 3 秒(`DEACTIVATE_WAITS_FOR_GIT_MS`,在 VS Code 給 `deactivate` 的 5 秒之內)。關 Tab 不需要等:app 還活著,`taskkill` 會做完。
+- **新的傷害:ref 的鎖檔。** 用 `/F` 殺掉正在更新 ref 的 fetch,可能留下 `refs/**.lock`,下一次 fetch 會失敗("cannot lock ref … File exists")。review 用 30000 個 ref 重現過，實際上的窗口只有幾毫秒寬。這篇不處理：使用者要刪掉那個鎖檔，跟 git 自己被中斷時一樣;要是有真實回報，就照條件 1 重開。
+- **pull 不殺。** `pull` 抓完之後會在工作目錄裡 merge 或 rebase;在那一段用 `/F` 殺掉,rebase 的 pull 會留下 `.git/rebase-merge` 與 detached HEAD,merge 的 pull 會留下 staged 一半、沒有 `MERGE_HEAD` 的合併(review 在 git 2.40.1 上實測)。所以 `pull` 不在 `stoppableNetworkCommands` 改走的子命令裡，照舊在 git client 上跑完。代價：卡在永遠不回應的 server 上的 pull,關 Tab 或結束 app 之後仍會留著,跟 #450 之前一樣。不改成「fetch 再 merge / rebase」:要重現 `pull.rebase`、`pull.ff`、`branch.<name>.rebase` 與 upstream 的解析，風險比留著一個卡住的 pull 大。測試:`packages/core/tests/extension/fetchAbort.test.ts` 用 hook 把 pull 停在合併中、abort signal、再放行，斷言 pull 完成、沒有進行中的 merge 或 rebase。
+- **仍然是盡力而為。** 上面三個缺口照樣適用;程式碼註解寫的是「送出 kill」,不是「保證收掉」。
+
 ## 補記(2026-11-18,#484)
 
 **`streamGit`(#408 的檔案歷史用)的 `kill` 先關掉 stdout 的讀取端,再 `killTree`。** 它不是 `killTree` 的缺口(git 確實被殺了),是串流讀者自己的:Node 的 child `close` 要等 stdout 關閉。child 結束時 Node 會把暫停的 stdout 放開一次,但檔案歷史的讀者每拿到一段、手上有一頁就再暫停,git 死前已經寫進 pipe 的其餘部分就永遠讀不到結尾 —— `close` 不來,`ended` 不 settle,pipe 的 handle 也留著。剩下的輸出若剛好一次讀完(連同結尾)就沒事,所以它時紅時綠,Windows 的 pipe 一次讀到的量不同,更常紅:Windows CI 上「stops git when closed」逾時 30 秒就是這個(#484)。在本機以 4 MiB 的 blob 讓 git 卡在滿的 pipe 上再殺,舊的 `kill` 每次都卡住(`packages/core/tests/gitSpawn.test.ts` 的 `streamGit` 一組)。
