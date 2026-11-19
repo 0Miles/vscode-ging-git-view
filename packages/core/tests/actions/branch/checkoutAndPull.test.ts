@@ -53,54 +53,78 @@ function divergedRepo(): string {
   return repo;
 }
 
+/**
+ * Budget for each test: `divergedRepo` runs eleven git commands one after
+ * another (the repository's three, a bare init, a push, a clone, two commits,
+ * another push and a checkout), then the action's checkout, fetch and rebase
+ * or merge.
+ *
+ * Measured with 16 busy loops pinning the CPU on Windows (#476): 18.0–23.7s
+ * each, and over the backend's 30s default under the owner's heavier load.
+ * About two and a half times the worst of those.
+ */
+const DIVERGED_PULL_TIMEOUT_MS = 60_000;
+
 describe("checkoutAndPullBranch", () => {
-  it("checks the branch out and rebases local commits onto the remote under pull.rebase=true", async () => {
-    const repo = divergedRepo();
-    git(["config", "pull.rebase", "true"], repo);
+  it(
+    "checks the branch out and rebases local commits onto the remote under pull.rebase=true",
+    { timeout: DIVERGED_PULL_TIMEOUT_MS },
+    async () => {
+      const repo = divergedRepo();
+      git(["config", "pull.rebase", "true"], repo);
 
-    await checkoutAndPullBranch(simpleGit(repo), {
-      branchName: "main",
-      remote: "origin",
-      branchOnRemote: "main"
-    });
-
-    expect(out(["branch", "--show-current"], repo)).toBe("main");
-    // Linear: the local commit now sits on top of the remote's, nothing lost.
-    expect(out(["log", "--format=%s"], repo).split("\n")).toEqual([
-      "local commit",
-      "upstream commit",
-      "init"
-    ]);
-    expect(out(["rev-parse", "main~1"], repo)).toBe(out(["rev-parse", "origin/main"], repo));
-  });
-
-  it("merges instead under pull.rebase=false, still keeping the local commit", async () => {
-    const repo = divergedRepo();
-    git(["config", "pull.rebase", "false"], repo);
-
-    await checkoutAndPullBranch(simpleGit(repo), {
-      branchName: "main",
-      remote: "origin",
-      branchOnRemote: "main"
-    });
-
-    expect(out(["branch", "--show-current"], repo)).toBe("main");
-    expect(out(["rev-list", "--merges", "--count", "main"], repo)).toBe("1");
-    const subjects = out(["log", "--format=%s"], repo);
-    expect(subjects).toContain("local commit");
-    expect(subjects).toContain("upstream commit");
-  });
-
-  it("throws, leaving the branch checked out, when the remote does not exist", async () => {
-    const repo = divergedRepo();
-
-    await expect(
-      checkoutAndPullBranch(simpleGit(repo), {
+      await checkoutAndPullBranch(simpleGit(repo), {
         branchName: "main",
-        remote: "no-such-remote",
+        remote: "origin",
         branchOnRemote: "main"
-      })
-    ).rejects.toThrow();
-    expect(out(["branch", "--show-current"], repo)).toBe("main");
-  });
+      });
+
+      expect(out(["branch", "--show-current"], repo)).toBe("main");
+      // Linear: the local commit now sits on top of the remote's, nothing lost.
+      expect(out(["log", "--format=%s"], repo).split("\n")).toEqual([
+        "local commit",
+        "upstream commit",
+        "init"
+      ]);
+      expect(out(["rev-parse", "main~1"], repo)).toBe(out(["rev-parse", "origin/main"], repo));
+    }
+  );
+
+  it(
+    "merges instead under pull.rebase=false, still keeping the local commit",
+    { timeout: DIVERGED_PULL_TIMEOUT_MS },
+    async () => {
+      const repo = divergedRepo();
+      git(["config", "pull.rebase", "false"], repo);
+
+      await checkoutAndPullBranch(simpleGit(repo), {
+        branchName: "main",
+        remote: "origin",
+        branchOnRemote: "main"
+      });
+
+      expect(out(["branch", "--show-current"], repo)).toBe("main");
+      expect(out(["rev-list", "--merges", "--count", "main"], repo)).toBe("1");
+      const subjects = out(["log", "--format=%s"], repo);
+      expect(subjects).toContain("local commit");
+      expect(subjects).toContain("upstream commit");
+    }
+  );
+
+  it(
+    "throws, leaving the branch checked out, when the remote does not exist",
+    { timeout: DIVERGED_PULL_TIMEOUT_MS },
+    async () => {
+      const repo = divergedRepo();
+
+      await expect(
+        checkoutAndPullBranch(simpleGit(repo), {
+          branchName: "main",
+          remote: "no-such-remote",
+          branchOnRemote: "main"
+        })
+      ).rejects.toThrow();
+      expect(out(["branch", "--show-current"], repo)).toBe("main");
+    }
+  );
 });
