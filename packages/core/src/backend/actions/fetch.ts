@@ -3,7 +3,7 @@ import type { SimpleGit } from "simple-git";
 export type FetchInput = { prune: boolean; pruneTags: boolean };
 
 /** The argv of a fetch from all remotes. */
-export function fetchAllArgs(input: FetchInput): string[] {
+function fetchAllArgs(input: FetchInput): string[] {
   const args = ["fetch", "--all"];
   if (input.prune) args.push("--prune");
   if (input.prune && input.pruneTags) args.push("--prune-tags");
@@ -11,7 +11,7 @@ export function fetchAllArgs(input: FetchInput): string[] {
 }
 
 /** The argv of a fetch from one named remote. */
-export function fetchRemoteArgs(input: FetchInput & { remote: string }): string[] {
+function fetchRemoteArgs(input: FetchInput & { remote: string }): string[] {
   const args = ["fetch"];
   if (input.prune) args.push("--prune");
   if (input.prune && input.pruneTags) args.push("--prune-tags");

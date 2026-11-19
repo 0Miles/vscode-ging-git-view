@@ -59,6 +59,34 @@ export type NetworkGit = {
   onAborted?: (exited: Promise<void>) => void;
 };
 
+/** The gits a `NetworkGit`'s signal stopped, until each has gone with all it
+ *  started: for a host that waits for them before it exits (#450). */
+export type StoppedGits = {
+  /** For `NetworkGit.onAborted`. */
+  add(exited: Promise<void>): void;
+  /** Settles once every one added has gone, or after `timeoutMs`. */
+  ended(timeoutMs: number): Promise<void>;
+};
+
+export function createStoppedGits(): StoppedGits {
+  const pending = new Set<Promise<void>>();
+  return {
+    add(exited) {
+      pending.add(exited);
+      void exited.finally(() => pending.delete(exited));
+    },
+    ended(timeoutMs) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      });
+      return Promise.race([Promise.all(pending).then(() => {}), timeout]).finally(() =>
+        clearTimeout(timer)
+      );
+    }
+  };
+}
+
 /** Run git `args` in `repo`, for the network. Resolves on exit 0; rejects with
  *  what git printed on any other exit, with `GitAbortedError` once `signal`
  *  has aborted it (or had before it started), and with the spawn's error when

@@ -12,13 +12,8 @@
 
 import type { SimpleGit } from "simple-git";
 
-import {
-  fetchAllArgs,
-  fetchFromRemotes,
-  fetchRemote as gitFetchRemote,
-  fetchRemoteArgs
-} from "@ging/core/backend/actions/fetch";
-import { type NetworkGit, runNetworkGit } from "@ging/core/backend/gitRun";
+import { fetchFromRemotes, fetchRemote as gitFetchRemote } from "@ging/core/backend/actions/fetch";
+import { type NetworkGit, stoppableNetworkCommands } from "@ging/core/backend/gitRun";
 import {
   type CommandKitDeps,
   createMutatingCommandKit,
@@ -47,7 +42,16 @@ const FETCH_FAILED = "error.unableToFetch";
 
 export function createFetchService(deps: FetchServiceDeps) {
   const { config, prompts, l10n } = deps;
-  const kit = createMutatingCommandKit(deps);
+  const net = deps.networkGit;
+  /** The commands' and the timer's client: its fetches through `networkGit`
+   *  when there is one. */
+  const gitClientFor = (repo: string | null): SimpleGit => {
+    const git = deps.gitClientFor(repo);
+    return net === undefined || repo === null
+      ? git
+      : stoppableNetworkCommands(git, () => repo, net);
+  };
+  const kit = createMutatingCommandKit({ ...deps, gitClientFor });
   const pruneFlags = () => ({
     prune: config.fetchAndPrune(),
     pruneTags: config.fetchAndPruneTags()
@@ -58,18 +62,6 @@ export function createFetchService(deps: FetchServiceDeps) {
   /** One named remote. */
   const fetchRemote = (git: SimpleGit, remote: string): Promise<void> =>
     gitFetchRemote(git, { remote, ...pruneFlags() });
-  /** The commands' and the timer's: through `networkGit` when there is one. */
-  const net = deps.networkGit;
-  const fetchAllIn =
-    (repo: string) =>
-    (git: SimpleGit): Promise<void> =>
-      net === undefined ? fetchAll(git) : runNetworkGit(net, repo, fetchAllArgs(pruneFlags()));
-  const fetchRemoteIn =
-    (repo: string, remote: string) =>
-    (git: SimpleGit): Promise<void> =>
-      net === undefined
-        ? fetchRemote(git, remote)
-        : runNetworkGit(net, repo, fetchRemoteArgs({ remote, ...pruneFlags() }));
 
   let autoFetchTimer: ReturnType<typeof setInterval> | undefined;
   /** A tick's fetch still running: the next tick skips rather than stack a
@@ -93,7 +85,7 @@ export function createFetchService(deps: FetchServiceDeps) {
      *  repository, or a failure, is a notification. */
     async fetchCommand(): Promise<void> {
       const repo = kit.currentRepoOrSay();
-      if (repo !== null) await kit.mutateOrToast(FETCH_FAILED, repo, fetchAllIn(repo));
+      if (repo !== null) await kit.mutateOrToast(FETCH_FAILED, repo, fetchAll);
     },
 
     /** The `fetchRemote` command: one remote of the current repository — the
@@ -116,13 +108,13 @@ export function createFetchService(deps: FetchServiceDeps) {
               { placeholder: l10n.t("fetch.pickRemote") }
             );
       if (remote === undefined) return;
-      await kit.mutateOrToast(FETCH_FAILED, repo, fetchRemoteIn(repo, remote));
+      await kit.mutateOrToast(FETCH_FAILED, repo, (git) => fetchRemote(git, remote));
     },
 
     /** The fetch of one listed remote, from the host's menu on it. A failure
      *  is a toast. */
     fetchOneCommand: (repo: string, remote: string): Promise<void> =>
-      kit.mutateOrToast(FETCH_FAILED, repo, fetchRemoteIn(repo, remote)),
+      kit.mutateOrToast(FETCH_FAILED, repo, (git) => fetchRemote(git, remote)),
 
     /** Re-arm the auto-fetch timer from the settings as they are now: off, or
      *  every remote of the current repository each 1–60 minutes. Silent — no
@@ -137,7 +129,7 @@ export function createFetchService(deps: FetchServiceDeps) {
           if (repo === null || autoFetchInFlight) return;
           autoFetchInFlight = true;
           deps
-            .runRepoMutation(repo, () => fetchAllIn(repo)(deps.gitClientFor(repo)))
+            .runRepoMutation(repo, () => fetchAll(gitClientFor(repo)))
             .catch(() => {
               /* best-effort: stay silent on failure */
             })

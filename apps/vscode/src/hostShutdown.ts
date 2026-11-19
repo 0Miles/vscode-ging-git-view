@@ -10,7 +10,7 @@
  * `activate` and its `deactivate` is `deactivateHost`.
  */
 
-import type { NetworkGit } from "@ging/core/backend/gitRun";
+import { createStoppedGits, type NetworkGit } from "@ging/core/backend/gitRun";
 import {
   createFetchService,
   type FetchService,
@@ -34,26 +34,17 @@ export type HostShutdown = {
 
 export function createHostShutdown(): HostShutdown {
   const controller = new AbortController();
-  const pending = new Set<Promise<void>>();
+  const stopped = createStoppedGits();
   return {
     signal: controller.signal,
-    onAborted(exited) {
-      pending.add(exited);
-      void exited.finally(() => pending.delete(exited));
-    },
+    onAborted: stopped.add,
     shutDown(timeoutMs = DEACTIVATE_WAITS_FOR_GIT_MS) {
       controller.abort();
       // A run the abort just stopped hands its `exited` over once its own
       // await resumes: a turn of the queue later, so look after that.
-      return new Promise<void>((resolve) => setImmediate(resolve)).then(() => {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const timeout = new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, timeoutMs);
-        });
-        return Promise.race([Promise.all(pending).then(() => {}), timeout]).finally(() =>
-          clearTimeout(timer)
-        );
-      });
+      return new Promise<void>((resolve) => setImmediate(resolve)).then(() =>
+        stopped.ended(timeoutMs)
+      );
     }
   };
 }

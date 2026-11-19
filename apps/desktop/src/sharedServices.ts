@@ -2,6 +2,7 @@
  * process (#388). What each instance owns instead is in graphInstance.ts. */
 
 import { AvatarManager } from "@ging/core/avatarManager";
+import { createStoppedGits, type StoppedGits } from "@ging/core/backend/gitRun";
 import { AskpassManager } from "@ging/core/extension/askpass/askpassManager";
 import { type BranchCleanup, createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import {
@@ -101,32 +102,9 @@ export type SharedServices = {
   /** The gits an instance's disposal stopped, until each has gone with all
    *  it started (#450): quitting waits for them, so the app does not exit
    *  while a kill of one is still under way. */
-  stoppingGits: {
-    add(exited: Promise<void>): void;
-    /** Settles once every one added has gone, or after `timeoutMs`. */
-    ended(timeoutMs: number): Promise<void>;
-  };
+  stoppingGits: StoppedGits;
   dispose(): void;
 };
-
-function createStoppingGits(): SharedServices["stoppingGits"] {
-  const pending = new Set<Promise<void>>();
-  return {
-    add(exited) {
-      pending.add(exited);
-      void exited.finally(() => pending.delete(exited));
-    },
-    ended(timeoutMs) {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const timeout = new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, timeoutMs);
-      });
-      return Promise.race([Promise.all(pending).then(() => {}), timeout]).finally(() =>
-        clearTimeout(timer)
-      );
-    }
-  };
-}
 
 export function createSharedServices({
   userDataPath,
@@ -212,7 +190,7 @@ export function createSharedServices({
     helperDir,
     gitPath: desktopGitPath,
     hostVersions,
-    stoppingGits: createStoppingGits(),
+    stoppingGits: createStoppedGits(),
     dispose: () => {
       askpass.dispose();
       branchFilterStore.dispose();
