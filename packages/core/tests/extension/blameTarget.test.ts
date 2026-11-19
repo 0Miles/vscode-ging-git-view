@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import { type BlameEditorState, blameTarget } from "@ging/core/extension/blameTarget";
+
+import { makeTempDir, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 const REPOS = ["/work/app", "/work/app/sub"];
 
@@ -57,5 +62,58 @@ describe("blameTarget", () => {
   it("shows nothing for a document that is not a file on disk", () => {
     expect(blameTarget(editor({ scheme: "untitled" }), REPOS)).toBeNull();
     expect(blameTarget(editor({ scheme: "git" }), REPOS)).toBeNull();
+  });
+});
+
+// One repository, two spellings: the workspace's (W, the known repository) and
+// git's (G). A file opened under either is blamed in W, by the path git knows
+// it by (#435).
+describe("blameTarget (real file system)", () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmrf(d);
+  });
+
+  /** A folder holding `src/a.ts`, spelled the way git reports it. */
+  function makeRepoDir(): { parent: string; repo: string } {
+    const parent = makeTempDir("ging blame target ");
+    dirs.push(parent);
+    const repo = path.join(parent, "repo");
+    fs.mkdirSync(path.join(repo, "src"), { recursive: true });
+    fs.writeFileSync(path.join(repo, "src", "a.ts"), "x\n");
+    return { parent, repo };
+  }
+
+  it("blames a file under either spelling in the repo known through a junction or symlink", () => {
+    const { parent, repo } = makeRepoDir();
+    const link = path.join(parent, "link");
+    fs.symlinkSync(repo, link, "junction");
+    const w = toRepoPath(link);
+    const g = toRepoPath(repo);
+    const expected = { line: 4, repo: w, filePath: "src/a.ts" };
+
+    expect(blameTarget(editor({ filePath: `${w}/src/a.ts` }), [w])).toEqual(expected);
+    expect(blameTarget(editor({ filePath: `${g}/src/a.ts` }), [w])).toEqual(expected);
+  });
+
+  it("blames a file under either spelling in the repo known in another letter case, on Windows", (ctx) => {
+    if (process.platform !== "win32") ctx.skip("paths differing in case are different paths");
+    const { repo } = makeRepoDir();
+    const g = toRepoPath(repo);
+    const w = g.toUpperCase();
+    const expected = { line: 4, repo: w, filePath: "src/a.ts" };
+
+    expect(blameTarget(editor({ filePath: `${w}/src/a.ts` }), [w])).toEqual(expected);
+    expect(blameTarget(editor({ filePath: `${g}/src/a.ts` }), [w])).toEqual(expected);
+  });
+
+  it("shows nothing for a file that does not exist outside every known repository", () => {
+    const { parent, repo } = makeRepoDir();
+
+    expect(
+      blameTarget(editor({ filePath: toRepoPath(path.join(parent, "gone", "a.ts")) }), [
+        toRepoPath(repo)
+      ])
+    ).toBeNull();
   });
 });
