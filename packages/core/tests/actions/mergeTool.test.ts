@@ -95,7 +95,7 @@ describe("configuredMergeTool", () => {
 
 /**
  * Budget for the tests that run `git mergetool` once: the conflict
- * `conflicted` builds (eight git commands one after another), then the
+ * `conflicted` builds (ten git commands one after another), then the
  * script's sh, its own git commands and the tool's.
  *
  * Measured with 16 busy loops pinning the CPU on Windows (#476): 39.5–45.4s
