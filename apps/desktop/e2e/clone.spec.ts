@@ -135,8 +135,8 @@ test("Clone Repository clones a file:// remote into the folder chosen and opens 
       )
     )
     .toEqual([`ging.openRecent:${cloned}`]);
-  // A Tab now covers the Welcome page the clone is shown on.
-  expect(await menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(false);
+  // With a Tab in front too (#461).
+  expect(await menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(true);
 
   const logged = await closeAndReadLog();
   expect(logged).toContain(`clone: ${url} into ${folder}`);
@@ -249,5 +249,113 @@ test("Cancel stops git, every process of it, and removes the folder it made; not
   expect(logged).toContain("launch: a clone is under way, opening what was named once it is done");
   expect(logged).toContain("clone: cancelling");
   expect(logged).toContain("clone: cancelled");
+  expect(logged).not.toContain("ERROR:");
+});
+
+/** How many views the window shows over its own page: the Tab in front's,
+ *  or none while the Welcome page is in front (#461). */
+function viewsInWindow(electronApp: ElectronApplication): Promise<number> {
+  return electronApp.evaluate(
+    ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.length
+  );
+}
+
+test("with a Tab open, Clone Repository brings the Welcome page forward and opens the clone in a Tab after it", async () => {
+  const fixture = makeFixtureRepo(env);
+  cleanUp.push(fixture.path);
+  const remote = path.join(scratch, "project.git");
+  execFileSync("git", ["clone", "--bare", "--template=", fixture.path, remote], {
+    env,
+    stdio: "pipe"
+  });
+  const parent = path.join(scratch, "clones");
+  mkdirSync(parent);
+  const url = pathToFileURL(remote).href;
+  const opened = path.basename(fixture.path);
+
+  const electronApp = await launch();
+  const window = await windowPage(electronApp);
+  await launchAgainWith(fixture.path);
+  await expect
+    .poll(async () => (await stripTabs(window)).map(({ title, focused }) => [title, focused]))
+    .toEqual([[opened, true]]);
+  await answerFolderDialog(electronApp, parent);
+  expect(await menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(true);
+  await clickMenu(electronApp, CLONE_REPOSITORY);
+
+  // The URL is asked on the Welcome page, in front: no Tab focused, no view
+  // over it.
+  await expect(window.locator("#hostPrompt")).toBeVisible();
+  expect(await viewsInWindow(electronApp)).toBe(0);
+  expect((await stripTabs(window)).map(({ focused }) => focused)).toEqual([false]);
+  await typeUrl(window, url);
+
+  // The clone in a Tab of its own after the one that was open, focused.
+  await expect
+    .poll(async () => (await stripTabs(window)).map(({ title, focused }) => [title, focused]))
+    .toEqual([
+      [opened, false],
+      ["project", true]
+    ]);
+  const page = await focusedTabPage(electronApp, 2);
+  await expect(page.locator("#commitTable tr.commit")).toHaveCount(fixture.commits.length);
+  expect(await viewsInWindow(electronApp)).toBe(1);
+
+  const logged = await closeAndReadLog();
+  expect(logged).toContain("clone: cloned");
+  expect(logged).not.toContain("ERROR:");
+});
+
+test("with a Tab in front, a credential the clone needs brings the Welcome page forward to ask it", async () => {
+  const fixture = makeFixtureRepo(env);
+  cleanUp.push(fixture.path);
+  const remote: UnauthorizedRemote = await startUnauthorizedRemote();
+  servers.push(remote);
+  const parent = path.join(scratch, "clones");
+  mkdirSync(parent);
+  const opened = path.basename(fixture.path);
+
+  const electronApp = await launch();
+  const window = await windowPage(electronApp);
+  await launchAgainWith(fixture.path);
+  await expect
+    .poll(async () => (await stripTabs(window)).map(({ focused }) => focused))
+    .toEqual([true]);
+  await answerFolderDialog(electronApp, parent);
+  await answerMessageBoxes(electronApp);
+  expect(await menuEnabled(electronApp, CLONE_REPOSITORY)).toBe(true);
+  await clickMenu(electronApp, CLONE_REPOSITORY);
+  await typeUrl(window, remote.url);
+
+  // The clone's entry on the strip, after the Tab, with no close button.
+  const cloneTab = window.locator("#tabStrip .cloneTab");
+  await expect(cloneTab).toHaveText(`Cloning ${remote.url}`);
+  await expect(cloneTab.locator(".tabClose")).toHaveCount(0);
+
+  // The Username prompt is asked on the Welcome page, in front of the Tab.
+  const input = window.locator("#hostPromptInput");
+  await expect(input).toHaveAttribute("placeholder", "Username");
+  await expect(window.locator("#hostPrompt")).toBeVisible();
+  await expect(window.locator("#clonePanel")).toBeVisible();
+  await expect.poll(() => viewsInWindow(electronApp)).toBe(0);
+  await expect(cloneTab).toHaveClass(/focused/);
+  await expect(window.locator("#tabStrip .tab[data-tab-id].focused")).toHaveCount(0);
+  await window.keyboard.type("alice");
+  await window.keyboard.press("Enter");
+  await expect(input).toHaveAttribute("placeholder", "Password");
+  await window.keyboard.type("s3cret");
+  await window.keyboard.press("Enter");
+
+  // Turned away, nothing opens, and the Tab is in front again.
+  await expect.poll(() => messageBoxes(electronApp)).toHaveLength(1);
+  await expect(cloneTab).toHaveCount(0);
+  await expect
+    .poll(async () => (await stripTabs(window)).map(({ title, focused }) => [title, focused]))
+    .toEqual([[opened, true]]);
+  expect(await viewsInWindow(electronApp)).toBe(1);
+  expect(existsSync(path.join(parent, "repo"))).toBe(false);
+
+  const logged = await closeAndReadLog();
+  expect(logged).toContain("clone: did not clone");
   expect(logged).not.toContain("ERROR:");
 });

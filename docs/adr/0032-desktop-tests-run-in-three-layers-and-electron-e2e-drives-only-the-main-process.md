@@ -143,7 +143,7 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
 - **URL 在 Welcome page 的 host prompt overlay 裡打,資料夾經 `NativeDialogs` 的 `showOpenDialog` 代答**(#394 的做法)。成功的那條讀分頁列、Tab 頁面上的 commit 數、Open Recent 的第一項與 log。
 - **認證那條驗的是「問在 Welcome page」。** 沒有 Tab 可以問,所以 askpass 的 Username / Password 出現在視窗自己的頁面上,蓋在 clone 面板之上;失敗的錯誤框是原生對話框(`Prompts.showError`),由測試代答並讀它的標題。server 記下的帳密證明回答回到了這一次 clone 的 git。目的地不留。
 - **取消那條的證據是「server 上的連線歸零」。** 永遠不回應的 server 讓 git 停在第一個請求上,clone 只能被取消;server 數著開著的連線,git 與它的每個行程(`git-remote-http`)都結束了才會是零(ADR-0028 的同日補記)。另外斷言目的地被刪掉、沒有 Tab、log 有 `clone: cancelled`。收尾的 `closeAllConnections()` 只是清場,斷言在它之前。
-- **選單項 `ging.cloneRepository`,照 #396 補記的契約新增**(那份契約沒有替 clone 保留 id):`AppMenuCommands.cloneRepository?()`,「Clone Repository...」,沒有 accelerator,位置在 Open Recent 與 Initialize Repository 之間。**只在焦點是 `welcome`、而且沒有 clone 正在問或在跑時 enabled**:進度與帳密都畫在 Welcome page,有 Tab 時被蓋住(票面「clone 發生在還沒有分頁的時候」)。規則在 template([appMenu.ts](../../apps/desktop/src/appMenu.ts) 的 `AppMenuState.cloning`),由 appMenu.test.ts 的表驗;E2E 讀 `enabled` 而不只是 `click()`。clone 正在問或在跑時,會開 Tab 的其他入口也關掉:選單的 Open Folder、Open Recent、Initialize Repository 不能按(同一張表驗),Welcome page 被面板蓋住(`inert`),第二次啟動經 single-instance 轉來的路徑排隊,等 clone 結束才開 —— 否則新開的 Tab 會蓋住面板與帳密提示,git 就卡在一個沒人看得到的提示上。有 Tab 時也能 clone,另開 [#461](https://github.com/0Miles/vscode-ging-git-view/issues/461)。
+- **選單項 `ging.cloneRepository`,照 #396 補記的契約新增**(那份契約沒有替 clone 保留 id):`AppMenuCommands.cloneRepository?()`,「Clone Repository...」,沒有 accelerator,位置在 Open Recent 與 Initialize Repository 之間。**只在焦點是 `welcome`、而且沒有 clone 正在問或在跑時 enabled**:進度與帳密都畫在 Welcome page,有 Tab 時被蓋住(票面「clone 發生在還沒有分頁的時候」)。規則在 template([appMenu.ts](../../apps/desktop/src/appMenu.ts) 的 `AppMenuState.cloning`),由 appMenu.test.ts 的表驗;E2E 讀 `enabled` 而不只是 `click()`。clone 正在問或在跑時,會開 Tab 的其他入口也關掉:選單的 Open Folder、Open Recent、Initialize Repository 不能按(同一張表驗),Welcome page 被面板蓋住(`inert`),第二次啟動經 single-instance 轉來的路徑排隊,等 clone 結束才開 —— 否則新開的 Tab 會蓋住面板與帳密提示,git 就卡在一個沒人看得到的提示上。有 Tab 時也能 clone 的規則見下方 [#461](https://github.com/0Miles/vscode-ging-git-view/issues/461) 的補記(2026-11-19),它取代了這裡「只在焦點是 `welcome`」那一句。
 - **流程本身用 vitest 測**([repoCloning.test.ts](../../apps/desktop/tests/repoCloning.test.ts)):URL 與資料夾的取消、目的地的組法、askpass route 的生命週期、進度的節流、取消、一次一個、視窗關掉時中止且不開 Tab。
 
 ## 補記(2026-11-17,#404)
@@ -221,3 +221,13 @@ GING 有了第二個宿主([#291](https://github.com/0Miles/vscode-ging-git-view
   - 每個 step 的耗時印在測試輸出(`phaseC step <秒>: <step>`),之後的 run 都能拿來對照。
 - **「沒裝 VS Code」在 E2E 裡是啟動 env 的條件:** 拿掉 `VSCODE_*`、`GIT_ASKPASS` / `SSH_ASKPASS`,以及 PATH 上放著 `code` 的資料夾 —— 但同時放著 git 的資料夾留著(例如 VS Code 的套件把 `code` 連到 `/usr/bin`),並斷言 git 仍在 PATH 上。真正乾淨的機器是安裝包的事(階段 E)。
 - **有 Tab 時不能 clone(#461)是現況，被斷言並加上 annotation。** walk 因此先 clone;#461 做完時這一行要翻過來。
+
+## 補記(2026-11-19,#461)
+
+**clone 不再限定沒有 Tab。** `ging.cloneRepository` 不論前面是什麼都 enabled,只在 clone 正在問或在跑時(`AppMenuState.cloning`)disabled;appMenu.test.ts 的表把它的 `enabledIn` 改成全部焦點。Open Folder、Open Recent、Initialize Repository 與第二次啟動的排隊照 #395 補記不變。
+
+- **Welcome page 帶到前面。** `Tabs` 多一個「有 Tab 但沒有聚焦」的狀態:`focusWelcome()` 讓 `focused()` 回 `null`、記下原本聚焦的 Tab(`returnTo()`;那個 Tab 關掉時改記 `close` 會選的鄰居),`restoreFocus()` 回到它。main.ts 的 Welcome page 顯示與 `welcomeContent` 改以「沒有聚焦的 Tab」判斷。開始 clone 時帶到前面:所有 Tab 的 view 移出視窗(`layoutTabs`),分頁列沒有 Tab 是 `focused`。clone 沒開出 Tab(URL 或資料夾那一步取消、失敗、取消 clone)就 `restoreFocus()`;使用者這期間點過 Tab,就留在那個 Tab。成功照 #395 開新 Tab 並聚焦。
+- **分頁列的暫時項目。** 有 Tab 時,clone 進行中分頁列最後多一個項目(`ClonePanel.title`,不含帳密的 `shownUrl`;下緣是進度條;沒有關閉鈕,取消只在 clone 面板上)。沒有 Tab 聚焦時它標成 focused;點它送 `showClone`,Welcome page 回到前面。點任何一個 Tab 只是把那個 Tab 帶到前面,clone 在背景繼續。沒有 Tab 時分頁列整條是藏的,不畫這個項目。
+- **帳密時自動帶回。** clone 的 askpass route 包一層:收到請求就先 `focusWelcome()` 再問;回答後留在 Welcome page,直到 clone 結束或使用者點 Tab。
+- **關窗。** Tab 照舊以清單存下;Welcome page 在前面時,存成 active 的是 `returnTo()` 的 Tab。暫時項目不是 Tab,不會存。
+- **驗法。** tabs.test.ts 驗 `focusWelcome` / `returnTo` / `restoreFocus`;tabWindow.test.ts 驗 Welcome page 在前面時 `layoutTabViews` 沒有 view 在視窗內、`tabStripEntries` 每個都 `focused: false`,以及下次啟動恢復的 Tab;jsdom 驗暫時項目的畫法與 `showClone`。clone.spec.ts 新增兩條:先開一個 Tab 再 clone `file://` bare repo(新 Tab 在原 Tab 之後、原 Tab 還在);先開一個 Tab 再 clone 401 server(Username 提示在 Welcome page 上、視窗內沒有 view、分頁列只有暫時項目是 focused,失敗後回到原 Tab)。兩條都先讀 `enabled` 再 `click()`。phaseC.spec.ts 的 known gap annotation 拿掉,斷言翻成 `true`。

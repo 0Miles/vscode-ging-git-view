@@ -154,10 +154,12 @@ function welcomeHtml({ recent, strings }: WelcomeContent): string {
  *  why a launch opened nothing, if it did not, over what it offers. */
 function render(strip: HTMLElement, welcome: HTMLElement, state: WindowStateMessage): void {
   strip.hidden = state.tabs.length === 0;
+  // With no Tab the strip is hidden, and the Welcome page in front anyway.
   const clone =
-    state.clone ? cloneTabHtml(state.clone, !state.tabs.some((tab) => tab.focused)) : "";
-  strip.innerHTML =
-    state.tabs.map((tab) => tabHtml(tab, state.strings.closeTab)).join("") + clone;
+    state.clone && state.tabs.length > 0
+      ? cloneTabHtml(state.clone, !state.tabs.some((tab) => tab.focused))
+      : "";
+  strip.innerHTML = state.tabs.map((tab) => tabHtml(tab, state.strings.closeTab)).join("") + clone;
   const notice =
     state.notice === null
       ? ""
