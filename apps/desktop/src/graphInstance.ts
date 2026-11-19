@@ -233,7 +233,12 @@ export function createGraphInstance(
   const fetchService = createFetchService({
     ...kitDeps,
     config,
-    networkGit: { gitPath: shared.gitPath, gitEnv, signal: disposed.signal }
+    networkGit: {
+      gitPath: shared.gitPath,
+      gitEnv,
+      signal: disposed.signal,
+      onAborted: (exited) => shared.stoppingGits.add(exited)
+    }
   });
   fetchService.restartAutoFetch();
 

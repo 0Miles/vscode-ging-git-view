@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { runNetworkGit } from "@ging/core/backend/gitRun";
 import { GitAbortedError } from "@ging/core/backend/utils/gitError";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
@@ -80,6 +81,33 @@ describe("a fetch whose signal aborts", () => {
       expect(h.logged).toEqual(["error.unableToFetch: git fetch: aborted"]);
       // Nothing left to redraw.
       expect(h.mutations).toEqual(["run"]);
+    } finally {
+      await server.close();
+    }
+  }, 40_000);
+
+  it("hands its host what settles once that git is gone, for a quit to wait on", async () => {
+    const server = await hangingGitServer();
+    try {
+      const controller = new AbortController();
+      const exits: Promise<void>[] = [];
+      const repo = makeRepo();
+      onTestFinished(() => rmrf(repo));
+      git(["remote", "add", "origin", server.url], repo);
+      const net = {
+        gitPath: () => "git",
+        signal: controller.signal,
+        onAborted: (exited: Promise<void>) => exits.push(exited)
+      };
+
+      const fetching = runNetworkGit(net, repo, ["fetch", "origin"]);
+      await expect.poll(server.openConnections, { timeout: SETTLE_MS }).toBeGreaterThan(0);
+      controller.abort();
+
+      await expect(fetching).rejects.toBeInstanceOf(GitAbortedError);
+      expect(exits).toHaveLength(1);
+      await exits[0];
+      await expect.poll(server.openConnections, { timeout: SETTLE_MS }).toBe(0);
     } finally {
       await server.close();
     }

@@ -49,6 +49,11 @@ export type NetworkGit = {
   /** Stops every run at once; a run that would start after it has aborted is
    *  never spawned. */
   signal?: AbortSignal;
+  /** Handed, for a run `signal` stopped, what settles once that git and all
+   *  it started are gone (`spawnGit`'s `exited`): for a host that must not
+   *  exit before them — on Windows the kill is a `taskkill` of its own, which
+   *  an app exiting at once can cut short (#450). */
+  onAborted?: (exited: Promise<void>) => void;
 };
 
 /** Run git `args` in `repo`, for the network. Resolves on exit 0; rejects with
@@ -70,6 +75,7 @@ export async function runNetworkGit(net: NetworkGit, repo: string, args: string[
       if (result.exitCode === 0) return;
       throw new Error(result.stderr.trim() || `git ${args[0]} exited with ${result.exitCode}`);
     case "aborted":
+      net.onAborted?.(result.exited);
       throw new GitAbortedError(`git ${args[0]}`);
     case "timeout":
       throw new Error(`git ${args[0]} timed out`);
