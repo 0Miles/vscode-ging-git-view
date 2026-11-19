@@ -68,8 +68,21 @@ export function formatGitError(error: unknown): string {
   if (rejected !== undefined) return rejected.replace(/^!\s*/, "");
 
   // 3. git's primary error line wins (strip the redundant prefix).
-  const fatal = lines.find((line) => /^(fatal|error):/i.test(line));
-  if (fatal !== undefined) return fatal.replace(/^(fatal|error):\s*/i, "");
+  const fatalAt = lines.findIndex((line) => /^(fatal|error):/i.test(line));
+  if (fatalAt !== -1) {
+    const fatal = lines[fatalAt].replace(/^(fatal|error):\s*/i, "");
+    // git's catch-all when ssh gave up; ssh says why on the line before it
+    // ("Host key verification failed.", "Permission denied (publickey).").
+    const before = lines[fatalAt - 1];
+    if (
+      fatal !== "Could not read from remote repository." ||
+      before === undefined ||
+      /^(hint|warning):|^Cloning into /i.test(before)
+    ) {
+      return fatal;
+    }
+    return before + "\n" + fatal;
+  }
 
   // 4. Nothing recognisable — surface the first non-empty line.
   return lines[0];

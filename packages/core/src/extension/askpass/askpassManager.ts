@@ -10,13 +10,18 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { getNonce } from "@ging/core/backend/utils/nonce";
-import type { Prompts } from "@ging/core/host/ports";
+import type { ChooseAction, Prompts } from "@ging/core/host/ports";
 
 export interface AskpassEnvironment {
   // Index signature so this is a valid env dict (assignable to NodeJS.ProcessEnv
   // when handed to the git client as extra child-process variables).
   [key: string]: string | undefined;
   GIT_ASKPASS: string;
+  /** ssh's own prompts (a new host's key, a key's passphrase) go to the same
+   *  helper: ssh reads these, not GIT_ASKPASS. */
+  SSH_ASKPASS?: string;
+  /** `force`: git runs ssh without a tty, where ssh would otherwise not ask. */
+  SSH_ASKPASS_REQUIRE?: string;
   ELECTRON_RUN_AS_NODE?: string;
   NEO_GIT_GRAPH_ASKPASS_NODE?: string;
   NEO_GIT_GRAPH_ASKPASS_MAIN?: string;
@@ -41,10 +46,55 @@ export interface AskpassRoute {
   dispose(): void;
 }
 
-/** Runs a small IPC server that git's GIT_ASKPASS helper connects to; each
- *  request is put to the user through `Prompts.input` and the entered value is
- *  returned to git. When the server can't start, getEnv falls back to a no-op
- *  helper so git's own prompting is left untouched.
+/** What the manager asks with: a line of text for a credential, a choice for
+ *  ssh's yes-or-no questions. */
+export type AskpassPrompts = Pick<Prompts, "input" | "choose">;
+
+/** The last line of OpenSSH's host key confirmation: `(yes/no)?` in older
+ *  releases, `(yes/no/[fingerprint])?` since 8.0, `(yes/no):` elsewhere. */
+const HOST_KEY_CONFIRMATION = /(?:\(yes\/no(?:\/\[fingerprint\])?\)\?|\(yes\/no\):)\s*$/;
+
+/** OpenSSH's `ask_permission` questions (mux.c, for ControlMaster `ask` and
+ *  `autoask`). ssh takes an empty answer to these as a yes, and only `no` or a
+ *  failed helper as a no. */
+const PERMISSION_QUESTION =
+  /^(?:Allow (?:shared connection|forward) to |Terminate shared connection to |Disable further multiplexing on shared connection to |Open .+ on )[^\n]*\?\s*$/;
+
+/** What a prompt masks: a password, a key's passphrase, a security key's or
+ *  a PKCS#11 token's PIN. */
+function isSecret(request: string): boolean {
+  return /password|passphrase/i.test(request) || /\bPIN\b/.test(request);
+}
+
+/** A yes-or-no of ssh's as the `choose` that asks it, whose only action is
+ *  `yes`; undefined for a line of text. The request is git's or ssh's prompt
+ *  verbatim: which kind it is shows only in its text, since ssh sends no
+ *  SSH_ASKPASS_PROMPT hint for either. */
+function yesOrNo(
+  request: string
+): [message: string, options: { detail?: string; actions: ChooseAction<"yes">[] }] | undefined {
+  if (HOST_KEY_CONFIRMATION.test(request)) {
+    // A yes-or-no, not a line of text: a typo would only make ssh ask again.
+    // The first line names the host; the helper's `host` can't, being cut at
+    // the quote in "can't".
+    const [message, ...rest] = request.split(/\r?\n/);
+    return [
+      message,
+      { detail: rest.join("\n"), actions: [{ label: "Continue connecting", value: "yes" }] }
+    ];
+  }
+  if (PERMISSION_QUESTION.test(request)) {
+    return [request.trim(), { actions: [{ label: "Yes", value: "yes" }] }];
+  }
+  return undefined;
+}
+
+/** Runs a small IPC server that git's GIT_ASKPASS helper, and ssh's
+ *  SSH_ASKPASS (the same helper), connect to; each request is put to the user
+ *  through `Prompts.input` and the entered value is returned to git, except
+ *  ssh's yes-or-no questions, each a `Prompts.choose` (see `yesOrNo`). When
+ *  the server can't start, getEnv falls back to a no-op helper so git's own
+ *  prompting is left untouched.
  *
  *  One server serves a whole process. Git run with `getEnv()` asks the
  *  prompts the manager was built with; a Host that asks in more than one place
@@ -54,10 +104,10 @@ export class AskpassManager {
   private readonly ipcHandlePath: string;
   private readonly server: http.Server;
   private enabled = true;
-  private readonly routes = new Map<string, Pick<Prompts, "input">>();
+  private readonly routes = new Map<string, AskpassPrompts>();
 
   constructor(
-    private readonly prompts: Pick<Prompts, "input">,
+    private readonly prompts: AskpassPrompts,
     /** The folder the helper scripts and `askpassMain.js` are shipped in. */
     private readonly helperDir: string
   ) {
@@ -90,32 +140,27 @@ export class AskpassManager {
       const data = JSON.parse(reqData) as AskpassRequest;
       const prompts = data.token === undefined ? this.prompts : this.routes.get(data.token);
       if (prompts === undefined) {
-        // The route that ran this git is gone; nobody is left to ask.
+        // The route that ran this git is gone; nobody is left to ask. A
+        // yes-or-no is a no: ssh takes an empty answer to some as a yes.
         res.writeHead(200);
-        res.end(JSON.stringify(""));
+        res.end(JSON.stringify(yesOrNo(data.request) ? "no" : ""));
         return;
       }
-      prompts
-        .input({
-          placeholder: data.request,
-          prompt: "GING: " + data.host,
-          password: /password/i.test(data.request)
-        })
-        .then(
-          (result) => {
-            res.writeHead(200);
-            res.end(JSON.stringify(result || ""));
-          },
-          () => {
-            res.writeHead(500);
-            res.end();
-          }
-        );
+      ask(prompts, data).then(
+        (result) => {
+          res.writeHead(200);
+          res.end(JSON.stringify(result));
+        },
+        () => {
+          res.writeHead(500);
+          res.end();
+        }
+      );
     });
   }
 
   /** Git run with the route's env asks `prompts`, not the default. */
-  public route(prompts: Pick<Prompts, "input">): AskpassRoute {
+  public route(prompts: AskpassPrompts): AskpassRoute {
     const token = getNonce();
     this.routes.set(token, prompts);
     const env = this.getEnv();
@@ -129,18 +174,36 @@ export class AskpassManager {
   }
 
   public getEnv(): AskpassEnvironment {
+    const helper = path.join(this.helperDir, "askpass.sh");
     return this.enabled
       ? {
           ELECTRON_RUN_AS_NODE: "1",
-          GIT_ASKPASS: path.join(this.helperDir, "askpass.sh"),
+          GIT_ASKPASS: helper,
+          SSH_ASKPASS: helper,
+          SSH_ASKPASS_REQUIRE: "force",
           NEO_GIT_GRAPH_ASKPASS_NODE: process.execPath,
           NEO_GIT_GRAPH_ASKPASS_MAIN: path.join(this.helperDir, "askpassMain.js"),
           NEO_GIT_GRAPH_ASKPASS_HANDLE: this.ipcHandlePath
         }
       : {
+          // No SSH_ASKPASS here: forced onto a helper that answers nothing, ssh
+          // would take every prompt it could have asked on a tty as a no.
           GIT_ASKPASS: path.join(this.helperDir, "askpass-empty.sh")
         };
   }
+}
+
+/** Puts one request to `prompts`; resolves to what goes back to the helper. */
+async function ask(prompts: AskpassPrompts, data: AskpassRequest): Promise<string> {
+  const question = yesOrNo(data.request);
+  // Dismissed is a no, not the empty answer ssh would take to some as a yes.
+  if (question) return (await prompts.choose(...question)) ?? "no";
+  const answer = await prompts.input({
+    placeholder: data.request,
+    prompt: "GING: " + data.host,
+    password: isSecret(data.request)
+  });
+  return answer || "";
 }
 
 function getIPCHandlePath(nonce: string): string {
