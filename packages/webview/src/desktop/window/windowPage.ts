@@ -108,14 +108,89 @@ body.windowPage { margin: 0; padding: 0; overflow: hidden; }
 @keyframes cloneSweep { from { left: -30%; } to { left: 100%; } }
 .cloneButtons { display: flex; justify-content: flex-end; margin-top: 16px; }
 .cloneCancel:disabled { cursor: default; opacity: 0.6; }
+.cloneTab { position: relative; padding-right: 12px; font-style: italic; }
+.cloneTab > svg { fill: currentColor; width: 14px; height: 14px; flex: 0 0 auto; }
+.cloneBar.cloneTabBar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; margin: 0; border-radius: 0; }
 `;
 
 const post: (message: WindowRequest) => void = postToHost;
 
-function tabHtml(tab: TabStripEntry, closeTab: string): string {
-  return `<div class="tab${tab.focused ? " focused" : ""}" role="tab" tabindex="${tab.focused ? 0 : -1}" aria-selected="${tab.focused}" data-tab-id="${tab.id}" title="${escapeHtml(tab.tooltip)}">${
-    tab.asking ? '<span class="tabAsking"></span>' : ""
-  }<span class="tabTitle">${escapeHtml(tab.title)}</span><button class="tabClose" type="button" tabindex="-1" title="${escapeHtml(closeTab)}" aria-label="${escapeHtml(closeTab)}">${svgIcons.close}</button></div>`;
+/** A strip entry's element, made from `html` once. */
+function elementOf(html: string): HTMLElement {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  return template.content.firstElementChild as HTMLElement;
+}
+
+/** Mark a strip entry as the one in front, or not. */
+function setFront(entry: HTMLElement, front: boolean): void {
+  entry.classList.toggle("focused", front);
+  entry.tabIndex = front ? 0 : -1;
+  entry.setAttribute("aria-selected", String(front));
+}
+
+/** Tab `tab`'s strip entry, `existing` changed in place or made anew. */
+function tabEntry(existing: HTMLElement | undefined, tab: TabStripEntry, closeTab: string) {
+  const entry =
+    existing ??
+    elementOf(
+      `<div class="tab" role="tab" data-tab-id="${tab.id}"><span class="tabTitle"></span><button class="tabClose" type="button" tabindex="-1">${svgIcons.close}</button></div>`
+    );
+  setFront(entry, tab.focused);
+  entry.title = tab.tooltip;
+  entry.querySelector(".tabTitle")!.textContent = tab.title;
+  const close = entry.querySelector(".tabClose")!;
+  close.setAttribute("title", closeTab);
+  close.setAttribute("aria-label", closeTab);
+  const asking = entry.querySelector(".tabAsking");
+  if (tab.asking && asking === null) entry.prepend(elementOf('<span class="tabAsking"></span>'));
+  if (!tab.asking) asking?.remove();
+  return entry;
+}
+
+/** The strip's entry for a clone running with Tabs open (#461), `existing`
+ *  changed in place or made anew: after the Tabs, in front while none is,
+ *  with how far it has got along its foot and no close button — it is
+ *  cancelled on its panel alone. */
+function cloneEntry(existing: HTMLElement | null, clone: ClonePanel, front: boolean) {
+  const entry =
+    existing ??
+    elementOf(
+      `<div class="tab cloneTab" role="tab">${svgIcons.download}<span class="tabTitle"></span><div class="cloneBar cloneTabBar"><div class="cloneBarFill"></div></div></div>`
+    );
+  setFront(entry, front);
+  entry.title = clone.title;
+  entry.querySelector(".tabTitle")!.textContent = clone.title;
+  const bar = entry.querySelector<HTMLElement>(".cloneTabBar")!;
+  const fill = entry.querySelector<HTMLElement>(".cloneBarFill")!;
+  bar.classList.toggle("indeterminate", clone.percent === null);
+  if (clone.percent === null) fill.style.removeProperty("width");
+  else fill.style.width = `${clone.percent}%`;
+  return entry;
+}
+
+/** Draw the strip's entries for `state` in place: an entry is never drawn
+ *  anew while it stays, since progress comes several times a second and the
+ *  entry being pressed must be the one still there when the press ends. */
+function renderStrip(strip: HTMLElement, state: WindowStateMessage): void {
+  strip.hidden = state.tabs.length === 0;
+  const byId = new Map<string, HTMLElement>();
+  strip.querySelectorAll<HTMLElement>(".tab[data-tab-id]").forEach((entry) => {
+    byId.set(entry.dataset.tabId!, entry);
+  });
+  const entries = state.tabs.map((tab) =>
+    tabEntry(byId.get(String(tab.id)), tab, state.strings.closeTab)
+  );
+  // With no Tab the strip is hidden, and the Welcome page in front anyway.
+  if (state.clone && state.tabs.length > 0) {
+    const front = !state.tabs.some((tab) => tab.focused);
+    entries.push(cloneEntry(strip.querySelector<HTMLElement>(".cloneTab"), state.clone, front));
+  }
+  // Moved only where out of place, and what is no longer there taken out.
+  entries.forEach((entry, index) => {
+    if (strip.children[index] !== entry) strip.insertBefore(entry, strip.children[index] ?? null);
+  });
+  while (strip.children.length > entries.length) strip.lastElementChild!.remove();
 }
 
 function recentHtml(repo: RecentRepoEntry, strings: WelcomeContent["strings"]): string {
@@ -139,8 +214,7 @@ function welcomeHtml({ recent, strings }: WelcomeContent): string {
 /** Draw `state`: the strip, hidden when there is no Tab, and the Welcome page:
  *  why a launch opened nothing, if it did not, over what it offers. */
 function render(strip: HTMLElement, welcome: HTMLElement, state: WindowStateMessage): void {
-  strip.hidden = state.tabs.length === 0;
-  strip.innerHTML = state.tabs.map((tab) => tabHtml(tab, state.strings.closeTab)).join("");
+  renderStrip(strip, state);
   const notice =
     state.notice === null
       ? ""
@@ -228,8 +302,13 @@ function welcomeRequest(target: EventTarget | null): WindowRequest | null {
 
 /** The Tab whose strip entry `target` is in, by id. */
 function tabIdOf(target: EventTarget | null): number | null {
-  const tab = target instanceof Element ? target.closest<HTMLElement>(".tab") : null;
+  const tab = target instanceof Element ? target.closest<HTMLElement>(".tab[data-tab-id]") : null;
   return tab === null ? null : Number(tab.dataset.tabId);
+}
+
+/** `target` is in the strip's entry for the clone running (#461). */
+function inCloneTab(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(".cloneTab") !== null;
 }
 
 /**
@@ -245,6 +324,10 @@ export function startWindowPage(strip: HTMLElement, welcome: HTMLElement): void 
   strip.setAttribute("role", "tablist");
 
   strip.addEventListener("click", (event) => {
+    if (inCloneTab(event.target)) {
+      post({ command: "showClone" });
+      return;
+    }
     const id = tabIdOf(event.target);
     if (id === null) return;
     const closing = event.target instanceof Element && event.target.closest(".tabClose") !== null;
@@ -256,10 +339,12 @@ export function startWindowPage(strip: HTMLElement, welcome: HTMLElement): void 
     if (id !== null && event.button === 1) post({ command: "closeTab", id });
   });
   strip.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
     const id = tabIdOf(event.target);
-    if (id === null || (event.key !== "Enter" && event.key !== " ")) return;
+    const clone = inCloneTab(event.target);
+    if (id === null && !clone) return;
     event.preventDefault();
-    post({ command: "focusTab", id });
+    post(id === null ? { command: "showClone" } : { command: "focusTab", id });
   });
   // The Welcome page's buttons, as the strip's Tabs are: asked, not done.
   welcome.addEventListener("click", (event) => {

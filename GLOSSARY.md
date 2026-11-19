@@ -41,7 +41,7 @@ _Avoid_: discovered repo, tracked repo
 _Avoid_: window, 視窗, panel
 
 **Welcome page**:
-桌面 host 一個 Tab 都沒有時顯示的頁面,存放庫從這裡開始開啟。對應 VS Code host 的 ADR-0011。中文寫作「歡迎頁」。桌面 host 專屬。
+桌面 host 沒有聚焦的 Tab 時顯示的頁面,存放庫從這裡開始開啟。通常是一個 Tab 都沒有的時候;clone 期間它也會被帶到開著的 Tab 前面(#461)。對應 VS Code host 的 ADR-0011。中文寫作「歡迎頁」。桌面 host 專屬。
 _Avoid_: start page, empty state
 
 **Host prompt**:

@@ -10,6 +10,7 @@ import type { ExtensionState } from "@ging/core/extensionState";
 import type { HostLogger } from "@ging/core/host/ports";
 import type { TabStates } from "@ging/core/tabStates";
 import type { DesktopRepoSource } from "@ging/desktop/ports/repoSource";
+import type { TabStripEntry } from "@ging/webview/desktop/window/protocol";
 
 import { createTabs, type Tab, type Tabs } from "./tabs";
 
@@ -75,6 +76,24 @@ export function layoutTabViews<T>(
   return tabs.map((tab) => ({ tab, bounds, inWindow: tab === focused }));
 }
 
+/** The Tabs as the strip shows them: each by `title`, the focused one marked
+ *  — none while the Welcome page is in front (#461) — and one `asking` only
+ *  behind another, since the one in front shows its prompt itself. */
+export function tabStripEntries<C>(
+  tabs: Pick<Tabs<C>, "list" | "focused">,
+  title: (tab: Tab<C>) => string,
+  asking: (tab: Tab<C>) => boolean
+): TabStripEntry[] {
+  const focused = tabs.focused();
+  return tabs.list().map((tab) => ({
+    id: tab.id,
+    title: title(tab),
+    tooltip: tab.repo,
+    focused: tab === focused,
+    asking: tab !== focused && asking(tab)
+  }));
+}
+
 export function createTabWindow<V, P extends TabPageLike>(
   deps: TabWindowDeps<V, P>
 ): TabWindow<V, P> {
@@ -89,9 +108,10 @@ export function createTabWindow<V, P extends TabPageLike>(
       }
     },
     onChange: () => {
+      // With the Welcome page in front over them (#461), the Tab behind it.
       tabStates.save(
         tabs.list().map((tab) => tab.content.state),
-        tabs.focused()?.content.state ?? null
+        (tabs.focused() ?? tabs.returnTo())?.content.state ?? null
       );
       deps.onChange();
     },

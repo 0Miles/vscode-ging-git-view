@@ -254,12 +254,13 @@ const ENTRIES: readonly {
     command: "initRepository",
     enabledIn: FOCUSES
   },
-  // #395's: asked and shown on the Welcome page, which a Tab's view covers.
+  // #395's, asked and shown on the Welcome page, which is brought forward
+  // over a Tab for it (#461): whatever is in front.
   {
     id: MENU_IDS.cloneRepository,
     label: "desktop.menu.cloneRepository",
     command: "cloneRepository",
-    enabledIn: ["welcome"]
+    enabledIn: FOCUSES
   }
 ];
 

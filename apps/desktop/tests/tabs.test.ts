@@ -106,6 +106,80 @@ describe("the desktop host's Tabs", () => {
     expect(tabs.focused()).toBe(a);
   });
 
+  // #461: a clone brings the Welcome page forward over the Tabs.
+  it("bring the Welcome page forward with Tabs open, none of them focused, and go back to the one that was", () => {
+    const { tabs, open, repos, changes } = setUp();
+    const a = open("/a").tab;
+    open("/b");
+    tabs.focus(a.id);
+    const before = changes();
+
+    tabs.focusWelcome();
+
+    expect(tabs.focused()).toBeNull();
+    expect(repos()).toEqual(["/a", "/b"]);
+    expect(tabs.returnTo()).toBe(a);
+    expect(changes()).toBe(before + 1);
+
+    tabs.focusWelcome();
+    expect(changes()).toBe(before + 1);
+
+    tabs.restoreFocus();
+    expect(tabs.focused()).toBe(a);
+    expect(tabs.returnTo()).toBeNull();
+    expect(changes()).toBe(before + 2);
+  });
+
+  it("go back from the Welcome page to the neighbour close would have chosen, once the Tab that was in front has closed", () => {
+    const { tabs, open } = setUp();
+    const [a, b, c] = ["/a", "/b", "/c"].map((repo) => open(repo).tab);
+    tabs.focus(b.id);
+    tabs.focusWelcome();
+
+    tabs.close(b.id);
+    expect(tabs.focused()).toBeNull();
+    expect(tabs.returnTo()).toBe(c);
+    tabs.close(c.id);
+    expect(tabs.returnTo()).toBe(a);
+    tabs.close(a.id);
+    expect(tabs.returnTo()).toBeNull();
+
+    tabs.restoreFocus();
+    expect(tabs.focused()).toBeNull();
+  });
+
+  it("leave the Welcome page for a Tab focused or opened while it was in front", () => {
+    const { tabs, open } = setUp();
+    const a = open("/a").tab;
+    const b = open("/b").tab;
+    tabs.focusWelcome();
+
+    tabs.focus(a.id);
+    expect(tabs.focused()).toBe(a);
+    expect(tabs.returnTo()).toBeNull();
+    // Nothing to go back to: a Tab is in front.
+    tabs.restoreFocus();
+    expect(tabs.focused()).toBe(a);
+
+    tabs.focusWelcome();
+    tabs.open("/b", () => "again");
+    expect(tabs.focused()).toBe(b);
+    tabs.focusWelcome();
+    const c = open("/c").tab;
+    expect(tabs.focused()).toBe(c);
+    expect(tabs.list()).toEqual([a, b, c]);
+  });
+
+  it("change nothing bringing the Welcome page forward with no Tab open", () => {
+    const { tabs, changes } = setUp();
+
+    tabs.focusWelcome();
+    tabs.restoreFocus();
+
+    expect(changes()).toBe(0);
+    expect(tabs.focused()).toBeNull();
+  });
+
   it("dispose of every Tab when the window goes, even after one of them throws", () => {
     const disposed: string[] = [];
     const errors: unknown[] = [];
