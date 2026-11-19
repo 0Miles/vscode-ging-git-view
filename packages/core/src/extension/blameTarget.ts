@@ -1,4 +1,4 @@
-import { locateInKnownRepos, type RepoLocator } from "@ging/core/backend/utils/repoMatch";
+import { locateInKnownRepos } from "@ging/core/backend/utils/repoMatch";
 
 /** The parts of an editor that decide whether, and where, it is annotated. */
 export type BlameEditorState = {
@@ -25,13 +25,9 @@ export function spansLines(selections: { startLine: number; endLine: number }[])
  * `createRepoLocator`). Unsaved edits don't stop it: they are blamed as the
  * editor shows them, so the line still matches.
  */
-export function blameTarget(
-  editor: BlameEditorState,
-  knownRepos: string[],
-  locate: RepoLocator = locateInKnownRepos
-): BlameTarget | null {
+export function blameTarget(editor: BlameEditorState, knownRepos: string[]): BlameTarget | null {
   if (editor.scheme !== "file") return null;
   if (spansLines(editor.selections)) return null;
-  const location = locate(editor.filePath, knownRepos);
+  const location = locateInKnownRepos(editor.filePath, knownRepos);
   return location === null ? null : { line: editor.cursorLine, ...location };
 }

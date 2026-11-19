@@ -22,12 +22,15 @@ export function repoContainingPath(filePath: string, repoPaths: string[]): strin
  * the file's path inside it. Null outside every known repository, or for a
  * repository root itself. Same "/" separator contract as `repoContainingPath`.
  */
-export function blameLocation(
-  filePath: string,
-  knownRepoPaths: string[]
-): { repo: string; filePath: string } | null {
+export function blameLocation(filePath: string, knownRepoPaths: string[]): RepoLocation | null {
   const repo = repoContainingPath(filePath, knownRepoPaths);
-  if (repo === null) return null;
+  return repo === null ? null : locationIn(repo, filePath);
+}
+
+export type RepoLocation = { repo: string; filePath: string };
+
+/** `filePath` inside `repo`, which contains it; null for the root itself. */
+function locationIn(repo: string, filePath: string): RepoLocation | null {
   const root = repo.replace(/\/$/, "");
   if (filePath.length <= root.length + 1) return null;
   return { repo, filePath: filePath.slice(root.length + 1) };
@@ -93,17 +96,23 @@ export function reposNotYetKnown(
   knownRepoPaths: string[],
   realpath: (p: string) => string | null = defaultRealpath
 ): string[] {
-  const known = [...knownRepoPaths];
+  const known = new Set(knownRepoPaths);
+  // Each known repository is resolved once, and only when a path needs it.
+  let knownReal: Set<string> | null = null;
   const fresh: string[] = [];
   for (const repoPath of repoPaths) {
-    if (resolveToKnownRepo(repoPath, known, realpath) !== null) continue;
+    if (known.has(repoPath)) continue;
+    const real = realpath(repoPath);
+    if (real !== null) {
+      knownReal ??= new Set([...known].map(realpath).filter((r): r is string => r !== null));
+      if (knownReal.has(real)) continue;
+      knownReal.add(real);
+    }
     fresh.push(repoPath);
-    known.push(repoPath);
+    known.add(repoPath);
   }
   return fresh;
 }
-
-export type RepoLocation = { repo: string; filePath: string };
 
 /** Finds the known repository holding a file: see `createRepoLocator`. */
 export type RepoLocator = (filePath: string, knownRepoPaths: string[]) => RepoLocation | null;
@@ -168,19 +177,22 @@ export function createRepoLocator(
   const locateOnDisk = (filePath: string, knownRepoPaths: string[]): RepoLocation | null => {
     const real = realFilePath(filePath, realpath);
     if (real === null) return null;
-    let best: { repo: string; root: string } | null = null;
+    // Real root -> the known repository spelled that way first.
+    const repoOfRoot = new Map<string, string>();
     for (const repo of knownRepoPaths) {
       const root = realRepoPath(repo);
-      if (root === null || !real.startsWith(root + "/")) continue;
-      if (best === null || root.length > best.root.length) best = { repo, root };
+      if (root !== null && !repoOfRoot.has(root)) repoOfRoot.set(root, repo);
     }
-    return best === null ? null : { repo: best.repo, filePath: real.slice(best.root.length + 1) };
+    const root = repoContainingPath(real, [...repoOfRoot.keys()]);
+    const inRoot = root === null ? null : locationIn(root, real);
+    return inRoot === null
+      ? null
+      : { repo: repoOfRoot.get(inRoot.repo)!, filePath: inRoot.filePath };
   };
 
   return (filePath, knownRepoPaths) => {
-    if (repoContainingPath(filePath, knownRepoPaths) !== null) {
-      return blameLocation(filePath, knownRepoPaths);
-    }
+    const spelledRepo = repoContainingPath(filePath, knownRepoPaths);
+    if (spelledRepo !== null) return locationIn(spelledRepo, filePath);
     const knownKey = knownRepoPaths.join("\0");
     if (knownKey !== locatedFor) {
       located.clear();
