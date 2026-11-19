@@ -17,10 +17,6 @@ import { WORKING_TREE_WIDTH } from "@ging/webview/desktop/workingTree/workingTre
 
 import { SIDE_VIEW_WIDTH } from "./protocol";
 
-/** The column's width until the user drags it (protocol.ts: the host keeps
- *  what they drag it to). */
-export { SIDE_VIEW_WIDTH };
-
 /** A row of a tree, in CSS pixels: what the Branches tree's window of drawn
  *  rows is reckoned in (#459). */
 export const SIDE_VIEW_ROW_HEIGHT = 22;

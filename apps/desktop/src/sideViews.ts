@@ -60,6 +60,8 @@ import type {
   SideViewToggleField
 } from "@ging/webview/desktop/sideViews/protocol";
 
+import type { SideViewLayoutStore } from "./sideViewLayout";
+
 /** The page's toggle fields are core's, and core's the page's. */
 const SAME_FIELDS: [SideViewField, SideViewToggleField] extends [SideViewToggleField, SideViewField]
   ? true
@@ -93,11 +95,7 @@ export type SideViewsDeps = {
   viewReflog(): PromiseLike<void>;
   /** The column's layout, the app's (sideViewLayout.ts): each Tab's page is
    *  told it, and tells it the width the user dragged to (#459). */
-  layout: {
-    get(): SideViewLayout;
-    setWidth(width: number): void;
-    onDidChange(listener: (layout: SideViewLayout) => void): { dispose(): void };
-  };
+  layout: Pick<SideViewLayoutStore, "get" | "setWidth" | "onDidChange">;
   /** Tell the graph whether the repo's remote branches are shown now: it
    *  decides which refs its `git log` walks. */
   setShowRemoteBranches(value: boolean): void;

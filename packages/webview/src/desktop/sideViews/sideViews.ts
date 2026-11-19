@@ -80,10 +80,10 @@ export const FILTER_WRITE_DELAY_MS = 200;
  *  scroll finds them there. 19, not 20: what shows can be cut by both edges,
  *  two rows more than its height holds, so the rows drawn never exceed its
  *  height's worth and 40. */
-export const BRANCH_ROWS_OVERSCAN = 19;
+const BRANCH_ROWS_OVERSCAN = 19;
 
 /** How far a step of the keyboard moves the column's edge (#459). */
-export const SIDE_VIEW_WIDTH_STEP = 10;
+const SIDE_VIEW_WIDTH_STEP = 10;
 
 const post: (message: SideViewRequest) => void = postToHost;
 

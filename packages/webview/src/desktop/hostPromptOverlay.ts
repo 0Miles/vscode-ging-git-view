@@ -218,8 +218,9 @@ function filterOver(
   if (prompt.placeholder !== undefined) filter.setAttribute("aria-label", prompt.placeholder);
   filter.addEventListener("input", () => {
     const visible = matchingItems(prompt.items, filter.value, prompt.matchOnDescription);
+    const shown = new Set(visible);
     rows.forEach((row, index) => {
-      row.hidden = !visible.includes(index);
+      row.hidden = !shown.has(index);
     });
     for (const { head, from, to } of names) {
       head.hidden = !visible.some((index) => index >= from && index < to);
