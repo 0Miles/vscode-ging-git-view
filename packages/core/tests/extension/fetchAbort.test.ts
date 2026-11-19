@@ -1,7 +1,10 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
-import { runNetworkGit } from "@ging/core/backend/gitRun";
+import { runNetworkGit, stoppableNetworkCommands } from "@ging/core/backend/gitRun";
 import { GitAbortedError } from "@ging/core/backend/utils/gitError";
 import { createFetchService } from "@ging/core/extension/fetchService";
 import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
@@ -192,5 +195,91 @@ describe("the auto-fetch timer", () => {
     vi.advanceTimersByTime(5 * 60 * 1000);
 
     expect(h.mutations).toEqual([]);
+  });
+
+  it("stops the git a tick started, connection and all, and says nothing", async () => {
+    const server = await hangingGitServer();
+    try {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      const controller = new AbortController();
+      const h = setUp(controller.signal, true);
+      git(["remote", "add", "origin", server.url], h.repo);
+      h.service.restartAutoFetch();
+
+      vi.advanceTimersByTime(60 * 1000);
+      await expect.poll(server.openConnections, { timeout: SETTLE_MS }).toBeGreaterThan(0);
+      controller.abort();
+
+      await expect.poll(server.openConnections, { timeout: SETTLE_MS }).toBe(0);
+      expect(h.said()).toEqual([]);
+      expect(h.mutations).toEqual(["run"]);
+    } finally {
+      await server.close();
+    }
+  }, 40_000);
+});
+
+describe("a remote named like an option", () => {
+  it("is fetched as a name, never run as one", async () => {
+    const controller = new AbortController();
+    const h = setUp(controller.signal);
+    const marker = path.join(h.repo, "ran");
+    const remote = `--upload-pack=touch ${marker.replaceAll("\\", "/")}`;
+
+    await h.service.fetchOneCommand(h.repo, remote);
+
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(h.said().map(([name]) => name)).toEqual(["showError"]);
+  });
+});
+
+describe("a git client's network commands, through NetworkGit (the graph's own)", () => {
+  async function client(signal: AbortSignal) {
+    const server = await hangingGitServer();
+    const repo = makeRepo();
+    onTestFinished(() => rmrf(repo));
+    git(["remote", "add", "origin", server.url], repo);
+    const exits: Promise<void>[] = [];
+    const stoppable = stoppableNetworkCommands(gitClientFactory(repo, "git").getInstance(), () => repo, {
+      gitPath: () => "git",
+      signal,
+      onAborted: (exited) => exits.push(exited)
+    });
+    return { server, repo, stoppable, exits };
+  }
+
+  it.each([
+    ["fetch", ["fetch", "--all"]],
+    ["push", ["push", "origin", "main"]],
+    ["push with -c before it", ["-c", "push.useForceIfIncludes=true", "push", "--force-with-lease", "origin", "main"]]
+  ])("stops a %s its signal aborts", async (_name, args) => {
+    const controller = new AbortController();
+    const c = await client(controller.signal);
+    try {
+      const running = c.stoppable.raw(args);
+      await expect.poll(c.server.openConnections, { timeout: SETTLE_MS }).toBeGreaterThan(0);
+      controller.abort();
+
+      await expect(running).rejects.toBeInstanceOf(GitAbortedError);
+      expect(c.exits).toHaveLength(1);
+      await expect.poll(c.server.openConnections, { timeout: SETTLE_MS }).toBe(0);
+    } finally {
+      await c.server.close();
+    }
+  }, 40_000);
+
+  it("leaves every other command to the client", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const c = await client(controller.signal);
+    try {
+      // Read through the client even with the signal aborted: only the
+      // network commands are the signal's.
+      expect((await c.stoppable.raw(["rev-parse", "--abbrev-ref", "HEAD"])).trim()).toBe("main");
+      await expect(c.stoppable.raw(["fetch", "origin"])).rejects.toBeInstanceOf(GitAbortedError);
+      expect(c.server.openConnections()).toBe(0);
+    } finally {
+      await c.server.close();
+    }
   });
 });

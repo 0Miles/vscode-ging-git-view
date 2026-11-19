@@ -18,7 +18,7 @@ import {
 } from "@ging/core/backend/actions/mergeTool";
 import { filesWithConflictMarkers } from "@ging/core/backend/queries/conflictMarkers";
 import { unmergedFiles } from "@ging/core/backend/queries/unmergedFiles";
-import { formatGitError } from "@ging/core/backend/utils/gitError";
+import { formatGitError, isGitAborted } from "@ging/core/backend/utils/gitError";
 import type { HostLogger, L10n, Prompts, RunRepoMutation } from "@ging/core/host/ports";
 
 export type ConflictCommandsDeps = {
@@ -100,7 +100,9 @@ export function createConflictCommands(deps: ConflictCommandsDeps): ConflictComm
       // what the tool saves afterwards is the user's to mark resolved.
       if (!resolved) void prompts.showWarning(l10n.t("mergeTool.unresolved", file, tool));
     } catch (e: unknown) {
-      void prompts.showError(l10n.t("mergeTool.failed", formatGitError(e)));
+      // Its host gone while the tool was open (#450): nobody left to tell.
+      if (isGitAborted(e)) logger.log(`mergeTool: ${e.message}`);
+      else void prompts.showError(l10n.t("mergeTool.failed", formatGitError(e)));
     } finally {
       open = null;
     }

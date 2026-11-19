@@ -15,7 +15,9 @@ export function fetchRemoteArgs(input: FetchInput & { remote: string }): string[
   const args = ["fetch"];
   if (input.prune) args.push("--prune");
   if (input.prune && input.pruneTags) args.push("--prune-tags");
-  args.push(input.remote);
+  // `--`: a remote named like an option (`--upload-pack=<cmd>`) is a name, not
+  // an option — run outside a git client, nothing else would refuse it.
+  args.push("--", input.remote);
   return args;
 }
 
