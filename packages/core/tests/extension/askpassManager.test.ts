@@ -36,9 +36,29 @@ function ask(
   });
 }
 
+/** What `choose` was asked: its message and options. */
+interface Chosen {
+  message: string;
+  detail?: string;
+  actions: readonly { label: string; value: unknown }[];
+}
+
+/** Notes what `choose` was asked, then answers with the action at `pick`
+ *  (`undefined` for the host's Cancel), or rejects when `pick` is `"fail"`. */
+function chooser(pick: number | undefined | "fail") {
+  const chosen: Chosen[] = [];
+  const choose: Prompts["choose"] = (message, options) => {
+    chosen.push({ message, ...options });
+    if (pick === "fail") return Promise.reject(new Error("no UI"));
+    return Promise.resolve(pick === undefined ? undefined : options.actions[pick].value);
+  };
+  return { chosen, choose };
+}
+
 function start(
   answer: (options: InputOptions) => PromiseLike<string | undefined>,
-  helpers = os.tmpdir()
+  helpers = os.tmpdir(),
+  choose: Prompts["choose"] = chooser(undefined).choose
 ) {
   const asked: InputOptions[] = [];
   manager = new AskpassManager(
@@ -46,12 +66,20 @@ function start(
       input: (options) => {
         asked.push(options);
         return answer(options);
-      }
+      },
+      choose
     },
     helpers
   );
   return { asked, handle: manager.getEnv().NEO_GIT_GRAPH_ASKPASS_HANDLE! };
 }
+
+/** OpenSSH 9.2's host key confirmation, as ssh hands it to SSH_ASKPASS. */
+const HOST_KEY_PROMPT =
+  "The authenticity of host 'github.com (20.27.177.113)' can't be established.\n" +
+  "ED25519 key fingerprint is SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU.\n" +
+  "This key is not known by any other names.\n" +
+  "Are you sure you want to continue connecting (yes/no/[fingerprint])? ";
 
 describe("AskpassManager", () => {
   it("puts git's prompt to the user, masked for a password, and returns the answer", async () => {
@@ -91,7 +119,8 @@ describe("AskpassManager", () => {
       input: async (options) => {
         toRoute.push(options);
         return "routed";
-      }
+      },
+      choose: chooser(undefined).choose
     });
 
     const res = await ask(handle, {
@@ -109,8 +138,8 @@ describe("AskpassManager", () => {
   it("gives each route a token of its own", () => {
     start(async () => undefined);
     const tokens = [
-      manager!.route({ input: async () => undefined }),
-      manager!.route({ input: async () => undefined })
+      manager!.route({ input: async () => undefined, choose: chooser(undefined).choose }),
+      manager!.route({ input: async () => undefined, choose: chooser(undefined).choose })
     ].map((route) => route.env.NEO_GIT_GRAPH_ASKPASS_TOKEN);
     expect(new Set(tokens).size).toBe(2);
     expect(manager!.getEnv().NEO_GIT_GRAPH_ASKPASS_TOKEN).toBeUndefined();
@@ -118,7 +147,10 @@ describe("AskpassManager", () => {
 
   it("answers a prompt for a route that is gone as cancelled, asking nobody", async () => {
     const { asked, handle } = start(async () => "default");
-    const gone = manager!.route({ input: async () => "routed" });
+    const gone = manager!.route({
+      input: async () => "routed",
+      choose: chooser(undefined).choose
+    });
     gone.dispose();
 
     const res = await ask(handle, {
@@ -129,6 +161,103 @@ describe("AskpassManager", () => {
 
     expect(res).toEqual({ status: 200, body: JSON.stringify("") });
     expect(asked).toEqual([]);
+  });
+
+  // ssh's own prompts (#470): ssh reads SSH_ASKPASS, not GIT_ASKPASS, and
+  // without a tty only calls it when SSH_ASKPASS_REQUIRE is `force`.
+  it("points ssh at the same helper, forced, in its env and every route's", () => {
+    start(async () => undefined);
+    const env = manager!.getEnv();
+    expect(env.SSH_ASKPASS).toBe(env.GIT_ASKPASS);
+    expect(env.SSH_ASKPASS).toMatch(/askpass\.sh$/);
+    expect(env.SSH_ASKPASS_REQUIRE).toBe("force");
+
+    const route = manager!.route({
+      input: async () => undefined,
+      choose: chooser(undefined).choose
+    });
+    expect(route.env.SSH_ASKPASS).toBe(route.env.GIT_ASKPASS);
+    expect(route.env.SSH_ASKPASS).toMatch(/askpass\.sh$/);
+    expect(route.env.SSH_ASKPASS_REQUIRE).toBe("force");
+    expect(route.env.NEO_GIT_GRAPH_ASKPASS_TOKEN).toBeTruthy();
+  });
+
+  it("asks a host key confirmation as a choice, its fingerprint in the detail, and answers yes", async () => {
+    const { chosen, choose } = chooser(0);
+    const { asked, handle } = start(async () => "typed", os.tmpdir(), choose);
+    const res = await ask(handle, {
+      request: HOST_KEY_PROMPT,
+      host: "github.com (20.27.177.113)' can"
+    });
+
+    expect(asked).toEqual([]);
+    expect(chosen).toHaveLength(1);
+    expect(chosen[0].message).toBe(
+      "The authenticity of host 'github.com (20.27.177.113)' can't be established."
+    );
+    expect(chosen[0].detail).toBe(
+      "ED25519 key fingerprint is SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU.\n" +
+        "This key is not known by any other names.\n" +
+        "Are you sure you want to continue connecting (yes/no/[fingerprint])? "
+    );
+    expect(chosen[0].actions).toHaveLength(1);
+    expect(chosen[0].actions[0].value).toBe("yes");
+    expect(res).toEqual({ status: 200, body: JSON.stringify("yes") });
+  });
+
+  it("asks an older ssh's (yes/no)? confirmation as a choice too", async () => {
+    const { chosen, choose } = chooser(0);
+    const { asked, handle } = start(async () => "typed", os.tmpdir(), choose);
+    const prompt =
+      "The authenticity of host 'example.com (192.0.2.1)' can't be established.\n" +
+      "RSA key fingerprint is SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8.\n" +
+      "Are you sure you want to continue connecting (yes/no)? ";
+    const res = await ask(handle, { request: prompt, host: "" });
+
+    expect(asked).toEqual([]);
+    expect(chosen[0].message).toBe(
+      "The authenticity of host 'example.com (192.0.2.1)' can't be established."
+    );
+    expect(chosen[0].detail).toContain("SHA256:nThbg6kXUpJWGl7E1IGOCspRomTxdCARLviKw6E5SY8.");
+    expect(res).toEqual({ status: 200, body: JSON.stringify("yes") });
+  });
+
+  it("answers a cancelled host key confirmation with no", async () => {
+    const { handle } = start(async () => "typed", os.tmpdir(), chooser(undefined).choose);
+    const res = await ask(handle, { request: HOST_KEY_PROMPT, host: "" });
+    expect(res).toEqual({ status: 200, body: JSON.stringify("no") });
+  });
+
+  it("answers a host key confirmation that failed with an error status", async () => {
+    const { handle } = start(async () => "typed", os.tmpdir(), chooser("fail").choose);
+    const res = await ask(handle, { request: HOST_KEY_PROMPT, host: "" });
+    expect(res.status).toBe(500);
+  });
+
+  it("puts a host key confirmation to the route whose token it carries", async () => {
+    const { chosen: toDefault, choose } = chooser(0);
+    const { handle } = start(async () => undefined, os.tmpdir(), choose);
+    const routed = chooser(0);
+    const route = manager!.route({ input: async () => undefined, choose: routed.choose });
+    const res = await ask(handle, {
+      request: HOST_KEY_PROMPT,
+      host: "",
+      token: route.env.NEO_GIT_GRAPH_ASKPASS_TOKEN
+    });
+    expect(res).toEqual({ status: 200, body: JSON.stringify("yes") });
+    expect(routed.chosen).toHaveLength(1);
+    expect(toDefault).toEqual([]);
+  });
+
+  it("asks for a key's passphrase masked", async () => {
+    const { chosen, choose } = chooser(0);
+    const { asked, handle } = start(async () => "hunter2", os.tmpdir(), choose);
+    const prompt = "Enter passphrase for key '/home/u/.ssh/id_rsa': ";
+    const res = await ask(handle, { request: prompt, host: "/home/u/.ssh/id_rsa" });
+    expect(chosen).toEqual([]);
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ placeholder: prompt, password: true });
+    expect(res).toEqual({ status: 200, body: JSON.stringify("hunter2") });
   });
 
   it("points git at the helpers in the folder it was given", () => {
