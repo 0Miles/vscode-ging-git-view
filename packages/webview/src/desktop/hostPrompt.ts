@@ -18,8 +18,9 @@ export type HostPromptItem = {
   description?: string;
   /** A second line under the label (`PickItem.detail`); not filtered on. */
   detail?: string;
-  /** A rule above the row (`PickItem.separatorAbove`). */
-  separatorAbove?: boolean;
+  /** A rule above the row, or the name of the group it starts
+   *  (`PickItem.separatorAbove`). */
+  separatorAbove?: boolean | string;
   /** Checked when a pickMany opens. */
   picked?: boolean;
   /** Marked as a warning (`PickItem.warning`); the page draws the mark. */

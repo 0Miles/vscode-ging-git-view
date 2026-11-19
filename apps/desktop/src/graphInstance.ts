@@ -426,6 +426,20 @@ export function createGraphInstance(
     refreshGraph: () => void bridge.post({ command: "refresh" })
   });
   const reflog = createReflogCommand({ ...kitDeps, clipboard: shared.clipboard });
+  const commands: InstanceCommands = {
+    ...appCommands,
+    fetch: () => fetchService.fetchCommand(),
+    fetchRemote: () => fetchService.fetchRemoteCommand(),
+    manageRemotes: () => remoteCommands.manageRemotes(),
+    toggleRemoteVisibility: () => remoteCommands.toggleRemoteVisibility(),
+    viewReflog: () => reflog.viewReflog(),
+    openTerminal: () => {
+      const name = repo.split("/").findLast((s) => s !== "") ?? repo;
+      opener.openTerminal(repo, `GING: ${name}`);
+    },
+    fileHistory: () => fileHistory.pickAndShow(),
+    blameFile: () => fileBlame.pickAndShow()
+  };
   // The Remotes view's commands are those (#399), asked in this page as the
   // menu's are. The Stash view's are core's stash list's (#400), asked there
   // too; what they change is muted and refreshed around, as core's command
@@ -443,6 +457,9 @@ export function createGraphInstance(
     remoteCommands,
     fetchRemote: (target, remote) => fetchService.fetchOneCommand(target, remote),
     managePullRequestProviders: () => void appCommands.managePullRequestProviders(),
+    // The application menu's View Reflog, on this instance (#459).
+    viewReflog: () => commands.viewReflog(),
+    layout: shared.sideViewLayout,
     setShowRemoteBranches: (value) => void bridge.post({ command: "setShowRemoteBranches", value }),
     stash: {
       git: gitClients.gitClientFor(repo),
@@ -519,20 +536,7 @@ export function createGraphInstance(
       sideViews.settingChanged();
     },
     showFile,
-    commands: {
-      ...appCommands,
-      fetch: () => fetchService.fetchCommand(),
-      fetchRemote: () => fetchService.fetchRemoteCommand(),
-      manageRemotes: () => remoteCommands.manageRemotes(),
-      toggleRemoteVisibility: () => remoteCommands.toggleRemoteVisibility(),
-      viewReflog: () => reflog.viewReflog(),
-      openTerminal: () => {
-        const name = repo.split("/").findLast((s) => s !== "") ?? repo;
-        opener.openTerminal(repo, `GING: ${name}`);
-      },
-      fileHistory: () => fileHistory.pickAndShow(),
-      blameFile: () => fileBlame.pickAndShow()
-    },
+    commands,
     sideView: (message) => sideViews.receive(message),
     dispose: () => {
       sideViews.dispose();

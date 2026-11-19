@@ -26,6 +26,7 @@ import { createHostPromptOverlay } from "./hostPromptOverlay";
 import { postToHost } from "./postToHost";
 import type { SettingsPageState } from "./settings/protocol";
 import { startSettingsPage } from "./settings/settingsPage";
+import { isSideViewLayout, type SideViewLayout } from "./sideViews/protocol";
 import { startSideViews } from "./sideViews/sideViews";
 import { startWindowPage } from "./window/windowPage";
 import type { WorkingTreeShowDiffRequest } from "./workingTree/protocol";
@@ -92,6 +93,14 @@ function reportMissing(what: string): void {
   });
 }
 
+/** The side views' column as the host served the page with it (#459): the
+ *  `sideViewLayout` global, so the column opens as wide as it was left, or
+ *  hidden, rather than first at its default; the default without one. */
+function servedSideViewLayout(): SideViewLayout | undefined {
+  const served = (globalThis as { sideViewLayout?: unknown }).sideViewLayout;
+  return isSideViewLayout(served) ? served : undefined;
+}
+
 /** What the app hands the desktop entry: what the webview may not import. */
 export type DesktopEntryDeps = {
   /** The editors the diff viewer draws with (editors.ts). */
@@ -111,7 +120,7 @@ export function startDesktopEntry({ editors }: DesktopEntryDeps): void {
       } else {
         // The side views sit beside the graph, in this page (#399).
         const graph = startGitGraphView();
-        startSideViews(graph);
+        startSideViews(graph, servedSideViewLayout());
         // A graph page is one with a host instance behind it, and the instance
         // is what asks (#390). The settings page has none, so asks nothing.
         listenForHostPrompts();

@@ -4,7 +4,8 @@ import type { BranchFactsResult } from "@ging/core/extension/branchFacts";
 import {
   batchNoTargetsMessage,
   resolveSideViewToggle,
-  sideViewBranchRoots
+  sideViewBranchRoots,
+  sideViewSearchGroups
 } from "@ging/core/extension/branchSideView";
 import type { BranchTreeLeaf, BranchTreeNode } from "@ging/shared/backend/utils/branchTree";
 
@@ -95,6 +96,77 @@ describe("resolveSideViewToggle", () => {
     ).toBe(false);
     expect(resolveSideViewToggle({ columnWidths: null }, "showMergedBranches", true)).toBe(true);
     expect(resolveSideViewToggle(undefined, "showInactiveBranches", false)).toBe(false);
+  });
+});
+
+/** A leaf as the tree lists `branch`. */
+const leaf = (branch: string, isHead = false): BranchTreeLeaf => ({
+  type: "leaf",
+  branch,
+  name: branch.split("/").at(-1)!,
+  isHead,
+  isRemote: branch.startsWith("remotes/"),
+  isMerged: false,
+  isInactive: false,
+  isHidable: false,
+  isCleanupCandidate: false
+});
+
+/** What Search Branch's runs list, each row as `branch[*current][+picked]`. */
+const shown = (groups: ReturnType<typeof sideViewSearchGroups>) =>
+  groups.map(({ group, named, items }) => ({
+    group,
+    named,
+    items: items.map(
+      ({ leaf: l, current, picked }) => l.branch + (current ? "*" : "") + (picked ? "+" : "")
+    )
+  }));
+
+describe("sideViewSearchGroups", () => {
+  it("lists the tree's leaves, remote ones first, each run named when there are both", () => {
+    const roots: BranchTreeNode[] = [
+      {
+        type: "group",
+        kind: "local",
+        children: [
+          leaf("main", true),
+          {
+            type: "folder",
+            name: "feature",
+            path: "feature",
+            children: [leaf("feature/a"), leaf("feature/b")]
+          }
+        ]
+      },
+      {
+        type: "group",
+        kind: "remote",
+        children: [
+          {
+            type: "folder",
+            name: "origin",
+            path: "origin",
+            children: [leaf("remotes/origin/main"), leaf("remotes/origin/dev")]
+          }
+        ]
+      }
+    ];
+    expect(shown(sideViewSearchGroups(roots, ["feature/b", "remotes/origin/dev", "gone"]))).toEqual(
+      [
+        { group: "remote", named: true, items: ["remotes/origin/main", "remotes/origin/dev+"] },
+        { group: "local", named: true, items: ["main*", "feature/a", "feature/b+"] }
+      ]
+    );
+  });
+
+  it("leaves out an empty run and names neither, and offers nothing for an empty tree", () => {
+    expect(shown(sideViewSearchGroups([leaf("main", true), leaf("topic")], ["main"]))).toEqual([
+      { group: "local", named: false, items: ["main*+", "topic"] }
+    ]);
+    expect(shown(sideViewSearchGroups([leaf("remotes/origin/main")], []))).toEqual([
+      { group: "remote", named: false, items: ["remotes/origin/main"] }
+    ]);
+    expect(sideViewSearchGroups([], ["main"])).toEqual([]);
   });
 });
 

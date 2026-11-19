@@ -8,7 +8,11 @@ import {
   createBranchSelectionReconciler,
   createDirectFilterWriter
 } from "@ging/core/extension/branchSelectionReconciler";
-import { sideViewBranchRoots } from "@ging/core/extension/branchSideView";
+import {
+  sideViewBranchRoots,
+  type SideViewSearchItem,
+  sideViewSearchGroups
+} from "@ging/core/extension/branchSideView";
 import {
   actionTargetRefs,
   type BranchActionTarget,
@@ -286,21 +290,6 @@ class BranchesProvider implements vscode.TreeDataProvider<BranchItem> {
         );
   }
 
-  /** All leaf refs currently in the tree (depth-first), for the search picker.
-   *  Reflects what the view shows: hidden remotes, and branches removed by
-   *  either hide toggle, are excluded. */
-  visibleLeaves(): BranchTreeLeaf[] {
-    const out: BranchTreeLeaf[] = [];
-    const walk = (nodes: BranchTreeNode[]) => {
-      for (const n of nodes) {
-        if (n.type === "leaf") out.push(n);
-        else walk(n.children);
-      }
-    };
-    walk(this.roots);
-    return out;
-  }
-
   /** Clear the visual selection by re-keying leaf items (VSCode drops selection
    *  of ids that no longer exist); folder expansion is preserved. */
   clearSelection(): void {
@@ -471,33 +460,29 @@ export function createBranchesView(deps: BranchesProviderDeps) {
   const searchBranch = async (): Promise<void> => {
     const repo = provider.getRepo();
     if (repo === null) return;
-    const leaves = provider.visibleLeaves();
-    if (leaves.length === 0) return;
-    const currentFilter = deps.filterStore.get(repo);
+    // What the tree lists, in its order and groups: core's, shared with the
+    // desktop's Search Branch (ADR-0018).
+    const groups = sideViewSearchGroups(provider.getRoots(), deps.filterStore.get(repo));
+    if (groups.length === 0) return;
     type BranchPick = vscode.QuickPickItem & { ref?: string };
-    const toPick = (leaf: BranchTreeLeaf): BranchPick => ({
+    const toPick = ({ leaf, current, picked }: SideViewSearchItem): BranchPick => ({
       label:
-        (leaf.isHead ? "$(check) " : leaf.isRemote ? "$(cloud) " : "$(git-branch) ") +
+        (current ? "$(check) " : leaf.isRemote ? "$(cloud) " : "$(git-branch) ") +
         (leaf.isRemote ? leaf.branch.slice(REMOTE_PREFIX.length) : leaf.branch),
-      description: leaf.isHead ? l10n.t("branchView.current") : undefined,
+      description: current ? l10n.t("branchView.current") : undefined,
       ref: leaf.branch,
-      picked: currentFilter.includes(leaf.branch)
+      picked
     });
-    // Same order as the tree: the remote section first, then local.
-    const remote = leaves.filter((leaf) => leaf.isRemote).map(toPick);
-    const local = leaves.filter((leaf) => !leaf.isRemote).map(toPick);
-    const items: BranchPick[] =
-      remote.length > 0 && local.length > 0
-        ? [
-            {
-              label: l10n.t("branchView.group.remote"),
-              kind: vscode.QuickPickItemKind.Separator
-            },
-            ...remote,
-            { label: l10n.t("branchView.group.local"), kind: vscode.QuickPickItemKind.Separator },
-            ...local
-          ]
-        : [...remote, ...local];
+    const items: BranchPick[] = [];
+    for (const { group, named, items: run } of groups) {
+      if (named) {
+        items.push({
+          label: l10n.t(group === "remote" ? "branchView.group.remote" : "branchView.group.local"),
+          kind: vscode.QuickPickItemKind.Separator
+        });
+      }
+      items.push(...run.map(toPick));
+    }
     const picked = await vscode.window.showQuickPick(items, {
       placeHolder: l10n.t("branchView.search.placeholder"),
       matchOnDescription: true,

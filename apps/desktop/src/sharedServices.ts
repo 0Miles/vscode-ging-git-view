@@ -25,6 +25,7 @@ import { createDesktopRepoSource, type DesktopRepoSource } from "@ging/desktop/p
 import { type DesktopStorage, openDesktopStorage } from "@ging/desktop/ports/storage";
 import { openDesktopSettings } from "@ging/desktop/settings/schema";
 import type { Settings } from "@ging/desktop/settings/settingsFile";
+import { createSideViewLayoutStore, type SideViewLayoutStore } from "@ging/desktop/sideViewLayout";
 
 /** There is no `git.path` of VS Code's to follow: the git on the PATH. Known
  *  before the shared services are, so a launch's path can be checked while the app
@@ -52,6 +53,8 @@ export type SharedServices = {
   /** What `extensionState` keeps; the desktop host's own state (the theme it
    *  was left in, #397) goes in its global tier beside core's. */
   storage: DesktopStorage;
+  /** How the side views' column sits in every Tab (#459), kept in `storage`. */
+  sideViewLayout: SideViewLayoutStore;
   l10n: L10n;
   /** The app's language (`app.getLocale()`): what `l10n` reads, and what
    *  times are written in, as a blame's (#409). */
@@ -165,6 +168,7 @@ export function createSharedServices({
     config,
     settings,
     storage,
+    sideViewLayout: createSideViewLayoutStore(storage.global),
     l10n: createDesktopL10n(locale),
     locale,
     logger,

@@ -37,6 +37,7 @@ function mockCommands(): { [K in keyof AppMenuCommands]-?: Mock<(repo?: string) 
     setGitUserDetails: vi.fn(),
     managePullRequestProviders: vi.fn(),
     versionInfo: vi.fn(),
+    toggleSideViews: vi.fn(),
     hideApp: vi.fn(),
     openFolder: vi.fn(),
     openRecent: vi.fn(),
@@ -240,6 +241,13 @@ const ENTRIES: readonly {
     command: "versionInfo",
     enabledIn: FOCUSES
   },
+  // #459's: the app's, so with or without a Tab.
+  {
+    id: MENU_IDS.sideViews,
+    label: "desktop.menu.sideViews",
+    command: "toggleSideViews",
+    enabledIn: FOCUSES
+  },
   // #394's, once their handlers are given.
   {
     id: MENU_IDS.openFolder,
@@ -395,6 +403,8 @@ describe("the application menu", () => {
       );
 
     expect(view("win32")).toEqual([
+      MENU_IDS.sideViews,
+      "separator",
       "toggleDevTools",
       "separator",
       "resetZoom",
@@ -404,12 +414,23 @@ describe("the application menu", () => {
       "togglefullscreen"
     ]);
     expect(view("darwin")).toEqual([
+      MENU_IDS.sideViews,
+      "separator",
       "toggleDevTools",
       "separator",
       "resetZoom",
       "zoomIn",
       "zoomOut"
     ]);
+  });
+
+  it("checks Side Views while the side views' column is shown, which it is unless said otherwise", () => {
+    const sideViews = (state: Partial<AppMenuState>) =>
+      entry(template(mockCommands(), { focus: "graph", ...state }), MENU_IDS.sideViews);
+
+    expect(sideViews({})).toMatchObject({ type: "checkbox", checked: true });
+    expect(sideViews({ sideViewsShown: true })?.checked).toBe(true);
+    expect(sideViews({ sideViewsShown: false })?.checked).toBe(false);
   });
 
   it.each(["win32", "linux", "darwin"] as const)(

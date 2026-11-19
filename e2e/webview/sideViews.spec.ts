@@ -35,7 +35,9 @@ const STRINGS = Object.fromEntries(
     "refresh",
     "addRemote",
     "stashes",
-    "noStashes"
+    "noStashes",
+    "search",
+    "resize"
   ].map((key) => [key, key])
 );
 
@@ -175,6 +177,142 @@ test("the docked Commit Details View and the scroll shadow give up the column's 
     { left: width, right: panel },
     { left: width, right: panel }
   ]);
+});
+
+/** Where the docked Commit Details View and the scroll shadow sit, as the
+ *  graph shows them: classes it sets, read through the page's stylesheets. */
+function windowWideEdges(page: Page) {
+  return page.evaluate(() => {
+    const { document } = globalThis;
+    let docked = document.getElementById("commitDetails");
+    if (docked === null) {
+      docked = document.createElement("div");
+      docked.id = "commitDetails";
+      docked.className = "docked";
+      document.body.appendChild(docked);
+    }
+    const shadow = document.getElementById("scrollShadow")!;
+    shadow.classList.add("active");
+    return [docked, shadow].map((el) => {
+      const { left, right } = el.getBoundingClientRect();
+      return { left, right };
+    });
+  });
+}
+
+/** `body`'s left padding, in pixels. */
+const bodyPaddingLeft = (page: Page) =>
+  page.evaluate(() =>
+    parseFloat(globalThis.getComputedStyle(globalThis.document.body).paddingLeft)
+  );
+
+test("dragging the column's edge resizes it between 160 and 600 pixels, the graph keeping beside it (#459)", async ({
+  page
+}) => {
+  await hostSays(page, await sideViewState(page));
+  const handle = page.locator("#sideViewResizer");
+  await expect(handle).toHaveAttribute("role", "separator");
+  await expect(handle).toHaveAttribute("aria-orientation", "vertical");
+  await expect(handle).toHaveCSS("cursor", "col-resize");
+  const column = page.locator("#sideViews");
+
+  /** Press on the handle's middle, move to `x`, let go. */
+  const drag = async (x: number) => {
+    const box = (await handle.boundingBox())!;
+    const from = Math.round(box.x + box.width / 2);
+    await page.mouse.move(from, 300);
+    await page.mouse.down();
+    await page.mouse.move(x, 300, { steps: 4 });
+    await page.mouse.up();
+    return from;
+  };
+
+  const from = await drag(400);
+  const width = 260 + 400 - from;
+  expect(await sideViewWidth(page)).toBe(width);
+  expect((await column.boundingBox())!.width).toBe(width);
+  expect(await bodyPaddingLeft(page)).toBe(width);
+  expect((await page.locator("#controls").boundingBox())!.x).toBe(width);
+  // The handle sits on the column's new edge.
+  const edge = (await handle.boundingBox())!;
+  expect(edge.x).toBeLessThan(width);
+  expect(edge.x + edge.width).toBeGreaterThan(width);
+  expect(await windowWideEdges(page)).toEqual([
+    { left: width, right: 1200 },
+    { left: width, right: 1200 }
+  ]);
+  // Left where the drag ended, for the host to keep: once, not at each move.
+  expect(await posted(page, "sideViewResize")).toEqual([
+    { command: "sideViewResize", width, seq: 1 }
+  ]);
+
+  // Held to its bounds, however far it is dragged.
+  await drag(20);
+  expect(await sideViewWidth(page)).toBe(160);
+  expect((await column.boundingBox())!.width).toBe(160);
+  await drag(1100);
+  expect(await sideViewWidth(page)).toBe(600);
+  expect((await column.boundingBox())!.width).toBe(600);
+  expect(await bodyPaddingLeft(page)).toBe(600);
+  expect((await posted(page, "sideViewResize")).map((m) => m.width)).toEqual([width, 160, 600]);
+
+  // The keyboard moves it 10 pixels a step.
+  await handle.focus();
+  await page.keyboard.press("ArrowLeft");
+  expect(await sideViewWidth(page)).toBe(590);
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  expect(await sideViewWidth(page)).toBe(600);
+});
+
+test("a hidden column gives the graph the whole window, and comes back as wide as it was (#459)", async ({
+  page
+}) => {
+  await hostSays(page, await sideViewState(page, ["develop"]));
+  await hostSays(page, { command: "sideViewLayout", layout: { width: 320, shown: true } });
+  expect(await sideViewWidth(page)).toBe(320);
+
+  await hostSays(page, { command: "sideViewLayout", layout: { width: 320, shown: false } });
+  await expect(page.locator("#sideViews")).toBeHidden();
+  await expect(page.locator("#sideViewResizer")).toBeHidden();
+  expect(await bodyPaddingLeft(page)).toBe(0);
+  expect((await page.locator("#controls").boundingBox())!.x).toBe(0);
+  expect(await windowWideEdges(page)).toEqual([
+    { left: 0, right: 1200 },
+    { left: 0, right: 1200 }
+  ]);
+
+  await hostSays(page, { command: "sideViewLayout", layout: { width: 320, shown: true } });
+  await expect(page.locator("#sideViews")).toBeVisible();
+  expect((await page.locator("#sideViews").boundingBox())!.width).toBe(320);
+  expect(await bodyPaddingLeft(page)).toBe(320);
+  await expect(page.locator('#sideViews [data-ref="develop"]')).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+});
+
+test("the Branches tree draws only the rows near what shows, and scrolls as if all were there (#459)", async ({
+  page
+}) => {
+  const state = await sideViewState(page);
+  const roots = Array.from({ length: 2000 }, (_, n) => leaf(`b${String(n).padStart(4, "0")}`));
+  await hostSays(page, { ...state, branches: { ...state.branches, roots } });
+  const body = page.locator("#branchesView .sideViewBody");
+  const rows = body.locator(".sideViewRow");
+  await expect(rows.first()).toBeVisible();
+  const { clientHeight, scrollHeight } = await body.evaluate((el) => ({
+    clientHeight: el.clientHeight,
+    scrollHeight: el.scrollHeight
+  }));
+  expect(scrollHeight).toBe(2000 * 22);
+  expect(await rows.count()).toBeLessThanOrEqual(clientHeight / 22 + 40);
+
+  await body.evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await expect(body.locator('[data-ref="b1999"]')).toBeInViewport();
+  expect(await rows.count()).toBeLessThanOrEqual(clientHeight / 22 + 40);
 });
 
 test("a click on a branch asks the host for the filter it makes", async ({ page }) => {

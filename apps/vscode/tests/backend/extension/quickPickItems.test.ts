@@ -40,4 +40,15 @@ describe("quickPickItems", () => {
       second
     ]);
   });
+
+  it("labels the separator row with the name of the group a row starts", () => {
+    const remote = { label: "origin/main", separatorAbove: "Remote", value: 1 };
+    const local = { label: "main", separatorAbove: "Local", value: 2 };
+    expect(quickPickItems([remote, local], SEPARATOR)).toEqual([
+      { label: "Remote", kind: -1 },
+      remote,
+      { label: "Local", kind: -1 },
+      local
+    ]);
+  });
 });
