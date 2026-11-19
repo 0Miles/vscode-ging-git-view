@@ -161,12 +161,19 @@ function cloneEntry(existing: HTMLElement | null, clone: ClonePanel, front: bool
   setFront(entry, front);
   entry.title = clone.title;
   entry.querySelector(".tabTitle")!.textContent = clone.title;
-  const bar = entry.querySelector<HTMLElement>(".cloneTabBar")!;
-  const fill = entry.querySelector<HTMLElement>(".cloneBarFill")!;
-  bar.classList.toggle("indeterminate", clone.percent === null);
-  if (clone.percent === null) fill.style.removeProperty("width");
-  else fill.style.width = `${clone.percent}%`;
+  setCloneBar(
+    entry.querySelector<HTMLElement>(".cloneTabBar")!,
+    entry.querySelector<HTMLElement>(".cloneBarFill")!,
+    clone.percent
+  );
   return entry;
+}
+
+/** Fill a clone's progress bar to `percent`, or sweep it while unknown. */
+function setCloneBar(bar: HTMLElement, fill: HTMLElement, percent: number | null): void {
+  bar.classList.toggle("indeterminate", percent === null);
+  if (percent === null) fill.style.removeProperty("width");
+  else fill.style.width = `${percent}%`;
 }
 
 /** Draw the strip's entries for `state` in place: an entry is never drawn
@@ -272,14 +279,9 @@ function showClonePanel(parts: ClonePanelParts, welcome: HTMLElement, panel: Clo
   parts.folder.textContent = panel.folder;
   parts.stage.textContent = panel.stage;
   parts.stage.title = panel.stage;
-  parts.bar.classList.toggle("indeterminate", panel.percent === null);
-  if (panel.percent === null) {
-    parts.fill.style.removeProperty("width");
-    parts.bar.removeAttribute("aria-valuenow");
-  } else {
-    parts.fill.style.width = `${panel.percent}%`;
-    parts.bar.setAttribute("aria-valuenow", String(panel.percent));
-  }
+  setCloneBar(parts.bar, parts.fill, panel.percent);
+  if (panel.percent === null) parts.bar.removeAttribute("aria-valuenow");
+  else parts.bar.setAttribute("aria-valuenow", String(panel.percent));
   parts.cancel.textContent = panel.cancel;
   parts.cancel.disabled = panel.cancelling;
   // Where the keyboard goes once the folder dialog has closed: to the way out.
@@ -306,9 +308,14 @@ function tabIdOf(target: EventTarget | null): number | null {
   return tab === null ? null : Number(tab.dataset.tabId);
 }
 
-/** `target` is in the strip's entry for the clone running (#461). */
-function inCloneTab(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(".cloneTab") !== null;
+/** What pressing the strip's entry `target` is in asks for: its Tab, or —
+ *  the entry for the clone running (#461) — the clone's panel. */
+function entryRequest(target: EventTarget | null): WindowRequest | null {
+  if (target instanceof Element && target.closest(".cloneTab") !== null) {
+    return { command: "showClone" };
+  }
+  const id = tabIdOf(target);
+  return id === null ? null : { command: "focusTab", id };
 }
 
 /**
@@ -324,14 +331,10 @@ export function startWindowPage(strip: HTMLElement, welcome: HTMLElement): void 
   strip.setAttribute("role", "tablist");
 
   strip.addEventListener("click", (event) => {
-    if (inCloneTab(event.target)) {
-      post({ command: "showClone" });
-      return;
-    }
-    const id = tabIdOf(event.target);
-    if (id === null) return;
+    const request = entryRequest(event.target);
+    if (request === null) return;
     const closing = event.target instanceof Element && event.target.closest(".tabClose") !== null;
-    post({ command: closing ? "closeTab" : "focusTab", id });
+    post(closing && request.command === "focusTab" ? { command: "closeTab", id: request.id } : request);
   });
   // A middle click closes a Tab, as in a browser's tab strip.
   strip.addEventListener("auxclick", (event) => {
@@ -340,11 +343,10 @@ export function startWindowPage(strip: HTMLElement, welcome: HTMLElement): void 
   });
   strip.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
-    const id = tabIdOf(event.target);
-    const clone = inCloneTab(event.target);
-    if (id === null && !clone) return;
+    const request = entryRequest(event.target);
+    if (request === null) return;
     event.preventDefault();
-    post(id === null ? { command: "showClone" } : { command: "focusTab", id });
+    post(request);
   });
   // The Welcome page's buttons, as the strip's Tabs are: asked, not done.
   welcome.addEventListener("click", (event) => {
