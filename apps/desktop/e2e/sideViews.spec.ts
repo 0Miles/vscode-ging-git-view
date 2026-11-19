@@ -14,6 +14,7 @@ import {
   makeFixtureRepo
 } from "./fixtureRepo";
 import { APP_DIR, launchApp } from "./launch";
+import { clickMenu } from "./mainProcess";
 import { focusedTabPage } from "./tabPages";
 
 // The Branches and Remotes side views (#399), beside the graph in each Tab's
@@ -118,6 +119,85 @@ test("the Branches view filters the graph by the branch clicked, and the graph's
 
   const logged = await closeAndReadLog();
   expect(logged).not.toMatch(/ERROR:|"reportError"/);
+});
+
+test("Search Branches filters the graph by the branches checked in the page's prompt, and the view highlights them (#459)", async () => {
+  // A third branch, off the first commit: two of three is a filter that hides
+  // something.
+  const branchGit = datedGit(repo.path, env, 1_700_000_500);
+  branchGit("checkout", "-b", "extra", repo.commits[3].hash);
+  writeFileSync(path.join(repo.path, "file.txt"), "Extra commit\n");
+  branchGit("commit", "-am", "Extra commit");
+  branchGit("checkout", "main");
+  const page = await launchOnRepo(repo.commits.length + 1);
+  const rows = page.locator("#commitTable tr.commit");
+  await showInactive(page);
+  await expect(page.locator("#branchesView .sideViewRow .sideViewLabel")).toHaveText([
+    "main",
+    "extra",
+    "feature"
+  ]);
+
+  await page.locator('#branchesView .sideViewActions [data-action="search"]').click();
+  const overlay = page.locator("#hostPrompt");
+  await expect(overlay).toBeVisible();
+  // The tree's branches, in its order; the checked-out one marked.
+  await expect(overlay.locator(".hostPromptItemLabel")).toHaveText(["main", "extra", "feature"]);
+  await expect(overlay.locator(".hostPromptItem").first()).toContainText("current");
+  await overlay.getByRole("checkbox", { name: "main" }).check();
+  await overlay.getByRole("checkbox", { name: "feature" }).check();
+  await overlay.getByRole("button", { name: "OK" }).click();
+  await expect(overlay).toBeHidden();
+
+  // What `main` and `feature` reach, and not `extra`'s own commit.
+  await expect(rows).toHaveCount(repo.commits.length);
+  await expect(page.locator("#commitTable")).not.toContainText("Extra commit");
+  await expect(branchRow(page, "main")).toHaveAttribute("aria-selected", "true");
+  await expect(branchRow(page, "feature")).toHaveAttribute("aria-selected", "true");
+  await expect(branchRow(page, "extra")).toHaveAttribute("aria-selected", "false");
+
+  const logged = await closeAndReadLog();
+  expect(logged).not.toMatch(/ERROR:|"reportError"/);
+});
+
+test("the View menu's Side Views hides the column, and the app opens it as it was left, hidden or as wide (#459)", async () => {
+  let page = await launchOnRepo();
+  const column = page.locator("#sideViews");
+  await expect(column).toBeVisible();
+  const checked = () =>
+    app!.evaluate(
+      ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("ging.sideViews")?.checked ?? null
+    );
+  expect(await checked()).toBe(true);
+  const paddingLeft = () =>
+    page.evaluate(() => globalThis.getComputedStyle(globalThis.document.body).paddingLeft);
+
+  // Four steps of the keyboard wider, then hidden.
+  await page.locator("#sideViewResizer").focus();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => paddingLeft()).toBe("300px");
+  expect(await clickMenu(app!, "ging.sideViews")).toBe(true);
+  await expect(column).toBeHidden();
+  expect(await paddingLeft()).toBe("0px");
+  expect((await page.locator("#controls").boundingBox())!.x).toBe(0);
+  expect(await checked()).toBe(false);
+
+  // The next launch: hidden from the start.
+  const logged = await closeAndReadLog();
+  expect(logged).not.toMatch(/ERROR:|"reportError"/);
+  page = await launchOnRepo();
+  await expect(page.locator("#sideViews")).toBeHidden();
+  expect(await checked()).toBe(false);
+
+  // Shown again, as wide as it was left.
+  await clickMenu(app!, "ging.sideViews");
+  await expect(page.locator("#sideViews")).toBeVisible();
+  expect((await page.locator("#sideViews").boundingBox())!.width).toBe(300);
+  expect(await paddingLeft()).toBe("300px");
+  expect(await checked()).toBe(true);
 });
 
 test("a branch action from the Branches view runs in the graph, and none of the head-guarded ones on the checked-out branch", async () => {

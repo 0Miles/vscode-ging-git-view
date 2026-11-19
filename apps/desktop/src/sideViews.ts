@@ -21,7 +21,8 @@ import type { BranchFilterStore } from "@ging/core/extension/branchFilterStore";
 import {
   batchNoTargetsMessage,
   resolveSideViewToggle,
-  sideViewBranchRoots
+  sideViewBranchRoots,
+  sideViewSearchGroups
 } from "@ging/core/extension/branchSideView";
 import type { CommitDiffRequest } from "@ging/core/extension/commitDiff";
 import type { RemoteCommands, RemoteTarget } from "@ging/core/extension/remoteCommands";
@@ -48,6 +49,7 @@ import type { BranchTreeNode } from "@ging/shared/backend/utils/branchTree";
 import type { GitRepoState } from "@ging/shared/types";
 import type {
   SideViewBranches,
+  SideViewLayout,
   SideViewMessage,
   SideViewRemote,
   SideViewRequest,
@@ -57,6 +59,8 @@ import type {
   SideViewStrings,
   SideViewToggleField
 } from "@ging/webview/desktop/sideViews/protocol";
+
+import type { SideViewLayoutStore } from "./sideViewLayout";
 
 /** The page's toggle fields are core's, and core's the page's. */
 const SAME_FIELDS: [SideViewField, SideViewToggleField] extends [SideViewToggleField, SideViewField]
@@ -70,7 +74,7 @@ export type SideViewsDeps = {
   /** Into the Tab's page. */
   post(message: SideViewMessage): void;
   branchFacts: Pick<BranchFacts, "facts">;
-  filterStore: Pick<BranchFilterStore, "set" | "onDidChangeFilter">;
+  filterStore: Pick<BranchFilterStore, "get" | "set" | "onDidChangeFilter">;
   repoSource: Pick<RepoSource, "getRepos" | "updateRepoState">;
   config: Pick<
     HostConfig,
@@ -80,12 +84,18 @@ export type SideViewsDeps = {
     | "contextMenuActionsVisibility"
   >;
   l10n: L10n;
-  prompts: Pick<Prompts, "showInformation">;
+  /** The Tab's host prompt overlay: Search Branch is asked there (#459). */
+  prompts: Pick<Prompts, "showInformation" | "pickMany">;
   clipboard: Clipboard;
   remoteCommands: Pick<RemoteCommands, "list" | "add" | "editUrl" | "rename" | "remove">;
   /** Fetch one remote, as the Remotes view's Fetch does in VS Code. */
   fetchRemote(repo: string, remote: string): PromiseLike<void>;
   managePullRequestProviders(): void;
+  /** The instance's View Reflog, the application menu's own (#459). */
+  viewReflog(): PromiseLike<void>;
+  /** The column's layout, the app's (sideViewLayout.ts): each Tab's page is
+   *  told it, and tells it the width the user dragged to (#459). */
+  layout: Pick<SideViewLayoutStore, "get" | "setWidth" | "onDidChange">;
   /** Tell the graph whether the repo's remote branches are shown now: it
    *  decides which refs its `git log` walks. */
   setShowRemoteBranches(value: boolean): void;
@@ -214,7 +224,11 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
       removeRemote: t("desktop.sideView.removeRemote"),
       copyUrl: t("desktop.sideView.copyUrl"),
       stashes: t("desktop.sideView.stashes"),
-      noStashes: t("desktop.sideView.noStashes")
+      noStashes: t("desktop.sideView.noStashes"),
+      search: t("desktop.sideView.search"),
+      // The application menu's words: the same command.
+      viewReflog: t("desktop.menu.viewReflog"),
+      resize: t("desktop.sideView.resize")
     };
   })();
 
@@ -380,12 +394,59 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     return files;
   };
 
-  // A filter written anywhere — this view, the graph's filter chip, a locate —
-  // moves the highlight, and the dimming with it: the filter exempts what it
-  // holds from hiding.
+  // A filter written anywhere — this view, the graph's filter chip, a locate,
+  // Search Branch — moves the highlight, and the dimming with it: the filter
+  // exempts what it holds from hiding.
   const filterSub = deps.filterStore.onDidChangeFilter((change) => {
     if (change.repo === repo) void readBranches();
   });
+
+  // The column's layout is the app's: a width dragged in another Tab, or the
+  // View menu's Side Views, reaches this one's page too. Each says which of
+  // the page's own resizes it follows: one sent before the page's latest was
+  // heard — the echo of an earlier step among them — is older than what the
+  // page shows, and the page keeps its width over it.
+  let resizeSeq = 0;
+  const sendLayout = (layout: SideViewLayout) => {
+    if (listening) deps.post({ command: "sideViewLayout", layout, resizeSeq });
+  };
+  const layoutSub = deps.layout.onDidChange(sendLayout);
+
+  /**
+   * VS Code's Search Branch (`searchBranch` in its branchesView.ts), asked in
+   * the Tab's host prompt overlay (`Prompts.pickMany`): every leaf of the tree
+   * as last read — what the toggles let it list — remote ones first, then
+   * local, each group under its name when there are both; the checked-out
+   * branch marked current; the filter in force checked. What is checked
+   * becomes the filter, written as any filter is (ADR-0033: the highlight is
+   * the filter, so there is no tree selection to set besides): none checked
+   * is Show All, and a prompt dismissed writes nothing.
+   */
+  const search = async () => {
+    if (branches === null) return;
+    // What the tree lists, in its order and groups: core's, shared with VS
+    // Code's Search Branch (ADR-0018).
+    const groups = sideViewSearchGroups(branches.roots, deps.filterStore.get(repo));
+    if (groups.length === 0) return;
+    const items = groups.flatMap(({ group, named, items: run }) =>
+      run.map(({ leaf, current, picked }, i) => ({
+        label: displayRef(leaf.branch),
+        description: current ? l10n.t("branchView.current") : undefined,
+        picked,
+        ...(named &&
+          i === 0 && {
+            separatorAbove: group === "remote" ? strings.groupRemote : strings.groupLocal
+          }),
+        value: leaf.branch
+      }))
+    );
+    const picked = await deps.prompts.pickMany(items, {
+      placeholder: l10n.t("branchView.search.placeholder"),
+      matchOnDescription: true
+    });
+    if (picked === undefined) return;
+    deps.filterStore.set(repo, picked);
+  };
 
   /** The remote a request names, as it was listed: the URL its Edit starts
    *  from is the one the view showed. */
@@ -409,6 +470,10 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
     switch (message.command) {
       case "sideViewReady":
         listening = true;
+        // A page loaded anew counts its resizes from 1 again.
+        resizeSeq = 0;
+        // The page booted with the layout (page.ts); it may have moved since.
+        sendLayout(deps.layout.get());
         send();
         stashWatch.setVisible(true);
         await refresh();
@@ -442,6 +507,16 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
         break;
       case "sideViewManagePullRequestProviders":
         deps.managePullRequestProviders();
+        break;
+      case "sideViewSearch":
+        await search();
+        break;
+      case "sideViewViewReflog":
+        await deps.viewReflog();
+        break;
+      case "sideViewResize":
+        resizeSeq = Math.max(resizeSeq, message.seq);
+        deps.layout.setWidth(message.width);
         break;
       case "sideViewRemote": {
         const target = listed(message.name);
@@ -510,6 +585,7 @@ export function createSideViews(deps: SideViewsDeps): SideViews {
       listening = false;
       stashWatch.dispose();
       filterSub.dispose();
+      layoutSub.dispose();
     }
   };
 }

@@ -86,6 +86,7 @@ import {
   schemaLocale
 } from "./settings/settingsPage";
 import { createSettingsWindow, type SettingsWindow } from "./settingsWindow";
+import { tellOfSettingWrites } from "./settingWrites";
 import { createSharedServices, desktopGitPath, type SharedServices } from "./sharedServices";
 import { createStatisticsWindow, type StatisticsWindow } from "./statisticsWindow";
 import {
@@ -375,6 +376,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       blameFile: onGraph((c) => c.blameFile()),
       setGitUserDetails: asking((c) => c.setGitUserDetails()),
       managePullRequestProviders: asking((c) => c.managePullRequestProviders()),
+      // Every Tab's page hears it through its side views (#459); the menu is
+      // built anew with the box as it now is.
+      toggleSideViews: () => {
+        if (shared === null) return;
+        shared.sideViewLayout.setShown(!shared.sideViewLayout.get().shown);
+        syncMenu();
+      },
       // In a system dialog, so it needs no page: the Welcome page's will do
       // behind a notice too.
       hideApp: () => app.hide(),
@@ -411,7 +419,8 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       focus: menuFocus(focusedTab()?.content.page ?? null),
       // Open Recent's entries: the Welcome page's list, as it stands.
       recentRepos: recent?.list().map((entry) => entry.path) ?? [],
-      cloning: menuShowsCloning
+      cloning: menuShowsCloning,
+      sideViewsShown: shared.sideViewLayout.get().shown
     });
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   };
@@ -744,8 +753,6 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       settings: host.settings,
       l10n: host.l10n,
       logger,
-      instances: () =>
-        tabList().flatMap((tab) => (tab.content.page.instance ? [tab.content.page.instance] : [])),
       setTheme: (choice) => {
         nativeTheme.themeSource = choice;
         void writeThemeChoice(host.storage.global, choice);
@@ -759,6 +766,14 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       logger,
       // Only ever a key the app has: the one Show Setting names.
       valueOf: (key) => host.settings.get(key)
+    });
+    // Every write, whoever made it, reaches the settings window and each
+    // graph instance (#446), for as long as the app runs, as its settings do.
+    tellOfSettingWrites({
+      settings: host.settings,
+      settingsWindow,
+      instances: () =>
+        tabList().flatMap((tab) => (tab.content.page.instance ? [tab.content.page.instance] : []))
     });
     statisticsWindow = createStatisticsWindow({
       url: `${PAGE_URL}${STATISTICS_PATH.slice(1)}`,
@@ -878,7 +893,13 @@ if (app.requestSingleInstanceLock(thisLaunch)) {
       const page: TabPage = {
         graph: true,
         page: () => ({
-          graph: { viewState: instance.pageViewState(), l10n: strings, nonce: getNonce() }
+          graph: {
+            viewState: instance.pageViewState(),
+            l10n: strings,
+            nonce: getNonce(),
+            // The column opens as the app last left it (#459).
+            sideViewLayout: host.sideViewLayout.get()
+          }
         }),
         instance,
         prompts,

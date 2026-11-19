@@ -40,6 +40,8 @@ export const MENU_IDS = {
   setGitUserDetails: "ging.setGitUserDetails",
   openTerminal: "ging.openTerminal",
   viewMenu: "ging.viewMenu",
+  /** #459's: shows or hides every Tab's side views' column. */
+  sideViews: "ging.sideViews",
   helpMenu: "ging.helpMenu",
   versionInfo: "ging.versionInfo"
 } as const;
@@ -77,6 +79,8 @@ export type AppMenuCommands = {
   managePullRequestProviders(): void;
   /** Answered in a system dialog, so on any page or none. */
   versionInfo(): void;
+  /** Show or hide the side views' column in every Tab (#459): the app's. */
+  toggleSideViews(): void;
   /** macOS: hide the app (Electron's `hide` role, without its Cmd+H). */
   hideApp(): void;
   // #394's: each entry is in the menu once its handler is given here.
@@ -102,6 +106,8 @@ export type AppMenuState = {
   recentRepos?: readonly string[];
   /** A clone is being asked for or running (#395): there is one at a time. */
   cloning?: boolean;
+  /** The side views' column is shown (#459); it is unless said otherwise. */
+  sideViewsShown?: boolean;
 };
 
 /** `focus` for a focused Tab that shows a graph or not, or for no Tab. */
@@ -143,7 +149,7 @@ export function appMenuTemplate(
   l10n: L10n,
   commands: AppMenuCommands,
   platform: NodeJS.Platform,
-  { focus, recentRepos = [], cloning = false }: AppMenuState
+  { focus, recentRepos = [], cloning = false, sideViewsShown = true }: AppMenuState
 ): MenuItemConstructorOptions[] {
   const mac = platform === "darwin";
   const hasGraph = focus === "graph";
@@ -288,6 +294,15 @@ export function appMenuTemplate(
       id: MENU_IDS.viewMenu,
       label: label(l10n.t("desktop.menu.view")),
       submenu: [
+        // The side views' column in every Tab (#459): the app's, as the
+        // layout it remembers is. Always offered — with no Tab, the Tab
+        // opened next follows it. No accelerator: a key of its own would be
+        // one fewer for the graph.
+        item(MENU_IDS.sideViews, "desktop.menu.sideViews", commands.toggleSideViews, {
+          type: "checkbox",
+          checked: sideViewsShown
+        }),
+        separator,
         { role: "toggleDevTools" },
         separator,
         { role: "resetZoom" },

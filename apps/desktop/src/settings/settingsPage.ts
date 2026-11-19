@@ -72,8 +72,6 @@ export type SettingsPageDeps = {
   settings: Pick<Settings, "get">;
   l10n: L10n;
   logger: Pick<HostLogger, "log" | "logError">;
-  /** Each open graph instance, told of every setting written. */
-  instances: () => Iterable<{ settingChanged(key: string): void }>;
   /** Apply and keep the theme the user chose. */
   setTheme: (choice: ThemeChoice) => void;
 };
@@ -91,9 +89,10 @@ function failure(e: unknown, l10n: L10n): string {
 }
 
 /** What the host does with each message its settings page posts. A setting
- *  is written through `HostConfig.update`, every graph instance is told of
- *  it, and the page is answered with the value the app holds now — the new
- *  one, or, when the write failed, the old one and why. */
+ *  is written through `HostConfig.update`, and the page is answered with the
+ *  value the app holds now — the new one, or, when the write failed, the old
+ *  one and why. Who else hears of a write is `tellOfSettingWrites`'s, as it
+ *  is for every write, the page's or not (#446). */
 export function createSettingsPageHandler(deps: SettingsPageDeps) {
   const { config, settings, l10n, logger } = deps;
   /** What the app holds for `key`; nothing, for a key it has no setting for. */
@@ -122,7 +121,6 @@ export function createSettingsPageHandler(deps: SettingsPageDeps) {
         return;
       }
       logger.log(`settings: ${key} saved`);
-      for (const instance of deps.instances()) instance.settingChanged(key);
       reply({ command: "settingUpdated", key, value: valueOf(key), error: null });
       return;
     }

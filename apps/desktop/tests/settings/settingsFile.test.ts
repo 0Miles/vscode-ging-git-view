@@ -298,3 +298,25 @@ describe("writing the desktop settings file", () => {
     expect(read(s)).toEqual({ "ging-git-view.show.tags": false });
   });
 });
+
+describe("hearing of each write to the desktop settings file", () => {
+  it("counts one listener added twice as two, and disposing one leaves the other", async () => {
+    const s = subject();
+    const heard: string[] = [];
+    const f = (key: string) => heard.push(key);
+    const first = s.settings.onDidUpdate(f);
+    const second = s.settings.onDidUpdate(f);
+    onTestFinished(() => second.dispose());
+
+    await s.settings.update("ging-git-view.show.tags", false);
+    expect(heard).toEqual(["ging-git-view.show.tags", "ging-git-view.show.tags"]);
+
+    first.dispose();
+    await s.settings.update("ging-git-view.show.tags", true);
+    expect(heard).toEqual([
+      "ging-git-view.show.tags",
+      "ging-git-view.show.tags",
+      "ging-git-view.show.tags"
+    ]);
+  });
+});

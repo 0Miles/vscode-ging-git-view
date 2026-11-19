@@ -113,11 +113,12 @@ async function step(title: string, body: () => Promise<void>): Promise<void> {
  *  then the password, masked. */
 async function answerCredentials(page: Page): Promise<void> {
   const input = page.locator("#hostPromptInput");
-  await expect(input).toHaveAttribute("placeholder", "Username", GIT_WORK);
+  // git's whole prompt, `Username for '<url>': ` (#445).
+  await expect(input).toHaveAttribute("placeholder", /^Username for '/, GIT_WORK);
   await expect(input).toBeFocused();
   await page.keyboard.type(USERNAME);
   await page.keyboard.press("Enter");
-  await expect(input).toHaveAttribute("placeholder", "Password", GIT_WORK);
+  await expect(input).toHaveAttribute("placeholder", /^Password for '/, GIT_WORK);
   await expect(input).toHaveAttribute("type", "password");
   await page.keyboard.type(PASSWORD);
   await page.keyboard.press("Enter");
