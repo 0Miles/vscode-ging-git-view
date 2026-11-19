@@ -168,8 +168,7 @@ function userDataWithAvatar(): string {
  * Stand in for everything the app would do outside itself (ADR-0032). Each of
  * these is looked up when called — `NativeDialogs`, the desktop `OsShell`,
  * the desktop `Clipboard` — so replacing it here answers for every caller. A
- * terminal is the one detached process the app starts; git's are not, and
- * still run.
+ * terminal is stood in for by `standInTerminals`; git still runs.
  */
 async function standIn(electronApp: ElectronApplication, saveDir: string) {
   await electronApp.evaluate(({ clipboard, dialog, shell }, dir) => {

@@ -3,11 +3,18 @@ import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 // Package imports resolve through the packages' own `exports`; the aliases are
-// the apps' names for their own modules (see apps/*/tsconfig.json).
-const appAliases = ["vscode", "desktop"].map((app) => ({
-  find: new RegExp(`^@ging/${app}/`),
-  replacement: path.resolve(__dirname, `apps/${app}/src`) + "/"
-}));
+// the apps' names for their own modules (see apps/*/tsconfig.json), the
+// desktop E2E's helpers first.
+const appAliases = [
+  {
+    find: /^@ging\/desktop\/e2e\//,
+    replacement: path.resolve(__dirname, "apps/desktop/e2e") + "/"
+  },
+  ...["vscode", "desktop"].map((app) => ({
+    find: new RegExp(`^@ging/${app}/`),
+    replacement: path.resolve(__dirname, `apps/${app}/src`) + "/"
+  }))
+];
 
 // Two projects by environment, each collecting its suites from across the
 // workspace. Nothing in the webview suites imports `vscode` (the host's strings
