@@ -232,6 +232,24 @@ describe("askpass helper", () => {
     }
   });
 
+  it("prints and removes its answer file when the temp folder's path has a space", async () => {
+    // mktemp makes the file under TMPDIR; forward slashes, as sh takes them.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ging askpass tmp "));
+    const prompt = "Username for 'https://example.com': ";
+    try {
+      const res = await runScript(prompt, {
+        TMPDIR: tmp.split("\\").join("/"),
+        NEO_GIT_GRAPH_ASKPASS_NODE: process.execPath,
+        NEO_GIT_GRAPH_ASKPASS_MAIN: path.join(helperDir, "stub.js")
+      });
+      expect(res.code).toBe(0);
+      expect(res.stdout).toBe(JSON.stringify([prompt]));
+      expect(fs.readdirSync(tmp)).toEqual([]);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("asks with git's whole prompt and the URL in its quotes, masked for a certificate password", async () => {
     const { asked } = start(async () => "s3cret", helperDir);
     const prompt = "Certificate Password for 'cert:///C:/Users/John Doe/my cert.p12': ";
@@ -311,6 +329,13 @@ describe("askpassMain", () => {
     expect(body).toEqual({ request: prompt, host: "https://example.com" });
     expect(res.code).toBe(0);
     expect(answer).toBe("the answer\n");
+  });
+
+  it("posts a URL with a single quote of its own whole as the host", async () => {
+    const prompt = "Password for 'https://o'brien@example.com': ";
+    const { body, res } = await posted([prompt]);
+    expect(body).toEqual({ request: prompt, host: "https://o'brien@example.com" });
+    expect(res.code).toBe(0);
   });
 
   it("posts a prompt without a quoted part, with an empty host", async () => {
