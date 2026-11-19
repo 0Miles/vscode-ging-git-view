@@ -277,10 +277,17 @@ describe("AskpassManager", () => {
 
   // ssh's other yes-or-no (`ask_permission`, ControlMaster ask): an empty
   // answer is a yes there, so a dismissed one must be a "no".
-  it("asks whether to allow a shared connection as a choice, and answers a cancel with no", async () => {
+  // Every `ask_permission` question in OpenSSH 9.2's mux.c.
+  it.each([
+    "Allow shared connection to github.com? ",
+    "Allow forward to github.com:22? ",
+    "Terminate shared connection to github.com? ",
+    "Disable further multiplexing on shared connection to github.com? ",
+    "Open local forward 127.0.0.1:8080 -> github.com:80 on github.com?"
+  ])("asks %j as a choice, and answers a cancel with no", async (request) => {
     const { chosen, choose } = chooser(undefined);
     const { asked, handle } = start(async () => "", os.tmpdir(), choose);
-    const res = await ask(handle, { request: "Allow shared connection to github.com? ", host: "" });
+    const res = await ask(handle, { request, host: "" });
     expect(asked).toEqual([]);
     expect(chosen).toHaveLength(1);
     expect(chosen[0].actions.map(({ value }) => value)).toEqual(["yes"]);
