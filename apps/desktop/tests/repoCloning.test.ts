@@ -25,17 +25,32 @@ type Pending = {
   settle: (result: { repo: string } | undefined) => void;
 };
 
+type ChooseOptions = { detail?: string; actions: readonly { label: string; value: unknown }[] };
+
 type Answers = {
   /** What the URL prompt answers; `undefined` dismisses it. */
   url?: string;
   /** The folder the dialog answers; `null` cancels it. */
   folder?: string | null;
+  /** The label of the action the credentials question is answered by;
+   *  `undefined` is the host's Cancel. */
+  credentials?: string;
+  /** Whether taking the credentials out of the remote URL works. */
+  removes?: boolean;
 };
 
 function make(answers: Answers = {}) {
-  const asked: (["input", InputOptions] | ["open", OpenDialogOptions])[] = [];
+  const asked: (
+    | ["input", InputOptions]
+    | ["open", OpenDialogOptions]
+    | ["choose", string, ChooseOptions]
+  )[] = [];
   const opened: string[] = [];
   const logged: string[] = [];
+  const warned: string[] = [];
+  /** What reached core and the Tabs, in order. */
+  const events: string[] = [];
+  const removed: [string, string][] = [];
   const clones: Pending[] = [];
   const routes = { made: 0, disposed: 0 };
   let changes = 0;
@@ -45,6 +60,15 @@ function make(answers: Answers = {}) {
       input: async (options) => {
         asked.push(["input", options]);
         return "url" in answers ? answers.url : "  https://example.com/owner/app.git  ";
+      },
+      choose: async <T>(message: string, options: ChooseOptions) => {
+        asked.push(["choose", message, options]);
+        return options.actions.find(({ label }) => label === answers.credentials)?.value as
+          | T
+          | undefined;
+      },
+      showWarning: (message) => {
+        warned.push(message);
       }
     },
     dialogs: {
@@ -66,8 +90,16 @@ function make(answers: Answers = {}) {
           .at(-1)!
           .replace(/\.git$/, "")}`,
       shownUrl: (url) => url.replace(/\/\/[^@/]*@/, "//"),
-      cloneRepo: (url, folder, run = {}) =>
-        new Promise((settle) => clones.push({ url, folder, run, settle }))
+      hasCredentials: (url) => /\/\/[^@/]*@/.test(url),
+      removeCredentials: async (repo, url) => {
+        events.push("remove");
+        removed.push([repo, url]);
+        return answers.removes ?? true;
+      },
+      cloneRepo: (url, folder, run = {}) => {
+        events.push("clone");
+        return new Promise((settle) => clones.push({ url, folder, run, settle }));
+      }
     },
     askpassRoute: () => {
       routes.made += 1;
@@ -78,7 +110,10 @@ function make(answers: Answers = {}) {
         }
       };
     },
-    openRepo: (repo) => opened.push(repo),
+    openRepo: (repo) => {
+      events.push("open");
+      opened.push(repo);
+    },
     onChange: () => {
       changes += 1;
     },
@@ -89,6 +124,9 @@ function make(answers: Answers = {}) {
     asked,
     opened,
     logged,
+    warned,
+    events,
+    removed,
     clones,
     routes,
     changes: () => changes,
@@ -168,7 +206,11 @@ describe("Clone Repository", () => {
   });
 
   it("shows the Welcome page where the clone has got to, every so often and at each stage's end", async () => {
-    const h = make({ url: "https://user:token@example.com/app.git" });
+    const h = make({
+      url: "https://user:token@example.com/app.git",
+      // Cloned as it is (#471), as before.
+      credentials: "desktop.clone.credentials.keep"
+    });
 
     const done = h.cloning.clone();
     const clone = await started(h);
@@ -270,5 +312,122 @@ describe("Clone Repository", () => {
     expect(h.opened).toEqual([]);
     await h.cloning.clone();
     expect(h.clones).toHaveLength(1);
+  });
+});
+
+describe("Clone Repository of a URL with credentials in it (#471)", () => {
+  const TOKEN = "s3cr3t-token";
+  const URL_WITH_TOKEN = `https://user:${TOKEN}@example.com/owner/app.git`;
+  /** The actions the credentials question offers, by their labels. */
+  const STRIP = "desktop.clone.credentials.remove";
+  const KEEP = "desktop.clone.credentials.keep";
+
+  /** Every line logged, warned or shown has no token in it. */
+  function expectNoToken(h: ReturnType<typeof make>) {
+    for (const line of [...h.logged, ...h.warned]) expect(line).not.toContain(TOKEN);
+  }
+
+  it("does not ask about credentials when the URL has none", async () => {
+    const h = make({ url: "https://example.com/owner/app.git" });
+
+    const done = h.cloning.clone();
+    (await started(h)).settle({ repo: "/work/app" });
+    await done;
+
+    expect(h.asked.map(([kind]) => kind)).toEqual(["input", "open"]);
+    expect(h.removed).toEqual([]);
+  });
+
+  it("asks once, after the URL and before the folder, without the credentials in the question", async () => {
+    const h = make({ url: URL_WITH_TOKEN, credentials: KEEP });
+
+    const done = h.cloning.clone();
+    const clone = await started(h);
+
+    expect(h.asked.map(([kind]) => kind)).toEqual(["input", "choose", "open"]);
+    const [, message, options] = h.asked[1] as ["choose", string, ChooseOptions];
+    expect(message).toBe("desktop.clone.credentials.message");
+    expect(options.detail).toBe("desktop.clone.credentials.detail");
+    expect(options.actions.map(({ label }) => label)).toEqual([STRIP, KEEP]);
+    for (const text of [message, options.detail, ...options.actions.map(({ label }) => label)]) {
+      expect(text).not.toContain(TOKEN);
+    }
+    clone.settle({ repo: "/work/app" });
+    await done;
+    expectNoToken(h);
+  });
+
+  it("does nothing on Cancel: no folder asked, no git, and a cancel logged", async () => {
+    const h = make({ url: URL_WITH_TOKEN, credentials: undefined });
+
+    await h.cloning.clone();
+
+    expect(h.asked.map(([kind]) => kind)).toEqual(["input", "choose"]);
+    expect(h.clones).toEqual([]);
+    expect(h.routes.made).toBe(0);
+    expect(h.opened).toEqual([]);
+    expect(h.cloning.busy()).toBe(false);
+    expect(h.logged).toEqual(["clone: cancelled"]);
+    expectNoToken(h);
+  });
+
+  it("clones with the URL as typed, takes the credentials out of the remote URL, then opens the Tab", async () => {
+    const h = make({ url: URL_WITH_TOKEN, credentials: STRIP });
+
+    const done = h.cloning.clone();
+    const clone = await started(h);
+    // git is handed the credentials: they are what lets it in.
+    expect(clone.url).toBe(URL_WITH_TOKEN);
+    clone.settle({ repo: "/work/app" });
+    await done;
+
+    expect(h.removed).toEqual([["/work/app", URL_WITH_TOKEN]]);
+    expect(h.events).toEqual(["clone", "remove", "open"]);
+    expect(h.opened).toEqual(["/work/app"]);
+    expect(h.warned).toEqual([]);
+    expectNoToken(h);
+  });
+
+  it("clones as before when asked to keep them, and asks nothing more", async () => {
+    const h = make({ url: URL_WITH_TOKEN, credentials: KEEP });
+
+    const done = h.cloning.clone();
+    const clone = await started(h);
+    expect(clone.url).toBe(URL_WITH_TOKEN);
+    clone.settle({ repo: "/work/app" });
+    await done;
+
+    expect(h.removed).toEqual([]);
+    expect(h.events).toEqual(["clone", "open"]);
+    expect(h.asked.filter(([kind]) => kind === "choose")).toHaveLength(1);
+    expect(h.warned).toEqual([]);
+    expectNoToken(h);
+  });
+
+  it("opens the Tab all the same when the credentials cannot be taken out, and warns that they are still there", async () => {
+    const h = make({ url: URL_WITH_TOKEN, credentials: STRIP, removes: false });
+
+    const done = h.cloning.clone();
+    (await started(h)).settle({ repo: "/work/app" });
+    await done;
+
+    expect(h.opened).toEqual(["/work/app"]);
+    expect(h.warned).toEqual(["desktop.clone.credentials.notRemoved|/work/app"]);
+    expect(h.logged).toContain(
+      "clone: could not remove the credentials from the remote URL of /work/app"
+    );
+    expectNoToken(h);
+  });
+
+  it("removes nothing from a clone that failed", async () => {
+    const h = make({ url: URL_WITH_TOKEN, credentials: STRIP });
+
+    const done = h.cloning.clone();
+    (await started(h)).settle(undefined);
+    await done;
+
+    expect(h.removed).toEqual([]);
+    expect(h.opened).toEqual([]);
+    expectNoToken(h);
   });
 });
