@@ -136,10 +136,11 @@ export const GRAPH_SHORTCUT_KEYS = ["F", "R", "H", "S"] as const;
  * - Set Git User Details and Manage Pull Request Providers ask, and need a
  *   page that listens: a graph's or the Welcome page's, not a notice's.
  * - Settings… and Version Information always.
- * - Clone Repository… only on the Welcome page, and while no clone is under
- *   way: its progress and its credential prompts are drawn there, which a
- *   Tab's view covers (#395). #394's entries, which open a Tab, likewise not
- *   while a clone is under way; otherwise always.
+ * - Clone Repository… whatever is in front, but not while a clone is under
+ *   way: one at a time. Its progress and credential prompts are drawn on the
+ *   Welcome page (#395), which is brought forward over a Tab for it (#461).
+ *   #394's entries, which open a Tab, likewise not while a clone is under
+ *   way; otherwise always.
  *
  * Settings… is in the app menu on macOS, as the platform has it, and in the
  * File menu elsewhere.
@@ -201,7 +202,7 @@ export function appMenuTemplate(
     ...(cloneRepository
       ? [
           item(MENU_IDS.cloneRepository, "desktop.menu.cloneRepository", cloneRepository, {
-            enabled: focus === "welcome" && !cloning
+            enabled: !cloning
           })
         ]
       : []),

@@ -9,6 +9,8 @@ export type UnauthorizedRemote = {
   url: string;
   /** Every request so far, in the order they arrived. */
   requests: SeenRequest[];
+  /** Answer the requests held back, and every one after (`hold`). */
+  release(): void;
   close(): Promise<void>;
 };
 
@@ -20,11 +22,16 @@ export type UnauthorizedRemote = {
  * not. Whatever else git sends besides `info/refs` (a `HEAD /`, say) gets the
  * same answer and is recorded too; a test reads the requests it is about.
  *
- * Bound to 127.0.0.1, on a port the system picks.
+ * Bound to 127.0.0.1, on a port the system picks. With `hold`, no request is
+ * answered until `release()`: git waits on its first one meanwhile, before it
+ * has asked for anything (#461).
  */
-export async function startUnauthorizedRemote(): Promise<UnauthorizedRemote> {
+export async function startUnauthorizedRemote({ hold = false } = {}): Promise<UnauthorizedRemote> {
   const requests: SeenRequest[] = [];
-  const server = http.createServer((req, res) => {
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  if (!hold) release();
+  const server = http.createServer(async (req, res) => {
     requests.push({
       method: req.method ?? "",
       url: req.url ?? "",
@@ -32,6 +39,7 @@ export async function startUnauthorizedRemote(): Promise<UnauthorizedRemote> {
     });
     // Read whatever body came, so the connection is left in a state to answer.
     req.resume();
+    await released;
     res.writeHead(401, {
       "WWW-Authenticate": 'Basic realm="GING E2E"',
       "Content-Type": "text/plain"
@@ -46,6 +54,7 @@ export async function startUnauthorizedRemote(): Promise<UnauthorizedRemote> {
   return {
     url: `http://127.0.0.1:${port}/repo.git`,
     requests,
+    release,
     close: () =>
       new Promise<void>((resolve) => {
         // git may hold a keep-alive connection open; it must not hold the close.

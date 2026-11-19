@@ -285,15 +285,9 @@ test("phase C: open, clone and init repositories, act on the graph through a rem
     const fresh = await focusedTabPage(electronApp, 3);
     await expect(fresh.locator("#repoTitleName")).toHaveText("new-project");
 
-    // Known gap #461: with a Tab open, Clone is not offered — its progress and
-    // its credential prompts are drawn on the Welcome page the Tabs cover.
-    // This walk cloned first for that reason.
-    test.info().annotations.push({
-      type: "known gap",
-      description:
-        "#461: with a Tab open, Clone Repository is not offered; flip this assertion when it lands"
-    });
-    expect(await menuEnabled(electronApp, "ging.cloneRepository")).toBe(false);
+    // With a Tab open, Clone is offered too: the Welcome page it is asked
+    // and shown on is brought forward over the Tabs for it (#461).
+    expect(await menuEnabled(electronApp, "ging.cloneRepository")).toBe(true);
   });
 
   await step("switch between repositories", async () => {

@@ -14,7 +14,8 @@ export type Tab<C> = {
 export type Tabs<C> = {
   /** In the order the tab strip shows them. */
   list(): readonly Tab<C>[];
-  /** The Tab in front, or null when there is none and the Welcome page shows. */
+  /** The Tab in front, or null when the Welcome page shows: there is no Tab,
+   *  or it was brought forward over them (`focusWelcome`). */
   focused(): Tab<C> | null;
   /** The Tab open on `repo`, spelled exactly so, if any. */
   find(repo: string): Tab<C> | null;
@@ -26,6 +27,15 @@ export type Tabs<C> = {
   /** Close Tab `id` and dispose of what it showed. Closing the focused Tab
    *  focuses the one to its right, or else to its left. */
   close(id: number): void;
+  /** Bring the Welcome page forward over the Tabs (#461): none is focused,
+   *  and the one that was is the one `restoreFocus` goes back to. */
+  focusWelcome(): void;
+  /** What `restoreFocus` would focus while the Welcome page is in front over
+   *  Tabs: the Tab that was in front, or — once it has closed — the one
+   *  `close` would have focused in its place; otherwise null. */
+  returnTo(): Tab<C> | null;
+  /** Leave the Welcome page for `returnTo`, if there is one. */
+  restoreFocus(): void;
   /** Close every Tab without a word to `onChange`: the window is going, and
    *  the list as it stood is what the next session opens. */
   disposeAll(): void;
@@ -55,19 +65,23 @@ export function createTabs<C>({
     }
   };
   let tabs: Tab<C>[] = [];
+  /** The Tab in front, or — while `welcomeInFront` — the one behind it. */
   let focusedId: number | null = null;
+  let welcomeInFront = false;
   let nextId = 0;
 
   const find = (repo: string) => tabs.find((tab) => tab.repo === repo) ?? null;
+  const byId = (id: number | null) => tabs.find((tab) => tab.id === id) ?? null;
   const focus = (id: number) => {
-    if (focusedId === id || !tabs.some((tab) => tab.id === id)) return;
+    if ((focusedId === id && !welcomeInFront) || !tabs.some((tab) => tab.id === id)) return;
     focusedId = id;
+    welcomeInFront = false;
     onChange();
   };
 
   return {
     list: () => tabs,
-    focused: () => tabs.find((tab) => tab.id === focusedId) ?? null,
+    focused: () => (welcomeInFront ? null : byId(focusedId)),
     find,
     open(repo, make) {
       const existing = find(repo);
@@ -78,6 +92,7 @@ export function createTabs<C>({
       const tab: Tab<C> = { id: ++nextId, repo, content: make() };
       tabs = [...tabs, tab];
       focusedId = tab.id;
+      welcomeInFront = false;
       onChange();
       return { tab, opened: true };
     },
@@ -91,10 +106,20 @@ export function createTabs<C>({
       dispose(closed.content);
       onChange();
     },
+    focusWelcome() {
+      if (welcomeInFront || focusedId === null) return;
+      welcomeInFront = true;
+      onChange();
+    },
+    returnTo: () => (welcomeInFront ? byId(focusedId) : null),
+    restoreFocus() {
+      if (welcomeInFront && focusedId !== null) focus(focusedId);
+    },
     disposeAll() {
       const closing = tabs;
       tabs = [];
       focusedId = null;
+      welcomeInFront = false;
       closing.forEach((tab) => dispose(tab.content));
     }
   };

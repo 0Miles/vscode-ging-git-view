@@ -95,10 +95,10 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **一個 Tab 一份文件，不是一頁裡放好幾個圖形。** 上面「為什麼未來的讀者會困惑」第二條寫明 `gitGraphView.ts` 的狀態整個模組共用一份，`startGitGraphView()` 一頁只能呼叫一次。所以每個 Tab 要有自己的 webContents;用 `WebContentsView` 而不是 `<iframe>` 或 `<webview>`,是因為每個 Tab 因此有自己的 renderer,一個大 repo 的圖形不會卡住其他 Tab,reload 與 `did-start-navigation` 也照舊以 webContents 為單位(#388 的處理不必改)。
 - **分頁列由 webview 畫，高度是固定的 `TAB_STRIP_HEIGHT`(35px),宣告在 [desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts)。** main process 依同一個常數擺 Tab 的 view,不量頁面。[windowPage.spec.ts](../../e2e/webview/windowPage.spec.ts) 驗分頁列真的是這個高度、Tab 橫排、名稱過長時截斷而不把關閉鈕擠出去。
 - **協定:宿主送 `windowState`(整份分頁清單與 Welcome page 的說明),頁面回 `windowReady`、`focusTab`、`closeTab`。** 型別在 `desktop/window/protocol.ts`,`WINDOW_COMMANDS_STAY_APART` 檢查它們不與 `ResponseMessage` / `RequestMessage` 撞名。點分頁只是「請求」,分頁列等宿主送來新的 state 才改變。`windowReady` 與 `hostPromptReady` 同理：頁面每次載入都送一次，宿主在那之前不送。
-- **Welcome page 裝了 host prompt 的 listener。** 「補記(#390)」說「之後的 Welcome page 要問時，由它照這個協定接上」;沒有 Tab 時，選單的命令(#396)與 #394 的開啟流程就問在這裡。有 Tab 時，Tab 的 view 蓋住 Welcome page,所以宿主只在沒有 Tab 時用它。
+- **Welcome page 裝了 host prompt 的 listener。** 「補記(#390)」說「之後的 Welcome page 要問時，由它照這個協定接上」;沒有 Tab 時，選單的命令(#396)與 #394 的開啟流程就問在這裡。有 Tab 時，Tab 的 view 蓋住 Welcome page,所以宿主只在沒有 Tab 時用它。(#461 起改為「沒有聚焦的 Tab 時」,見文末 #461 補記。)
 - **`notice` 頁仍在,但只給 Tab 用:** 重啟時路徑已經不在的 Tab,在原位置顯示「無法開啟」,直到使用者關掉它(GLOSSARY 的 Current repository:字串留著不刪)。啟動參數指錯路徑而沒有任何 Tab 時，說明改由 `windowState` 的 `notice` 畫在 Welcome page 上，不再換掉整頁。
 - **分頁列的樣式由 `windowPage.ts` 插進一個 `<style>`,** 理由同「補記(#397)」的設定頁;只用 `theme.ts` 已經提供的 `--vscode-*` 變數(`apps/desktop/tests/theme.test.ts` 守住)。
-- **「這個 Tab 在等回答」的標記只畫在後面的 Tab 上。** 前景 Tab 的 prompt 就在畫面上，不需要再提醒;背景 Tab 的 prompt 畫在看不見的頁面裡，分頁列是使用者唯一看得到它的地方。標記不會把那個 Tab 拉到前面：搶走使用者正在用的 Tab 比晚一點回答更糟。
+- **「這個 Tab 在等回答」的標記只畫在後面的 Tab 上。** 前景 Tab 的 prompt 就在畫面上，不需要再提醒;背景 Tab 的 prompt 畫在看不見的頁面裡，分頁列是使用者唯一看得到它的地方。標記不會把那個 Tab 拉到前面：搶走使用者正在用的 Tab 比晚一點回答更糟。(例外:clone 的 askpass 會把 Welcome page 帶到前面,見 #461 補記。)
 - **Tab 的頁面不會被導覽走。** Tab 的 view 若被導覽到 `?id=M`,會畫出 Tab M 的圖形，訊息卻仍送到自己的實例。所以每個 Tab 的 webContents 擋掉 `will-navigate`、`window.open` 一律不開新視窗(網址交給 `Opener.openExternalUrl`),寫在 [pageGuard.ts](../../apps/desktop/src/pageGuard.ts) 的 `keepPageInPlace`,與設定視窗(「補記(#397)」)的規則相同;main process 自己的 `loadURL` 與重新載入不受影響。
 
 ## 補記(2026-11-17,#403)
@@ -127,7 +127,7 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 
 **Welcome page 有了內容：開啟資料夾、初始化存放庫兩個入口，以及最近使用清單。仍是視窗自己的頁面畫，協定照「補記(#393)」的形狀長出來。**
 
-- **`windowState` 多一欄 `welcome`**(入口的文字與最近使用清單,[desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts) 的 `WelcomeContent`)。有 Tab 時是 `null`:Tab 的 view 蓋住 Welcome page,而清單的每一列都要看一次磁碟(`missing`),沒人看的時候不算。
+- **`windowState` 多一欄 `welcome`**(入口的文字與最近使用清單,[desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts) 的 `WelcomeContent`)。有 Tab 時是 `null`:Tab 的 view 蓋住 Welcome page,而清單的每一列都要看一次磁碟(`missing`),沒人看的時候不算。(#461 起改為「沒有聚焦的 Tab 時」,見文末 #461 補記。)
 - **頁面多四種請求:`openFolder`、`initRepo`、`openRecent`、`forgetRecent`**,後兩者帶清單上那一列的 `path`。和點分頁一樣只是「請求」:選資料夾、檢查、開成 Tab 都是宿主的事，頁面等新的 `windowState`。`WINDOW_COMMANDS_STAY_APART` 照舊檢查它們不與 `RequestMessage` 撞名。
 - **啟動參數指錯路徑的說明(`notice`)畫在入口與清單之上**,同一個 `.welcomeBody` 裡：說明之後，使用者馬上能從同一頁改開別的資料夾。
 - **clone 的入口不在這裡。** 票面把它列為 Welcome page 的入口之一，但 clone 本身是 #395;沒有功能的按鈕不先放，由 #395 連同它的流程一起加進 `welcomeHtml`。
@@ -149,7 +149,7 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 
 **Welcome page 多了「Clone Repository...」入口(#394 留給本票的那一個),以及 clone 進行中時蓋在 Welcome page 上的進度面板。協定照「補記(#393)」的形狀長出來。**
 
-- **`windowState` 多一欄 `clone`**([desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts) 的 `ClonePanel`):標題(不含帳密的 URL)、目的地、git 自己的進度行(還沒開口前與取消中是宿主的字)、百分比(不知道時 `null`,畫成來回跑的條)、是否取消中、取消鈕的字。沒有 clone 時是 `null`。和 `welcome` 不同,有 Tab 時也照送:clone 期間若有 Tab 開了,面板仍在 Welcome page 上,關掉 Tab 就看得到。
+- **`windowState` 多一欄 `clone`**([desktop/window/protocol.ts](../../packages/webview/src/desktop/window/protocol.ts) 的 `ClonePanel`):標題(不含帳密的 URL)、目的地、git 自己的進度行(還沒開口前與取消中是宿主的字)、百分比(不知道時 `null`,畫成來回跑的條)、是否取消中、取消鈕的字。沒有 clone 時是 `null`。和 `welcome` 不同,有 Tab 時也照送:clone 期間若有 Tab 開了,面板仍在 Welcome page 上,關掉 Tab 就看得到。(#461 起不必關 Tab:點分頁列上的 clone 項目就帶回來,見 #461 補記。)
 - **頁面多兩種請求:`cloneRepo`、`cancelClone`。** 一樣只是請求;`WINDOW_COMMANDS_STAY_APART` 照舊檢查撞名。
 - **面板只建一次,之後就地改字,不重畫。** 其他部分每次 `windowState` 都整個重畫(`innerHTML`),但 clone 的進度一秒會來好幾次(宿主最多每 100ms 送一次),重畫會在使用者按下取消、還沒放開時把按鈕換掉,那次點擊就落空了。所以面板是 `#welcome` 旁邊的一個元素,不在 `#welcome` 裡。
 - **面板開著時 `#welcome` 是 `inert`。** 一次一個 clone,而且面板底下的入口不該被點到。面板出現時焦點移到取消鈕。askpass 問帳密時,host prompt overlay(top layer 的 modal)蓋在面板之上,與圖形頁上蓋在進度框之上是同一回事(「補記(#390)」)。
@@ -247,3 +247,12 @@ webview 原本只有一個入口 `packages/webview/src/main.ts`,而且它是載�
 - **切換鈕在面板標題列,狀態存在頁面自己的 `localStorage`(`ging.fileViewer.blame`)**,與 diff 版面同一種便利設定;開著時,之後打開的每個檔案都直接 blame。宿主說要直接顯示的(選單的 Blame File…)把它打開並記住。blame 進行中切換鈕旁邊寫「Blaming...」,失敗寫一行原因;面板本身的 `aria-busy` 不受它影響,所以等 editor 的 E2E 不必等 blame。面板關掉、換成別的檔案或 diff、按掉切換鈕時送 `fileBlameClose`,宿主殺掉 git。
 - **樣式寫在 [diffPanelStyles.ts](../../packages/webview/src/desktop/diff/diffPanelStyles.ts),只用 `theme.ts` 已提供的 `--vscode-*` 變數**(`--vscode-descriptionForeground`,`apps/desktop/tests/theme.test.ts` 守住)。
 - **Monaco 仍不在 VS Code 的 bundle、也不在 `out/web.js` 裡**:`blameProtocol.ts`、`fileBlame.ts` 在 `src/desktop/` 底下,只從桌面入口被 import;Monaco 那一側的 `monacoBlame.ts` 在 `apps/desktop/src/web/`,只進 `monaco.js`。`webviewEntries.test.ts` 原本的檢查照舊。
+
+## 補記(2026-11-19,#461)
+
+**Welcome page 在「沒有聚焦的 Tab」時顯示,不再只是「沒有 Tab」時。** clone 期間它被帶到開著的 Tab 前面(Tab 的 view 全部移出視窗,分頁列沒有 Tab 標成 focused),規則記在 ADR-0032 的 #461 補記;這裡只記頁面與協定。
+
+- **`welcome` 與 `notice` 以「沒有聚焦的 Tab」判斷**,取代「補記(#393)」與「補記(#394)」裡「有 Tab 時是 `null`」的說法。
+- **頁面多一種請求:`showClone`。** 有 Tab 時,clone 進行中分頁列最後多一個暫時項目(`.cloneTab`:`ClonePanel.title`,下緣是進度條,沒有關閉鈕);點它或按 Enter / 空白鍵送 `showClone`,宿主把 Welcome page 帶回前面。沒有 Tab 時分頁列整條藏著,不畫它。仍只是請求,`WINDOW_COMMANDS_STAY_APART` 照舊檢查撞名。
+- **分頁列也就地改，不再整列重畫。** clone 的進度最多每 100ms 送一次 `windowState`,「補記(#395)」說其他部分整個重畫(`innerHTML`),但分頁列重畫會在按下、還沒放開時把 Tab、關閉鈕或暫時項目換掉，那次點擊就落空。所以分頁列的每個項目留著，只改 class、屬性、標題與進度條寬度，順序不對才移動，不在了才拿掉。Welcome page 的內容仍整個重畫:clone 期間它在面板底下，是 `inert`。
+- **「補記(#393)」的「不把 Tab 拉到前面」多一個例外。** clone 的 askpass 收到請求時，宿主把 Welcome page 帶到前面再問:那是 clone 自己的帳密，只能問在 Welcome page,不帶回來 git 就卡在沒人看得到的提示上。Tab 自己的 prompt 照舊只畫標記。

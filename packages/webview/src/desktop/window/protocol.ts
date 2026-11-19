@@ -76,9 +76,11 @@ export type WindowStateMessage = {
   command: "windowState";
   tabs: TabStripEntry[];
   notice: WelcomeNotice | null;
-  /** `null` while a Tab is open: its view covers the Welcome page. */
+  /** `null` while a Tab is in front: its view covers the Welcome page. */
   welcome: WelcomeContent | null;
-  /** The clone running, `null` with none (#395). */
+  /** The clone running, `null` with none (#395). Drawn on the Welcome page,
+   *  and with Tabs open as an entry of the strip's too (#461): in front, with
+   *  no Tab marked focused, while the Welcome page is. */
   clone: ClonePanel | null;
   strings: { closeTab: string };
 };
@@ -97,6 +99,9 @@ export type WindowRequest =
    *  clone it shows running. */
   | { command: "cloneRepo" }
   | { command: "cancelClone" }
+  /** The strip's entry for the clone running (#461): bring the Welcome page
+   *  and its clone panel forward over the Tabs. */
+  | { command: "showClone" }
   /** A repository of the recent list, by its `path`. */
   | { command: "openRecent"; path: string }
   | { command: "forgetRecent"; path: string };
@@ -128,6 +133,7 @@ export function isWindowRequest(data: unknown): data is WindowRequest {
     case "initRepo":
     case "cloneRepo":
     case "cancelClone":
+    case "showClone":
       return true;
     case "focusTab":
     case "closeTab":
