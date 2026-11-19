@@ -1156,8 +1156,11 @@ describe("a graph instance", () => {
    *  branches and stashes, the stash log watch's read again past the debounce,
    *  then the pop and the reads and redraw after it, one after another. 8s
    *  with 16 busy loops pinning the CPU on Windows, but it passed the backend's
-   *  30s default under the owner's heavier load (#476). */
+   *  30s default under the owner's heavier load (#476). The wait for the
+   *  watch's read, the debounce and 5s on top, ran out in a second round under
+   *  the same busy loops (12.8s in all): the debounce and 30s now. */
   const STASH_POP_TIMEOUT_MS = 60_000;
+  const STASH_WATCH_READ_TIMEOUT_MS = REPO_CHANGE_DEBOUNCE_MS + 30_000;
 
   it(
     "pops a stash its Stash view lists, asking in its own prompts, and redraws its graph (#400)",
@@ -1174,7 +1177,7 @@ describe("a graph instance", () => {
       // debounce: let that land before acting, so what follows is the pop's.
       const sentBefore = page.sideViews.length;
       await expect
-        .poll(() => page.sideViews.length, { timeout: REPO_CHANGE_DEBOUNCE_MS + 5_000 })
+        .poll(() => page.sideViews.length, { timeout: STASH_WATCH_READ_TIMEOUT_MS })
         .toBeGreaterThan(sentBefore);
       page.answers.choose = shared.l10n.t("dialog.stash.pop");
 
