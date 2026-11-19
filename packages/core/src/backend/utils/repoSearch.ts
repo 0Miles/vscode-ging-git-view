@@ -11,10 +11,10 @@ async function isDirectory(path: string): Promise<boolean> {
     .catch(() => false);
 }
 
-/** Whether `dir` is its own git repository root — i.e. it has a `.git` entry
- *  (a directory for a normal clone, or a gitlink file for a submodule). This is
- *  stricter than `isGitRepository`, which is also true for any subfolder of a
- *  repository. */
+/** Whether `dir` has a `.git` entry (a directory for a normal clone, or a
+ *  gitlink file for a submodule) — one stat, no spawn. It does not prove a
+ *  repository (git may not recognise the entry), and unlike `isGitRepository`
+ *  it is false for a subfolder of a repository. */
 async function hasGitEntry(dir: string): Promise<boolean> {
   return fs
     .stat(dir + "/.git")
@@ -37,17 +37,41 @@ async function submoduleRepos(repo: string): Promise<string[]> {
   return checks.filter((d): d is string => d !== null);
 }
 
-export async function searchDirectoryForRepos(
+/**
+ * The repositories in `directory` and up to `maxDepth` folders below it, each
+ * with the initialised submodules its `.gitmodules` declares. Folders in or
+ * under `knownRepoPaths` are skipped.
+ *
+ * Git is asked about `directory` itself, so a search that starts anywhere
+ * inside a working tree finds it. Below the start, only folders with a `.git`
+ * entry are asked about, a spawn apiece. That misses folders that reach into a
+ * working tree without one: a junction or symlink to a repository's subfolder,
+ * or a `core.worktree` pointing into the walked tree.
+ */
+export function searchDirectoryForRepos(
   directory: string,
   maxDepth: number,
   gitPath: string,
   knownRepoPaths: string[]
 ): Promise<string[]> {
+  return search(directory, maxDepth, gitPath, knownRepoPaths, true);
+}
+
+async function search(
+  directory: string,
+  maxDepth: number,
+  gitPath: string,
+  knownRepoPaths: string[],
+  isStart: boolean
+): Promise<string[]> {
   if (knownRepoPaths.some((r) => directory === r || directory.startsWith(r + "/"))) {
     return [];
   }
 
-  const isRepo = await isGitRepository(directory, gitPath);
+  // A `.git` entry git does not take for a repository (an empty folder, say)
+  // is not one, and the walk goes on below it.
+  const isRepo =
+    (isStart || (await hasGitEntry(directory))) && (await isGitRepository(directory, gitPath));
   if (isRepo) {
     // Also surface any git submodules declared in the repo's .gitmodules.
     return [directory, ...(await submoduleRepos(directory))];
@@ -70,7 +94,7 @@ export async function searchDirectoryForRepos(
   }
 
   const results = await evalPromises(dirs, 2, (dir) =>
-    searchDirectoryForRepos(dir, maxDepth - 1, gitPath, knownRepoPaths)
+    search(dir, maxDepth - 1, gitPath, knownRepoPaths, false)
   );
   return results.flat();
 }
