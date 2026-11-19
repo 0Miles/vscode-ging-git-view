@@ -96,7 +96,21 @@ async function pushMain(repo: string, forceMode: ActionPayload<"pushBranch">["fo
   await pushBranch(simpleGit(repo), { branchName: "main", remotes: ["origin"], forceMode });
 }
 
-describe("pushBranch with force-with-lease", () => {
+/**
+ * Budgets for each test, by how many bare remotes its world has. `makeWorld`
+ * runs ten git commands one after another (the repository's three, a bare
+ * init, a remote add, a push, a clone and three configs), `teammatePushes` four
+ * more, and the push under test one per remote; `addBackup` adds a bare init, a
+ * remote add and a push.
+ *
+ * Measured with 16 busy loops pinning the CPU on Windows (#476): 13.2–28.2s for
+ * a test with one remote, 19.2–43.0s with two, against the backend's 30s
+ * default. About twice the worst of each.
+ */
+const ONE_REMOTE_TIMEOUT_MS = 60_000;
+const TWO_REMOTE_TIMEOUT_MS = 90_000;
+
+describe("pushBranch with force-with-lease", { timeout: ONE_REMOTE_TIMEOUT_MS }, () => {
   it("refuses to overwrite a teammate's commit that was fetched but never integrated", async () => {
     const world = makeWorld();
     const matesTip = teammatePushes(world);
@@ -168,29 +182,33 @@ describe("pushBranch with force-with-lease", () => {
     expect(remoteMain(world.remote)).toBe(matesTip);
   });
 
-  it("names the remote that refused, not every remote pushed to", async () => {
-    const world = makeWorld();
-    // A second remote whose tracking ref is current, so its lease holds.
-    const backup = addBackup(world);
-    teammatePushes(world);
-    amendTip(world.local, "rewritten");
+  it(
+    "names the remote that refused, not every remote pushed to",
+    { timeout: TWO_REMOTE_TIMEOUT_MS },
+    async () => {
+      const world = makeWorld();
+      // A second remote whose tracking ref is current, so its lease holds.
+      const backup = addBackup(world);
+      teammatePushes(world);
+      amendTip(world.local, "rewritten");
 
-    const error = await rejection(
-      pushBranch(simpleGit(world.local), {
-        branchName: "main",
-        remotes: ["origin", "backup"],
-        forceMode: "forceWithLease"
-      })
-    );
+      const error = await rejection(
+        pushBranch(simpleGit(world.local), {
+          branchName: "main",
+          remotes: ["origin", "backup"],
+          forceMode: "forceWithLease"
+        })
+      );
 
-    // Not "backup/main", whose push went through.
-    expect(staleLeaseInfoRefs(error)).toEqual(["origin/main"]);
-    // A lone refusal reads as it does with one remote: git's line, unlabelled.
-    expect(formatGitError(error)).toMatch(/^\[rejected\]\s+main -> main \(stale info\)$/);
-    // Listed after the remote that refused, and still pushed by the time the
-    // refusal is reported: the answer waits for every remote (#264).
-    expect(bareGit(["rev-parse", "main"], backup).trim()).toBe(rev(world.local, "main"));
-  });
+      // Not "backup/main", whose push went through.
+      expect(staleLeaseInfoRefs(error)).toEqual(["origin/main"]);
+      // A lone refusal reads as it does with one remote: git's line, unlabelled.
+      expect(formatGitError(error)).toMatch(/^\[rejected\]\s+main -> main \(stale info\)$/);
+      // Listed after the remote that refused, and still pushed by the time the
+      // refusal is reported: the answer waits for every remote (#264).
+      expect(bareGit(["rev-parse", "main"], backup).trim()).toBe(rev(world.local, "main"));
+    }
+  );
 
   it("names no tracking ref for any other refusal", async () => {
     const world = makeWorld();
@@ -207,90 +225,94 @@ describe("pushBranch with force-with-lease", () => {
 // Each remote refuses or accepts on its own. Stopping at the first refusal
 // named one remote, explained one reason, and answered while the others were
 // still pushing (#264).
-describe("pushBranch with force-with-lease to several remotes", () => {
-  /** The teammate's `main` pushed to `backup` as well, which the local repo
-   *  has not fetched: its tracking ref there goes stale too. */
-  function teammatePushesTo(world: World, backup: string) {
-    git(["push", backup, "main"], world.teammate);
-  }
+describe(
+  "pushBranch with force-with-lease to several remotes",
+  { timeout: TWO_REMOTE_TIMEOUT_MS },
+  () => {
+    /** The teammate's `main` pushed to `backup` as well, which the local repo
+     *  has not fetched: its tracking ref there goes stale too. */
+    function teammatePushesTo(world: World, backup: string) {
+      git(["push", backup, "main"], world.teammate);
+    }
 
-  async function pushToBoth(world: World) {
-    await pushBranch(simpleGit(world.local), {
-      branchName: "main",
-      remotes: ["origin", "backup"],
-      forceMode: "forceWithLease"
-    });
-  }
+    async function pushToBoth(world: World) {
+      await pushBranch(simpleGit(world.local), {
+        branchName: "main",
+        remotes: ["origin", "backup"],
+        forceMode: "forceWithLease"
+      });
+    }
 
-  it("reports every remote that refused, each under its own name and reason", async () => {
-    const world = makeWorld();
-    const backup = addBackup(world);
-    const matesTip = teammatePushes(world);
-    teammatePushesTo(world, backup);
-    // origin's tip is fetched but not integrated; backup's was never fetched.
-    git(["fetch", "origin"], world.local);
-    amendTip(world.local, "rewritten");
+    it("reports every remote that refused, each under its own name and reason", async () => {
+      const world = makeWorld();
+      const backup = addBackup(world);
+      const matesTip = teammatePushes(world);
+      teammatePushesTo(world, backup);
+      // origin's tip is fetched but not integrated; backup's was never fetched.
+      git(["fetch", "origin"], world.local);
+      amendTip(world.local, "rewritten");
 
-    const error = await rejection(pushToBoth(world));
+      const error = await rejection(pushToBoth(world));
 
-    expect(formatGitError(error).split("\n")).toEqual([
-      expect.stringMatching(
-        /^origin: \[rejected\]\s+main -> main \(remote ref updated since checkout\)$/
-      ),
-      expect.stringMatching(/^backup: \[rejected\]\s+main -> main \(stale info\)$/)
-    ]);
-    // Both classifications survive, each read off its own remote's refusal.
-    expect(pushRefusalFacts(error)).toEqual({
-      remoteUpdatedSinceCheckout: true,
-      // Pushed under its own name: a pull or rebase can clear this one (#311).
-      leaseRefusedForNamedTarget: false,
-      staleInfoRefs: ["backup/main"]
-    });
-    expect(remoteMain(world.remote)).toBe(matesTip);
-    expect(bareGit(["rev-parse", "main"], backup).trim()).toBe(matesTip);
-  });
-
-  it("names every tracking ref refused for stale info", async () => {
-    const world = makeWorld();
-    const backup = addBackup(world);
-    teammatePushes(world);
-    teammatePushesTo(world, backup);
-    amendTip(world.local, "rewritten");
-
-    const error = await rejection(pushToBoth(world));
-
-    expect(pushRefusalFacts(error)).toEqual({
-      remoteUpdatedSinceCheckout: false,
-      leaseRefusedForNamedTarget: false,
-      staleInfoRefs: ["origin/main", "backup/main"]
-    });
-  });
-
-  it("reports both refusals for each ref of a batch push", async () => {
-    const world = makeWorld();
-    const backup = addBackup(world);
-    teammatePushes(world);
-    teammatePushesTo(world, backup);
-    amendTip(world.local, "rewritten");
-
-    const results = await pushBranches(simpleGit(world.local), {
-      branchNames: ["main"],
-      remotes: ["origin", "backup"],
-      forceMode: "forceWithLease"
+      expect(formatGitError(error).split("\n")).toEqual([
+        expect.stringMatching(
+          /^origin: \[rejected\]\s+main -> main \(remote ref updated since checkout\)$/
+        ),
+        expect.stringMatching(/^backup: \[rejected\]\s+main -> main \(stale info\)$/)
+      ]);
+      // Both classifications survive, each read off its own remote's refusal.
+      expect(pushRefusalFacts(error)).toEqual({
+        remoteUpdatedSinceCheckout: true,
+        // Pushed under its own name: a pull or rebase can clear this one (#311).
+        leaseRefusedForNamedTarget: false,
+        staleInfoRefs: ["backup/main"]
+      });
+      expect(remoteMain(world.remote)).toBe(matesTip);
+      expect(bareGit(["rev-parse", "main"], backup).trim()).toBe(matesTip);
     });
 
-    expect(results).toEqual([
-      {
-        ref: "main",
-        status: expect.stringMatching(/^origin: .*\(stale info\)\nbackup: .*\(stale info\)$/),
+    it("names every tracking ref refused for stale info", async () => {
+      const world = makeWorld();
+      const backup = addBackup(world);
+      teammatePushes(world);
+      teammatePushesTo(world, backup);
+      amendTip(world.local, "rewritten");
+
+      const error = await rejection(pushToBoth(world));
+
+      expect(pushRefusalFacts(error)).toEqual({
         remoteUpdatedSinceCheckout: false,
+        leaseRefusedForNamedTarget: false,
         staleInfoRefs: ["origin/main", "backup/main"]
-      }
-    ]);
-  });
-});
+      });
+    });
 
-describe("pushBranches with force-with-lease", () => {
+    it("reports both refusals for each ref of a batch push", async () => {
+      const world = makeWorld();
+      const backup = addBackup(world);
+      teammatePushes(world);
+      teammatePushesTo(world, backup);
+      amendTip(world.local, "rewritten");
+
+      const results = await pushBranches(simpleGit(world.local), {
+        branchNames: ["main"],
+        remotes: ["origin", "backup"],
+        forceMode: "forceWithLease"
+      });
+
+      expect(results).toEqual([
+        {
+          ref: "main",
+          status: expect.stringMatching(/^origin: .*\(stale info\)\nbackup: .*\(stale info\)$/),
+          remoteUpdatedSinceCheckout: false,
+          staleInfoRefs: ["origin/main", "backup/main"]
+        }
+      ]);
+    });
+  }
+);
+
+describe("pushBranches with force-with-lease", { timeout: ONE_REMOTE_TIMEOUT_MS }, () => {
   it("flags only the branch refused for an unintegrated remote tip", async () => {
     const world = makeWorld();
     // A second branch of the local repo's own, pushed and then rewritten: its
@@ -349,7 +371,7 @@ describe("pushBranches with force-with-lease", () => {
   });
 });
 
-describe("pushBranch without a lease", () => {
+describe("pushBranch without a lease", { timeout: ONE_REMOTE_TIMEOUT_MS }, () => {
   it("reports a rejected normal push as git's own readable line", async () => {
     const world = makeWorld();
     const matesTip = teammatePushes(world);

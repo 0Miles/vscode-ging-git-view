@@ -93,25 +93,45 @@ describe("configuredMergeTool", () => {
   });
 });
 
+/**
+ * Budget for the tests that run `git mergetool` once: the conflict
+ * `conflicted` builds (ten git commands one after another), then the
+ * script's sh, its own git commands and the tool's.
+ *
+ * Measured with 16 busy loops pinning the CPU on Windows (#476): 39.5–45.4s
+ * each, past the backend's 30s default; the test whose name git would read as
+ * a pattern, which runs no tool, 6.9s. 30s for the conflict and 30s for the
+ * run of the tool, as in conflictCommands.test.ts.
+ */
+const ONE_MERGETOOL_TIMEOUT_MS = 60_000;
+
 describe("runMergeTool", () => {
-  it("runs the tool on the file named, which git stages once it is resolved", async () => {
-    // Spaces and a `$` taken as written: no shell reads the name on its way.
-    const file = "a b $HOME.txt";
-    const r = conflicted(file, "other.txt");
-    tool(r, "theirs", 'cp "$REMOTE" "$MERGED"', true);
+  it(
+    "runs the tool on the file named, which git stages once it is resolved",
+    { timeout: ONE_MERGETOOL_TIMEOUT_MS },
+    async () => {
+      // Spaces and a `$` taken as written: no shell reads the name on its way.
+      const file = "a b $HOME.txt";
+      const r = conflicted(file, "other.txt");
+      tool(r, "theirs", 'cp "$REMOTE" "$MERGED"', true);
 
-    const outcome = await runMergeTool(runIn(r), "theirs", file);
+      const outcome = await runMergeTool(runIn(r), "theirs", file);
 
-    expect(outcome.exitCode).toBe(0);
-    expect(await unmerged(r)).toEqual(["other.txt"]);
-    expect(fs.readFileSync(path.join(r, file), "utf8")).toBe("side\n");
-    const staged = cp.execFileSync("git", ["diff", "--cached", "--name-only", "--diff-filter=M"], {
-      cwd: r
-    });
-    expect(staged.toString()).toBe(`${file}\n`);
-  });
+      expect(outcome.exitCode).toBe(0);
+      expect(await unmerged(r)).toEqual(["other.txt"]);
+      expect(fs.readFileSync(path.join(r, file), "utf8")).toBe("side\n");
+      const staged = cp.execFileSync(
+        "git",
+        ["diff", "--cached", "--name-only", "--diff-filter=M"],
+        {
+          cwd: r
+        }
+      );
+      expect(staged.toString()).toBe(`${file}\n`);
+    }
+  );
 
-  it("runs no command a file's name spells", async () => {
+  it("runs no command a file's name spells", { timeout: ONE_MERGETOOL_TIMEOUT_MS }, async () => {
     const file = "$(touch pwned) `touch pwned2`.txt";
     const r = conflicted(file);
     tool(r, "theirs", 'cp "$REMOTE" "$MERGED"', true);
@@ -123,28 +143,36 @@ describe("runMergeTool", () => {
     expect(fs.existsSync(path.join(r, "pwned2"))).toBe(false);
   });
 
-  it("leaves the file in conflict when the tool fails", async () => {
-    const r = conflicted("f");
-    tool(r, "failing", "false", true);
+  it(
+    "leaves the file in conflict when the tool fails",
+    { timeout: ONE_MERGETOOL_TIMEOUT_MS },
+    async () => {
+      const r = conflicted("f");
+      tool(r, "failing", "false", true);
 
-    const outcome = await runMergeTool(runIn(r), "failing", "f");
+      const outcome = await runMergeTool(runIn(r), "failing", "f");
 
-    expect(outcome.exitCode).not.toBe(0);
-    expect(await unmerged(r)).toEqual(["f"]);
-  });
+      expect(outcome.exitCode).not.toBe(0);
+      expect(await unmerged(r)).toEqual(["f"]);
+    }
+  );
 
-  it("never waits on git's question for a tool it does not trust: no one is there to answer", async () => {
-    // Untouched by a tool whose exit code git does not trust, git asks "Was
-    // the merge successful [y/n]?" on stdin, which is closed: read as no.
-    const r = conflicted("f");
-    tool(r, "untrusted", "true", false);
+  it(
+    "never waits on git's question for a tool it does not trust: no one is there to answer",
+    { timeout: ONE_MERGETOOL_TIMEOUT_MS },
+    async () => {
+      // Untouched by a tool whose exit code git does not trust, git asks "Was
+      // the merge successful [y/n]?" on stdin, which is closed: read as no.
+      const r = conflicted("f");
+      tool(r, "untrusted", "true", false);
 
-    const outcome = await runMergeTool(runIn(r), "untrusted", "f");
+      const outcome = await runMergeTool(runIn(r), "untrusted", "f");
 
-    expect(outcome.exitCode).not.toBe(0);
-    expect(outcome.output).toContain("seems unchanged");
-    expect(await unmerged(r)).toEqual(["f"]);
-  });
+      expect(outcome.exitCode).not.toBe(0);
+      expect(outcome.output).toContain("seems unchanged");
+      expect(await unmerged(r)).toEqual(["f"]);
+    }
+  );
 
   it("hands git mergetool no name it would read as a pattern", async () => {
     // `[ab].txt` as a pathspec matches a.txt: git mergetool would merge that.

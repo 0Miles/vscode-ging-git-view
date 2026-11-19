@@ -7,7 +7,7 @@ import { ExtensionState } from "@ging/core/extensionState";
 import { TabStates } from "@ging/core/tabStates";
 import { createDesktopRepoSource } from "@ging/desktop/ports/repoSource";
 import { openDesktopStorage } from "@ging/desktop/ports/storage";
-import { createTabWindow, layoutTabViews } from "@ging/desktop/tabWindow";
+import { createTabWindow, layoutTabViews, tabStripEntries } from "@ging/desktop/tabWindow";
 
 import { makeTempDir, rmrf } from "@ging/core/tests/helpers";
 
@@ -184,6 +184,72 @@ describe("the desktop window's Tabs", () => {
 
     expect(page.disposed).toBe(true);
     expect(views[0].disposed).toBe(true);
+  });
+});
+
+// #461: a clone brings the Welcome page forward over the Tabs.
+describe("the Welcome page brought forward over the Tabs", () => {
+  it("takes every Tab's view out of the window and marks none focused on the strip", () => {
+    const { folder, session } = setUp();
+    const [a, b] = [folder(), folder()];
+    const { window } = session();
+    for (const repo of [a, b]) window.openRepo(repo);
+
+    window.tabs.focusWelcome();
+
+    const list = window.tabs.list();
+    expect(
+      layoutTabViews(list, window.tabs.focused(), [800, 600], 35).map(({ inWindow }) => inWindow)
+    ).toEqual([false, false]);
+    expect(
+      tabStripEntries(
+        window.tabs,
+        (tab) => path.basename(tab.repo),
+        () => false
+      )
+    ).toEqual([
+      { id: list[0].id, title: path.basename(a), tooltip: a, focused: false, asking: false },
+      { id: list[1].id, title: path.basename(b), tooltip: b, focused: false, asking: false }
+    ]);
+  });
+
+  it("leaves the Tabs to the next session as they were, the one behind it in front", async () => {
+    const { folder, session } = setUp();
+    const [a, b, c] = [folder(), folder(), folder()];
+    const first = session();
+    for (const repo of [a, b, c]) first.window.openRepo(repo);
+    first.window.tabs.focus(first.window.tabs.find(b)!.id);
+    first.window.tabs.focusWelcome();
+    await first.storage.flush();
+
+    const second = session();
+    second.window.restore();
+
+    expect(second.shown()).toEqual([
+      { repo: a, page: "graph", focused: false },
+      { repo: b, page: "graph", focused: true },
+      { repo: c, page: "graph", focused: false }
+    ]);
+  });
+});
+
+describe("tabStripEntries", () => {
+  it("marks the focused Tab, and a Tab asking only behind another", () => {
+    const { folder, session } = setUp();
+    const [a, b] = [folder(), folder()];
+    const { window } = session();
+    for (const repo of [a, b]) window.openRepo(repo);
+
+    const entries = tabStripEntries(
+      window.tabs,
+      (tab) => `name of ${tab.repo}`,
+      () => true
+    );
+
+    expect(entries.map(({ title, focused, asking }) => ({ title, focused, asking }))).toEqual([
+      { title: `name of ${a}`, focused: false, asking: true },
+      { title: `name of ${b}`, focused: true, asking: false }
+    ]);
   });
 });
 
