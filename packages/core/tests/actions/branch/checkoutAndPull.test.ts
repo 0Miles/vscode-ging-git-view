@@ -53,7 +53,19 @@ function divergedRepo(): string {
   return repo;
 }
 
-describe("checkoutAndPullBranch", () => {
+/**
+ * Budget for each test: `divergedRepo` runs eleven git commands one after
+ * another (the repository's three, a bare init, a remote add, a push, a clone,
+ * two commits, another push and a checkout), then the action's checkout, fetch
+ * and rebase or merge.
+ *
+ * Measured with 16 busy loops pinning the CPU on Windows (#476): 18.0–23.7s
+ * each, and over the backend's 30s default under the owner's heavier load.
+ * About two and a half times the worst of those.
+ */
+const DIVERGED_PULL_TIMEOUT_MS = 60_000;
+
+describe("checkoutAndPullBranch", { timeout: DIVERGED_PULL_TIMEOUT_MS }, () => {
   it("checks the branch out and rebases local commits onto the remote under pull.rebase=true", async () => {
     const repo = divergedRepo();
     git(["config", "pull.rebase", "true"], repo);

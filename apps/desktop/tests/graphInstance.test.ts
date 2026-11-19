@@ -1032,6 +1032,24 @@ describe("a graph instance", () => {
   });
 
   describe("in a merge stopped on a conflict (#410)", () => {
+    /**
+     * Budgets for the tests that build the conflict: `conflicted` runs eleven
+     * git commands one after another (two checkouts, two commits, the merge,
+     * three configs and the setUp's repositories before them), and each test
+     * then reads and stages through the dispatch.
+     *
+     * Measured with 16 busy loops pinning the CPU on Windows (#476): the Mark
+     * Resolved test took 27.1s and the working tree panel's 19.4s, against the
+     * backend's 30s default. The merge tool's test runs `git mergetool`, a shell
+     * script starting sh, more git and the tool's `cp`: its wait for the graph's
+     * refresh passed 20s there, and one run of it in mergeTool.test.ts took up
+     * to 45s with its repository built. So 60s for the conflict's tests, the
+     * refresh waited 45s for, and 90s for the test that waits.
+     */
+    const CONFLICT_TIMEOUT_MS = 60_000;
+    const MERGETOOL_RUN_TIMEOUT_MS = 45_000;
+    const MERGETOOL_TIMEOUT_MS = 90_000;
+
     /** `repo`'s merge of `side` stopped on a conflict in f, with the merge
      *  tool `theirs` configured in the repository: a command, no window. */
     function conflicted(repo: string) {
@@ -1050,93 +1068,107 @@ describe("a graph instance", () => {
     const unmerged = (repo: string) =>
       cp.execFileSync("git", ["diff", "--name-only", "--diff-filter=U"], { cwd: repo }).toString();
 
-    it("hands the graph's conflicted file to the merge tool, and says in its own window when there is none to resolve", async () => {
-      const { repos, open, logged } = setUp();
-      const page = open(repos[0]);
-      const other = open(repos[1]);
-      conflicted(repos[0]);
+    it(
+      "hands the graph's conflicted file to the merge tool, and says in its own window when there is none to resolve",
+      { timeout: MERGETOOL_TIMEOUT_MS },
+      async () => {
+        const { repos, open, logged } = setUp();
+        const page = open(repos[0]);
+        const other = open(repos[1]);
+        conflicted(repos[0]);
 
-      await page.receive({ command: "openMergeEditor", repo: repos[0], filePath: "f" });
-      // The port answers nothing; the graph redrawn once the tool has closed
-      // is what tells. `git mergetool` is a shell script of git's: seconds,
-      // on Windows, before it so much as starts the tool.
-      await expect
-        .poll(() => sentOf(page.posted, "refresh").length, { timeout: 20_000 })
-        .toBeGreaterThan(0);
-      // Resolved: nothing to say.
-      expect(unmerged(repos[0])).toBe("");
-      expect(fs.readFileSync(path.join(repos[0], "f"), "utf8")).toBe("side\n");
-      expect(page.asked).toEqual([]);
+        await page.receive({ command: "openMergeEditor", repo: repos[0], filePath: "f" });
+        // The port answers nothing; the graph redrawn once the tool has closed
+        // is what tells. `git mergetool` is a shell script of git's: seconds,
+        // on Windows, before it so much as starts the tool.
+        await expect
+          .poll(() => sentOf(page.posted, "refresh").length, { timeout: MERGETOOL_RUN_TIMEOUT_MS })
+          .toBeGreaterThan(0);
+        // Resolved: nothing to say.
+        expect(unmerged(repos[0])).toBe("");
+        expect(fs.readFileSync(path.join(repos[0], "f"), "utf8")).toBe("side\n");
+        expect(page.asked).toEqual([]);
 
-      await page.receive({ command: "openMergeEditor", repo: repos[0], filePath: "f" });
-      await expect
-        .poll(() => page.asked)
-        .toEqual([["showInformation", "f has no conflict to resolve."]]);
-      expect(other.asked).toEqual([]);
-      expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
-    });
+        await page.receive({ command: "openMergeEditor", repo: repos[0], filePath: "f" });
+        await expect
+          .poll(() => page.asked)
+          .toEqual([["showInformation", "f has no conflict to resolve."]]);
+        expect(other.asked).toEqual([]);
+        expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+      }
+    );
 
-    it("asks before the banner's Mark Resolved stages a file still holding conflict markers", async () => {
-      const { repos, open } = setUp();
-      const page = open(repos[0]);
-      conflicted(repos[0]);
-      const ask = [
-        "choose",
-        "f still has conflict markers in it. Mark it resolved anyway?",
-        { detail: undefined, actions: ["Mark Resolved"] }
-      ];
+    it(
+      "asks before the banner's Mark Resolved stages a file still holding conflict markers",
+      { timeout: CONFLICT_TIMEOUT_MS },
+      async () => {
+        const { repos, open } = setUp();
+        const page = open(repos[0]);
+        conflicted(repos[0]);
+        const ask = [
+          "choose",
+          "f still has conflict markers in it. Mark it resolved anyway?",
+          { detail: undefined, actions: ["Mark Resolved"] }
+        ];
 
-      // Declined: the dispatch never hears of it, and the graph is answered.
-      await page.receive({ command: "markResolved", repo: repos[0], filePath: "f" });
-      expect(page.asked).toEqual([ask]);
-      expect(unmerged(repos[0])).toBe("f\n");
-      expect(sentOf(page.posted, "markResolved")).toEqual([
-        { command: "markResolved", status: null }
-      ]);
+        // Declined: the dispatch never hears of it, and the graph is answered.
+        await page.receive({ command: "markResolved", repo: repos[0], filePath: "f" });
+        expect(page.asked).toEqual([ask]);
+        expect(unmerged(repos[0])).toBe("f\n");
+        expect(sentOf(page.posted, "markResolved")).toEqual([
+          { command: "markResolved", status: null }
+        ]);
 
-      page.answers.choose = "Mark Resolved";
-      await page.receive({ command: "markResolved", repo: repos[0], filePath: "f" });
-      await expect.poll(() => unmerged(repos[0])).toBe("");
-      expect(page.asked).toEqual([ask, ask]);
-    });
+        page.answers.choose = "Mark Resolved";
+        await page.receive({ command: "markResolved", repo: repos[0], filePath: "f" });
+        await expect.poll(() => unmerged(repos[0])).toBe("");
+        expect(page.asked).toEqual([ask, ask]);
+      }
+    );
 
-    it("marks resolved and continues for its working tree panel, asking first while markers remain", async () => {
-      const { repos, open, logged } = setUp();
-      const page = open(repos[0]);
-      conflicted(repos[0]);
-      const fromPanel = (request: WorkingTreeRequest) =>
-        page.receive(request as unknown as RequestMessage);
-      const answers = () =>
-        page.posted.filter((msg) => (msg.command as string) === "workingTreeStatus") as unknown as {
-          request: string;
-          status: { conflicted: unknown[]; operation?: string } | null;
-          error: string | null;
-        }[];
+    it(
+      "marks resolved and continues for its working tree panel, asking first while markers remain",
+      { timeout: CONFLICT_TIMEOUT_MS },
+      async () => {
+        const { repos, open, logged } = setUp();
+        const page = open(repos[0]);
+        conflicted(repos[0]);
+        const fromPanel = (request: WorkingTreeRequest) =>
+          page.receive(request as unknown as RequestMessage);
+        const answers = () =>
+          page.posted.filter(
+            (msg) => (msg.command as string) === "workingTreeStatus"
+          ) as unknown as {
+            request: string;
+            status: { conflicted: unknown[]; operation?: string } | null;
+            error: string | null;
+          }[];
 
-      await fromPanel({ command: "workingTreeLoad" });
-      expect(answers()[0].status).toMatchObject({
-        operation: "merge",
-        conflicted: [{ path: "f" }]
-      });
+        await fromPanel({ command: "workingTreeLoad" });
+        expect(answers()[0].status).toMatchObject({
+          operation: "merge",
+          conflicted: [{ path: "f" }]
+        });
 
-      // Markers left, and the question dismissed: nothing changes.
-      await fromPanel({ command: "workingTreeResolve", paths: ["f"] });
-      expect(page.asked).toHaveLength(1);
-      expect(answers()[1].status?.conflicted).toHaveLength(1);
+        // Markers left, and the question dismissed: nothing changes.
+        await fromPanel({ command: "workingTreeResolve", paths: ["f"] });
+        expect(page.asked).toHaveLength(1);
+        expect(answers()[1].status?.conflicted).toHaveLength(1);
 
-      fs.writeFileSync(path.join(repos[0], "f"), "both\n");
-      await fromPanel({ command: "workingTreeResolve", paths: ["f"] });
-      expect(page.asked).toHaveLength(1);
-      expect(answers()[2].status?.conflicted).toEqual([]);
+        fs.writeFileSync(path.join(repos[0], "f"), "both\n");
+        await fromPanel({ command: "workingTreeResolve", paths: ["f"] });
+        expect(page.asked).toHaveLength(1);
+        expect(answers()[2].status?.conflicted).toEqual([]);
 
-      await fromPanel({ command: "workingTreeContinue" });
-      expect(answers()[3]).toMatchObject({ request: "workingTreeContinue", error: null });
-      expect(answers()[3].status?.operation).toBeUndefined();
-      expect(
-        cp.execFileSync("git", ["log", "-1", "--format=%P"], { cwd: repos[0] }).toString().trim()
-      ).toMatch(/^\S+ \S+$/);
-      expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
-    });
+        await fromPanel({ command: "workingTreeContinue" });
+        expect(answers()[3]).toMatchObject({ request: "workingTreeContinue", error: null });
+        expect(answers()[3].status?.operation).toBeUndefined();
+        expect(
+          cp.execFileSync("git", ["log", "-1", "--format=%P"], { cwd: repos[0] }).toString().trim()
+        ).toMatch(/^\S+ \S+$/);
+        expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+      }
+    );
   });
 
   it("filters the graph by its side view's selection, and clears it for the graph's Show All (#399)", async () => {
@@ -1200,41 +1232,55 @@ describe("a graph instance", () => {
     });
   });
 
-  it("pops a stash its Stash view lists, asking in its own prompts, and redraws its graph (#400)", async () => {
-    const { shared, repos, open, logged } = setUp();
-    const page = open(repos[0]);
-    fs.writeFileSync(path.join(repos[0], "f"), "stashed");
-    git(["stash", "push", "-m", "wip"], repos[0]);
-    await page.instance.sideView({ command: "sideViewReady" });
-    const [stash] = page.sideViews.at(-1)!.stashes!;
-    expect(stash).toMatchObject({ selector: "stash@{0}", message: "On main: wip" });
-    // Its stash log watch reads once more after it is hung, past the
-    // debounce: let that land before acting, so what follows is the pop's.
-    const sentBefore = page.sideViews.length;
-    await expect
-      .poll(() => page.sideViews.length, { timeout: REPO_CHANGE_DEBOUNCE_MS + 5_000 })
-      .toBeGreaterThan(sentBefore);
-    page.answers.choose = shared.l10n.t("dialog.stash.pop");
+  /** Budget for the stash pop: `git stash push`, the side view's reads of the
+   *  branches and stashes, the stash log watch's read again past the debounce,
+   *  then the pop and the reads and redraw after it, one after another. 8s
+   *  with 16 busy loops pinning the CPU on Windows, but it passed the backend's
+   *  30s default under the owner's heavier load (#476). The wait for the
+   *  watch's read, the debounce and 5s on top, ran out in a second round under
+   *  the same busy loops (12.8s in all): the debounce and 30s now. */
+  const STASH_POP_TIMEOUT_MS = 60_000;
+  const STASH_WATCH_READ_TIMEOUT_MS = REPO_CHANGE_DEBOUNCE_MS + 30_000;
 
-    await page.instance.sideView({ command: "sideViewStash", action: "pop", id: stash.id });
+  it(
+    "pops a stash its Stash view lists, asking in its own prompts, and redraws its graph (#400)",
+    { timeout: STASH_POP_TIMEOUT_MS },
+    async () => {
+      const { shared, repos, open, logged } = setUp();
+      const page = open(repos[0]);
+      fs.writeFileSync(path.join(repos[0], "f"), "stashed");
+      git(["stash", "push", "-m", "wip"], repos[0]);
+      await page.instance.sideView({ command: "sideViewReady" });
+      const [stash] = page.sideViews.at(-1)!.stashes!;
+      expect(stash).toMatchObject({ selector: "stash@{0}", message: "On main: wip" });
+      // Its stash log watch reads once more after it is hung, past the
+      // debounce: let that land before acting, so what follows is the pop's.
+      const sentBefore = page.sideViews.length;
+      await expect
+        .poll(() => page.sideViews.length, { timeout: STASH_WATCH_READ_TIMEOUT_MS })
+        .toBeGreaterThan(sentBefore);
+      page.answers.choose = shared.l10n.t("dialog.stash.pop");
 
-    expect(page.asked[0]).toEqual([
-      "choose",
-      shared.l10n.t("dialog.stash.popConfirm", "stash@{0}"),
-      {
-        detail: shared.l10n.t("dialog.stash.reinstateIndexDetail"),
-        actions: [
-          shared.l10n.t("dialog.stash.pop"),
-          shared.l10n.t("dialog.stash.popReinstateIndex")
-        ]
-      }
-    ]);
-    expect(fs.readFileSync(path.join(repos[0], "f"), "utf8")).toBe("stashed");
-    expect(page.sideViews.at(-1)!.stashes).toEqual([]);
-    // Changed muted, then redrawn, as core's command services' changes are.
-    expect(sentOf(page.posted, "refresh").length).toBeGreaterThan(0);
-    expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
-  });
+      await page.instance.sideView({ command: "sideViewStash", action: "pop", id: stash.id });
+
+      expect(page.asked[0]).toEqual([
+        "choose",
+        shared.l10n.t("dialog.stash.popConfirm", "stash@{0}"),
+        {
+          detail: shared.l10n.t("dialog.stash.reinstateIndexDetail"),
+          actions: [
+            shared.l10n.t("dialog.stash.pop"),
+            shared.l10n.t("dialog.stash.popReinstateIndex")
+          ]
+        }
+      ]);
+      expect(fs.readFileSync(path.join(repos[0], "f"), "utf8")).toBe("stashed");
+      expect(page.sideViews.at(-1)!.stashes).toEqual([]);
+      // Changed muted, then redrawn, as core's command services' changes are.
+      expect(sentOf(page.posted, "refresh").length).toBeGreaterThan(0);
+      expect(logged.filter((line) => line.startsWith("ERROR"))).toEqual([]);
+    }
+  );
 
   it("configures the provider of a host Create Pull Request knows none for, in its own prompts, into the app's settings", async () => {
     const { shared, repos, open, revealed, logged } = setUp();
