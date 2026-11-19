@@ -2,12 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { searchDirectoryForRepos } from "@ging/core/backend/utils/repoSearch";
 
-import { git, rmrf, toRepoPath } from "@ging/core/tests/helpers";
+import { git, makeTempDir, rmrf, toRepoPath } from "@ging/core/tests/helpers";
 
 // The real `isGitRepository`, wrapped so a test can count how many times the
 // search asks git — each call is a spawn.
@@ -151,10 +151,6 @@ describe("searchDirectoryForRepos", () => {
   });
 
   describe("asking git", () => {
-    beforeEach(() => {
-      vi.mocked(isGitRepository).mockClear();
-    });
-
     it("finds the repo it starts in when it starts in a subfolder of one", async () => {
       const sub = `${repoA}/deeper/sub`;
       fs.mkdirSync(sub, { recursive: true });
@@ -171,7 +167,7 @@ describe("searchDirectoryForRepos", () => {
       //   a/ a/x/ a/x/p/   b/ b/y/   c/   — six plain folders
       //   a/r1/        repo (depth 2)
       //   b/y/r2/      repo (depth 3)
-      const root = toRepoPath(fs.mkdtempSync(path.join(os.tmpdir(), "ngg-count-")));
+      const root = toRepoPath(makeTempDir("ngg-count-"));
       try {
         for (const d of ["a/x/p", "b/y", "c"]) fs.mkdirSync(`${root}/${d}`, { recursive: true });
         initRepo(`${root}/a/r1`);
@@ -190,7 +186,7 @@ describe("searchDirectoryForRepos", () => {
     it("walks past a .git entry git does not recognise, and finds the repo below it", async () => {
       // root/broken/.git/   empty: not a repository
       // root/broken/inner/  repo
-      const root = toRepoPath(fs.mkdtempSync(path.join(os.tmpdir(), "ngg-broken-")));
+      const root = toRepoPath(makeTempDir("ngg-broken-"));
       try {
         fs.mkdirSync(`${root}/broken/.git`, { recursive: true });
         initRepo(`${root}/broken/inner`);
