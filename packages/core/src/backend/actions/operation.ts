@@ -30,8 +30,8 @@ export async function abortOperation(git: SimpleGit): Promise<void> {
   await git.raw([operationCommand(operation), "--abort"]);
 }
 
-/** Mark a conflicted file resolved: the graph's conflict banner, the same
- *  `resolveFiles` the Working Tree panel's is (#410), so the name is taken as
+/** Mark a conflicted file resolved from the graph's conflict banner, through
+ *  the Working Tree panel's `resolveFiles` (#410): the name is taken as
  *  written rather than as a pathspec pattern (#468), and a file the user
  *  deleted is recorded as deleted. A path not in conflict is left alone. */
 export async function markResolved(
