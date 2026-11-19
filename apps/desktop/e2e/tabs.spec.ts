@@ -461,6 +461,59 @@ test("quitting while a Tab's fetch waits on a server that never answers stops th
   }
 });
 
+/** The graph's own Fetch button in `page`, until git is on the network to
+ *  `server`. */
+async function fetchButtonHanging(
+  page: Page,
+  server: { openConnections: () => number }
+): Promise<void> {
+  await page.locator("#fetchBtn").click();
+  await expect.poll(server.openConnections, { timeout: 15_000 }).toBeGreaterThan(0);
+}
+
+test("closing a Tab while its graph's Fetch button waits on a server that never answers stops that git", async () => {
+  const server = await serverNeverAnswering();
+  try {
+    const repo = repoFetchingFrom(server);
+    const electronApp = await launch("--repo", repo.path);
+    await answerMessageBoxes(electronApp);
+    const window = await windowPage(electronApp);
+    const page = await focusedTabPage(electronApp);
+    await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
+    await fetchButtonHanging(page, server);
+
+    await window.locator("#tabStrip .tab .tabClose").click();
+
+    await expect(window.locator("#tabStrip")).toBeHidden();
+    await expect.poll(server.openConnections, { timeout: 15_000 }).toBe(0);
+    expect(await closeAndReadLog()).not.toContain("ERROR:");
+  } finally {
+    await app?.close();
+    app = null;
+    await server.close();
+  }
+});
+
+test("quitting while a Tab's graph's Fetch button waits on a server that never answers stops that git", async () => {
+  const server = await serverNeverAnswering();
+  try {
+    const repo = repoFetchingFrom(server);
+    const electronApp = await launch("--repo", repo.path);
+    await answerMessageBoxes(electronApp);
+    const page = await focusedTabPage(electronApp);
+    await expect(page.locator("#commitTable tr.commit")).toHaveCount(repo.commits.length);
+    await fetchButtonHanging(page, server);
+
+    const logged = await closeAndReadLog();
+    await expect.poll(server.openConnections, { timeout: 15_000 }).toBe(0);
+    expect(logged).not.toContain("ERROR:");
+  } finally {
+    await app?.close();
+    app = null;
+    await server.close();
+  }
+});
+
 test("a Tab's page asking for another Tab's repository stays on its own", async () => {
   const [first, second] = [fixtureRepo(), fixtureRepo()];
   const electronApp = await launch("--repo", first.path);
