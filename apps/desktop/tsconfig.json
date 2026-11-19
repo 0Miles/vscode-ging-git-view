@@ -6,8 +6,10 @@
     "lib": ["es2023", "dom", "dom.iterable"],
     "types": ["node"],
     // The app's modules by name, for its tests (apps/vscode's `@ging/vscode/*`
-    // is the same idea); vitest.config.ts repeats the alias.
+    // is the same idea), and the E2E's helpers, for the tests of those;
+    // vitest.config.ts repeats the aliases.
     "paths": {
+      "@ging/desktop/e2e/*": ["./e2e/*"],
       "@ging/desktop/*": ["./src/*"]
     }
   },

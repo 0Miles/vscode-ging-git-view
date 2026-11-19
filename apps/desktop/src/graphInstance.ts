@@ -2,7 +2,8 @@
  * dispatch, ports and git client of its own over the services every instance
  * shares (sharedServices.ts). Each Tab opens one (#388, #393). */
 
-import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { type GitClient, gitClientFactory } from "@ging/core/backend/gitClient";
+import { type NetworkGit, stoppableNetworkCommands } from "@ging/core/backend/gitRun";
 import { isGitRepository } from "@ging/core/backend/utils/git";
 import { isUsableRepoPathAsync } from "@ging/core/backend/utils/repoPath";
 import { createConflictCommands } from "@ging/core/extension/conflictCommands";
@@ -185,7 +186,24 @@ export function createGraphInstance(
   const askpass = shared.askpass.route(prompts);
   const sequenceEditor = new SequenceEditorManager(shared.helperDir);
   const gitEnv = { ...askpass.env, ...sequenceEditor.getEnv() };
-  const gitClient = gitClientFactory(repo, shared.gitPath(), undefined, gitEnv);
+  // Aborted when it is disposed of — its Tab closed, the app quitting (#450):
+  // the git its fetches and pushes started is sent a kill, best-effort
+  // (ADR-0028), none starts after, and nothing more is said in its page. Its
+  // own, so another Tab's git runs on.
+  const disposed = new AbortController();
+  const networkGit: NetworkGit = {
+    gitPath: shared.gitPath,
+    gitEnv,
+    signal: disposed.signal,
+    onAborted: (exited) => shared.stoppingGits.add(exited)
+  };
+  const ownClient = gitClientFactory(repo, shared.gitPath(), undefined, gitEnv);
+  // The dispatch's: the graph's Fetch button and its pushes reach git through
+  // it, so its network commands go through `networkGit` too.
+  const gitClient: GitClient = {
+    ...ownClient,
+    getInstance: () => stoppableNetworkCommands(ownClient.getInstance(), () => repo, networkGit)
+  };
   const gitClients = createRepoGitClients({ gitPath: shared.gitPath, gitEnv });
 
   /** What a change to the repository costs: every cached branch read (they
@@ -207,20 +225,29 @@ export function createGraphInstance(
   avatarManager.registerBridge(bridge.post);
   /** Its changes made outside the bridge: muted, then refreshed, as the
    *  bridge's own are. */
-  const runRepoMutation = createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh });
+  const runRepoMutation = createRunRepoMutation({
+    watcher: () => watcher,
+    afterMutation: refresh,
+    signal: disposed.signal
+  });
 
   // What core's command services need of it: they change its repository
   // muted and refreshed around each change, as the bridge's own changes are.
   const kitDeps = {
     prompts,
     l10n,
+    logger,
     gitClientFor: gitClients.gitClientFor,
     currentRepo: () => repo,
     repoSource: shared.repoSource,
     runRepoMutation
   };
   // Its own auto-fetch timer, on its own current repository.
-  const fetchService = createFetchService({ ...kitDeps, config });
+  const fetchService = createFetchService({
+    ...kitDeps,
+    config,
+    networkGit
+  });
   fetchService.restartAutoFetch();
 
   // The working tree panel's (#403): its stage, unstage and commit refresh
@@ -466,7 +493,8 @@ export function createGraphInstance(
       clipboard: shared.clipboard,
       prompts,
       l10n,
-      mutate: (work) => runRepoMutation(repo, work)
+      mutate: (work) => runRepoMutation(repo, work),
+      logger
     },
     stashWatch: {
       git: { gitPath: shared.gitPath, gitEnv: () => gitEnv },
@@ -539,6 +567,7 @@ export function createGraphInstance(
     commands,
     sideView: (message) => sideViews.receive(message),
     dispose: () => {
+      disposed.abort();
       sideViews.dispose();
       fileHistory.dispose();
       fileBlame.dispose();

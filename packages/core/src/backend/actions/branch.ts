@@ -193,7 +193,10 @@ export async function pullBranch(
   git: SimpleGit,
   input: ActionPayload<"pullBranch">
 ): Promise<void> {
-  await git.pull(input.remote, input.branchName);
+  // `raw`, as every network command of the graph's; but a host never stops a
+  // pull, whose merge or rebase a kill would leave half done (#450, see
+  // `NETWORK_SUBCOMMANDS` in gitRun.ts).
+  await git.raw(["pull", input.remote, input.branchName]);
 }
 
 /** The `git` arguments that push `branch` to `remote` in `forceMode`. Raw

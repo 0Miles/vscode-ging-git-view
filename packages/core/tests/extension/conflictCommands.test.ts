@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { createConflictCommands } from "@ging/core/extension/conflictCommands";
+import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
 
 import {
   fakePorts,
@@ -91,6 +92,46 @@ function tool(repo: string, name: string, cmd: string) {
  */
 const ONE_MERGETOOL_TIMEOUT_MS = 60_000;
 const TWO_MERGETOOL_TIMEOUT_MS = 90_000;
+
+describe("mergeTool once its host is gone (#450)", () => {
+  it(
+    "says nothing of the change refused after the tool, and logs it once",
+    { timeout: ONE_MERGETOOL_TIMEOUT_MS },
+    async () => {
+      const { repo } = setUp("a.txt");
+      tool(repo, "theirs", 'cp "$REMOTE" "$MERGED"');
+      git(["config", "merge.tool", "theirs"], repo);
+      const { ports, calls } = fakePorts();
+      const logged: string[] = [];
+      const disposed = new AbortController();
+      const client = gitClientFactory(repo, "git");
+      const conflicts = createConflictCommands({
+        prompts: ports.prompts,
+        l10n: ports.l10n,
+        logger: { log: (line) => logged.push(line) },
+        git: () => client.getInstance(),
+        mergeToolRun: () => {
+          // The Tab closed while the tool is open: the change after it is refused.
+          disposed.abort();
+          return { gitPath: "git", repoPath: repo };
+        },
+        repo: () => repo,
+        runRepoMutation: createRunRepoMutation({
+          watcher: () => undefined,
+          afterMutation: () => {},
+          signal: disposed.signal
+        })
+      });
+
+      await conflicts.mergeTool("a.txt");
+
+      expect(calls.filter(([name]) => String(name).startsWith("show"))).toEqual([]);
+      expect(logged.filter((line) => line.includes("aborted"))).toEqual([
+        "mergeTool: repo mutation: aborted"
+      ]);
+    }
+  );
+});
 
 describe("mergeTool", () => {
   it(

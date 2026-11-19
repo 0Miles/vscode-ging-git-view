@@ -13,6 +13,7 @@
 import type { SimpleGit } from "simple-git";
 
 import { fetchFromRemotes, fetchRemote as gitFetchRemote } from "@ging/core/backend/actions/fetch";
+import { type NetworkGit, stoppableNetworkCommands } from "@ging/core/backend/gitRun";
 import {
   type CommandKitDeps,
   createMutatingCommandKit,
@@ -27,6 +28,12 @@ export type FetchServiceDeps = CommandKitDeps &
       "fetchAndPrune" | "fetchAndPruneTags" | "autoFetchEnabled" | "autoFetchIntervalMinutes"
     >;
     prompts: Pick<Prompts, "showError" | "showInformation" | "pick">;
+    /** How the commands' and the timer's fetches spawn git, and the signal
+     *  that stops them (#450): once it aborts, a fetch running is sent a kill
+     *  aimed at everything it started (best-effort, ADR-0028), none starts
+     *  again, and the timer is stopped. Without it they run on
+     *  `gitClientFor`'s client, which nothing stops. */
+    networkGit?: NetworkGit;
   };
 
 export type FetchService = ReturnType<typeof createFetchService>;
@@ -35,7 +42,16 @@ const FETCH_FAILED = "error.unableToFetch";
 
 export function createFetchService(deps: FetchServiceDeps) {
   const { config, prompts, l10n } = deps;
-  const kit = createMutatingCommandKit(deps);
+  const net = deps.networkGit;
+  /** The commands' and the timer's client: its fetches through `networkGit`
+   *  when there is one. */
+  const gitClientFor = (repo: string | null): SimpleGit => {
+    const git = deps.gitClientFor(repo);
+    return net === undefined || repo === null
+      ? git
+      : stoppableNetworkCommands(git, () => repo, net);
+  };
+  const kit = createMutatingCommandKit({ ...deps, gitClientFor });
   const pruneFlags = () => ({
     prune: config.fetchAndPrune(),
     pruneTags: config.fetchAndPruneTags()
@@ -55,6 +71,8 @@ export function createFetchService(deps: FetchServiceDeps) {
     if (autoFetchTimer !== undefined) clearInterval(autoFetchTimer);
     autoFetchTimer = undefined;
   };
+  const aborted = () => net?.signal?.aborted === true;
+  net?.signal?.addEventListener("abort", stopAutoFetch, { once: true });
 
   return {
     /** The git call alone, for a caller whose channel already mutes the watcher
@@ -103,7 +121,7 @@ export function createFetchService(deps: FetchServiceDeps) {
      *  repository, offline, or no remotes must not nag every few minutes. */
     restartAutoFetch(): void {
       stopAutoFetch();
-      if (!config.autoFetchEnabled()) return;
+      if (aborted() || !config.autoFetchEnabled()) return;
       const minutes = Math.min(60, Math.max(1, config.autoFetchIntervalMinutes()));
       autoFetchTimer = setInterval(
         () => {
@@ -111,7 +129,7 @@ export function createFetchService(deps: FetchServiceDeps) {
           if (repo === null || autoFetchInFlight) return;
           autoFetchInFlight = true;
           deps
-            .runRepoMutation(repo, () => fetchAll(deps.gitClientFor(repo)))
+            .runRepoMutation(repo, () => fetchAll(gitClientFor(repo)))
             .catch(() => {
               /* best-effort: stay silent on failure */
             })

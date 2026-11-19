@@ -2,6 +2,7 @@
  * process (#388). What each instance owns instead is in graphInstance.ts. */
 
 import { AvatarManager } from "@ging/core/avatarManager";
+import { createStoppedGits, type StoppedGits } from "@ging/core/backend/gitRun";
 import { AskpassManager } from "@ging/core/extension/askpass/askpassManager";
 import { type BranchCleanup, createBranchCleanup } from "@ging/core/extension/branchCleanupService";
 import {
@@ -98,6 +99,10 @@ export type SharedServices = {
   gitPath: () => string;
   /** GING's version and the host's, as Version Information lists them. */
   hostVersions: readonly { name: string; version: string }[];
+  /** The gits an instance's disposal stopped, until each has gone with all
+   *  it started (#450): quitting waits for them, so the app does not exit
+   *  while a kill of one is still under way. */
+  stoppingGits: StoppedGits;
   dispose(): void;
 };
 
@@ -185,6 +190,7 @@ export function createSharedServices({
     helperDir,
     gitPath: desktopGitPath,
     hostVersions,
+    stoppingGits: createStoppedGits(),
     dispose: () => {
       askpass.dispose();
       branchFilterStore.dispose();

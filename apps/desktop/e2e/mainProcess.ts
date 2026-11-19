@@ -80,12 +80,14 @@ export const messageBoxes = (electronApp: ElectronApplication) =>
 export type TerminalStarted = { kind: "terminal"; command: string; args: string[]; cwd: string };
 
 /**
- * The system's terminal stood in for: it is the one detached process the app
- * starts — git's are not, and still run — so a detached `spawn` is taken in
- * its place, kept, and reported started. No terminal opens. Each is kept in
- * the main process's global list `into`, looked up when the terminal is
- * asked for: `terminals` for `terminalsStarted` to read, or a list of the
- * caller's that other stand-ins write too (actions.spec.ts).
+ * The system's terminal stood in for: it is the one process the app starts
+ * detached and with none of its stdio, so such a `spawn` is taken in its
+ * place, kept, and reported started. No terminal opens. A git is never one:
+ * outside Windows one that goes to the network is detached too, in a process
+ * group of its own (#450), but the app reads it through pipes, and it still
+ * runs. Each is kept in the main process's global list `into`, looked up
+ * when the terminal is asked for: `terminals` for `terminalsStarted` to read,
+ * or a list of the caller's that other stand-ins write too (actions.spec.ts).
  */
 export async function standInTerminals(
   electronApp: ElectronApplication,
@@ -98,8 +100,14 @@ export async function standInTerminals(
     const childProcess = node("node:child_process") as typeof import("node:child_process");
     const { EventEmitter } = node("node:events") as typeof import("node:events");
     const realSpawn = childProcess.spawn;
-    childProcess.spawn = ((command: string, args: string[], options?: { detached?: boolean }) => {
-      if (options?.detached !== true) return realSpawn(command, args, options ?? {});
+    childProcess.spawn = ((
+      command: string,
+      args: string[],
+      options?: import("node:child_process").SpawnOptions
+    ) => {
+      if (options?.detached !== true || options.stdio !== "ignore") {
+        return realSpawn(command, args, options ?? {});
+      }
       (lists[key] as unknown[]).push({
         kind: "terminal",
         command,
