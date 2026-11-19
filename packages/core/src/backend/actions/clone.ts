@@ -145,16 +145,32 @@ export function cloneFolderName(url: string): string | null {
   return name === "" || name === "." || name === ".." ? null : name;
 }
 
-/** `url` with any user name and password taken out, to be shown or logged:
- *  `https://user:token@host/repo` must not end up in a log file. */
-export function urlWithoutCredentials(url: string): string {
+/** A scheme URL split at the `@` that ends its authority's user info: the
+ *  `scheme://` before it, the scheme's name, the user info and all after the
+ *  `@`. `null` for a URL with no scheme or no `@` in its authority. */
+function splitUserInfo(
+  url: string
+): { prefix: string; scheme: string; userInfo: string; afterAt: string } | null {
   const scheme = SCHEME_URL.exec(url);
-  if (scheme === null) return url;
+  if (scheme === null) return null;
   const rest = url.slice(scheme[0].length);
   const slash = rest.search(/[\\/]/);
   const authority = slash === -1 ? rest : rest.slice(0, slash);
   const at = authority.lastIndexOf("@");
-  return at === -1 ? url : scheme[0] + rest.slice(at + 1);
+  if (at === -1) return null;
+  return {
+    prefix: scheme[0],
+    scheme: scheme[1],
+    userInfo: authority.slice(0, at),
+    afterAt: rest.slice(at + 1)
+  };
+}
+
+/** `url` with any user name and password taken out, to be shown or logged:
+ *  `https://user:token@host/repo` must not end up in a log file. */
+export function urlWithoutCredentials(url: string): string {
+  const parts = splitUserInfo(url);
+  return parts === null ? url : parts.prefix + parts.afterAt;
 }
 
 /**
@@ -165,15 +181,9 @@ export function urlWithoutCredentials(url: string): string {
  * git's scp-like `user@host:path` and a path name none.
  */
 export function urlHasCredentials(url: string): boolean {
-  const scheme = SCHEME_URL.exec(url);
-  if (scheme === null) return false;
-  const rest = url.slice(scheme[0].length);
-  const slash = rest.search(/[\\/]/);
-  const authority = slash === -1 ? rest : rest.slice(0, slash);
-  const at = authority.lastIndexOf("@");
-  if (at <= 0) return false;
-  const userInfo = authority.slice(0, at);
-  return /^https?$/i.test(scheme[1]) || userInfo.includes(":");
+  const parts = splitUserInfo(url);
+  if (parts === null || parts.userInfo === "") return false;
+  return /^https?$/i.test(parts.scheme) || parts.userInfo.includes(":");
 }
 
 /**

@@ -110,13 +110,9 @@ export function createRepoCloning(deps: RepoCloningDeps): RepoCloning {
     });
     if (answer === undefined || disposed) return null;
     const url = answer.trim();
-    let removeCredentials = false;
-    if (command.hasCredentials(url)) {
-      const remove = await askAboutCredentials();
-      if (remove === null) logger.log("clone: cancelled");
-      if (remove === null || disposed) return null;
-      removeCredentials = remove;
-    }
+    const removeCredentials = command.hasCredentials(url) ? await askAboutCredentials() : false;
+    if (removeCredentials === null) logger.log("clone: cancelled");
+    if (removeCredentials === null || disposed) return null;
     const parent = await pickParent();
     if (parent === null || disposed) return null;
     return { url, folder: command.folderFor(parent, url), removeCredentials };
@@ -124,16 +120,17 @@ export function createRepoCloning(deps: RepoCloningDeps): RepoCloning {
 
   /** Take the credentials out of `repo`'s remote URL, cloned from `url`; when
    *  that fails, say they are still there. Neither says what they are. */
-  const removeCredentials = async (repo: string, url: string): Promise<void> => {
-    if (await command.removeCredentials(repo, url)) {
-      logger.log(`clone: removed the credentials from the remote URL of ${repo}`);
-      return;
+  const stripRemoteCredentials = async (repo: string, url: string): Promise<void> => {
+    const removed = await command.removeCredentials(repo, url);
+    logger.log(
+      `clone: ${removed ? "removed" : "could not remove"} the credentials from the remote URL of ${repo}`
+    );
+    if (!removed && !disposed) {
+      prompts.showWarning(l10n.t("desktop.clone.credentials.notRemoved", repo));
     }
-    logger.log(`clone: could not remove the credentials from the remote URL of ${repo}`);
-    if (!disposed) prompts.showWarning(l10n.t("desktop.clone.credentials.notRemoved", repo));
   };
 
-  const run = async ({ url, folder, removeCredentials: remove }: Target): Promise<void> => {
+  const run = async ({ url, folder, removeCredentials }: Target): Promise<void> => {
     const abort = new AbortController();
     const clone: Running = { url, folder, progress: null, abort };
     running = clone;
@@ -160,7 +157,7 @@ export function createRepoCloning(deps: RepoCloningDeps): RepoCloning {
     }
     // Taken out even from a clone the window is gone before opening: it is
     // on the disk all the same.
-    if (cloned !== undefined && remove) await removeCredentials(cloned.repo, url);
+    if (cloned !== undefined && removeCredentials) await stripRemoteCredentials(cloned.repo, url);
     if (cloned !== undefined && !disposed) {
       logger.log(`clone: cloned ${cloned.repo}`);
       deps.openRepo(cloned.repo);
