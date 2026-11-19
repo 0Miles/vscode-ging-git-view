@@ -3,6 +3,10 @@ import * as path from "node:path";
 
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
+import type { SimpleGit } from "simple-git";
+
+import { checkoutAndPullBranch, pullBranch } from "@ging/core/backend/actions/branch";
+import { addTag, deleteTag, pushTag } from "@ging/core/backend/actions/tag";
 import { gitClientFactory } from "@ging/core/backend/gitClient";
 import { runNetworkGit, stoppableNetworkCommands } from "@ging/core/backend/gitRun";
 import { GitAbortedError } from "@ging/core/backend/utils/gitError";
@@ -271,6 +275,48 @@ describe("a git client's network commands, through NetworkGit (the graph's own)"
 
         await expect(running).rejects.toBeInstanceOf(GitAbortedError);
         expect(c.exits).toHaveLength(1);
+        await expect.poll(c.server.openConnections, { timeout: SETTLE_MS }).toBe(0);
+      } finally {
+        await c.server.close();
+      }
+    },
+    40_000
+  );
+
+  // The graph's actions as its dispatch runs them, on the client it holds.
+  it.each<[string, (git: SimpleGit) => Promise<unknown>]>([
+    ["pushTag", (g) => pushTag(g, { remotes: ["origin"], tagName: "v1" })],
+    [
+      "addTag pushed",
+      (g) =>
+        addTag(g, {
+          tagName: "v2",
+          commitHash: "HEAD",
+          lightweight: true,
+          message: "",
+          force: false,
+          pushToRemote: "origin"
+        })
+    ],
+    ["deleteTag on the remote", (g) => deleteTag(g, { tagName: "v1", deleteOnRemote: "origin" })],
+    ["pullBranch", (g) => pullBranch(g, { remote: "origin", branchName: "main" })],
+    [
+      "checkoutAndPullBranch",
+      (g) =>
+        checkoutAndPullBranch(g, { branchName: "main", remote: "origin", branchOnRemote: "main" })
+    ]
+  ])(
+    "stops the %s action's git its signal aborts",
+    async (_name, action) => {
+      const controller = new AbortController();
+      const c = await client(controller.signal);
+      git(["tag", "v1"], c.repo);
+      try {
+        const running = action(c.stoppable);
+        await expect.poll(c.server.openConnections, { timeout: SETTLE_MS }).toBeGreaterThan(0);
+        controller.abort();
+
+        await expect(running).rejects.toBeInstanceOf(GitAbortedError);
         await expect.poll(c.server.openConnections, { timeout: SETTLE_MS }).toBe(0);
       } finally {
         await c.server.close();

@@ -78,7 +78,7 @@ function subcommand(args: readonly string[]): string | undefined {
 
 /** The subcommands of a git client's that go to the network, and so run
  *  through `NetworkGit` in `stoppableNetworkCommands`. */
-const NETWORK_SUBCOMMANDS = new Set(["fetch", "push", "ls-remote"]);
+const NETWORK_SUBCOMMANDS = new Set(["fetch", "push", "pull", "ls-remote"]);
 
 /** `runNetworkGit`, resolving to what git printed on stdout. */
 export async function runNetworkGitOutput(
@@ -104,10 +104,12 @@ export async function runNetworkGitOutput(
   switch (result.kind) {
     case "ok":
       if (result.exitCode === 0) return result.stdout.toString();
+      // Both, as a git client's error has them: a pull's conflicts are said
+      // on stdout, its fetch's failure on stderr.
       throw new Error(
-        result.stderr.trim() ||
-          result.stdout.toString().trim() ||
-          `${name} exited with ${result.exitCode}`
+        [result.stderr.trim(), result.stdout.toString().trim()]
+          .filter((text) => text !== "")
+          .join("\n") || `${name} exited with ${result.exitCode}`
       );
     case "aborted":
       net.onAborted?.(result.exited);
@@ -120,10 +122,12 @@ export async function runNetworkGitOutput(
 }
 
 /**
- * `git`, its `raw` calls that go to the network (fetch, push, ls-remote) run
- * through `net` in `repo` instead (#450): the graph's own Fetch button and its
- * pushes, which reach git as `raw` calls on the client the dispatch holds.
- * Every other call is the client's own.
+ * `git`, its `raw` calls that go to the network (fetch, push, pull,
+ * ls-remote) run through `net` in `repo` instead (#450): the graph's own Fetch
+ * button, its pushes (branches and tags) and its pulls, which reach git as
+ * `raw` calls on the client the dispatch holds — the actions use `raw`, never
+ * simple-git's own `push` / `pull` / `fetch`, for this. Every other call is
+ * the client's own.
  */
 export function stoppableNetworkCommands(
   git: SimpleGit,

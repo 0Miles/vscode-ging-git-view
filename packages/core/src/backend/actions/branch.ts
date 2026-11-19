@@ -193,7 +193,9 @@ export async function pullBranch(
   git: SimpleGit,
   input: ActionPayload<"pullBranch">
 ): Promise<void> {
-  await git.pull(input.remote, input.branchName);
+  // `raw`, as every network command of the graph's: a host can run those
+  // where it can stop them (`stoppableNetworkCommands`, #450).
+  await git.raw(["pull", input.remote, input.branchName]);
 }
 
 /** The `git` arguments that push `branch` to `remote` in `forceMode`. Raw
