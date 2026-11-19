@@ -8,8 +8,14 @@
 import type { SimpleGit } from "simple-git";
 
 import { type ConfiguredRemote, listRemotes } from "@ging/core/backend/queries/listRemotes";
-import { formatGitError } from "@ging/core/backend/utils/gitError";
-import type { L10n, Prompts, RepoSource, RunRepoMutation } from "@ging/core/host/ports";
+import { formatGitError, isGitAborted } from "@ging/core/backend/utils/gitError";
+import type {
+  HostLogger,
+  L10n,
+  Prompts,
+  RepoSource,
+  RunRepoMutation
+} from "@ging/core/host/ports";
 
 /** A modal yes-or-no question whose one way to say yes is `confirmLabel`;
  *  resolves to whether it was said. */
@@ -33,6 +39,8 @@ export type CommandKitDeps = {
   /** The current repository (`GLOSSARY.md`); `null` when there is none. */
   currentRepo: () => string | null;
   repoSource: Pick<RepoSource, "getRepos">;
+  /** Where a git stopped by its abort signal is told, instead of the user. */
+  logger?: Pick<HostLogger, "log">;
 };
 
 /** What only the mutating kit needs. */
@@ -52,6 +60,11 @@ export function createCommandKit(deps: CommandKitDeps) {
     try {
       return await work();
     } catch (e: unknown) {
+      // Stopped by its abort signal: whoever asked is gone (#450).
+      if (isGitAborted(e)) {
+        deps.logger?.log(`${errorKey}: ${e.message}`);
+        return undefined;
+      }
       void prompts.showError(l10n.t(errorKey) + ": " + formatGitError(e));
       return undefined;
     }

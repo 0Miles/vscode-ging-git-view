@@ -224,9 +224,16 @@ export function activate(context: vscode.ExtensionContext) {
   // commands, and the timer — run inside this hook, which refreshes whether or
   // not a graph is open. The graph's own fetches take the git call alone, since
   // its bridge mutes and refreshes around them.
+  // Aborted on deactivate (#450): a fetch still running is stopped with all
+  // it started, and none starts after. The extension's, not a graph panel's:
+  // these run for the side views and commands with no graph open, so closing
+  // the panel stops none of them.
+  const deactivated = new AbortController();
+  context.subscriptions.push({ dispose: () => deactivated.abort() });
   const runRepoMutation = createRunRepoMutation({
     watcher: () => currentWatcher,
-    afterMutation: () => refreshAfterRemoteChange()
+    afterMutation: () => refreshAfterRemoteChange(),
+    signal: deactivated.signal
   });
   const currentRepo = () => extensionState.getLastActiveRepo();
   // Every fetch, and the auto-fetch timer.
@@ -234,10 +241,17 @@ export function activate(context: vscode.ExtensionContext) {
     config,
     prompts: vscodePrompts,
     l10n: vscodeL10n,
+    logger,
     gitClientFor: repoGitClients.gitClientFor,
     currentRepo,
     repoSource: repoManager,
-    runRepoMutation
+    runRepoMutation,
+    networkGit: {
+      gitPath: config.gitPath,
+      gitEnv: gitEnv(),
+      onCommand: logger.logCmd,
+      signal: deactivated.signal
+    }
   });
   fetchService.restartAutoFetch();
   context.subscriptions.push(fetchService);

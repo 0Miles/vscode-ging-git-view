@@ -207,20 +207,34 @@ export function createGraphInstance(
   avatarManager.registerBridge(bridge.post);
   /** Its changes made outside the bridge: muted, then refreshed, as the
    *  bridge's own are. */
-  const runRepoMutation = createRunRepoMutation({ watcher: () => watcher, afterMutation: refresh });
+  // Aborted when it is disposed of — its Tab closed, the app quitting (#450):
+  // the git its fetches started is stopped with all it started, none starts
+  // after, and nothing more is said in its page. Its own, so another Tab's
+  // git runs on.
+  const disposed = new AbortController();
+  const runRepoMutation = createRunRepoMutation({
+    watcher: () => watcher,
+    afterMutation: refresh,
+    signal: disposed.signal
+  });
 
   // What core's command services need of it: they change its repository
   // muted and refreshed around each change, as the bridge's own changes are.
   const kitDeps = {
     prompts,
     l10n,
+    logger,
     gitClientFor: gitClients.gitClientFor,
     currentRepo: () => repo,
     repoSource: shared.repoSource,
     runRepoMutation
   };
   // Its own auto-fetch timer, on its own current repository.
-  const fetchService = createFetchService({ ...kitDeps, config });
+  const fetchService = createFetchService({
+    ...kitDeps,
+    config,
+    networkGit: { gitPath: shared.gitPath, gitEnv, signal: disposed.signal }
+  });
   fetchService.restartAutoFetch();
 
   // The working tree panel's (#403): its stage, unstage and commit refresh
@@ -539,6 +553,7 @@ export function createGraphInstance(
     commands,
     sideView: (message) => sideViews.receive(message),
     dispose: () => {
+      disposed.abort();
       sideViews.dispose();
       fileHistory.dispose();
       fileBlame.dispose();

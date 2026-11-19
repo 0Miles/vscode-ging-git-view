@@ -12,7 +12,13 @@
 
 import type { SimpleGit } from "simple-git";
 
-import { fetchFromRemotes, fetchRemote as gitFetchRemote } from "@ging/core/backend/actions/fetch";
+import {
+  fetchAllArgs,
+  fetchFromRemotes,
+  fetchRemote as gitFetchRemote,
+  fetchRemoteArgs
+} from "@ging/core/backend/actions/fetch";
+import { type NetworkGit, runNetworkGit } from "@ging/core/backend/gitRun";
 import {
   type CommandKitDeps,
   createMutatingCommandKit,
@@ -27,6 +33,11 @@ export type FetchServiceDeps = CommandKitDeps &
       "fetchAndPrune" | "fetchAndPruneTags" | "autoFetchEnabled" | "autoFetchIntervalMinutes"
     >;
     prompts: Pick<Prompts, "showError" | "showInformation" | "pick">;
+    /** How the commands' and the timer's fetches spawn git, and the signal
+     *  that stops them (#450): once it aborts, a fetch running is killed with
+     *  everything it started, none starts again, and the timer is stopped.
+     *  Without it they run on `gitClientFor`'s client, which nothing stops. */
+    networkGit?: NetworkGit;
   };
 
 export type FetchService = ReturnType<typeof createFetchService>;
@@ -46,6 +57,18 @@ export function createFetchService(deps: FetchServiceDeps) {
   /** One named remote. */
   const fetchRemote = (git: SimpleGit, remote: string): Promise<void> =>
     gitFetchRemote(git, { remote, ...pruneFlags() });
+  /** The commands' and the timer's: through `networkGit` when there is one. */
+  const net = deps.networkGit;
+  const fetchAllIn =
+    (repo: string) =>
+    (git: SimpleGit): Promise<void> =>
+      net === undefined ? fetchAll(git) : runNetworkGit(net, repo, fetchAllArgs(pruneFlags()));
+  const fetchRemoteIn =
+    (repo: string, remote: string) =>
+    (git: SimpleGit): Promise<void> =>
+      net === undefined
+        ? fetchRemote(git, remote)
+        : runNetworkGit(net, repo, fetchRemoteArgs({ remote, ...pruneFlags() }));
 
   let autoFetchTimer: ReturnType<typeof setInterval> | undefined;
   /** A tick's fetch still running: the next tick skips rather than stack a
@@ -55,6 +78,8 @@ export function createFetchService(deps: FetchServiceDeps) {
     if (autoFetchTimer !== undefined) clearInterval(autoFetchTimer);
     autoFetchTimer = undefined;
   };
+  const aborted = () => net?.signal?.aborted === true;
+  net?.signal?.addEventListener("abort", stopAutoFetch, { once: true });
 
   return {
     /** The git call alone, for a caller whose channel already mutes the watcher
@@ -67,7 +92,7 @@ export function createFetchService(deps: FetchServiceDeps) {
      *  repository, or a failure, is a notification. */
     async fetchCommand(): Promise<void> {
       const repo = kit.currentRepoOrSay();
-      if (repo !== null) await kit.mutateOrToast(FETCH_FAILED, repo, fetchAll);
+      if (repo !== null) await kit.mutateOrToast(FETCH_FAILED, repo, fetchAllIn(repo));
     },
 
     /** The `fetchRemote` command: one remote of the current repository — the
@@ -90,20 +115,20 @@ export function createFetchService(deps: FetchServiceDeps) {
               { placeholder: l10n.t("fetch.pickRemote") }
             );
       if (remote === undefined) return;
-      await kit.mutateOrToast(FETCH_FAILED, repo, (git) => fetchRemote(git, remote));
+      await kit.mutateOrToast(FETCH_FAILED, repo, fetchRemoteIn(repo, remote));
     },
 
     /** The fetch of one listed remote, from the host's menu on it. A failure
      *  is a toast. */
     fetchOneCommand: (repo: string, remote: string): Promise<void> =>
-      kit.mutateOrToast(FETCH_FAILED, repo, (git) => fetchRemote(git, remote)),
+      kit.mutateOrToast(FETCH_FAILED, repo, fetchRemoteIn(repo, remote)),
 
     /** Re-arm the auto-fetch timer from the settings as they are now: off, or
      *  every remote of the current repository each 1–60 minutes. Silent — no
      *  repository, offline, or no remotes must not nag every few minutes. */
     restartAutoFetch(): void {
       stopAutoFetch();
-      if (!config.autoFetchEnabled()) return;
+      if (aborted() || !config.autoFetchEnabled()) return;
       const minutes = Math.min(60, Math.max(1, config.autoFetchIntervalMinutes()));
       autoFetchTimer = setInterval(
         () => {
@@ -111,7 +136,7 @@ export function createFetchService(deps: FetchServiceDeps) {
           if (repo === null || autoFetchInFlight) return;
           autoFetchInFlight = true;
           deps
-            .runRepoMutation(repo, () => fetchAll(deps.gitClientFor(repo)))
+            .runRepoMutation(repo, () => fetchAllIn(repo)(deps.gitClientFor(repo)))
             .catch(() => {
               /* best-effort: stay silent on failure */
             })

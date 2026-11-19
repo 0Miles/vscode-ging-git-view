@@ -1,0 +1,168 @@
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+
+import { gitClientFactory } from "@ging/core/backend/gitClient";
+import { GitAbortedError } from "@ging/core/backend/utils/gitError";
+import { createFetchService } from "@ging/core/extension/fetchService";
+import { createRunRepoMutation } from "@ging/core/extension/repoMutation";
+
+import { fakePorts, git, hangingGitServer, makeRepo, rmrf } from "@ging/core/tests/helpers";
+
+// The git a fetch starts is stopped when the signal its host hands the fetch
+// service and the mutation hook aborts — an instance disposed of, the app
+// quitting, the extension deactivated (#450). Driven against a real git and a
+// server that never answers, so only a kill ends the fetch.
+
+/** Long enough for a killed git to let its connection go, however loaded. */
+const SETTLE_MS = 15_000;
+
+function setUp(signal: AbortSignal, autoFetch = false) {
+  const repo = makeRepo();
+  onTestFinished(() => rmrf(repo));
+  const { ports, calls } = fakePorts();
+  const logged: string[] = [];
+  const spawned: string[][] = [];
+  const mutations: string[] = [];
+  const run = createRunRepoMutation({
+    watcher: () => undefined,
+    afterMutation: () => mutations.push("refresh"),
+    signal
+  });
+  const service = createFetchService({
+    config: {
+      fetchAndPrune: () => false,
+      fetchAndPruneTags: () => false,
+      autoFetchEnabled: () => autoFetch,
+      autoFetchIntervalMinutes: () => 1
+    },
+    prompts: ports.prompts,
+    l10n: ports.l10n,
+    logger: { log: (line) => logged.push(line) },
+    gitClientFor: (target) => gitClientFactory(target, "git").getInstance(),
+    currentRepo: () => repo,
+    repoSource: { getRepos: () => ({ [repo]: { columnWidths: null } }) },
+    runRepoMutation: (target, work) => {
+      mutations.push("run");
+      return run(target, work);
+    },
+    networkGit: {
+      gitPath: () => "git",
+      onCommand: (_command, args) => spawned.push(args),
+      signal
+    }
+  });
+  onTestFinished(() => service.dispose());
+  /** What was said to the user, rather than logged. */
+  const said = () => calls.filter(([name]) => name === "showError" || name === "showInformation");
+  return { repo, service, logged, spawned, mutations, said };
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("a fetch whose signal aborts", () => {
+  it("stops the git it started, connection and all, and says nothing", async () => {
+    const server = await hangingGitServer();
+    try {
+      const controller = new AbortController();
+      const h = setUp(controller.signal);
+      git(["remote", "add", "origin", server.url], h.repo);
+
+      const fetching = h.service.fetchCommand();
+      await expect.poll(server.openConnections, { timeout: SETTLE_MS }).toBeGreaterThan(0);
+      controller.abort();
+
+      // The command settles, and git with its remote helper lets the
+      // connection go: nothing else would, the server never answering.
+      await fetching;
+      await expect.poll(server.openConnections, { timeout: SETTLE_MS }).toBe(0);
+      expect(h.said()).toEqual([]);
+      expect(h.logged).toEqual(["error.unableToFetch: git fetch: aborted"]);
+      // Nothing left to redraw.
+      expect(h.mutations).toEqual(["run"]);
+    } finally {
+      await server.close();
+    }
+  }, 40_000);
+
+  it("stops the fetch of one remote the same way", async () => {
+    const server = await hangingGitServer();
+    try {
+      const controller = new AbortController();
+      const h = setUp(controller.signal);
+      git(["remote", "add", "origin", server.url], h.repo);
+
+      const fetching = h.service.fetchRemoteCommand();
+      await expect.poll(server.openConnections, { timeout: SETTLE_MS }).toBeGreaterThan(0);
+      controller.abort();
+
+      await fetching;
+      await expect.poll(server.openConnections, { timeout: SETTLE_MS }).toBe(0);
+      expect(h.said()).toEqual([]);
+    } finally {
+      await server.close();
+    }
+  }, 40_000);
+});
+
+describe("a fetch asked for once the signal has aborted", () => {
+  it("spawns no git, and says nothing", async () => {
+    const server = await hangingGitServer();
+    try {
+      const controller = new AbortController();
+      const h = setUp(controller.signal);
+      git(["remote", "add", "origin", server.url], h.repo);
+      controller.abort();
+
+      await h.service.fetchCommand();
+      await h.service.fetchOneCommand(h.repo, "origin");
+
+      expect(h.spawned).toEqual([]);
+      expect(server.openConnections()).toBe(0);
+      expect(h.said()).toEqual([]);
+      expect(h.logged).toHaveLength(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("is refused by the mutation hook without running its work", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const work = vi.fn(async () => {});
+    const run = createRunRepoMutation({
+      watcher: () => undefined,
+      afterMutation: () => {},
+      signal: controller.signal
+    });
+
+    await expect(run("/repo", work)).rejects.toBeInstanceOf(GitAbortedError);
+    expect(work).not.toHaveBeenCalled();
+  });
+});
+
+describe("the auto-fetch timer", () => {
+  it("fires no more once the signal aborts", () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const h = setUp(controller.signal, true);
+    h.service.restartAutoFetch();
+    controller.abort();
+
+    vi.advanceTimersByTime(5 * 60 * 1000);
+
+    expect(h.mutations).toEqual([]);
+  });
+
+  it("is not started again once the signal has aborted", () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const h = setUp(controller.signal, true);
+    controller.abort();
+    h.service.restartAutoFetch();
+
+    vi.advanceTimersByTime(5 * 60 * 1000);
+
+    expect(h.mutations).toEqual([]);
+  });
+});

@@ -1,3 +1,19 @@
+/** A git run stopped because the signal it was handed aborted: the instance
+ *  that started it disposed of, or the app quitting (#450). Nobody is left to
+ *  tell, so it is logged, never shown (`isGitAborted`). */
+export class GitAbortedError extends Error {
+  /** `what` names the run: `git fetch`, say. */
+  constructor(what: string) {
+    super(`${what}: aborted`);
+    this.name = "GitAbortedError";
+  }
+}
+
+/** Whether `error` is a git run stopped by its abort signal. */
+export function isGitAborted(error: unknown): error is GitAbortedError {
+  return error instanceof GitAbortedError;
+}
+
 /** Everything git (via simple-git) said about a failure — the text the
  *  classifiers below read before `formatGitError` narrows it to one line. */
 function rawGitErrorText(error: unknown): string {
