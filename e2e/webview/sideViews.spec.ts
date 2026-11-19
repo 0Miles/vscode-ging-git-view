@@ -242,7 +242,9 @@ test("dragging the column's edge resizes it between 160 and 600 pixels, the grap
     { left: width, right: 1200 }
   ]);
   // Left where the drag ended, for the host to keep: once, not at each move.
-  expect(await posted(page, "sideViewResize")).toEqual([{ command: "sideViewResize", width }]);
+  expect(await posted(page, "sideViewResize")).toEqual([
+    { command: "sideViewResize", width, seq: 1 }
+  ]);
 
   // Held to its bounds, however far it is dragged.
   await drag(20);
