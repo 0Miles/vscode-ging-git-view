@@ -165,10 +165,11 @@ test("a remote that asks for credentials asks on the Welcome page, and a clone i
   await expect(panel.locator(".cloneTitle")).toHaveText(`Cloning ${remote.url}`);
   const input = window.locator("#hostPromptInput");
   await expect(window.locator("#hostPromptTitle")).toHaveText(`GING: http://${host}`);
-  await expect(input).toHaveAttribute("placeholder", "Username");
+  // git's whole prompt, `Username for '<url>': ` (#445).
+  await expect(input).toHaveAttribute("placeholder", /^Username for '/);
   await window.keyboard.type("alice");
   await window.keyboard.press("Enter");
-  await expect(input).toHaveAttribute("placeholder", "Password");
+  await expect(input).toHaveAttribute("placeholder", /^Password for '/);
   await expect(input).toHaveAttribute("type", "password");
   await window.keyboard.type("s3cret");
   await window.keyboard.press("Enter");
